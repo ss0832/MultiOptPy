@@ -172,7 +172,7 @@ class Interface:
         self.DS_AFIR = False
         self.pyscf = False
         self.electronic_charge = 0
-        self.spin_multiplicity = 0#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
+        self.spin_multiplicity = 1#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
         self.saddle_order = 0
         return
         
@@ -2831,7 +2831,7 @@ class FileIO:
         print("\ngeometry collection processing...\n")
         file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")  
         step_num = len(file_list)
-        for m, file in enumerate(file_list):
+        for m, file in enumerate(file_list[1:], 1):
             #print(file,m)
             with open(file,"r") as f:
                 sample = f.readlines()
@@ -2839,17 +2839,18 @@ class FileIO:
                 atom_num = len(sample)-1
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")
-            del sample[0]
-            for i in sample:
+            
+            
+            for i in sample[1:]:
                 with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w2:
                     w2.write(i)
                     
             if m == step_num - 1:
-                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_optimized.xyz","w") as w2:
-                    w2.write(str(atom_num)+"\n")
-                    w2.write("Optimized Structure\n")
-                    for i in sample:
-                        w2.write(i)
+                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_optimized.xyz","w") as w3:
+                    w3.write(str(atom_num)+"\n")
+                    w3.write("Optimized Structure\n")
+                    for i in sample[1:]:
+                        w3.write(i)
         print("\ngeometry collection is completed...\n")
         return
         
@@ -3869,7 +3870,7 @@ class BiasPotentialAddtion:
 
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
-        force_data = Interface().force_data_parser(args)
+        force_data = Interface().force_data_parser(self.args)
         finish_frag = False
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
@@ -3889,7 +3890,7 @@ class BiasPotentialAddtion:
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(args))
+            f.write(str(vars(self.args)))
         pre_B_e = 0.0
         pre_e = 0.0
         pre_B_g = []
@@ -3966,7 +3967,7 @@ class BiasPotentialAddtion:
 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, args.saddle_order, self.FC_COUNT, self.temperature)
+            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, self.args.saddle_order, self.FC_COUNT, self.temperature)
             new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
             self.Opt_params = Opt_params
             self.Model_hess = Model_hess
@@ -4291,9 +4292,9 @@ class BiasPotentialAddtion:
     
 
     def run(self):
-        if args.DS_AFIR:
+        if self.args.DS_AFIR:
             self.main_for_DSAFIR()
-        elif args.pyscf:
+        elif self.args.pyscf:
             self.main_using_pyscf()
         else:
             self.main()
