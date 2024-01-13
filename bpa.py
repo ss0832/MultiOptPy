@@ -3099,7 +3099,131 @@ class Calculationtools:
         
         return dist
  
-class BiasPotentialAddtion:
+
+
+class Opt_calc_tmps:
+    def __init__(self, adam_m, adam_v, adam_count, eve_d_tilde=0.0):
+        self.adam_m = adam_m
+        self.adam_v = adam_v
+        self.adam_count = 1 + adam_count
+        self.eve_d_tilde = eve_d_tilde
+            
+class Model_hess_tmp:
+    def __init__(self, model_hess, momentum_disp=0, momentum_grad=0):
+        self.model_hess = model_hess
+        self.momentum_disp = momentum_disp
+        self.momentum_grad = momentum_grad
+
+class CalculationStructInfo:
+    def __init__(self):
+        return
+    
+    def calculate_cos(self, bg, g):
+        if np.linalg.norm(bg) == 0.0 or np.linalg.norm(g) == 0.0:
+            cos = 2.0
+        else:
+            cos = np.sum(bg * g) / (np.linalg.norm(g) * np.linalg.norm(bg))
+        return cos
+     
+    
+    def calculate_distance(self, atom1, atom2):
+        atom1, atom2 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64")
+        distance = np.linalg.norm(atom2 - atom1)
+        return distance
+
+    
+    def calculate_bond_angle(self, atom1, atom2, atom3):
+        atom1, atom2, atom3 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64"), np.array(atom3, dtype="float64")
+        vector1 = atom1 - atom2
+        vector2 = atom3 - atom2
+
+        cos_angle = np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2))
+        angle = np.arccos(cos_angle)
+        angle_deg = np.degrees(angle)
+
+        return angle_deg
+        
+    def calculate_dihedral_angle(self, atom1, atom2, atom3, atom4):
+        atom1, atom2, atom3, atom4 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64"), np.array(atom3, dtype="float64"), np.array(atom4, dtype="float64")
+        
+        a1 = atom2 - atom1
+        a2 = atom3 - atom2
+        a3 = atom4 - atom3
+
+        v1 = np.cross(a1, a2)
+        v1 = v1 / np.linalg.norm(v1, ord=2)
+        v2 = np.cross(a2, a3)
+        v2 = v2 / np.linalg.norm(v2, ord=2)
+        porm = np.sign((v1 * a3).sum(-1))
+        angle = np.arccos((v1*v2).sum(-1) / ((v1**2).sum(-1) * (v2**2).sum(-1))**0.5)
+        if not porm == 0:
+            angle = angle * porm
+            
+        dihedral_angle_deg = np.degrees(angle)
+
+        return dihedral_angle_deg
+        
+
+    def read_xyz_file(self, file_name):
+        with open(file_name,"r") as f:
+            words = f.readlines()
+        mole_struct_list = []
+            
+        for word in words[1:]:
+            mole_struct_list.append(word.split())
+        return mole_struct_list
+
+    def Data_extract(self, file, atom_numbers):
+        data_list = []
+        data_name_list = [] 
+         
+        
+        
+        mole_struct_list = self.read_xyz_file(file)
+        DBD_list = []
+        DBD_name_list = []
+        print(file)
+        if len(atom_numbers) > 1:
+            for a1, a2 in list(itertools.combinations(atom_numbers,2)):
+                try:
+                    distance = self.calculate_distance(mole_struct_list[int(a1) - 1][1:4], mole_struct_list[int(a2) - 1][1:4])
+                    DBD_name_list.append("Distance ("+str(a1)+"-"+str(a2)+")  [ang.]")
+                    DBD_list.append(distance)
+                        
+                except Exception as e:
+                    print(e)
+                    DBD_name_list.append("Distance ("+str(a1)+"-"+str(a2)+")  [ang.]")
+                    DBD_list.append("nan")
+                
+        if len(atom_numbers) > 2:
+            for a1, a2, a3 in list(itertools.permutations(atom_numbers,3)):
+                try:
+                    bond_angle = self.calculate_bond_angle(mole_struct_list[int(a1)-1][1:4], mole_struct_list[int(a2)-1][1:4], mole_struct_list[int(a3)-1][1:4])
+                    DBD_name_list.append("Bond_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+") [deg.]")
+                    DBD_list.append(bond_angle)
+                except Exception as e:
+                    print(e)
+                    DBD_name_list.append("Bond_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+") [deg.]")
+                    DBD_list.append("nan")            
+        
+        if len(atom_numbers) > 3:
+            for a1, a2, a3, a4 in list(itertools.permutations(atom_numbers,4)):
+                try:
+                    dihedral_angle = self.calculate_dihedral_angle(mole_struct_list[int(a1)-1][1:4], mole_struct_list[int(a2)-1][1:4],mole_struct_list[int(a3)-1][1:4], mole_struct_list[int(a4)-1][1:4])
+                    DBD_name_list.append("Dihedral_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+"-"+str(a4)+") [deg.]")
+                    DBD_list.append(dihedral_angle)
+                except Exception as e:
+                    print(e)
+                    DBD_name_list.append("Dihedral_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+"-"+str(a4)+") [deg.]")
+                    DBD_list.append("nan")        
+
+        data_list = DBD_list 
+        
+        data_name_list = DBD_name_list    
+        return data_list, data_name_list
+ 
+ 
+class BiasPotPy:
     def __init__(self, args):
     
         UVL = UnitValueLib()
@@ -3428,8 +3552,8 @@ class BiasPotentialAddtion:
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 
                 calc = Calculator(method, element_number_list, positions)
-                calc.set("max-iter", 500)
-                calc.set("verbosity", 1)
+                calc.set("max-iter", 2500)
+                calc.set("verbosity", 0)
                 res = calc.singlepoint()
                 e = float(res.get("energy"))  #hartree
                 g = res.get("gradient") #hartree/Bohr
@@ -3866,7 +3990,7 @@ class BiasPotentialAddtion:
     
         return
 
-    def main(self):
+    def main_using_tblite(self):
 
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
@@ -3904,13 +4028,12 @@ class BiasPotentialAddtion:
         finish_frag = False
         exit_flag = False
         #-----------------------------------
-        if force_data["xtb"] == "None":
-            pass
-        else:
-            element_number_list = []
-            for elem in element_list:
-                element_number_list.append(element_number(elem))
-            element_number_list = np.array(element_number_list, dtype="int")
+
+        
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
         #----------------------------------
         
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -3929,10 +4052,8 @@ class BiasPotentialAddtion:
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
-            if force_data["xtb"] == "None":
-                e, g, geom_num_list, finish_frag = self.psi4_calculation(file_directory, element_list,  electric_charge_and_multiplicity, iter)
-            else:
-                e, g, geom_num_list, finish_frag = self.tblite_calculation(file_directory, element_number_list,  electric_charge_and_multiplicity, iter, force_data["xtb"])
+
+            e, g, geom_num_list, finish_frag = self.tblite_calculation(file_directory, element_number_list,  electric_charge_and_multiplicity, iter, force_data["xtb"])
             
             #---------------------------------------
             if iter == 0:
@@ -3951,9 +4072,9 @@ class BiasPotentialAddtion:
             #-------------------gradient profile
             if iter == 0:
                 with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient [hartree/Bohr] \n")
+                    f.write("gradient (RMS) [hartree/Bohr] \n")
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.linalg.norm(g))+"\n")
+                f.write(str(np.sqrt(g**2).mean())+"\n")#abs(np.sqrt(B_g**2).mean()
             #-------------------
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
@@ -4036,8 +4157,221 @@ class BiasPotentialAddtion:
                     dist = Calculationtools().calc_fragm_distance(new_geometry, fragm_1_num, fragm_2_num)
                     fragm_dist_list.append(dist)
                 
-                mean_dist = np.sum(fragm_dist_list)/len(fragm_dist_list)
-                if mean_dist > self.DC_check_dist:
+                
+                if min(fragm_dist_list) > self.DC_check_dist:
+                    print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
+                    
+                    print("This molecules are dissociated.")
+                    break
+            
+            #----------------------------
+            pre_B_e = B_e#Hartree
+            pre_e = e
+            pre_B_g = B_g#Hartree/Bohr
+            pre_g = g
+            pre_geom = geom_num_list#Bohr
+            pre_move_vector = move_vector
+            
+            geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            #----------------------------
+
+            #----------------------------
+        #plot graph
+        G = Graph(self.BPA_FOLDER_DIRECTORY)
+        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
+        if len(force_data["geom_info"]) > 1:
+            for num, i in enumerate(force_data["geom_info"]):
+                self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
+        
+        #
+        FIO.xyz_file_make()
+        
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
+        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
+        
+        
+        
+        
+        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
+            f.write("ITER.,energy[kcal/mol]\n")
+            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
+                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
+        
+       
+        #----------------------
+        print("Complete...")
+        return
+
+
+
+    def main_using_psi4(self):
+
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        trust_radii = 0.01
+        force_data = Interface().force_data_parser(self.args)
+        finish_frag = False
+        
+        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        #------------------------------------
+        
+        adam_m = []
+        adam_v = []    
+        for i in range(len(element_list)):
+            adam_m.append(np.array([0,0,0], dtype="float64"))
+            adam_v.append(np.array([0,0,0], dtype="float64"))        
+        adam_m = np.array(adam_m, dtype="float64")
+        adam_v = np.array(adam_v, dtype="float64")    
+        self.Opt_params = Opt_calc_tmps(adam_m, adam_v, 0)
+        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+         
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        #-----------------------------------
+        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        pre_B_e = 0.0
+        pre_e = 0.0
+        pre_B_g = []
+        pre_g = []
+        for i in range(len(element_list)):
+            pre_B_g.append(np.array([0,0,0], dtype="float64"))
+       
+        pre_move_vector = pre_B_g
+        pre_g = pre_B_g
+        #-------------------------------------
+        finish_frag = False
+        exit_flag = False
+        #-----------------------------------
+
+        #----------------------------------
+        
+        cos_list = [[] for i in range(len(force_data["geom_info"]))]
+        grad_list = []
+
+        #----------------------------------
+        for iter in range(self.NSTEP):
+            exit_file_detect = glob.glob(self.BPA_FOLDER_DIRECTORY+"*.txt")
+            for file in exit_file_detect:
+                if "end.txt" in file:
+                    exit_flag = True
+                    break
+            if exit_flag:
+                if psi4:
+                    psi4.core.clean()
+                break
+            print("\n# ITR. "+str(iter)+"\n")
+            #---------------------------------------
+            
+            e, g, geom_num_list, finish_frag = self.psi4_calculation(file_directory, element_list,  electric_charge_and_multiplicity, iter)
+
+            
+            #---------------------------------------
+            if iter == 0:
+                initial_geom_num_list = geom_num_list
+                pre_geom = initial_geom_num_list
+                
+            else:
+                pass
+
+            #-------------------energy profile 
+            if iter == 0:
+                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
+                    f.write("energy [hartree] \n")
+            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
+                f.write(str(e)+"\n")
+            #-------------------gradient profile
+            if iter == 0:
+                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
+                    f.write("gradient (RMS) [hartree/Bohr] \n")
+            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
+                f.write(str(np.sqrt(g**2).mean())+"\n")
+            #-------------------
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+
+            #----------------------------
+
+            #----------------------------
+            
+            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
+            self.Opt_params = Opt_params
+            self.Model_hess = Model_hess
+
+            self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
+            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
+            self.NUM_LIST.append(int(iter))
+            
+            #--------------------geometry info
+            if len(force_data["geom_info"]) > 1:
+                CSI = CalculationStructInfo()
+               
+                data_list, data_name_list = CSI.Data_extract(glob.glob(file_directory+"/*.xyz")[0], force_data["geom_info"])
+                
+                for num, i in enumerate(force_data["geom_info"]):
+                    cos = CSI.calculate_cos(B_g[i-1] - g[i-1], g[i-1])
+                    cos_list[num].append(cos)
+                if iter == 0:
+                    with open(self.BPA_FOLDER_DIRECTORY+"geometry_info.csv","a") as f:
+                        f.write(",".join(data_name_list)+"\n")
+                
+                with open(self.BPA_FOLDER_DIRECTORY+"geometry_info.csv","a") as f:    
+                    f.write(",".join(list(map(str,data_list)))+"\n")
+                    
+            
+            #----------------------------
+            displacement_vector = geom_num_list - pre_geom
+            print("caluculation results (unit a.u.):")
+            print("OPT method            : {} ".format(force_data["opt_method"]))
+            print("                         Value                         Threshold ")
+            print("ENERGY                : {:>15.12f} ".format(e))
+            print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
+            print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
+            print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
+            print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
+            print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
+            print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
+            print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
+            
+            
+            grad_list.append(np.linalg.norm(g))
+            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt(B_g**2).mean()) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt(displacement_vector**2).mean()) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                break
+            #-------------------------
+            
+            if len(force_data["fix_atoms"]) > 0:
+                for j in force_data["fix_atoms"]:
+                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
+            
+            #------------------------            
+            #dissociation check
+            atom_label_list = [i for i in range(len(new_geometry))]
+            fragm_atom_num_list = []
+            while len(atom_label_list) > 0:
+                tmp_fragm_list = Calculationtools().check_atom_connectivity(new_geometry, element_list, atom_label_list[0])
+                
+                for j in tmp_fragm_list:
+                    atom_label_list.remove(j)
+                fragm_atom_num_list.append(tmp_fragm_list)
+            
+            print("\nfragm_list:", fragm_atom_num_list)
+            
+            if len(fragm_atom_num_list) > 1:
+                fragm_dist_list = []
+                for fragm_1_num, fragm_2_num in list(itertools.combinations(fragm_atom_num_list, 2)):
+                    dist = Calculationtools().calc_fragm_distance(new_geometry, fragm_1_num, fragm_2_num)
+                    fragm_dist_list.append(dist)
+                
+                
+                if min(fragm_dist_list) > self.DC_check_dist:
                     print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
@@ -4157,9 +4491,9 @@ class BiasPotentialAddtion:
             #-------------------gradient profile
             if iter == 0:
                 with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient [hartree/Bohr] \n")
+                    f.write("gradient (RMS) [hartree/Bohr] \n")
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.linalg.norm(g))+"\n")
+                f.write(str(np.sqrt(g**2).mean())+"\n")
             #-------------------
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
@@ -4241,8 +4575,8 @@ class BiasPotentialAddtion:
                     dist = Calculationtools().calc_fragm_distance(new_geometry, fragm_1_num, fragm_2_num)
                     fragm_dist_list.append(dist)
                 
-                mean_dist = np.sum(fragm_dist_list)/len(fragm_dist_list)
-                if mean_dist > self.DC_check_dist:
+               
+                if min(fragm_dist_list) > self.DC_check_dist:
                     print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
@@ -4296,134 +4630,14 @@ class BiasPotentialAddtion:
             self.main_for_DSAFIR()
         elif self.args.pyscf:
             self.main_using_pyscf()
+        elif self.args.usextb != "None":
+            self.main_using_tblite()
         else:
-            self.main()
+            self.main_using_psi4()
 
-
-
-class Opt_calc_tmps:
-    def __init__(self, adam_m, adam_v, adam_count, eve_d_tilde=0.0):
-        self.adam_m = adam_m
-        self.adam_v = adam_v
-        self.adam_count = 1 + adam_count
-        self.eve_d_tilde = eve_d_tilde
-            
-class Model_hess_tmp:
-    def __init__(self, model_hess, momentum_disp=0, momentum_grad=0):
-        self.model_hess = model_hess
-        self.momentum_disp = momentum_disp
-        self.momentum_grad = momentum_grad
-
-class CalculationStructInfo:
-    def __init__(self):
-        return
-    
-    def calculate_cos(self, bg, g):
-        if np.linalg.norm(bg) == 0.0 or np.linalg.norm(g) == 0.0:
-            cos = 2.0
-        else:
-            cos = np.sum(bg * g) / (np.linalg.norm(g) * np.linalg.norm(bg))
-        return cos
-     
-    
-    def calculate_distance(self, atom1, atom2):
-        atom1, atom2 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64")
-        distance = np.linalg.norm(atom2 - atom1)
-        return distance
-
-    
-    def calculate_bond_angle(self, atom1, atom2, atom3):
-        atom1, atom2, atom3 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64"), np.array(atom3, dtype="float64")
-        vector1 = atom1 - atom2
-        vector2 = atom3 - atom2
-
-        cos_angle = np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2))
-        angle = np.arccos(cos_angle)
-        angle_deg = np.degrees(angle)
-
-        return angle_deg
-        
-    def calculate_dihedral_angle(self, atom1, atom2, atom3, atom4):
-        atom1, atom2, atom3, atom4 = np.array(atom1, dtype="float64"), np.array(atom2, dtype="float64"), np.array(atom3, dtype="float64"), np.array(atom4, dtype="float64")
-        
-        a1 = atom2 - atom1
-        a2 = atom3 - atom2
-        a3 = atom4 - atom3
-
-        v1 = np.cross(a1, a2)
-        v1 = v1 / np.linalg.norm(v1, ord=2)
-        v2 = np.cross(a2, a3)
-        v2 = v2 / np.linalg.norm(v2, ord=2)
-        porm = np.sign((v1 * a3).sum(-1))
-        angle = np.arccos((v1*v2).sum(-1) / ((v1**2).sum(-1) * (v2**2).sum(-1))**0.5)
-        if not porm == 0:
-            angle = angle * porm
-            
-        dihedral_angle_deg = np.degrees(angle)
-
-        return dihedral_angle_deg
-        
-
-    def read_xyz_file(self, file_name):
-        with open(file_name,"r") as f:
-            words = f.readlines()
-        mole_struct_list = []
-            
-        for word in words[1:]:
-            mole_struct_list.append(word.split())
-        return mole_struct_list
-
-    def Data_extract(self, file, atom_numbers):
-        data_list = []
-        data_name_list = [] 
-         
-        
-        
-        mole_struct_list = self.read_xyz_file(file)
-        DBD_list = []
-        DBD_name_list = []
-        print(file)
-        if len(atom_numbers) > 1:
-            for a1, a2 in list(itertools.combinations(atom_numbers,2)):
-                try:
-                    distance = self.calculate_distance(mole_struct_list[int(a1) - 1][1:4], mole_struct_list[int(a2) - 1][1:4])
-                    DBD_name_list.append("Distance ("+str(a1)+"-"+str(a2)+")  [ang.]")
-                    DBD_list.append(distance)
-                        
-                except Exception as e:
-                    print(e)
-                    DBD_name_list.append("Distance ("+str(a1)+"-"+str(a2)+")  [ang.]")
-                    DBD_list.append("nan")
-                
-        if len(atom_numbers) > 2:
-            for a1, a2, a3 in list(itertools.permutations(atom_numbers,3)):
-                try:
-                    bond_angle = self.calculate_bond_angle(mole_struct_list[int(a1)-1][1:4], mole_struct_list[int(a2)-1][1:4], mole_struct_list[int(a3)-1][1:4])
-                    DBD_name_list.append("Bond_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+") [deg.]")
-                    DBD_list.append(bond_angle)
-                except Exception as e:
-                    print(e)
-                    DBD_name_list.append("Bond_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+") [deg.]")
-                    DBD_list.append("nan")            
-        
-        if len(atom_numbers) > 3:
-            for a1, a2, a3, a4 in list(itertools.permutations(atom_numbers,4)):
-                try:
-                    dihedral_angle = self.calculate_dihedral_angle(mole_struct_list[int(a1)-1][1:4], mole_struct_list[int(a2)-1][1:4],mole_struct_list[int(a3)-1][1:4], mole_struct_list[int(a4)-1][1:4])
-                    DBD_name_list.append("Dihedral_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+"-"+str(a4)+") [deg.]")
-                    DBD_list.append(dihedral_angle)
-                except Exception as e:
-                    print(e)
-                    DBD_name_list.append("Dihedral_angle ("+str(a1)+"-"+str(a2)+"-"+str(a3)+"-"+str(a4)+") [deg.]")
-                    DBD_list.append("nan")        
-
-        data_list = DBD_list 
-        
-        data_name_list = DBD_name_list    
-        return data_list, data_name_list
 
 
 if __name__ == "__main__":
     args = parser()
-    bpa = BiasPotentialAddtion(args)
+    bpa = BiasPotPy(args)
     bpa.run()
