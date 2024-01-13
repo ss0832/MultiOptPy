@@ -4159,7 +4159,7 @@ class BiasPotPy:
                 
                 
                 if min(fragm_dist_list) > self.DC_check_dist:
-                    print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
+                    print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
                     break
@@ -4372,7 +4372,7 @@ class BiasPotPy:
                 
                 
                 if min(fragm_dist_list) > self.DC_check_dist:
-                    print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
+                    print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
                     break
@@ -4577,7 +4577,7 @@ class BiasPotPy:
                 
                
                 if min(fragm_dist_list) > self.DC_check_dist:
-                    print("mean fragm distance (ang.)", mean_dist, ">", self.DC_check_dist)
+                    print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
                     break
