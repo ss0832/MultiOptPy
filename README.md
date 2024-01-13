@@ -37,7 +37,7 @@ python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50(for NEB method)
 ```
 
 ## Options
-
+(optmain.py)
 **`-opt`**
 
 Specify the algorithm to be used for structural optimization.
