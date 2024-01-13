@@ -4,5 +4,5 @@ sys.path.append('./biaspotpy')
 import biaspotpy
 
 args = biaspotpy.interface.optimizeparser()
-bpa = biaspotpy.interface.Optimize(args)
+bpa = biaspotpy.optimization.Optimize(args)
 bpa.run()
