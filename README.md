@@ -27,11 +27,15 @@ References are given in the source code.
 
 ## Usage
 ```
-python bpa.py SN2.xyz -ma 150 1 6
+python optmain.py SN2.xyz -ma 150 1 6
 ```
 ```
-python bpa.py aldol_rxn.xyz -ma 95 1 5 50 3 11
+python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
 ```
+```
+python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50(for NEB method)
+```
+
 ## Options
 
 **`-opt`**
