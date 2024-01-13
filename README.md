@@ -1,4 +1,4 @@
-# BiasPotentialAddition
+# BiasPotPy
 An optimizer for quantum chemical calculation including artificial force induced reaction method using Psi4
 
 This program reproduces AFIR method in python for learning purposes.
