@@ -3,17 +3,6 @@ import copy
 
 from param import UnitValueLib 
 
-"""
-
-RFO method
- The Journal of Physical Chemistry, Vol. 89, No. 1, 1985
-FSB
- J. Chem. Phys. 1999, 111, 10806
-
-"""
-
-
-
 class Opt_calc_tmps:
     def __init__(self, adam_m, adam_v, adam_count, eve_d_tilde=0.0):
         self.adam_m = adam_m

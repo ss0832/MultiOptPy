@@ -1,5 +1,16 @@
 
 
+def UFF_effective_charge_lib(element):
+    if element is int:
+        element = number_element(element)
+    UFF_EC = {'H':0.712,'He': 0.098,
+                        'Li' : 1.026 ,'Be': 1.565, 'B': 1.755,'C': 1.912, 'N': 2.544,'O': 2.300, 'F': 1.735,'Ne': 0.194, 
+                        'Na': 1.081, 'Mg': 1.787,'Al': 1.792,'Si': 2.323, 'P': 2.863, 'S': 2.703,'Cl': 2.348,'Ar': 0.300,
+                        'K': 1.165 ,'Ca': 2.141,'Sc': 2.592,'Ti': 2.659,'V': 2.679, 'Cr': 2.463,'Mn': 2.430, 'Fe': 2.430,'Co': 2.430 ,'Ni': 2.430 ,'Cu': 1.756 ,'Zn': 1.308,'Ga': 1.821, 'Ge': 2.789,'As': 2.864,'Se': 2.764,'Br': 2.519,'Kr': 0.452,
+                        'Rb': 1.592,'Sr': 2.449,'Y': 3.257,'Zr': 3.667,'Nb': 3.618,'Mo': 3.400, 'Tc': 3.400,'Ru': 3.400,'Rh': 3.508, 'Pd': 3.210,'Ag': 1.956,'Cd': 1.650,'In': 2.070,'Sn': 2.961,'Sb': 2.704,'Te': 2.882, 'I': 2.650, 'Xe': 0.556, 
+                        'Cs': 1.573,'Ba': 2.727, 'La': 3.300, 'Ce': 3.300,'Pr': 3.300,'Nd':3.300,'Pm':3.300,'Sm':3.300,'Eu':3.300,'Gd':3.300,'Tb':3.300,'Dy':3.300,'Ho': 3.416 ,'Er': 3.300,'Tm': 3.300,'Yb': 2.618,'Lu': 3.271,'Hf': 3.921,
+                        'Ta': 4.075,'W': 3.70,'Re': 3.70,'Os': 3.70,'Ir': 3.731,'Pt': 3.382,'Au': 2.625,'Hg': 1.750,'Tl': 2.068,'Pb': 2.846,'Bi': 2.470,'Po': 2.330,'At': 2.240,'Rn': 0.583}#H...Rn J. Am. Chem. Soc., 1992, 114, 10024 #charge
+    return UFF_EC[element]
 
 def UFF_VDW_distance_lib(element):
     if element is int:
@@ -25,7 +36,7 @@ def UFF_VDW_well_depth_lib(element):
                           'Cs':0.045 ,'Ba':0.364 , 'La':0.017 , 'Ce':0.013 ,'Pr':0.010 ,'Nd':0.010 ,'Pm':0.009 ,'Sm':0.008 ,'Eu':0.008 ,'Gd':0.009 ,'Tb':0.007 ,'Dy':0.007 ,'Ho':0.007 ,'Er':0.007 ,'Tm':0.006 ,'Yb':0.228 ,'Lu':0.041 ,'Hf':0.072 ,
                           'Ta':0.081 ,'W':0.067 ,'Re':0.066 ,'Os':0.037 ,'Ir':0.073 ,'Pt':0.080 ,'Au':0.039 ,'Hg':0.385 ,'Tl':0.680 ,'Pb':0.663 ,'Bi':0.518 ,'Po':0.325 ,'At':0.284 ,'Rn':0.248, 'X':0.010}#H...Rn J. Am. Chem. Soc., 1992, 114, 10024 # kcal/mol
                 
-    return UFF_VDW_well_depth[element] / UnitValueLib().hartree2kcalmol
+    return UFF_VDW_well_depth[element] / UnitValueLib().hartree2kcalmol #hartree
                 
 def covalent_radii_lib(element):
     if element is int:

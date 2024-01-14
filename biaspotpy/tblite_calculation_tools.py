@@ -52,9 +52,9 @@ class SinglePoint:
                     
                 
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
-                
+                max_scf_iteration = len(element_number_list) * 100 + 2500 
                 calc = Calculator(method, element_number_list, positions)
-                calc.set("max-iter", 2500)
+                calc.set("max-iter", max_scf_iteration)
                 calc.set("verbosity", 0)
                 res = calc.singlepoint()
                 e = float(res.get("energy"))  #hartree

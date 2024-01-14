@@ -27,7 +27,7 @@ color_list = ["g"] #use for matplotlib
 from interface import force_data_parser
 
 from param import element_number, atomic_mass
-from bias_pot import BiasPotentialCalculation
+from potential import BiasPotentialCalculation
 from optimizer import Model_hess_tmp
 
 
