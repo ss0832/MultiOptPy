@@ -195,12 +195,9 @@ class Optimize:
 
         #----------------------------------
         for iter in range(self.NSTEP):
-            exit_file_detect = glob.glob(self.BPA_FOLDER_DIRECTORY+"*.txt")
-            for file in exit_file_detect:
-                if "end.txt" in file:
-                    exit_flag = True
-                    break
-            if exit_flag:
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+
+            if exit_file_detect:
                 if psi4:
                     psi4.core.clean()
                 break
@@ -413,12 +410,9 @@ class Optimize:
 
         #----------------------------------
         for iter in range(self.NSTEP):
-            exit_file_detect = glob.glob(self.BPA_FOLDER_DIRECTORY+"*.txt")
-            for file in exit_file_detect:
-                if "end.txt" in file:
-                    exit_flag = True
-                    break
-            if exit_flag:
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+
+            if exit_file_detect:
                 if psi4:
                     psi4.core.clean()
                 break
@@ -631,12 +625,9 @@ class Optimize:
 
         #----------------------------------
         for iter in range(self.NSTEP):
-            exit_file_detect = glob.glob(self.BPA_FOLDER_DIRECTORY+"*.txt")
-            for file in exit_file_detect:
-                if "end.txt" in file:
-                    exit_flag = True
-                    break
-            if exit_flag:
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+
+            if exit_file_detect:
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
