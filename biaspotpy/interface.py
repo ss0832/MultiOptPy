@@ -21,7 +21,46 @@ try:
     
 except:
     pass
-    
+
+"""
+    BiasPotPy
+    Copyright (C) 2023-2024 ss0832
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+"""
+#please input psi4 inputfile.
+XMOL format (Enter the formal charge and spin multiplicity on the comment line, e.g., "0 1")
+....
+"""
+
+"""
+references:
+
+Psi4
+ D. G. A. Smith, L. A. Burns, A. C. Simmonett, R. M. Parrish, M. C. Schieber, R. Galvelis, P. Kraus, H. Kruse, R. Di Remigio, A. Alenaizan, A. M. James, S. Lehtola, J. P. Misiewicz, M. Scheurer, R. A. Shaw, J. B. Schriber, Y. Xie, Z. L. Glick, D. A. Sirianni, J. S. O'Brien, J. M. Waldrop, A. Kumar, E. G. Hohenstein, B. P. Pritchard, B. R. Brooks, H. F. Schaefer III, A. Yu. Sokolov, K. Patkowski, A. E. DePrince III, U. Bozkaya, R. A. King, F. A. Evangelista, J. M. Turney, T. D. Crawford, C. D. Sherrill, "Psi4 1.4: Open-Source Software for High-Throughput Quantum Chemistry", J. Chem. Phys. 152(18) 184108 (2020).
+ 
+PySCF
+Recent developments in the PySCF program package, Qiming Sun, Xing Zhang, Samragni Banerjee, Peng Bao, Marc Barbry, Nick S. Blunt, Nikolay A. Bogdanov, George H. Booth, Jia Chen, Zhi-Hao Cui, Janus J. Eriksen, Yang Gao, Sheng Guo, Jan Hermann, Matthew R. Hermes, Kevin Koh, Peter Koval, Susi Lehtola, Zhendong Li, Junzi Liu, Narbe Mardirossian, James D. McClain, Mario Motta, Bastien Mussard, Hung Q. Pham, Artem Pulkin, Wirawan Purwanto, Paul J. Robinson, Enrico Ronca, Elvira R. Sayfutyarova, Maximilian Scheurer, Henry F. Schurkus, James E. T. Smith, Chong Sun, Shi-Ning Sun, Shiv Upadhyay, Lucas K. Wagner, Xiao Wang, Alec White, James Daniel Whitfield, Mark J. Williamson, Sebastian Wouters, Jun Yang, Jason M. Yu, Tianyu Zhu, Timothy C. Berkelbach, Sandeep Sharma, Alexander Yu. Sokolov, and Garnet Kin-Lic Chan, J. Chem. Phys., 153, 024109 (2020). doi:10.1063/5.0006074
+
+GFN2-xTB(tblite)
+J. Chem. Theory Comput. 2019, 15, 3, 1652–1671 
+GFN-xTB(tblite)
+J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
+"""
+
 
 def optimizeparser():
     parser = argparse.ArgumentParser()
@@ -468,7 +507,7 @@ class BiasPotInterface:
         self.around_well_pot =['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
 
 
-class NEBInterface(BiasPotInterface):
+class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
     def __init__(self, folder_name=""):
         super().__init__()
         self.INPUT = folder_name
@@ -488,7 +527,7 @@ class NEBInterface(BiasPotInterface):
     
 
 
-class OptimizeInterface(BiasPotInterface):
+class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable code.
     def __init__(self, input_file=""):
         super().__init__()
         self.INPUT = input_file
