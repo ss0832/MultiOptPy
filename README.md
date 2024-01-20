@@ -36,7 +36,7 @@ python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
 python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 (for NEB method)
 ```
 ```
-python ieipmain.py 1_ieip_test -xtb GFN2-xTB (for iEIP method)
+python ieipmain.py ieip_test -xtb GFN2-xTB (for iEIP method)
 ```
 ## Options
 (optmain.py)
