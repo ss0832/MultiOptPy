@@ -10,7 +10,7 @@ from calc_tools import Calculationtools
 from optimizer import Model_hess_tmp
 from param import UnitValueLib
 
-class SinglePoint:
+class Calculation:
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
 
@@ -25,9 +25,10 @@ class SinglePoint:
         self.FC_COUNT = kwarg["FC_COUNT"]
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
+        self.electronic_charge = kwarg["electronic_charge"]
+        self.spin_multiplicity = kwarg["spin_multiplicity"]
     
-    
-    def pyscf_calculation(self, file_directory, element_list, iter):
+    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method=""):
         """execute QM calclation."""
         gradient_list = []
         energy_list = []
@@ -57,7 +58,7 @@ class SinglePoint:
                                   spin = self.spin_multiplicity,
                                   basis = self.SUB_BASIS_SET,
                                   max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
-                                  verbose=3)
+                                  verbose=4)
                 if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                     if int(self.spin_multiplicity) > 0:
                         mf = mol.UHF().x2c().density_fit()

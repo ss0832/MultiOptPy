@@ -17,12 +17,6 @@ from fileio import FileIO
 from param import UnitValueLib, element_number
 from interface import force_data_parser
 
-try:
-    import psi4
-    
-except:
-    pass
-
 
 
 class Optimize:
@@ -139,7 +133,7 @@ class Optimize:
         return
 
     def optimize_using_tblite(self):
-        from tblite_calculation_tools import SinglePoint
+        from tblite_calculation_tools import Calculation
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
@@ -176,7 +170,7 @@ class Optimize:
         finish_frag = False
         exit_flag = False
         #-----------------------------------
-        SP = SinglePoint(START_FILE = self.START_FILE,
+        SP = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY ,
                          FUNCTIONAL = self.FUNCTIONAL,
@@ -198,13 +192,11 @@ class Optimize:
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
-                if psi4:
-                    psi4.core.clean()
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.tblite_calculation(file_directory, element_number_list,  electric_charge_and_multiplicity, iter, force_data["xtb"])
+            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
             self.Model_hess = SP.Model_hess
             #---------------------------------------
             if iter == 0:
@@ -267,17 +259,7 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            print("caluculation results (unit a.u.):")
-            print("OPT method            : {} ".format(force_data["opt_method"]))
-            print("                         Value                         Threshold ")
-            print("ENERGY                : {:>15.12f} ".format(e))
-            print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
-            print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-            print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
-            print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
-            print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
-            print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
-            print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             
             grad_list.append(np.linalg.norm(g))
@@ -357,7 +339,7 @@ class Optimize:
         return
 
     def optimize_using_psi4(self):
-        from psi4_calculation_tools import SinglePoint
+        from psi4_calculation_tools import Calculation
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
@@ -394,7 +376,7 @@ class Optimize:
         finish_frag = False
         exit_flag = False
         #-----------------------------------
-        SP = SinglePoint(START_FILE = self.START_FILE,
+        SP = Calculation(START_FILE = self.START_FILE,
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
                          BASIS_SET = self.BASIS_SET,
                          N_THREAD = self.N_THREAD,
@@ -419,7 +401,7 @@ class Optimize:
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.psi4_calculation(file_directory, element_list,  electric_charge_and_multiplicity, iter)
+            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
             self.Model_hess = SP.Model_hess
             
             #---------------------------------------
@@ -483,17 +465,7 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            print("caluculation results (unit a.u.):")
-            print("OPT method            : {} ".format(force_data["opt_method"]))
-            print("                         Value                         Threshold ")
-            print("ENERGY                : {:>15.12f} ".format(e))
-            print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
-            print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-            print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
-            print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
-            print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
-            print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
-            print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             
             grad_list.append(np.linalg.norm(g))
@@ -573,7 +545,7 @@ class Optimize:
         return
     
     def optimize_using_pyscf(self):
-        from pyscf_calculation_tools import SinglePoint
+        from pyscf_calculation_tools import Calculation
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
@@ -609,7 +581,7 @@ class Optimize:
         finish_frag = False
         exit_flag = False
         #-----------------------------------
-        SP = SinglePoint(START_FILE = self.START_FILE,
+        SP = Calculation(START_FILE = self.START_FILE,
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
                          BASIS_SET = self.BASIS_SET,
                          N_THREAD = self.N_THREAD,
@@ -617,7 +589,9 @@ class Optimize:
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess)
+                         Model_hess = self.Model_hess,
+                         spin_multiplicity = self.spin_multiplicity,
+                         electronic_charge = self.electronic_charge)
         #----------------------------------
         
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -632,8 +606,8 @@ class Optimize:
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.pyscf_calculation(file_directory, element_list, iter)
-            self.Model_hess = SP.model_hess
+            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
+            self.Model_hess = SP.Model_hess
             #---------------------------------------
             if iter == 0:
                 initial_geom_num_list = geom_num_list
@@ -695,18 +669,7 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            print("caluculation results (unit a.u.):")
-            print("OPT method            : {} ".format(force_data["opt_method"]))
-            print("                         Value                         Threshold ")
-            print("ENERGY                : {:>15.12f} ".format(e))
-            print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
-            print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-            print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
-            print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
-            print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
-            print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
-            print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
-            
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             grad_list.append(np.linalg.norm(g))
             if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt(B_g**2).mean()) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt(displacement_vector**2).mean()) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
@@ -783,6 +746,21 @@ class Optimize:
         #----------------------
         print("Complete...")
         return
+    
+    def print_info(self, optmethod, e, B_e, B_g, displacement_vector, pre_e, pre_B_e):
+        print("caluculation results (unit a.u.):")
+        print("OPT method            : {} ".format(optmethod))
+        print("                         Value                         Threshold ")
+        print("ENERGY                : {:>15.12f} ".format(e))
+        print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
+        print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
+        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
+        print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
+        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
+        print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
+        print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
+        return
+    
     
     def run(self):
         if self.args.pyscf:

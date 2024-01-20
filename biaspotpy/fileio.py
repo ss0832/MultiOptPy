@@ -11,6 +11,8 @@ class FileIO:
         self.START_FILE = file
         return
     
+    
+    
     def xyz2oniom2dict(self, file_path):
         oniom_dict = {}
         """ ### format ###
@@ -174,15 +176,15 @@ class FileIO:
         print("")
         return geometry_list
         
-    def make_psi4_input_file(self, geometry_list, iter):
+    def make_psi4_input_file(self, geometry_list, iter):#geometry_list: ang.
         """structure updated geometry is saved."""
-        file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(self.START_FILE[:-4])+"_"+str(iter)
+        file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(os.path.basename(self.START_FILE)[:-4])+"_"+str(iter)
         try:
             os.mkdir(file_directory)
         except:
             pass
         for y, geometry in enumerate(geometry_list):
-            with open(file_directory+"/"+self.START_FILE[:-4]+"_"+str(y)+".xyz","w") as w:
+            with open(file_directory+"/"+os.path.basename(self.START_FILE[:-4])+"_"+str(y)+".xyz","w") as w:
                 for rows in geometry:
                     for row in rows:
                         w.write(str(row))
@@ -190,15 +192,15 @@ class FileIO:
                     w.write("\n")
         return file_directory
 
-    def make_pyscf_input_file(self, geometry_list, iter):
+    def make_pyscf_input_file(self, geometry_list, iter):#geometry_list: ang.
         """structure updated geometry is saved."""
-        file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(self.START_FILE[:-4])+"_"+str(iter)
+        file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(os.path.basename(self.START_FILE)[:-4])+"_"+str(iter)
         try:
             os.mkdir(file_directory)
         except:
             pass
         for y, geometry in enumerate(geometry_list):
-            with open(file_directory+"/"+self.START_FILE[:-4]+"_"+str(y)+".xyz","w") as w:
+            with open(file_directory+"/"+os.path.basename(self.START_FILE)[:-4]+"_"+str(y)+".xyz","w") as w:
                 w.write(str(len(geometry))+"\n\n")
                 for rows in geometry:   
                     for row in rows:
@@ -216,13 +218,13 @@ class FileIO:
             #print(file,m)
             with open(file,"r") as f:
                 sample = f.readlines()
-                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w:
+                with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w:
                     atom_num = len(sample)-2
                     w.write(str(atom_num)+"\n")
                     w.write("Frame "+str(m)+"\n")
                 
                 for i in sample[2:]:
-                    with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w2:
+                    with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w2:
                         w2.write(i)
         print("\ngeometry collection is completed...\n")
         return
@@ -236,18 +238,18 @@ class FileIO:
             #print(file,m)
             with open(file,"r") as f:
                 sample = f.readlines()
-            with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w:
+            with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w:
                 atom_num = len(sample)-1
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")
             
             
             for i in sample[1:]:
-                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w2:
+                with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w2:
                     w2.write(i)
                     
             if m == step_num - 1:
-                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_optimized.xyz","w") as w3:
+                with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","w") as w3:
                     w3.write(str(atom_num)+"\n")
                     w3.write("Optimized Structure\n")
                     for i in sample[1:]:
@@ -255,24 +257,24 @@ class FileIO:
         print("\ngeometry collection is completed...\n")
         return
         
-    def xyz_file_make_for_DSAFIR(self):
+    def xyz_file_make_for_DM(self, img_1="reactant", img_2="product"):
         """optimized path is saved."""
         print("\ngeometry collection processing...\n")
-        file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]_reactant/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]_product/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]_product/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]_product/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]_product/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]_product/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]_product/*.xyz")[::-1]   
+        file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9]/*.xyz")[::-1]   
         #print(file_list,"\n")
         
         
-        for m, file in enumerate(file_list):
+        for m, file in enumerate(file_list[1:-1]):
             #print(file,m)
             with open(file,"r") as f:
                 sample = f.readlines()
-            with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w:
+            with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w:
                 atom_num = len(sample)-1
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")
             del sample[0]
             for i in sample:
-                with open(self.BPA_FOLDER_DIRECTORY+self.START_FILE[:-4]+"_collection.xyz","a") as w2:
+                with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w2:
                     w2.write(i)
         print("\ngeometry collection is completed...\n")
         return
@@ -294,78 +296,4 @@ class FileIO:
             print("error")
     
         return
-        
-        
-    def make_psi4_input_file_for_DSAFIR(self, geometry_list, iter, mode):
-        """structure updated geometry is saved."""
-
-        if mode == "r":
-            file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(self.START_FILE[:-4])+"_"+str(iter)+"_reactant"
-            try:
-                os.mkdir(file_directory)
-            except:
-                pass
-
-
-            for y, geometry in enumerate(geometry_list):
-                with open(file_directory+"/"+self.START_FILE[:-4]+"_"+str(y)+".xyz","w") as w:
-                    for rows in geometry:
-                        for row in rows:
-                            w.write(str(row))
-                            w.write(" ")
-                        w.write("\n")
-        elif mode == "p":
-            file_directory = self.BPA_FOLDER_DIRECTORY+"samples_"+str(self.START_FILE[:-4])+"_"+str(iter)+"_product"
-            try:
-                os.mkdir(file_directory)
-            except:
-                pass
-
-
-            for y, geometry in enumerate(geometry_list):
-                with open(file_directory+"/"+self.START_FILE[:-4]+"_"+str(y)+".xyz","w") as w:
-                    for rows in geometry:
-                        for row in rows:
-                            w.write(str(row))
-                            w.write(" ")
-                        w.write("\n")
-        else:
-            print("unknown mode error")
-            raise
-
-
-        return file_directory
-        
-        
-    def make_geometry_list_for_DSAFIR(self, mode):#numbering name of function is not good. (ex. function_1, function_2, ...) 
-        """Load initial structure"""
-        geometry_list = []
-        start_data = []
-        element_list = []
-        if mode == "r":
-            with open(self.START_FILE[:-4]+"_reactant.xyz","r") as f:
-                words = f.readlines()
-            for word in words:
-                start_data.append(word.split())
-            electric_charge_and_multiplicity = start_data[0]
-
-            for i in range(1, len(start_data)):
-                element_list.append(start_data[i][0])
-            geometry_list.append(start_data)
-
-        elif mode == "p":
-            with open(self.START_FILE[:-4]+"_product.xyz","r") as f:
-                words = f.readlines()
-
-            for word in words:
-                start_data.append(word.split())
-
-            electric_charge_and_multiplicity = start_data[0]
-            
-            for i in range(1, len(start_data)):
-                element_list.append(start_data[i][0])
-            geometry_list.append(start_data)
-        else:
-            print("unknown mode error")
-            raise
-        return geometry_list, element_list, electric_charge_and_multiplicity
+ 

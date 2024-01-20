@@ -61,10 +61,34 @@ GFN-xTB(tblite)
 J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
 """
 
+def ieipparser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("INPUT", help='input folder')
+    parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
+    parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
+    parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+
+    parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
+    parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
+
+    parser = parser_for_biasforce(parser)
+    
+    parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
+    parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
+    parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
+    
+
+    args = parser.parse_args()
+    args.fix_atoms = []
+    
+    args.geom_info = ["0"]
+    args.opt_method = ""    
+    return args
 
 def optimizeparser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("INPUT", help='input psi4 files')
+    parser.add_argument("INPUT", help='input xyz file name')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
@@ -86,6 +110,8 @@ def optimizeparser():
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for n-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
+    
+    
     args = parser.parse_args()
     return args
 
@@ -506,6 +532,28 @@ class BiasPotInterface:
         self.void_point_well_pot = ['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6', '1']#"Add potential to limit atom movement. (sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
         self.around_well_pot =['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
 
+
+class iEIPInterface(BiasPotInterface):# inheritance is not good for readable code.
+    def __init__(self, folder_name=""):
+        super().__init__()
+        self.INPUT = folder_name
+        self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
+        self.functional = 'b3lyp'#functional(ex. b3lyp)
+        self.sub_basisset = '' #sub_basisset (ex. I LanL2DZ)
+
+        self.N_THREAD = 8 #threads
+        self.SET_MEMORY = '1GB' #use mem(ex. 1GB)
+ 
+        self.usextb = "None"#use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB 
+        
+        self.pyscf = False
+        self.electronic_charge = 0
+        self.spin_multiplicity = 1#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
+        
+        self.fix_atoms = []  
+        self.geom_info = []
+        self.opt_method = ""
+        return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
     def __init__(self, folder_name=""):

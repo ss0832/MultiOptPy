@@ -1,5 +1,6 @@
 import glob
 import os
+import copy
 
 import numpy as np
 
@@ -7,9 +8,9 @@ from tblite.interface import Calculator
 
 from calc_tools import Calculationtools
 from optimizer import Model_hess_tmp
-from param import UnitValueLib
+from param import UnitValueLib, element_number
 
-class SinglePoint:
+class Calculation:
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
 
@@ -23,13 +24,22 @@ class SinglePoint:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
     
-    def tblite_calculation(self, file_directory, element_number_list, electric_charge_and_multiplicity, iter, method):
+    def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method):
         """execute extended tight binding method calclation."""
         gradient_list = []
         energy_list = []
         geometry_num_list = []
         geometry_optimized_num_list = []
         finish_frag = False
+        
+        if type(element_number_list[0]) is str:
+            tmp = copy.copy(element_number_list)
+            element_number_list = []
+            
+            for elem in tmp:    
+                element_number_list.append(element_number(elem))
+            element_number_list = np.array(element_number_list)
+        
         try:
             os.mkdir(file_directory)
         except:
@@ -53,10 +63,13 @@ class SinglePoint:
                 
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 max_scf_iteration = len(element_number_list) * 100 + 2500 
+                
                 calc = Calculator(method, element_number_list, positions)
                 calc.set("max-iter", max_scf_iteration)
                 calc.set("verbosity", 0)
+                
                 res = calc.singlepoint()
+                
                 e = float(res.get("energy"))  #hartree
                 g = res.get("gradient") #hartree/Bohr
                         

@@ -7,7 +7,7 @@ import numpy as np
 from calc_tools import Calculationtools
 from optimizer import Model_hess_tmp
 
-class SinglePoint:
+class Calculation:
     def __init__(self, **kwarg):
         
         self.START_FILE = kwarg["START_FILE"]
@@ -22,7 +22,7 @@ class SinglePoint:
         
         return
     
-    def psi4_calculation(self, file_directory, element_list, electric_charge_and_multiplicity, iter):
+    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method=""):
         """execute QM calclation."""
         gradient_list = []
         energy_list = []

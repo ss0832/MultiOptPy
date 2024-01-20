@@ -206,3 +206,6 @@ class Calculationtools:
         dist = np.linalg.norm(fragm_1_coord - fragm_2_coord)
         
         return dist
+
+
+
