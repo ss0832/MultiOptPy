@@ -395,8 +395,6 @@ class Optimize:
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
-                if psi4:
-                    psi4.core.clean()
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
