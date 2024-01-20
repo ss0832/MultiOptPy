@@ -66,7 +66,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     self.SUB_BASIS_SET += "assign "+args.sub_basisset[2*j]+" "+args.sub_basisset[2*j+1]+"\n"
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET) #
-                
+            self.basic_set_and_function = args.functional+"/"+args.basisset
         if args.usextb == "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time())+"/"
         else:
@@ -209,13 +209,13 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter+1)
                 file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter+1)
             
-            BIAS_ENERGY_LIST_A.append(bias_energy_1)
-            BIAS_ENERGY_LIST_B.append(bias_energy_2)
+            BIAS_ENERGY_LIST_A.append(bias_energy_1*self.hartree2kcalmol)
+            BIAS_ENERGY_LIST_B.append(bias_energy_2*self.hartree2kcalmol)
             BIAS_GRAD_LIST_A.append(np.sqrt(np.sum(bias_gradient_1**2)))
             BIAS_GRAD_LIST_B.append(np.sqrt(np.sum(bias_gradient_2**2)))
             
-            ENERGY_LIST_A.append(energy_1)
-            ENERGY_LIST_B.append(energy_2)
+            ENERGY_LIST_A.append(energy_1*self.hartree2kcalmol)
+            ENERGY_LIST_B.append(energy_2*self.hartree2kcalmol)
             GRAD_LIST_A.append(np.sqrt(np.sum(gradient_1**2)))
             GRAD_LIST_B.append(np.sqrt(np.sum(gradient_2**2)))
             
@@ -230,9 +230,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         ene_list = ENERGY_LIST_A + ENERGY_LIST_B[::-1]
         grad_list = GRAD_LIST_A + GRAD_LIST_B[::-1]
         NUM_LIST = [i for i in range(len(ene_list))]
-        G.single_plot(NUM_LIST, ene_list, file_directory_1, "", axis_name_2="energy [a.u.]", name="energy")   
+        G.single_plot(NUM_LIST, ene_list, file_directory_1, "", axis_name_2="energy [kcal/mol]", name="energy")   
         G.single_plot(NUM_LIST, grad_list, file_directory_1, "", axis_name_2="grad (RMS) [a.u.]", name="gradient")
-        G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "", axis_name_2="energy [a.u.]", name="energy")   
+        G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "", axis_name_2="energy [kcal/mol]", name="energy")   
         G.single_plot(NUM_LIST, bias_grad_list, file_directory_1, "", axis_name_2="grad (RMS) [a.u.]", name="gradient")
         FIO1.xyz_file_make_for_DM(img_1="A", img_2="B")
         return
@@ -313,11 +313,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         
         SP = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
-                         SET_MEMORY = self.SET_MEMORY ,
+                         SET_MEMORY = self.SET_MEMORY,
                          FUNCTIONAL = self.FUNCTIONAL,
+                         BASIS_SET = self.BASIS_SET,
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
-                         Model_hess = np.eye((3*len(geometry_list_1))))
+                         Model_hess = np.eye((3*len(geometry_list_1))),
+                         SUB_BASIS_SET = self.SUB_BASIS_SET)
+                         
         file_directory_1 = FIO_img1.make_psi4_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_psi4_input_file(geometry_list_2, 0)
         
@@ -339,9 +342,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY,
                          FUNCTIONAL = self.FUNCTIONAL,
+                         BASIS_SET = self.BASIS_SET,
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
-                         Model_hess = np.eye(3*len(geometry_list_1)))
+                         Model_hess = np.eye(3*len(geometry_list_1)),
+                         SUB_BASIS_SET = self.SUB_BASIS_SET)
         file_directory_1 = FIO_img1.make_pyscf_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_pyscf_input_file(geometry_list_2, 0)
         
