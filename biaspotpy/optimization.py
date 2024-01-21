@@ -16,7 +16,7 @@ from visualization import Graph
 from fileio import FileIO
 from param import UnitValueLib, element_number
 from interface import force_data_parser
-
+from approx_hessian import ApproxHessian
 
 
 class Optimize:
@@ -195,8 +195,12 @@ class Optimize:
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
+            
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
+            #if iter == 0:
+            #    self.Model_hess.model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+            #else:
             self.Model_hess = SP.Model_hess
             #---------------------------------------
             if iter == 0:
@@ -400,6 +404,9 @@ class Optimize:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
+            #if iter == 0:
+            #    self.Model_hess.model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+            #else:
             self.Model_hess = SP.Model_hess
             
             #---------------------------------------
@@ -605,6 +612,9 @@ class Optimize:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
+            #if iter == 0:    
+            #    self.Model_hess.model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+            #else:
             self.Model_hess = SP.Model_hess
             #---------------------------------------
             if iter == 0:

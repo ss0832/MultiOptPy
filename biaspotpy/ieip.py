@@ -201,7 +201,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             for i, elem in enumerate(element_list):
                 new_geom_num_list_1_tolist[i].insert(0, elem)
                 new_geom_num_list_2_tolist[i].insert(0, elem)
-            
+           
             
             if self.args.pyscf:
                 
@@ -236,10 +236,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         ene_list = ENERGY_LIST_A + ENERGY_LIST_B[::-1]
         grad_list = GRAD_LIST_A + GRAD_LIST_B[::-1]
         NUM_LIST = [i for i in range(len(ene_list))]
-        G.single_plot(NUM_LIST, ene_list, file_directory_1, "", axis_name_2="energy [kcal/mol]", name="energy")   
-        G.single_plot(NUM_LIST, grad_list, file_directory_1, "", axis_name_2="grad (RMS) [a.u.]", name="gradient")
-        G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "", axis_name_2="energy [kcal/mol]", name="energy")   
-        G.single_plot(NUM_LIST, bias_grad_list, file_directory_1, "", axis_name_2="grad (RMS) [a.u.]", name="gradient")
+        G.single_plot(NUM_LIST, ene_list, file_directory_1, "energy", axis_name_2="energy [kcal/mol]", name="energy")   
+        G.single_plot(NUM_LIST, grad_list, file_directory_1, "gradient", axis_name_2="grad (RMS) [a.u.]", name="gradient")
+        G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "bias_energy", axis_name_2="energy [kcal/mol]", name="energy")   
+        G.single_plot(NUM_LIST, bias_grad_list, file_directory_1, "bias_gradient", axis_name_2="grad (RMS) [a.u.]", name="gradient")
         FIO1.xyz_file_make_for_DM(img_1="A", img_2="B")
         return
     
