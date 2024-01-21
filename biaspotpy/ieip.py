@@ -56,9 +56,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 print(self.SUB_BASIS_SET) #
             else:
                 self.SUB_BASIS_SET = { "default" : self.BASIS_SET}
+            
         else:#psi4
             self.SUB_BASIS_SET = "" # 
-            self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
+            
             
             if len(args.sub_basisset) > 0:
                 self.SUB_BASIS_SET +="\nassign "+str(self.BASIS_SET)+"\n" # 
@@ -66,7 +67,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     self.SUB_BASIS_SET += "assign "+args.sub_basisset[2*j]+" "+args.sub_basisset[2*j+1]+"\n"
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET) #
-            self.basic_set_and_function = args.functional+"/"+args.basisset
+            
+        self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
+        self.basic_set_and_function = args.functional+"/"+args.basisset
+        
         if args.usextb == "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time())+"/"
         else:
@@ -115,6 +119,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         #G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
         
         for iter in range(0, self.microiterlimit):
+            if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
+                break
             print("# ITR. "+str(iter))
             
             energy_1, gradient_1, geom_num_list_1, _ = SP.single_point(file_directory_1, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
@@ -142,8 +148,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             Lt = self.target_dist_2imgs(L)
             
-            force_disp_1 = self.displacement(bias_gradient_1)
-            force_disp_2 = self.displacement(bias_gradient_2)
+            force_disp_1 = self.displacement(bias_gradient_1) 
+            force_disp_2 = self.displacement(bias_gradient_2) 
             
             perp_force_1 = self.perpendicular_force(bias_gradient_1, N)
             perp_force_2 = self.perpendicular_force(bias_gradient_2, N)
@@ -334,8 +340,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         FIO_img2 = FileIO(self.iEIP_FOLDER_DIRECTORY, file_path_B)
 
         
-        geometry_list_1, element_list, electric_charge_and_multiplicity = FIO_img1.make_geometry_list_for_pyscf(self.electric_charge_and_multiplicity)
-        geometry_list_2, _, _ = FIO_img2.make_geometry_list_for_pyscf(self.electric_charge_and_multiplicity)
+        geometry_list_1, element_list = FIO_img1.make_geometry_list_for_pyscf()
+        geometry_list_2, _ = FIO_img2.make_geometry_list_for_pyscf()
         
     
         SP = Calculation(START_FILE = self.START_FILE,
@@ -346,11 +352,13 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye(3*len(geometry_list_1)),
-                         SUB_BASIS_SET = self.SUB_BASIS_SET)
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         electronic_charge = self.electronic_charge,
+                         spin_multiplicity = self.spin_multiplicity)
         file_directory_1 = FIO_img1.make_pyscf_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_pyscf_input_file(geometry_list_2, 0)
         
-        self.iteration(file_directory_1, file_directory_2, SP, element_list, electric_charge_and_multiplicity, FIO_img1, FIO_img2)
+        self.iteration(file_directory_1, file_directory_2, SP, element_list, self.electric_charge_and_multiplicity, FIO_img1, FIO_img2)
         
         
         
