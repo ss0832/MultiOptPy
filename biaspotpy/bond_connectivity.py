@@ -7,7 +7,7 @@ from param import covalent_radii_lib
 class BondConnectivity:#Bohr
     def __init__(self):
         self.covalent_radii_lib_func = covalent_radii_lib#function
-        self.covalent_radii_threshold = 1.2
+        self.covalent_radii_threshold = 1.1
         
         return
     
@@ -75,13 +75,13 @@ class BondConnectivity:#Bohr
                     
                     candidate_dac_table = [angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2], angle_connect_table[j][0]]
                     
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1 or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1:# or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)
                         continue
                         
                     candidate_dac_table = [angle_connect_table[j][0], angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2]]
                     
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1  or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:# or bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)   
                         continue
                         
@@ -89,13 +89,13 @@ class BondConnectivity:#Bohr
                 if (angle_connect_table[i][1] == angle_connect_table[j][1] and angle_connect_table[i][0] == angle_connect_table[j][0]) or (angle_connect_table[i][1] == angle_connect_table[j][0] and angle_connect_table[i][0] == angle_connect_table[j][1]):
                     
                     candidate_dac_table = [angle_connect_table[j][2], angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2]]
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1  or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:#bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1 or 
                         dihedral_angle_connect_table.append(candidate_dac_table)            
                         continue    
                 
                     candidate_dac_table = [angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2], angle_connect_table[j][2]]
                     
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1 or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1:# or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)   
                         continue
                 
@@ -103,25 +103,25 @@ class BondConnectivity:#Bohr
                     
                     candidate_dac_table = [angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2], angle_connect_table[j][2]]
                     
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1 or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1:# or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)   
                         continue       
                         
                     candidate_dac_table = [angle_connect_table[j][2], angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2]]
                     
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1  or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:#or bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)     
                         continue
                 
                 if (angle_connect_table[i][0] == angle_connect_table[j][1] and angle_connect_table[i][1] == angle_connect_table[j][2]) or (angle_connect_table[i][0] == angle_connect_table[j][2] and angle_connect_table[i][1] == angle_connect_table[j][1]):
                   
                     candidate_dac_table = [angle_connect_table[j][0], angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2]]
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1  or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[0]] == 1:#or bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[0]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)    
                         continue
                         
                     candidate_dac_table = [angle_connect_table[i][0], angle_connect_table[i][1], angle_connect_table[i][2], angle_connect_table[j][0]]
-                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1 or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
+                    if bond_connect_matrix[candidate_dac_table[2]][candidate_dac_table[3]] == 1:# or bond_connect_matrix[candidate_dac_table[1]][candidate_dac_table[3]] == 1:
                         dihedral_angle_connect_table.append(candidate_dac_table)              
                         continue
                 

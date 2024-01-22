@@ -1,7 +1,9 @@
+import itertools
+
 import numpy as np
 
 from bond_connectivity import BondConnectivity
-from param import UnitValueLib, number_element
+from param import UnitValueLib, number_element, covalent_radii_lib
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
 
@@ -46,7 +48,8 @@ class ApproxHessian:
         else:
             idx_2 = 2    
         
-        const_R = const_R_list[idx_1][idx_2]
+        #const_R = const_R_list[idx_1][idx_2]
+        const_R = covalent_radii_lib(element_1) + covalent_radii_lib(element_2)
         const_alpha = const_alpha_list[idx_1][idx_2]
         
         return const_R, const_alpha
@@ -57,8 +60,9 @@ class ApproxHessian:
         b_c_mat = BC.bond_connect_matrix(element_list, coord)
         val_num = len(coord)*3
         connectivity_table = [BC.bond_connect_table(b_c_mat), BC.angle_connect_table(b_c_mat), BC.dihedral_angle_connect_table(b_c_mat)]
-        RIC_approx_diag_hessian = []
-      
+        #RIC_approx_diag_hessian = []
+        RIC_approx_diag_hessian = [0.0 for i in range(self.RIC_variable_num)]
+        RIC_idx_list = [[i[0], i[1]] for i in itertools.combinations([j for j in range(len(coord))] , 2)]
         
         for idx_list in connectivity_table:
             for idx in idx_list:
@@ -70,8 +74,35 @@ class ApproxHessian:
                     
                     R = np.linalg.norm(coord[idx[i]] - coord[idx[i+1]])
                     force_const *= np.exp(const_alpha * (const_R**2 - R**2)) 
-               
-                RIC_approx_diag_hessian.append(force_const)
+                
+                if len(idx) == 2:
+                    tmp_idx = sorted([idx[0], idx[1]])
+                    tmpnum = RIC_idx_list.index(tmp_idx)
+                    RIC_approx_diag_hessian[tmpnum] += force_const
+                  
+                elif len(idx) == 3:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    RIC_approx_diag_hessian[tmpnum_1] += force_const
+                    RIC_approx_diag_hessian[tmpnum_2] += force_const
+                    
+                elif len(idx) == 4:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    tmp_idx_3 = sorted([idx[2], idx[3]])
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    tmpnum_3 = RIC_idx_list.index(tmp_idx_3)
+                    RIC_approx_diag_hessian[tmpnum_1] += force_const
+                    RIC_approx_diag_hessian[tmpnum_2] += force_const
+                    RIC_approx_diag_hessian[tmpnum_3] += force_const
+                
+                else:
+                    print("error")
+                    raise
+                
                 
             
         
@@ -87,12 +118,14 @@ class ApproxHessian:
         print("generating Lindh's approximate hessian...")
         cart_gradient = cart_gradient.reshape(3*(len(cart_gradient)), 1)
         b_mat = RedundantInternalCoordinates().B_matrix(coord)
+        self.RIC_variable_num = len(b_mat)
+        
         int_grad = RedundantInternalCoordinates().cartgrad2RICgrad(cart_gradient, b_mat)
         int_approx_hess = self.guess_hessian(coord, element_list)
         BC = BondConnectivity()
         
         connnectivity = BC.connectivity_table(coord, element_list)
-        print(connnectivity, len(connnectivity[0])+len(connnectivity[1])+len(connnectivity[2]))
+        #print(connnectivity, len(connnectivity[0])+len(connnectivity[1])+len(connnectivity[2]))
         cart_hess = RedundantInternalCoordinates().RIChess2carthess(coord, connnectivity, 
                                                                     int_approx_hess, b_mat, int_grad)
         hess_proj = Calculationtools().project_out_hess_tr_and_rot(cart_hess, element_list, coord)
@@ -121,24 +154,8 @@ if __name__ == "__main__":#test
                          [-0.0025737   ,  0.0013921   , -0.0007226],
                          [ 0.0025880   ,  0.0015592  ,  -0.0002518]], dtype="float64")#a. u.
     
-    AH.main(coord, elements, gradient)
-    gradient = gradient.reshape(12, 1)
-    b_mat = RedundantInternalCoordinates().B_matrix(coord)
-    int_grad = RedundantInternalCoordinates().cartgrad2RICgrad(gradient, b_mat)
+    hess_proj = AH.main(coord, elements, gradient)
     
-    results = AH.guess_hessian(coord, elements)
-    print(results)
-    BC = BondConnectivity()
-    connnectivity = BC.connectivity_table(coord, elements)
-    
-    print(connnectivity)
-    cart_hess = RedundantInternalCoordinates().RIChess2carthess(coord, connnectivity, results, b_mat, int_grad)
-    print(cart_hess)
-    eigenvalue, eigenvector = np.linalg.eig(cart_hess)
-    print(sorted(eigenvalue))
-    from calc_tools import Calculationtools
-    hess_proj = Calculationtools().project_out_hess_tr_and_rot(cart_hess, elements, coord)
-    eigenvalue, eigenvector = np.linalg.eig(hess_proj)
     
     
     
