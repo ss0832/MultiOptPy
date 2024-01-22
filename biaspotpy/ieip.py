@@ -117,7 +117,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         ENERGY_LIST_A = []
         ENERGY_LIST_B = []
         #G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
-        
+        prev_delta_geometry = 0.0
         for iter in range(0, self.microiterlimit):
             if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
                 break
@@ -131,6 +131,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 m_2 = gradient_1 * 0.0
                 v_1 = gradient_1 * 0.0
                 v_2 = gradient_1 * 0.0
+                ini_geom_1 = geom_num_list_1
+                ini_geom_2 = geom_num_list_2
             
             BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
             BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
@@ -154,7 +156,25 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             perp_force_1 = self.perpendicular_force(bias_gradient_1, N)
             perp_force_2 = self.perpendicular_force(bias_gradient_2, N)
             
-            
+            if iter == 0:
+                ini_force_1 = perp_force_1 * 0.0
+                ini_force_2 = perp_force_2 * 0.0
+                ini_disp_1 = ini_force_1
+                ini_disp_2 = ini_force_2
+            else:
+                if abs(energy_1 - energy_2) < 1e-5:
+                    ini_force_1 = self.initial_structure_dependent_force(geom_num_list_1, ini_geom_1)
+                    ini_force_2 = self.initial_structure_dependent_force(geom_num_list_2, ini_geom_2)
+                    ini_disp_1 = self.displacement_prime(ini_force_1)
+                    ini_disp_2 = self.displacement_prime(ini_force_2)
+
+                
+                else:
+                    ini_force_1 = perp_force_1 * 0.0
+                    ini_force_2 = perp_force_2 * 0.0
+                    ini_disp_1 = ini_force_1
+                    ini_disp_2 = ini_force_2
+                    
             delta_energy_force_1 = self.delta_energy_force(bias_energy_1, bias_energy_2, N, L)
             delta_energy_force_2 = self.delta_energy_force(bias_energy_1, bias_energy_2, N, L)
             
@@ -168,9 +188,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             close_target_disp = self.displacement(close_target_force)
             
+
        
-            total_disp_1 = - perp_disp_1 + delta_energy_disp_1 + close_target_disp - force_disp_1
-            total_disp_2 = - perp_disp_2 - delta_energy_disp_2 - close_target_disp - force_disp_2
+            total_disp_1 = - perp_disp_1 + delta_energy_disp_1 + close_target_disp - force_disp_1 + ini_disp_1
+            total_disp_2 = - perp_disp_2 - delta_energy_disp_2 - close_target_disp - force_disp_2 + ini_disp_2
             
             #AdaBelief: https://doi.org/10.48550/arXiv.2010.07468
 
@@ -188,6 +209,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             new_geom_num_list_1 = geom_num_list_1 + adabelief_1
             new_geom_num_list_2 = geom_num_list_2 + adabelief_2
             
+            if iter != 0:
+                prev_delta_geometry = delta_geometry
             
             delta_geometry = np.linalg.norm(new_geom_num_list_2 - new_geom_num_list_1)
             rms_perp_force = np.linalg.norm(np.sqrt(perp_force_1 ** 2 + perp_force_2 ** 2))
@@ -265,6 +288,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         n_force = np.linalg.norm(force)
         displacement = (force / n_force) * min(n_force, self.displacement_limit)
         return displacement
+    
+    def displacement_prime(self, force):
+        n_force = np.linalg.norm(force)
+        displacement = (force / n_force) * self.displacement_limit 
+        return displacement
+    
+    def initial_structure_dependent_force(self, geom, ini_geom):
+        ini_force = geom - ini_geom
+        return ini_force
+        
     
     def perpendicular_force(self, gradient, N):#gradient and N (atomnum×3, ndarray)
         perp_force = gradient.reshape(len(gradient)*3, 1) - np.dot(gradient.reshape(1, len(gradient)*3), N.reshape(len(gradient)*3, 1)) * N.reshape(len(gradient)*3, 1)
