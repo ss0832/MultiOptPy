@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 
 from bond_connectivity import BondConnectivity
-from param import UnitValueLib, number_element, covalent_radii_lib
+from param import UnitValueLib, number_element, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
 
@@ -14,8 +14,30 @@ class ApproxHessian:
         #Lindh, R., Chemical Physics Letters 1995, 241 (4), 423–428.
         self.bohr2angstroms = UnitValueLib().bohr2angstroms
         self.force_const_list = [0.45, 0.15, 0.005]  #bond, angle, dihedral_angle
-        
+        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
         return
+    
+    def LJ_force_const(self, elem_1, elem_2, coord_1, coord_2):
+        eps_1 = UFF_VDW_well_depth_lib(elem_1)
+        eps_2 = UFF_VDW_well_depth_lib(elem_2)
+        sigma_1 = UFF_VDW_distance_lib(elem_1)
+        sigma_2 = UFF_VDW_distance_lib(elem_2)
+        eps = np.sqrt(eps_1 * eps_2)
+        sigma = np.sqrt(sigma_1 * sigma_2)
+        distance = np.linalg.norm(coord_1 - coord_2)
+        LJ_force_const = -12 * eps * (-7*(sigma ** 6 / distance ** 8) + 13*(sigma ** 12 / distance ** 14))
+        
+        return LJ_force_const
+    
+    def electrostatic_force_const(self, elem_1, elem_2, coord_1, coord_2):
+        effective_elec_charge = UFF_effective_charge_lib(elem_1) * UFF_effective_charge_lib(elem_2)
+        distance = np.linalg.norm(coord_1 - coord_2)
+        
+        ES_force_const = 664.12 * (effective_elec_charge / distance ** 3) * (self.bohr2angstroms ** 2 / self.hartree2kcalmol)
+        
+        return ES_force_const#atom unit
+    
+    
     
     def return_lindh_const(self, element_1, element_2):
         if type(element_1) is int:
@@ -103,9 +125,12 @@ class ApproxHessian:
                     print("error")
                     raise
                 
-                
+        for num, pair in enumerate(RIC_idx_list):
+            if pair in connectivity_table[0]:#bond connectivity
+                continue#non bonding interaction
+            RIC_approx_diag_hessian[num] += self.LJ_force_const(element_list[pair[0]], element_list[pair[1]], coord[pair[0]], coord[pair[1]])
+            RIC_approx_diag_hessian[num] += self.electrostatic_force_const(element_list[pair[0]], element_list[pair[1]], coord[pair[0]], coord[pair[1]])
             
-        
        
         
         RIC_approx_hessian = np.array(np.diag(RIC_approx_diag_hessian), dtype="float64")
