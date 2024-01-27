@@ -78,7 +78,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time())+"/"
         self.args = args
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
-        
+        self.BETA = args.BETA
         self.force_data = force_data_parser(args)
         
         return
@@ -203,8 +203,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 u_1 = Y_1 * ((geom_num_list_1 - geom_num_list_2) / np.linalg.norm(geom_num_list_1 - geom_num_list_2)) - (1.0 - Y_1) * ((geom_num_list_1 - ini_geom_1) / np.linalg.norm(geom_num_list_1 - ini_geom_1))  
                 u_2 = Y_2 * ((geom_num_list_2 - geom_num_list_1) / np.linalg.norm(geom_num_list_2 - geom_num_list_1)) - (1.0 - Y_2) * ((geom_num_list_2 - ini_geom_2) / np.linalg.norm(geom_num_list_2 - ini_geom_2)) 
                 
-                X_1 = 2.0 / np.linalg.norm(u_1) - (np.sum(gradient_1 * u_1) / np.linalg.norm(u_1) ** 2)
-                X_2 = 2.0 / np.linalg.norm(u_2) - (np.sum(gradient_2 * u_2) / np.linalg.norm(u_2) ** 2)
+                X_1 = self.BETA / np.linalg.norm(u_1) - (np.sum(gradient_1 * u_1) / np.linalg.norm(u_1) ** 2)
+                X_2 = self.BETA / np.linalg.norm(u_2) - (np.sum(gradient_2 * u_2) / np.linalg.norm(u_2) ** 2)
                
                 ini_disp_1 *= X_1 * (1.0 - Y_1)
                 ini_disp_2 *= X_2 * (1.0 - Y_2)
