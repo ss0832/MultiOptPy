@@ -15,6 +15,7 @@ from interface import force_data_parser
 class iEIP:#based on Improved Elastic Image Pair (iEIP) method   
     def __init__(self, args):
         #Ref.: J. Chem. Theory. Comput. 2023, 19, 2410-2417
+        #Ref.: J. Comput. Chem. 2018, 39, 233–251 (DS-AFIR)
         UVL = UnitValueLib()
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
         self.hartree2kcalmol = UVL.hartree2kcalmol #
@@ -28,7 +29,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.microiterlimit = 1000
         
         #self.force_perpendicularity_convage_criterion = 0.008 #Hartree/Bohr
-        self.img_distance_convage_criterion = 0.2 #Bohr
+        self.img_distance_convage_criterion = 0.15 #Bohr
         #self.F_R_convage_criterion = 0.012
         #self.DELTA = float(args.DELTA) # 
 
@@ -156,24 +157,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             perp_force_1 = self.perpendicular_force(bias_gradient_1, N)
             perp_force_2 = self.perpendicular_force(bias_gradient_2, N)
             
-            if iter == 0:
-                ini_force_1 = perp_force_1 * 0.0
-                ini_force_2 = perp_force_2 * 0.0
-                ini_disp_1 = ini_force_1
-                ini_disp_2 = ini_force_2
-            else:
-                if abs(energy_1 - energy_2) < 1e-5:
-                    ini_force_1 = self.initial_structure_dependent_force(geom_num_list_1, ini_geom_1)
-                    ini_force_2 = self.initial_structure_dependent_force(geom_num_list_2, ini_geom_2)
-                    ini_disp_1 = self.displacement_prime(ini_force_1)
-                    ini_disp_2 = self.displacement_prime(ini_force_2)
 
-                
-                else:
-                    ini_force_1 = perp_force_1 * 0.0
-                    ini_force_2 = perp_force_2 * 0.0
-                    ini_disp_1 = ini_force_1
-                    ini_disp_2 = ini_force_2
                     
             delta_energy_force_1 = self.delta_energy_force(bias_energy_1, bias_energy_2, N, L)
             delta_energy_force_2 = self.delta_energy_force(bias_energy_1, bias_energy_2, N, L)
@@ -183,15 +167,57 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             perp_disp_1 = self.displacement(perp_force_1)
             perp_disp_2 = self.displacement(perp_force_2)
 
-            delta_energy_disp_1 = self.displacement(delta_energy_force_1)
-            delta_energy_disp_2 = self.displacement(delta_energy_force_2)
+            delta_energy_disp_1 = self.displacement(delta_energy_force_1) 
+            delta_energy_disp_2 = self.displacement(delta_energy_force_2) 
             
             close_target_disp = self.displacement(close_target_force)
             
-
+            if iter == 0:
+                ini_force_1 = perp_force_1 * 0.0
+                ini_force_2 = perp_force_2 * 0.0
+                ini_disp_1 = ini_force_1
+                ini_disp_2 = ini_force_2
+                close_target_disp_1 = close_target_disp
+                close_target_disp_2 = close_target_disp
+                
+            else:
+                
+                ini_force_1 = self.initial_structure_dependent_force(geom_num_list_1, ini_geom_1)
+                ini_force_2 = self.initial_structure_dependent_force(geom_num_list_2, ini_geom_2)
+                ini_disp_1 = self.displacement_prime(ini_force_1)
+                ini_disp_2 = self.displacement_prime(ini_force_2)
+                #based on DS-AFIR method
+                Z_1 = np.linalg.norm(geom_num_list_1 - ini_geom_1) / np.linalg.norm(geom_num_list_1 - geom_num_list_2) + (np.sum( (geom_num_list_1 - ini_geom_1) * (geom_num_list_1 - geom_num_list_2))) / (np.linalg.norm(geom_num_list_1 - ini_geom_1) * np.linalg.norm(geom_num_list_1 - geom_num_list_2)) 
+                Z_2 = np.linalg.norm(geom_num_list_2 - ini_geom_2) / np.linalg.norm(geom_num_list_2 - geom_num_list_1) + (np.sum( (geom_num_list_2 - ini_geom_2) * (geom_num_list_2 - geom_num_list_1))) / (np.linalg.norm(geom_num_list_2 - ini_geom_2) * np.linalg.norm(geom_num_list_2 - geom_num_list_1))
+                
+                if Z_1 > 0.0:
+                    Y_1 = Z_1 /(Z_1 + 1) + 0.5
+                else:
+                    Y_1 = 0.5
+                
+                if Z_2 > 0.0:
+                    Y_2 = Z_2 /(Z_2 + 1) + 0.5
+                else:
+                    Y_2 = 0.5
+                
+                u_1 = Y_1 * ((geom_num_list_1 - geom_num_list_2) / np.linalg.norm(geom_num_list_1 - geom_num_list_2)) - (1.0 - Y_1) * ((geom_num_list_1 - ini_geom_1) / np.linalg.norm(geom_num_list_1 - ini_geom_1))  
+                u_2 = Y_2 * ((geom_num_list_2 - geom_num_list_1) / np.linalg.norm(geom_num_list_2 - geom_num_list_1)) - (1.0 - Y_2) * ((geom_num_list_2 - ini_geom_2) / np.linalg.norm(geom_num_list_2 - ini_geom_2)) 
+                
+                X_1 = 2.0 / np.linalg.norm(u_1) - (np.sum(gradient_1 * u_1) / np.linalg.norm(u_1) ** 2)
+                X_2 = 2.0 / np.linalg.norm(u_2) - (np.sum(gradient_2 * u_2) / np.linalg.norm(u_2) ** 2)
+               
+                ini_disp_1 *= X_1 * (1.0 - Y_1)
+                ini_disp_2 *= X_2 * (1.0 - Y_2)
+                
+             
+                close_target_disp_1 = close_target_disp * X_1 * Y_1
+                close_target_disp_2 = close_target_disp * X_2 * Y_2
+                
+                
        
-            total_disp_1 = - perp_disp_1 + delta_energy_disp_1 + close_target_disp - force_disp_1 + ini_disp_1
-            total_disp_2 = - perp_disp_2 - delta_energy_disp_2 - close_target_disp - force_disp_2 + ini_disp_2
+       
+            total_disp_1 = - perp_disp_1 + delta_energy_disp_1 + close_target_disp_1 - force_disp_1 + ini_disp_1
+            total_disp_2 = - perp_disp_2 - delta_energy_disp_2 - close_target_disp_2 - force_disp_2 + ini_disp_2
             
             #AdaBelief: https://doi.org/10.48550/arXiv.2010.07468
 
