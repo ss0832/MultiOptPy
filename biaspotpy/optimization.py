@@ -70,9 +70,16 @@ class Optimize:
                 args.DELTA = 0.01
             elif args.opt_method[0] == "AdaMax":
                 args.DELTA = 0.01
-            elif  args.opt_method[0] == "CG":
+            elif args.opt_method[0] == "CG":
                 args.DELTA = 1.0
-                
+            elif args.opt_method[0] == "CG_HS":
+                args.DELTA = 1.0            
+            elif args.opt_method[0] == "CG_DY":
+                args.DELTA = 1.0
+            elif args.opt_method[0] == "CG_FR":
+                args.DELTA = 1.0
+            #elif args.opt_method[0] == "CG2":
+            #    args.DELTA = 1.0    
             elif args.opt_method[0] == "TRM_FSB":
                 args.DELTA = 0.60
             elif args.opt_method[0] == "TRM_BFGS":

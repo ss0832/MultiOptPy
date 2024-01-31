@@ -392,11 +392,63 @@ class CalculateMoveVector:
         
         move_vector = self.DELTA * alpha * self.Opt_params.adam_v
         
-        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) ** 2 
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) ** 2 #based on polak-ribiere
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
         
+        return move_vector
+    
+    def conjugate_gradient_descent_FR(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+        #cg method
         
+        alpha = np.dot(B_g.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_v.reshape(len(geom_num_list)*3, 1))
+        
+        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+        
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), B_g.reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) #fletcher-reeeves
+        
+        self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
+        
+        return move_vector
+        
+    def conjugate_gradient_descent_HS(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+        #cg method
+        
+        alpha = np.dot(B_g.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_v.reshape(len(geom_num_list)*3, 1))
+        
+        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+        
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1))#Hestenes-stiefel
+        
+        self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
+        
+        return move_vector 
+    def conjugate_gradient_descent_DY(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+        #cg method
+        
+        alpha = np.dot(B_g.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_v.reshape(len(geom_num_list)*3, 1))
+        
+        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+        
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), B_g.reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) #Dai-Yuan
+        
+        self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
+        
+        return move_vector 
+    
+    def conjugate_gradient_descent_v2(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+        #cg method
+        
+        alpha = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_m).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_m.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_m.reshape(len(geom_num_list)*3, 1))
+        
+        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+        
+        prev_opt_params_adam_v = self.Opt_params.adam_v
+        self.Opt_params.adam_v -= alpha * self.Opt_params.adam_m
+        
+        beta = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(prev_opt_params_adam_v.reshape(1, len(geom_num_list)*3), prev_opt_params_adam_v.reshape(len(geom_num_list)*3, 1))
+        
+        self.Opt_params.adam_m = self.Opt_params.adam_v + beta * self.Opt_params.adam_m
         
         return move_vector
     
@@ -960,6 +1012,43 @@ class CalculateMoveVector:
                     self.Opt_params.adam_v = copy.copy(-1 * B_g)
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+  
+            elif opt_method == "CG_FR":
+                if iter != 0:
+                    tmp_move_vector = self.conjugate_gradient_descent_FR(geom_num_list, pre_move_vector, B_g, pre_B_g)
+                    move_vector_list.append(tmp_move_vector)
+                else:
+                    self.Opt_params.adam_v = copy.copy(-1 * B_g)
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
+
+            elif opt_method == "CG_HS":
+                if iter != 0:
+                    tmp_move_vector = self.conjugate_gradient_descent_HS(geom_num_list, pre_move_vector, B_g, pre_B_g)
+                    move_vector_list.append(tmp_move_vector)
+                else:
+                    self.Opt_params.adam_v = copy.copy(-1 * B_g)
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
+
+            elif opt_method == "CG_DY":
+                if iter != 0:
+                    tmp_move_vector = self.conjugate_gradient_descent_DY(geom_num_list, pre_move_vector, B_g, pre_B_g)
+                    move_vector_list.append(tmp_move_vector)
+                else:
+                    self.Opt_params.adam_v = copy.copy(-1 * B_g)
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
+            
+            #elif opt_method == "CG2":
+            #    if iter != 0:
+            #        tmp_move_vector = self.conjugate_gradient_descent_v2(geom_num_list, pre_move_vector, B_g, pre_B_g)
+            #        move_vector_list.append(tmp_move_vector)
+            #    else:
+            #        self.Opt_params.adam_v = copy.copy(B_g)
+            #        self.Opt_params.adam_m = copy.copy(B_g)
+            #        tmp_move_vector = 0.01*B_g
+            #        move_vector_list.append(tmp_move_vector)    
             
             # group of quasi-Newton method
             
