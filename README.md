@@ -221,6 +221,8 @@ Second derivative of each bias potential is analytically formulated and implemen
 - (2023/09/01) Some of second derivative of bias potentials is implemented with exceptions of keep angle and keep dihedral angle.
 - (2023/11/11) Autograd function (pytorch) Calculates all derivatives. 
 
+Implementation of an algorithm to find more than a primary saddle point
+
 ## Author
 
 Author of this program is ss0832.
