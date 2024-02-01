@@ -93,7 +93,7 @@ class FileIO:
         geometry_list = []
  
         with open(self.START_FILE, "r") as f:
-            words = f.readlines()
+            words = f.read().splitlines()
             
         start_data = []
         for word in words:
@@ -110,6 +110,8 @@ class FileIO:
 
 
         for i in range(2, len(start_data)):
+            if len(start_data[i]) < 4:
+                continue
             element_list.append(start_data[i][0])
                 
         geometry_list.append(start_data)
@@ -133,6 +135,8 @@ class FileIO:
 
 
         for i in range(len(start_data)):
+            if len(start_data[i]) < 4:
+                continue
             element_list.append(start_data[i][0])
                 
         geometry_list.append(start_data)

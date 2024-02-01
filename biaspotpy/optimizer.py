@@ -392,7 +392,7 @@ class CalculateMoveVector:
         
         move_vector = self.DELTA * alpha * self.Opt_params.adam_v
         
-        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) ** 2 #based on polak-ribiere
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) ** 2#based on polak-ribiere
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
         
@@ -451,6 +451,32 @@ class CalculateMoveVector:
         self.Opt_params.adam_m = self.Opt_params.adam_v + beta * self.Opt_params.adam_m
         
         return move_vector
+    #Engineering Applications of Artificial Intelligence 2023, 119, 105755. https://doi.org/10.1016/j.engappai.2022.105755
+    def Adaderivative(self, geom_num_list, B_g, pre_B_g):
+        print("Adaderivative")
+        beta_m = 0.9
+        beta_v = 0.999
+        Epsilon = 1e-08 
+        adam_count = self.Opt_params.adam_count
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy((beta_m * adam_m[i] + (1.0-beta_m) * (B_g[i]) ))
+            new_adam_v[i] = copy.copy((beta_v * adam_v[i] + (1.0-beta_v) * (B_g[i] - pre_B_g[i]) ** 2))
+            
+        move_vector = []
+
+        for i in range(len(geom_num_list)):
+            move_vector.append(self.DELTA*new_adam_m[i]/np.sqrt(new_adam_v[i]+Epsilon))
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        
+       
+        return move_vector
+        
+       
     
     #arXiv:1412.6980v9
     def AdaMax(self, geom_num_list, B_g):#not worked well
@@ -1003,6 +1029,14 @@ class CalculateMoveVector:
             elif opt_method == "third_order_momentum_Adam":
                 tmp_move_vector = self.third_order_momentum_Adam(geom_num_list, B_g)
                 move_vector_list.append(tmp_move_vector)
+                
+            elif opt_method == "Adaderivative":
+                if iter != 0:
+                    tmp_move_vector = self.Adaderivative(geom_num_list, B_g, pre_B_g)
+                    move_vector_list.append(tmp_move_vector)
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)    
                 
             elif opt_method == "CG":
                 if iter != 0:

@@ -65,7 +65,8 @@ class Optimize:
                 args.DELTA = 0.30
             elif args.opt_method[0] == "RFO_mFSB":
                 args.DELTA = 0.30
-
+            elif args.opt_method[0] == "Adaderivative":
+                args.DELTA = 0.002
             elif args.opt_method[0] == "Adabound":
                 args.DELTA = 0.01
             elif args.opt_method[0] == "AdaMax":
