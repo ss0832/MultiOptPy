@@ -19,7 +19,7 @@ About AFIR: https://afir.sci.hokudai.ac.jp/documents/manual/2
  - numpy
  - matplotlib
  - scipy
- - tblite (If you use extended tight binding method, this module is required.)
+ - tblite (If you use extended tight binding (xTB) method, this module is required.)
  - pytorch (for calculating derivatives)
 ## References
 
