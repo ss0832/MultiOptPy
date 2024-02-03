@@ -7,9 +7,10 @@ from param import UnitValueLib
 
 RFO method
  The Journal of Physical Chemistry, Vol. 89, No. 1, 1985
-FSB
+FSB, Bofill
  J. Chem. Phys. 1999, 111, 10806
-
+MSP
+ Journal of Molecular Structure: THEOCHEM 2002, 591 (1–3), 35–57.
 """
 
 class Opt_calc_tmps:
@@ -61,7 +62,7 @@ class CalculateMoveVector:
         return delta_hess
     
     def FSB_hessian_update(self, hess, displacement, delta_grad):
-
+        #J. Chem. Phys. 1999, 111, 10806
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_SR1 = np.dot(A, A.T) / np.dot(A.T, displacement) 
         delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / np.dot(displacement.T, delta_grad)) - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ np.dot(np.dot(displacement.T, hess), displacement))
@@ -70,11 +71,162 @@ class CalculateMoveVector:
 
         return delta_hess
 
-    
+    def Bofill_hessian_update(self, hess, displacement, delta_grad):
+        #J. Chem. Phys. 1999, 111, 10806
+        A = delta_grad - np.dot(hess, displacement)
+        delta_hess_SR1 = np.dot(A, A.T) / np.dot(A.T, displacement) 
+        delta_hess_PSB = -1 * np.dot(A.T, displacement) * np.dot(displacement, displacement.T) / np.dot(displacement.T, displacement) ** 2 - (np.dot(A, displacement.T) + np.dot(displacement, A.T)) / np.dot(np.dot(displacement.T, hess), displacement)
+        Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement)
+        delta_hess = Bofill_const*delta_hess_SR1 + (1 - Bofill_const)*delta_hess_PSB
 
+        return delta_hess  
+    
+    def MSP_hessian_update(self, hess, displacement, delta_grad):
+        #Journal of Molecular Structure: THEOCHEM 2002, 591 (1–3), 35–57.
+        A = delta_grad - np.dot(hess, displacement)
+        delta_hess_MS = np.dot(A, A.T) / np.dot(A.T, displacement) #SR1
+        delta_hess_P = -1 * np.dot(A.T, displacement) * np.dot(displacement, displacement.T) / np.dot(displacement.T, displacement) ** 2 - (np.dot(A, displacement.T) + np.dot(displacement, A.T)) / np.dot(np.dot(displacement.T, hess), displacement) #PSB
+        A_norm = np.linalg.norm(A) + 1e-8
+        displacement_norm = np.linalg.norm(displacement) + 1e-8
+        
+        phi = np.sin(np.arccos(np.dot(displacement.T, A) / (A_norm * displacement_norm))) ** 2
+        delta_hess = phi*delta_hess_P + (1 - phi)*delta_hess_MS
+        return delta_hess
+        
+    def RFO_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+        print("RFO_MSP_quasi_newton_method")
+        print("saddle order:", max(self.saddle_order-1, 0))
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        DELTA_for_QNM = self.DELTA
+        
+
+        delta_hess = self.Bofill_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+        
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+        
+        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list)*3, 1), axis=1)
+        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)*3), 0.0)], dtype="float64")
+        
+        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue = np.sort(eigenvalue)
+        lambda_for_calc = float(eigenvalue[self.saddle_order])
+        
+
+            
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+        DELTA_for_QNM = self.DELTA
+        
+        print("lambda   : ",lambda_for_calc)
+        print("step size: ",DELTA_for_QNM)
+        
+            
+
+        self.Model_hess = Model_hess_tmp(new_hess)
+        
+        return move_vector
+        
+    def MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+        print("MSP_quasi_newton_method")
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        
+        
+        
+        delta_hess_BFGS = self.Bofill_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess_BFGS + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+            
+        DELTA_for_QNM = self.DELTA
+        
+        
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+
+        
+        print("step size: ",DELTA_for_QNM,"\n")
+        self.Model_hess = Model_hess_tmp(new_hess)
+        return move_vector
+
+
+       
+    def RFO_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+        print("RFO_Bofill_quasi_newton_method")
+        print("saddle order:", max(self.saddle_order-1, 0))
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        DELTA_for_QNM = self.DELTA
+        
+
+        delta_hess = self.Bofill_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+        
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+        
+        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list)*3, 1), axis=1)
+        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)*3), 0.0)], dtype="float64")
+        
+        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue = np.sort(eigenvalue)
+        lambda_for_calc = float(eigenvalue[self.saddle_order])
+        
+
+            
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+        DELTA_for_QNM = self.DELTA
+        
+        print("lambda   : ",lambda_for_calc)
+        print("step size: ",DELTA_for_QNM)
+        
+            
+
+        self.Model_hess = Model_hess_tmp(new_hess)
+        
+        return move_vector
+        
+    def Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+        print("Bofill_quasi_newton_method")
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        
+        
+        
+        delta_hess_BFGS = self.Bofill_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess_BFGS + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+            
+        DELTA_for_QNM = self.DELTA
+        
+        
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+
+        
+        print("step size: ",DELTA_for_QNM,"\n")
+        self.Model_hess = Model_hess_tmp(new_hess)
+        return move_vector
+        
+        
     def RFO_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
         print("RFO_BFGS_quasi_newton_method")
-        print("saddle order:", self.saddle_order)
+        print("saddle order:", max(self.saddle_order-1, 0))
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
         DELTA_for_QNM = self.DELTA
@@ -139,7 +291,7 @@ class CalculateMoveVector:
 
     def RFO_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
         print("RFO_FSB_quasi_newton_method")
-        print("saddle order:", self.saddle_order)
+        print("saddle order:", max(self.saddle_order-1, 0))
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
         DELTA_for_QNM = self.DELTA
@@ -436,21 +588,22 @@ class CalculateMoveVector:
         
         return move_vector 
     
-    def conjugate_gradient_descent_v2(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+    #def conjugate_gradient_descent_v2(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
         #cg method
         
-        alpha = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_m).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_m.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_m.reshape(len(geom_num_list)*3, 1))
+    #    alpha = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_m).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_m.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_m.reshape(len(geom_num_list)*3, 1))
         
-        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+    #    move_vector = self.DELTA * alpha * self.Opt_params.adam_v
         
-        prev_opt_params_adam_v = self.Opt_params.adam_v
-        self.Opt_params.adam_v -= alpha * self.Opt_params.adam_m
+    #    prev_opt_params_adam_v = self.Opt_params.adam_v
+    #    self.Opt_params.adam_v -= alpha * self.Opt_params.adam_m
         
-        beta = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(prev_opt_params_adam_v.reshape(1, len(geom_num_list)*3), prev_opt_params_adam_v.reshape(len(geom_num_list)*3, 1))
+    #    beta = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(prev_opt_params_adam_v.reshape(1, len(geom_num_list)*3), prev_opt_params_adam_v.reshape(len(geom_num_list)*3, 1))
         
-        self.Opt_params.adam_m = self.Opt_params.adam_v + beta * self.Opt_params.adam_m
+    #    self.Opt_params.adam_m = self.Opt_params.adam_v + beta * self.Opt_params.adam_m
         
-        return move_vector
+    #    return move_vector
+    
     #Engineering Applications of Artificial Intelligence 2023, 119, 105755. https://doi.org/10.1016/j.engappai.2022.105755
     def Adaderivative(self, geom_num_list, B_g, pre_B_g):
         print("Adaderivative")
@@ -637,6 +790,8 @@ class CalculateMoveVector:
             move_vector.append(self.DELTA*new_adam_m[i]/np.sqrt(new_adam_v[i]+Epsilon))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         return move_vector
+        
+        
     #AdaDiff
     #ref. https://iopscience.iop.org/article/10.1088/1742-6596/2010/1/012027/pdf  Dian Huang et al 2021 J. Phys.: Conf. Ser. 2010 012027
     def AdaDiff(self, geom_num_list, B_g, pre_B_g):
@@ -1086,7 +1241,7 @@ class CalculateMoveVector:
             
             # group of quasi-Newton method
             
-            
+                    
             elif opt_method == "BFGS":
                 if iter != 0:
                     tmp_move_vector = self.BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
@@ -1095,6 +1250,7 @@ class CalculateMoveVector:
                 else:
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+                    
             elif opt_method == "RFO_BFGS":
                 if iter != 0:
                     tmp_move_vector = self.RFO_BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
@@ -1103,6 +1259,44 @@ class CalculateMoveVector:
                 else:
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+                    
+                    
+            elif opt_method == "Bofill":
+                if iter != 0:
+                    tmp_move_vector = self.Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
+                    
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
+            elif opt_method == "RFO_Bofill":
+                if iter != 0:
+                    tmp_move_vector = self.RFO_Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
+                    
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)     
+
+                    
+            elif opt_method == "MSP":
+                if iter != 0:
+                    tmp_move_vector = self.MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
+                    
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
+            elif opt_method == "RFO_MSP":
+                if iter != 0:
+                    tmp_move_vector = self.RFO_MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
+                    
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)     
+
+
                     
             elif opt_method == "FSB":
                 if iter != 0:
