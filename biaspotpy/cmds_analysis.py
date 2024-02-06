@@ -127,6 +127,9 @@ class CMDSPathAnalysis:
         result_list = []
         
         with open(self.directory+"cmds_analysis_result.csv", "w") as f:
+            f.write("dimensional reproducibility:,"+str(float(np.sum(Q_eigenvalue)/sum_of_eigenvalue))+"\n")
+            f.write("Percentage contribution 1:,"+str(float(Q_eigenvalue[rank1_idx]/sum_of_eigenvalue))+"\n")
+            f.write("Percentage contribution 2:,"+str(float(Q_eigenvalue[rank2_idx]/sum_of_eigenvalue))+"\n")
             f.write("itr.,   PCo1,     PCo2,     energy[kcal/mol],    energy(bias)[kcal/mol]\n")
             for i in range(len(PCo1)-1):
                 f.write(str(i)+", "+str(float(PCo1[i]))+", "+str(float(PCo2[i]))+","+str(self.energy_list[i])+", "+str(self.bias_energy_list[i])+"\n")
@@ -135,6 +138,6 @@ class CMDSPathAnalysis:
         result_list = np.array(result_list, dtype="float64").T
         self.cmds_visualization(result_list, self.energy_list, name="energy")
         self.cmds_visualization(result_list, self.bias_energy_list, name="bias_energy")
-        
+        print("CMDS analysis completed...")
         return
     
