@@ -74,7 +74,7 @@ class CMDSPathAnalysis:
         delta_y = ymax - ymin
         plt.xlim(xmin-(delta_x/5), xmax+(delta_x/5))
         plt.ylim(ymin-(delta_y/5), ymax+(delta_y/5))
-        for i in range(len(energy_list)):
+        for i in range(len(energy_list[:-1])):
             data = plt.scatter(x_array[i], y_array[i], c=energy_list[i], vmin=min(energy_list), vmax=max(energy_list), cmap='jet', s=25, marker="o", linewidths=0.1, edgecolors="black")
         plt.colorbar(data, label=name+" (kcal/mol)")
         plt.savefig(self.directory+"cmds_result_visualization_"+str(name)+".png" ,dpi=300,format="png")
