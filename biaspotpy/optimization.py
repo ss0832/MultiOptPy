@@ -17,7 +17,7 @@ from fileio import FileIO
 from param import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
-
+from cmds_analysis import CMDSPathAnalysis
 
 class Optimize:
     def __init__(self, args):
@@ -41,7 +41,7 @@ class Optimize:
         self.FC_COUNT = args.calc_exact_hess # 
         #---------------------------
         self.temperature = float(args.md_like_perturbation)
-        
+        self.CMDS = args.cmds 
         #---------------------------
         if len(args.opt_method) > 2:
             print("invaild input (-opt)")
@@ -345,7 +345,9 @@ class Optimize:
             for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
                 f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
         
-       
+        
+        
+        
         #----------------------
         print("Complete...")
         return
@@ -783,3 +785,8 @@ class Optimize:
         else:
             self.optimize_using_psi4()
     
+        if self.CMDS:
+            CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+            CMDPA.main()
+        
+        return

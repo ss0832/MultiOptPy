@@ -208,4 +208,17 @@ class Calculationtools:
         return dist
 
 
-
+    def kabsch_algorithm(self, P, Q):
+        #scipy.spatial.transform.Rotation.align_vectors
+        centroid_P = np.array([np.mean(P.T[0]), np.mean(P.T[1]), np.mean(P.T[2])], dtype="float64")
+        centroid_Q = np.array([np.mean(Q.T[0]), np.mean(Q.T[1]), np.mean(Q.T[2])], dtype="float64")
+        P -= centroid_P
+        Q -= centroid_Q
+        H = np.dot(P.T, Q)
+        U, S, Vt = np.linalg.svd(H)
+        R = np.dot(Vt.T, U.T)
+        if np.linalg.det(R) < 0:
+            Vt[-1,:] *= -1
+            R = np.dot(Vt.T, U.T)
+        P = np.dot(R, P.T).T
+        return P, Q
