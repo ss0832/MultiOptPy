@@ -15,12 +15,17 @@ About AFIR: https://afir.sci.hokudai.ac.jp/documents/manual/2
 ## Required Modules
 
  - psi4 v15 (Official page:https://psicode.org/   For local download:https://psicode.org/installs/v15/)
- - PySCF v2.4.0 (Not always necessary)
+
  - numpy
  - matplotlib
  - scipy
- - tblite (If you use extended tight binding (xTB) method, this module is required.)
  - pytorch (for calculating derivatives)
+
+Optional
+ 
+ - PySCF v2.4.0 (Not always necessary)
+ - tblite (If you use extended tight binding (xTB) method, this module is required.)
+
 ## References
 
 References are given in the source code.
