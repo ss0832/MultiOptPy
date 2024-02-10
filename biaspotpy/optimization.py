@@ -31,10 +31,10 @@ class Optimize:
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
         self.NUM_LIST = [] #
 
-        self.MAX_FORCE_THRESHOLD = 0.0003 #
-        self.RMS_FORCE_THRESHOLD = 0.0002 #
-        self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 # 
-        self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #
+        self.MAX_FORCE_THRESHOLD = 0.0003 #0.0003
+        self.RMS_FORCE_THRESHOLD = 0.0003 #0.0002
+        self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 #0.0015 
+        self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #0.0010
 
         
         self.args = args #

@@ -24,6 +24,39 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
     
+    def numerical_hessian(self, geom_num_list, element_list, method):#geom_num_list: 3*N (Bohr)
+        numerical_delivative_delta = 0.0001
+        
+        count = 0
+        hessian = np.zeros((3*len(geom_num_list), 3*len(geom_num_list)))
+        for atom_num in range(len(geom_num_list)):
+            for i in range(3):
+                for atom_num_2 in range(len(geom_num_list)):
+                    for j in range(3):
+                        tmp_grad = []
+                        if count > 3 * atom_num_2 + j:
+                            continue
+                        
+                        for direction in [1, -1]:
+                            geom_num_list = np.array(geom_num_list, dtype="float64")
+                            max_scf_iteration = len(element_list) * 100 + 2500 
+                            copy_geom_num_list = copy.copy(geom_num_list)
+                            copy_geom_num_list[atom_num][i] += direction * numerical_delivative_delta
+                            calc = Calculator(method, element_list, copy_geom_num_list)
+                            calc.set("max-iter", max_scf_iteration)
+                            calc.set("verbosity", 0)
+                                    
+                            res = calc.singlepoint()        
+                            g = res.get("gradient") #hartree/Bohr
+                            tmp_grad.append(g[atom_num_2][j])
+                        hessian[3*atom_num+i][3*atom_num_2+j] = (tmp_grad[0] - tmp_grad[1]) / (2*numerical_delivative_delta)
+                        hessian[3*atom_num_2+j][3*atom_num+i] = (tmp_grad[0] - tmp_grad[1]) / (2*numerical_delivative_delta)
+                        
+                count += 1        
+      
+        
+        return hessian
+    
     def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method):
         """execute extended tight binding method calclation."""
         gradient_list = []
@@ -47,6 +80,7 @@ class Calculation:
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
             try:
+                
                 print("\n",input_file,"\n")
 
                 with open(input_file,"r") as f:
@@ -80,8 +114,18 @@ class Calculation:
                     pass
                 
                 elif iter % self.FC_COUNT == 0:
-                    print("error (cant calculate hessian)")
-                    return 0, 0, 0, finish_frag 
+                    """exact numerical hessian"""
+                    exact_hess = self.numerical_hessian(positions, element_number_list, method)
+
+                    eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    print("=== hessian (before add bias potential) ===")
+                    print("eigenvalues: ", eigenvalues)
+                    
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_number_list.tolist(), positions)
+                    self.Model_hess = Model_hess_tmp(exact_hess, momentum_disp=self.Model_hess.momentum_disp, momentum_grad=self.Model_hess.momentum_grad)
+                   
+                                 
+                
                 
 
 

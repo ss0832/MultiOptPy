@@ -121,6 +121,8 @@ class Calculationtools:
     
     def project_out_hess_tr_and_rot(self, hessian, element_list, geomerty):
         natoms = len(element_list)
+
+        
         elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
         
         M = np.diag(np.repeat(elem_mass, 3))
