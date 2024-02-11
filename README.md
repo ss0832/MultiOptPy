@@ -235,7 +235,7 @@ Second derivative of each bias potential is analytically formulated and implemen
 - (2023/11/11) Autograd function (pytorch) Calculates all derivatives. 
 
 Implementation of an algorithm to find more than a primary saddle point
-- (2024/02/11) execute SADDLE calculation by using options '-opt RFO2_FSB' and '-order 1'
+- (2024/02/11) execute 1st order SADDLE calculation by using options '-opt RFO2_FSB' and '-order 1'
  
 ## Author
 
