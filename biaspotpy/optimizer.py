@@ -1490,7 +1490,7 @@ class CalculateMoveVector:
         # diagonize hessian matrix and display eigenvalues
         #-----------------------------------------------------------
         hess_eigenvalue, _ = np.linalg.eig(self.Model_hess.model_hess)
-        
+        hess_eigenvalue = hess_eigenvalue.astype(np.float64)
         print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
         
         #---------------------------------
