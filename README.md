@@ -15,7 +15,6 @@ About AFIR: https://afir.sci.hokudai.ac.jp/documents/manual/2
 ## Required Modules
 
  - psi4 v15 (Official page:https://psicode.org/   For local download:https://psicode.org/installs/v15/)
-
  - numpy
  - matplotlib
  - scipy
@@ -36,6 +35,10 @@ python optmain.py SN2.xyz -ma 150 1 6
 ```
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
+```
+For SADDLE calculation
+```
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RFO2_FSB -order 1 -fc 500
 ```
 
 For NEB method
@@ -81,7 +84,7 @@ Recommended optimization methods:
 - AdaBelief (fast convergence)
 - FIRE (suitable for finding locally optimal solutions)
 - RFO_FSB (can use quasi-Newton method)
-- RFO2_MSP (for calculation of saddle point)
+- RFO2_FSB (for calculation of saddle point)
 
 `-ma`
 
