@@ -79,10 +79,9 @@ Available optimization methods:
 Recommended optimization methods:
 
 - AdaBelief (fast convergence)
-- AdaDiff (Carefully descend the potential energy surface)
 - FIRE (suitable for finding locally optimal solutions)
 - RFO_FSB (can use quasi-Newton method)
-
+- RFO2_MSP (for calculation of saddle point)
 
 `-ma`
 
