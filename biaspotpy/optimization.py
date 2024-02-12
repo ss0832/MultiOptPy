@@ -52,6 +52,9 @@ class Optimize:
                 args.DELTA = 0.5
             elif args.opt_method[0] == "RFO_FSB":
                 args.DELTA = 0.5
+            elif args.opt_method[0] == "RFO2_FSB":
+                args.DELTA = 0.5    
+                
             elif args.opt_method[0] == "BFGS":
                 args.DELTA = 0.5
             elif args.opt_method[0] == "RFO_BFGS":
@@ -60,9 +63,12 @@ class Optimize:
                 args.DELTA = 1.0
             elif args.opt_method[0] == "RFO_Bofill":
                 args.DELTA = 0.5
+            elif args.opt_method[0] == "RFO2_Bofill":
+                args.DELTA = 0.5 
             elif args.opt_method[0] == "MSP":
                 args.DELTA = 1.0
-        
+            elif args.opt_method[0] == "RFO2_MSP":
+                args.DELTA = 0.5
             elif args.opt_method[0] == "mBFGS":
                 args.DELTA = 0.50
             elif args.opt_method[0] == "mFSB":
