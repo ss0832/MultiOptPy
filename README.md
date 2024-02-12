@@ -84,7 +84,7 @@ Recommended optimization methods:
 - AdaBelief (fast convergence)
 - FIRE (suitable for finding locally optimal solutions)
 - RFO_FSB (can use quasi-Newton method)
-- RFO2_FSB (for calculation of saddle point)
+- RFO2_Bofill (for calculation of saddle point)
 
 `-ma`
 
@@ -235,7 +235,7 @@ Second derivative of each bias potential is analytically formulated and implemen
 - (2023/11/11) Autograd function (pytorch) Calculates all derivatives. 
 
 Implementation of an algorithm to find more than a primary saddle point
-- (2024/02/11) execute 1st order SADDLE calculation by using options '-opt RFO2_FSB' and '-order 1'
+- (2024/02/11) execute 1st order SADDLE calculation by using options '-opt RFO2_Bofill' and '-order 1'
  
 ## Author
 
