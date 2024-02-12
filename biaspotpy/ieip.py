@@ -290,6 +290,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "bias_energy", axis_name_2="energy [kcal/mol]", name="energy")   
         G.single_plot(NUM_LIST, bias_grad_list, file_directory_1, "bias_gradient", axis_name_2="grad (RMS) [a.u.]", name="gradient")
         FIO1.xyz_file_make_for_DM(img_1="A", img_2="B")
+        
+        FIO1.argrelextrema_txt_save(ene_list, "approx_TS", "max")
+        FIO1.argrelextrema_txt_save(ene_list, "approx_EQ", "min")
+        FIO1.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
+        
         return
     
     def norm_dist_2imgs(self, geom_num_list_1, geom_num_list_2):

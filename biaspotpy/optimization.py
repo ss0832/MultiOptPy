@@ -32,7 +32,7 @@ class Optimize:
         self.NUM_LIST = [] #
 
         self.MAX_FORCE_THRESHOLD = 0.0003 #0.0003
-        self.RMS_FORCE_THRESHOLD = 0.0003 #0.0002
+        self.RMS_FORCE_THRESHOLD = 0.0002 #0.0002
         self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 #0.0015 
         self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #0.0010
 
@@ -243,7 +243,7 @@ class Optimize:
 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
             new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
             self.Opt_params = Opt_params
             self.Model_hess = Model_hess
@@ -451,7 +451,7 @@ class Optimize:
 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
             new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
             self.Opt_params = Opt_params
             self.Model_hess = Model_hess
@@ -656,7 +656,7 @@ class Optimize:
 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
             new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
             self.Opt_params = Opt_params
             self.Model_hess = Model_hess

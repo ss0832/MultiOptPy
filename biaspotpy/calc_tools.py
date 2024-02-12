@@ -162,8 +162,8 @@ class Calculationtools:
         eigenvalues, eigenvectors = np.linalg.eigh(hess_proj)
         eigenvalues = eigenvalues[n_tr:]
         eigenvectors = eigenvectors[:, n_tr:]
-        print("=== hessian projected out transition and rotation (before add bias potential) ===")
-        print("eigenvalues: ", eigenvalues)
+        #print("=== hessian projected out transition and rotation (before add bias potential) ===")
+        #print("eigenvalues: ", eigenvalues)
         return hess_proj
     
   
