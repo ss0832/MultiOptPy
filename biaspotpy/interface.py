@@ -69,6 +69,7 @@ def ieipparser():
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
 
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
+    parser.add_argument("-mi", "--microiter",  type=int, default=0, help='microiteration for relaxing reaction pathways')
     parser.add_argument("-beta", "--BETA",  type=float, default='1.0', help='force for optimization')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
 

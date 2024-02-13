@@ -80,29 +80,103 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
         self.BETA = args.BETA
         self.force_data = force_data_parser(args)
+        self.spring_const = 0.1
+        self.microiter_num = args.microiter
         
         return
-
+    def RMS(self, mat):
+        rms = np.sqrt(np.sum(mat**2))
+        return rms
+    
     def print_info(self, dat):
-        def RMS(mat):
-            rms = np.sqrt(np.sum(mat**2))
-            return rms
+
         print("[[opt information]]")
         print("                                                image_1               image_2")
         print("energy  (normal)                       : "+str(dat["energy_1"])+"   "+str(dat["energy_2"]))
         print("energy  (bias)                         : "+str(dat["bias_energy_1"])+"   "+str(dat["bias_energy_2"]))
-        print("gradient  (normal, RMS)                : "+str(RMS(dat["gradient_1"]))+"   "+str(RMS(dat["gradient_2"])))
-        print("gradient  (bias, RMS)                  : "+str(RMS(dat["bias_gradient_1"]))+"   "+str(RMS(dat["bias_gradient_2"])))
-        print("perpendicular_force (RMS)              : "+str(RMS(dat["perp_force_1"]))+"   "+str(RMS(dat["perp_force_2"])))
-        print("energy_difference_dependent_force (RMS): "+str(RMS(dat["delta_energy_force_1"]))+"   "+str(RMS(dat["delta_energy_force_2"])))
-        print("distance_dependent_force (RMS)         : "+str(RMS(dat["close_target_force"])))
-        print("Total_displacement (RMS)               : "+str(RMS(dat["total_disp_1"]))+"   "+str(RMS(dat["total_disp_2"])))
+        print("gradient  (normal, RMS)                : "+str(self.RMS(dat["gradient_1"]))+"   "+str(self.RMS(dat["gradient_2"])))
+        print("gradient  (bias, RMS)                  : "+str(self.RMS(dat["bias_gradient_1"]))+"   "+str(self.RMS(dat["bias_gradient_2"])))
+        print("perpendicular_force (RMS)              : "+str(self.RMS(dat["perp_force_1"]))+"   "+str(self.RMS(dat["perp_force_2"])))
+        print("energy_difference_dependent_force (RMS): "+str(self.RMS(dat["delta_energy_force_1"]))+"   "+str(self.RMS(dat["delta_energy_force_2"])))
+        print("distance_dependent_force (RMS)         : "+str(self.RMS(dat["close_target_force"])))
+        print("Total_displacement (RMS)               : "+str(self.RMS(dat["total_disp_1"]))+"   "+str(self.RMS(dat["total_disp_2"])))
         print("Image_distance                         : "+str(dat["delta_geometry"]))
         
         print("[[threshold]]")
         print("Image_distance                         : ", self.img_distance_convage_criterion)
        
         return
+
+    def microiteration(self, SP, FIO1, FIO2, file_directory_1, file_directory_2, element_list, electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter):
+        #Add force to minimize potential along MEP. (based on nudged elestic bond method)
+ 
+        for i in range(self.microiter_num):
+            print("# Microiteration "+str(i))
+            energy_1, gradient_1, geom_num_list_1, _ = SP.single_point(file_directory_1, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_2, gradient_2, geom_num_list_2, _ = SP.single_point(file_directory_2, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
+            
+            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
+            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
+            
+            _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
+            _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
+            
+  
+            
+            N_1 = self.norm_dist_2imgs(geom_num_list_1, prev_geom_num_list_1)
+            N_2 = self.norm_dist_2imgs(geom_num_list_2, prev_geom_num_list_2)
+            
+            perp_force_1 = self.perpendicular_force(bias_gradient_1, N_1)
+            perp_force_2 = self.perpendicular_force(bias_gradient_2, N_2)
+            
+            paral_force_1 = self.spring_const * N_1
+            paral_force_2 = self.spring_const * N_2
+            
+            print("Energy 1                 :", energy_1)
+            print("Energy 2                 :", energy_2)
+            print("Energy 1  (bias)         :", bias_energy_1)
+            print("Energy 2  (bias)         :", bias_energy_2)
+            print("RMS perpendicular force 1:", self.RMS(perp_force_1))
+            print("RMS perpendicular force 2:", self.RMS(perp_force_2))
+            
+            perp_disp_1 = self.displacement(perp_force_1)
+            perp_disp_2 = self.displacement(perp_force_2)
+            paral_disp_1 = self.displacement(paral_force_1)
+            paral_disp_2 = self.displacement(paral_force_2)
+            total_disp_1 = perp_disp_1 + paral_disp_1
+            total_disp_2 = perp_disp_2 + paral_disp_2
+            
+
+            geom_num_list_1 -= total_disp_1 
+            geom_num_list_2 -= total_disp_2
+            
+            
+            
+            
+            new_geom_num_list_1_tolist = (geom_num_list_1*self.bohr2angstroms).tolist()
+            new_geom_num_list_2_tolist = (geom_num_list_2*self.bohr2angstroms).tolist()
+            for i, elem in enumerate(element_list):
+                new_geom_num_list_1_tolist[i].insert(0, elem)
+                new_geom_num_list_2_tolist[i].insert(0, elem)
+           
+            if self.args.pyscf:
+                
+                file_directory_1 = FIO1.make_pyscf_input_file([new_geom_num_list_1_tolist], iter) 
+                file_directory_2 = FIO2.make_pyscf_input_file([new_geom_num_list_2_tolist], iter) 
+            
+            else:
+                new_geom_num_list_1_tolist.insert(0, electric_charge_and_multiplicity)
+                new_geom_num_list_2_tolist.insert(0, electric_charge_and_multiplicity)
+                
+                file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter)
+                file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter)
+            
+            if self.RMS(perp_force_1) < 0.01 and self.RMS(perp_disp_2) < 0.01:
+                print("enough to relax.")
+                break
+            
+        return energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2
+
 
     def iteration(self, file_directory_1, file_directory_2, SP, element_list, electric_charge_and_multiplicity, FIO1, FIO2):
         G = Graph(self.iEIP_FOLDER_DIRECTORY)
@@ -140,6 +214,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
+        
+            if self.microiter_num > 0 and iter > 0:
+                energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2 = self.microiteration(SP, FIO1, FIO2, file_directory_1, file_directory_2, element_list, electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter)
+            
         
             if energy_2 > energy_1:
             
@@ -273,6 +351,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             ENERGY_LIST_B.append(energy_2*self.hartree2kcalmol)
             GRAD_LIST_A.append(np.sqrt(np.sum(gradient_1**2)))
             GRAD_LIST_B.append(np.sqrt(np.sum(gradient_2**2)))
+            
+            prev_geom_num_list_1 = geom_num_list_1
+            prev_geom_num_list_2 = geom_num_list_2
             
             if delta_geometry < self.img_distance_convage_criterion:#Bohr
                 print("Converged!!!")
