@@ -80,7 +80,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
         self.BETA = args.BETA
         self.force_data = force_data_parser(args)
-        self.spring_const = 0.1
+        self.spring_const = 1e-8
         self.microiter_num = args.microiter
         
         return
