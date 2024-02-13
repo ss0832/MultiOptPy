@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import glob
+import copy
 
 import numpy as np
 
@@ -121,11 +122,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
             
-  
+
             
             N_1 = self.norm_dist_2imgs(geom_num_list_1, prev_geom_num_list_1)
             N_2 = self.norm_dist_2imgs(geom_num_list_2, prev_geom_num_list_2)
-            
+            L_1 = self.dist_2imgs(geom_num_list_1, prev_geom_num_list_1)
+            L_2 = self.dist_2imgs(geom_num_list_2, prev_geom_num_list_2)
             perp_force_1 = self.perpendicular_force(bias_gradient_1, N_1)
             perp_force_2 = self.perpendicular_force(bias_gradient_2, N_2)
             
@@ -139,13 +141,35 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             print("RMS perpendicular force 1:", self.RMS(perp_force_1))
             print("RMS perpendicular force 2:", self.RMS(perp_force_2))
             
-            perp_disp_1 = self.displacement(perp_force_1)
-            perp_disp_2 = self.displacement(perp_force_2)
-            paral_disp_1 = self.displacement(paral_force_1)
-            paral_disp_2 = self.displacement(paral_force_2)
-            total_disp_1 = perp_disp_1 + paral_disp_1
-            total_disp_2 = perp_disp_2 + paral_disp_2
+            total_force_1 = perp_force_1 + paral_force_1
+            total_force_2 = perp_force_2 + paral_force_2
             
+            #cg method
+            if i > 0:
+                alpha_1 = np.dot(total_force_1.reshape(1, len(total_force_1)*3), (d_1).reshape(len(total_force_1)*3, 1)) / np.dot(d_1.reshape(1, len(total_force_1)*3), d_1.reshape(len(total_force_1)*3, 1))
+                total_disp_1 = alpha_1 * d_1
+                beta_1 = np.dot(total_force_1.reshape(1, len(total_force_1)*3), (total_force_1 - prev_total_force_1).reshape(len(total_force_1)*3, 1)) / np.dot(d_1.reshape(1, len(total_force_1)*3), (total_force_1 - prev_total_force_1).reshape(len(total_force_1)*3, 1))#Hestenes-stiefel
+                d_1 = copy.copy(-1 * total_force_1 + abs(beta_1) * d_1)
+                
+                alpha_2 = np.dot(total_force_2.reshape(1, len(total_force_2)*3), (d_2).reshape(len(total_force_2)*3, 1)) / np.dot(d_2.reshape(1, len(total_force_2)*3), d_2.reshape(len(total_force_2)*3, 1))
+                total_disp_2 = alpha_2 * d_2
+                beta_2 = np.dot(total_force_2.reshape(1, len(total_force_2)*3), (total_force_2 - prev_total_force_2).reshape(len(total_force_2)*3, 1)) / np.dot(d_2.reshape(1, len(total_force_2)*3), (total_force_2 - prev_total_force_2).reshape(len(total_force_2)*3, 1))#Hestenes-stiefel
+                d_2 = copy.copy(-1 * total_force_2 + abs(beta_2) * d_2)  
+            else:   
+                d_1 = total_force_1
+                d_2 = total_force_2
+                perp_disp_1 = self.displacement(perp_force_1)
+                perp_disp_2 = self.displacement(perp_force_2)
+                paral_disp_1 = self.displacement(paral_force_1)
+                paral_disp_2 = self.displacement(paral_force_2)
+                
+                total_disp_1 = perp_disp_1 + paral_disp_1
+                total_disp_2 = perp_disp_2 + paral_disp_2
+            
+
+            
+            total_disp_1 = (total_disp_1 / np.linalg.norm(total_disp_1)) * min(np.linalg.norm(total_disp_1), L_1)            
+            total_disp_2 = (total_disp_2 / np.linalg.norm(total_disp_2)) * min(np.linalg.norm(total_disp_2), L_2)            
 
             geom_num_list_1 -= total_disp_1 
             geom_num_list_2 -= total_disp_2
@@ -171,9 +195,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter)
                 file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter)
             
-            if self.RMS(perp_force_1) < 0.01 and self.RMS(perp_disp_2) < 0.01:
+            if self.RMS(perp_force_1) < 0.01 and self.RMS(perp_force_2) < 0.01:
                 print("enough to relax.")
                 break
+            
+            prev_total_force_1 = total_force_1
+            prev_total_force_2 = total_force_2
+            
+            
             
         return energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2
 
