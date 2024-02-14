@@ -1,7 +1,8 @@
 import numpy as np
 import copy
 
-from param import UnitValueLib 
+from param import UnitValueLib
+from calc_tools import Calculationtools
 
 """
 RFO method
@@ -45,20 +46,29 @@ class CalculateMoveVector:
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
+        self.trust_radii_update = "trust"
         
     def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector):
-        Sc = 2.0
-        Ce = abs(np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.Model_hess.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
-        r = abs(B_e - pre_B_e) / Ce
-        
-        if r < 0.25:
-            trust_radii /= 2*Sc
-        
-        elif r > 0.25 and (trust_radii - np.linalg.norm(pre_move_vector)) < 1e-3:
-            trust_radii *= Sc ** 0.5
+    
+        if self.trust_radii_update == "trust":
+            Sc = 2.0
+            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.Model_hess.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
+            r = (B_e - pre_B_e) / Ce
+            
+            if r < 0.25:
+                trust_radii /= 2*Sc
+            
+            elif r > 0.25 and (trust_radii - np.linalg.norm(pre_move_vector)) < 1e-3:
+                trust_radii *= Sc ** 0.5
+            else:
+                pass
+        elif self.trust_radii_update == "legacy":
+            if pre_B_e >= B_e:
+                trust_radii *= 3.0
+            else:
+                trust_radii *= 0.1
         else:
             pass
-              
                                    
         return np.clip(trust_radii, 0.01, 1.0)
 
@@ -67,7 +77,7 @@ class CalculateMoveVector:
         A = delta_grad - np.dot(hess, displacement)
 
         delta_hess = (np.dot(delta_grad, delta_grad.T) / np.dot(displacement.T, delta_grad)) - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ np.dot(np.dot(displacement.T, hess), displacement))
-        
+        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
         return delta_hess
     
     def FSB_hessian_update(self, hess, displacement, delta_grad):
@@ -77,7 +87,7 @@ class CalculateMoveVector:
         delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / np.dot(displacement.T, delta_grad)) - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ np.dot(np.dot(displacement.T, hess), displacement))
         Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement)
         delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
-        
+        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
         return delta_hess
 
     def Bofill_hessian_update(self, hess, displacement, delta_grad):
@@ -87,7 +97,7 @@ class CalculateMoveVector:
         delta_hess_PSB = -1 * np.dot(A.T, displacement) * np.dot(displacement, displacement.T) / np.dot(displacement.T, displacement) ** 2 - (np.dot(A, displacement.T) + np.dot(displacement, A.T)) / np.dot(displacement.T, displacement)
         Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement)
         delta_hess = Bofill_const*delta_hess_SR1 + (1 - Bofill_const)*delta_hess_PSB
-        
+        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
         return delta_hess  
     
     def MSP_hessian_update(self, hess, displacement, delta_grad):
@@ -100,7 +110,7 @@ class CalculateMoveVector:
         
         phi = np.sin(np.arccos(np.dot(displacement.T, A) / (A_norm * displacement_norm))) ** 2
         delta_hess = phi*delta_hess_P + (1 - phi)*delta_hess_MS
-       
+        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
         
         return delta_hess
 
@@ -116,6 +126,7 @@ class CalculateMoveVector:
         
         
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            
             new_hess = self.Model_hess.model_hess + delta_hess + self.BPA_hessian
         else:
             new_hess = self.Model_hess.model_hess + self.BPA_hessian
@@ -148,7 +159,7 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
 
     def RFOv2_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -195,7 +206,7 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
 
     def RFOv2_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -242,7 +253,7 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
 
     def RFOv2_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -289,7 +300,7 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
 
     def RFO_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -327,7 +338,7 @@ class CalculateMoveVector:
         
             
 
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         
         return move_vector
         
@@ -353,7 +364,7 @@ class CalculateMoveVector:
 
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
   
     def RFO_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -391,7 +402,7 @@ class CalculateMoveVector:
         
             
 
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         
         return move_vector
         
@@ -417,7 +428,7 @@ class CalculateMoveVector:
 
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
               
     def RFO_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -455,7 +466,7 @@ class CalculateMoveVector:
         
             
 
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         
         return move_vector
         
@@ -481,7 +492,7 @@ class CalculateMoveVector:
 
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
     
 
@@ -518,7 +529,7 @@ class CalculateMoveVector:
             
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
         
     def FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -542,7 +553,7 @@ class CalculateMoveVector:
 
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
         return move_vector
     
     # arXiv:2307.13744v1
@@ -587,7 +598,7 @@ class CalculateMoveVector:
 
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess, new_momentum_disp, new_momentum_grad)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
         
         return move_vector 
     
@@ -629,7 +640,7 @@ class CalculateMoveVector:
         
         
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess, new_momentum_disp, new_momentum_grad)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
         return move_vector 
             
         
@@ -682,7 +693,7 @@ class CalculateMoveVector:
     
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess, new_momentum_disp, new_momentum_grad)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
         return move_vector 
     
     def RFO_momentum_based_FSB(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
@@ -730,7 +741,7 @@ class CalculateMoveVector:
         
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
-        self.Model_hess = Model_hess_tmp(new_hess, new_momentum_disp, new_momentum_grad)
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
         return move_vector 
     
     def conjugate_gradient_descent(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
@@ -1611,7 +1622,7 @@ class CalculateMoveVector:
         #------------------------------------------------------------
         # diagonize hessian matrix and display eigenvalues
         #-----------------------------------------------------------
-        hess_eigenvalue, _ = np.linalg.eig(self.Model_hess.model_hess)
+        hess_eigenvalue, _ = np.linalg.eig(self.Model_hess.model_hess + self.BPA_hessian)
         hess_eigenvalue = hess_eigenvalue.astype(np.float64)
         print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
         

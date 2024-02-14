@@ -309,10 +309,12 @@ class Optimize:
                     fragm_dist_list.append(dist)
                 
                 
+                
                 if min(fragm_dist_list) > self.DC_check_dist:
                     print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
                     
                     print("This molecules are dissociated.")
+                    
                     break
             
             #----------------------------
@@ -722,7 +724,6 @@ class Optimize:
                
                 if min(fragm_dist_list) > self.DC_check_dist:
                     print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
-                    
                     print("This molecules are dissociated.")
                     break
              
