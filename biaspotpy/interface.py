@@ -152,6 +152,7 @@ def nebparser():
 
     parser.add_argument("-ns", "--NSTEP",  type=int, default='10', help='iter. number')
     parser.add_argument("-o", "--OM", action='store_true', help='J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593 This improved NEB method is inspired by the Onsager-Machlup (OM) action. (OM + DNEB)')
+    parser.add_argument("-l", "--LUP", action='store_true', help='locally updated planes (LUP) method')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
