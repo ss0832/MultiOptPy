@@ -23,8 +23,9 @@ class Calculation:
         self.FC_COUNT = kwarg["FC_COUNT"]
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
+        self.unrestrict = kwarg["unrestrict"]
     
-    def numerical_hessian(self, geom_num_list, element_list, method):#geom_num_list: 3*N (Bohr)
+    def numerical_hessian(self, geom_num_list, element_list, method, electric_charge_and_multiplicity):#geom_num_list: 3*N (Bohr)
         numerical_delivative_delta = 0.0001
         
         count = 0
@@ -42,10 +43,15 @@ class Calculation:
                             max_scf_iteration = len(element_list) * 100 + 2500 
                             copy_geom_num_list = copy.copy(geom_num_list)
                             copy_geom_num_list[atom_num][i] += direction * numerical_delivative_delta
-                            calc = Calculator(method, element_list, copy_geom_num_list)
+                            
+                            if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
+                                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+                            else:
+                                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
+                            
                             calc.set("max-iter", max_scf_iteration)
                             calc.set("verbosity", 0)
-                                    
+                            
                             res = calc.singlepoint()        
                             g = res.get("gradient") #hartree/Bohr
                             tmp_grad.append(g[atom_num_2][j])
@@ -93,13 +99,16 @@ class Calculation:
                 else:
                     for word in input_data[1:]:
                         positions.append(word.split()[1:4])
-                    
+                        
                 
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 max_scf_iteration = len(element_number_list) * 100 + 2500 
+                if int(electric_charge_and_multiplicity[1]) > 1:
+                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+                else:
+                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
                 
-                calc = Calculator(method, element_number_list, positions)
-                calc.set("max-iter", max_scf_iteration)
+                calc.set("max-iter", max_scf_iteration)           
                 calc.set("verbosity", 0)
                 
                 res = calc.singlepoint()
@@ -115,7 +124,7 @@ class Calculation:
                 
                 elif iter % self.FC_COUNT == 0:
                     """exact numerical hessian"""
-                    exact_hess = self.numerical_hessian(positions, element_number_list, method)
+                    exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
 
                     eigenvalues, _ = np.linalg.eigh(exact_hess)
                     print("=== hessian (before add bias potential) ===")

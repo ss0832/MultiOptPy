@@ -19,7 +19,7 @@ class Calculation:
         self.FC_COUNT = kwarg["FC_COUNT"]
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
-        
+        self.unrestrict = kwarg["unrestrict"]
         return
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method=""):
@@ -38,7 +38,7 @@ class Calculation:
         for num, input_file in enumerate(file_list):
             try:
                 print("\n",input_file,"\n")
-                if int(electric_charge_and_multiplicity[1]) > 1:
+                if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 logfile = file_directory+"/"+self.START_FILE[:-4]+'_'+str(num)+'.log'
                 psi4.set_options({"MAXITER": 700})

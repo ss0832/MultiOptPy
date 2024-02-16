@@ -145,7 +145,7 @@ class Optimize:
         self.Model_hess = None #
         self.Opt_params = None #
         self.DC_check_dist = 10.0#ang.
-        
+        self.unrestrict = args.unrestrict
         return
 
     def optimize_using_tblite(self):
@@ -192,7 +192,8 @@ class Optimize:
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess)
+                         Model_hess = self.Model_hess,
+                         unrestrict = self.unrestrict)
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -406,7 +407,8 @@ class Optimize:
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess)
+                         Model_hess = self.Model_hess,
+                         unrestrict = self.unrestrict)
         #----------------------------------
         
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -613,7 +615,8 @@ class Optimize:
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
                          spin_multiplicity = self.spin_multiplicity,
-                         electronic_charge = self.electronic_charge)
+                         electronic_charge = self.electronic_charge,
+                         unrestrict = self.unrestrict)
         #----------------------------------
         
         cos_list = [[] for i in range(len(force_data["geom_info"]))]

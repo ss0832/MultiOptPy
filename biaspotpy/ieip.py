@@ -83,8 +83,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.force_data = force_data_parser(args)
         self.spring_const = 1e-8
         self.microiter_num = args.microiter
-        
+        self.unrestrict = args.unrestrict
         return
+        
+        
     def RMS(self, mat):
         rms = np.sqrt(np.sum(mat**2))
         return rms

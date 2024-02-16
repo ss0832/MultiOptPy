@@ -27,6 +27,7 @@ class Calculation:
         self.Model_hess = kwarg["Model_hess"]
         self.electronic_charge = kwarg["electronic_charge"]
         self.spin_multiplicity = kwarg["spin_multiplicity"]
+        self.unrestrict = kwarg["unrestrict"]
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method=""):
         """execute QM calclation."""
@@ -60,12 +61,12 @@ class Calculation:
                                   max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                   verbose=4)
                 if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
-                    if int(self.spin_multiplicity) > 0:
+                    if int(self.spin_multiplicity) > 0 or self.unrestrict:
                         mf = mol.UHF().x2c().density_fit()
                     else:
                         mf = mol.RHF().density_fit()
                 else:
-                    if int(self.spin_multiplicity) > 1:
+                    if int(self.spin_multiplicity) > 0 or self.unrestrict:
                         mf = mol.UKS().x2c().density_fit()
                     else:
                         mf = mol.RKS().density_fit()

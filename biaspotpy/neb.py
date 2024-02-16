@@ -59,7 +59,7 @@ class NEB:
         self.lup = args.LUP
         self.usextb = args.usextb
         self.sd = args.steepest_descent
-        
+        self.unrestrict = args.unrestrict
         if args.usextb == "None":
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time())+"/"
         else:
@@ -182,9 +182,14 @@ class NEB:
                 logfile = file_directory+"/"+self.start_folder+'_'+str(num)+'.log'
                 #psi4.set_options({'pcm': True})
                 #psi4.pcm_helper(pcm)
+                
                 psi4.set_output_file(logfile)
+                
+                
                 psi4.set_num_threads(nthread=self.N_THREAD)
                 psi4.set_memory(self.SET_MEMORY)
+                if self.unrestrict:
+                    psi4.set_options({'reference': 'uks'})
                 with open(input_file,"r") as f:
                     input_data = f.read()
                     input_data = psi4.geometry(input_data)
@@ -240,7 +245,7 @@ class NEB:
 
         return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
     
-    def tblite_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list):
+    def tblite_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity):
         #execute extended tight binding method calclation.
         gradient_list = []
         energy_list = []
@@ -266,9 +271,14 @@ class NEB:
                     positions.append(word.split()[1:4])
                         
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
-                calc = Calculator(self.usextb, element_number_list, positions)
+                if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
+                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+                else:
+                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))                
                 calc.set("max-iter", 500)
                 calc.set("verbosity", 1)
+                
+                
                 res = calc.singlepoint()
                 e = float(res.get("energy"))  #hartree
                 g = res.get("gradient") #hartree/Bohr
@@ -798,7 +808,7 @@ class NEB:
             if self.args.usextb == "None":
                 energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
             else:
-                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list)
+                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
             biased_energy_list = []
             biased_gradient_list = []

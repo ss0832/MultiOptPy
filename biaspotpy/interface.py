@@ -77,6 +77,7 @@ def ieipparser():
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
+    parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     
@@ -99,7 +100,7 @@ def optimizeparser():
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
-
+    parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -149,7 +150,7 @@ def nebparser():
     parser.add_argument("INPUT", help='input folder')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
-
+    parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-ns", "--NSTEP",  type=int, default='10', help='iter. number')
     parser.add_argument("-o", "--OM", action='store_true', help='J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593 This improved NEB method is inspired by the Onsager-Machlup (OM) action. (OM + DNEB)')
     parser.add_argument("-l", "--LUP", action='store_true', help='locally updated planes (LUP) method')
