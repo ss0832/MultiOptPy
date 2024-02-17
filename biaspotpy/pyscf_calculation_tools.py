@@ -28,6 +28,7 @@ class Calculation:
         self.electronic_charge = kwarg["electronic_charge"]
         self.spin_multiplicity = kwarg["spin_multiplicity"]
         self.unrestrict = kwarg["unrestrict"]
+        self.hessian_flag = False
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method=""):
         """execute QM calclation."""
@@ -84,7 +85,7 @@ class Calculation:
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
-                elif iter % self.FC_COUNT == 0:
+                elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     
                     """exact hessian"""
                     exact_hess = mf.Hessian().kernel()

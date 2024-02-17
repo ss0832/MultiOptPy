@@ -24,6 +24,7 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
+        self.hessian_flag = False
     
     def numerical_hessian(self, geom_num_list, element_list, method, electric_charge_and_multiplicity):#geom_num_list: 3*N (Bohr)
         numerical_delivative_delta = 0.0001
@@ -122,7 +123,7 @@ class Calculation:
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
-                elif iter % self.FC_COUNT == 0:
+                elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     """exact numerical hessian"""
                     exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
 

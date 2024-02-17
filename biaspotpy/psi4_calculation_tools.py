@@ -20,6 +20,7 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
+        self.hessian_flag = False
         return
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method=""):
@@ -96,7 +97,7 @@ class Calculation:
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
-                elif iter % self.FC_COUNT == 0:
+                elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     
                     """exact hessian"""
                     _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
