@@ -236,7 +236,7 @@ class Optimize:
                 with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                     f.write("gradient (RMS) [hartree/Bohr] \n")
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt(g**2).mean())+"\n")#abs(np.sqrt(B_g**2).mean()
+                f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
@@ -447,7 +447,7 @@ class Optimize:
                 with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                     f.write("gradient (RMS) [hartree/Bohr] \n")
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt(g**2).mean())+"\n")
+                f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
@@ -653,7 +653,7 @@ class Optimize:
                 with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                     f.write("gradient (RMS) [hartree/Bohr] \n")
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt(g**2).mean())+"\n")
+                f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
