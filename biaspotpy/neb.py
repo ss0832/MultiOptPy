@@ -303,7 +303,7 @@ class NEB:
             print("Can't plot energy graph.")
 
         try:
-            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="RMS Gradient [a.u.]", name="gradient")
+            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
           
             print("gradient graph plotted.")
         except Exception as e:

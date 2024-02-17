@@ -281,8 +281,8 @@ class Optimize:
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             
-            grad_list.append(np.linalg.norm(g))
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt(B_g**2).mean()) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt(displacement_vector**2).mean()) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            grad_list.append(np.sqrt((g**2).mean()))
+            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
             
@@ -334,7 +334,7 @@ class Optimize:
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -492,8 +492,8 @@ class Optimize:
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             
-            grad_list.append(np.linalg.norm(g))
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt(B_g**2).mean()) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt(displacement_vector**2).mean()) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            grad_list.append(np.sqrt((g**2).mean()))
+            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
             
@@ -543,7 +543,7 @@ class Optimize:
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -697,8 +697,8 @@ class Optimize:
             displacement_vector = geom_num_list - pre_geom
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
-            grad_list.append(np.linalg.norm(g))
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt(B_g**2).mean()) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt(displacement_vector**2).mean()) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            grad_list.append(np.sqrt((g**2).mean()))
+            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
             print("\ngeometry:")
@@ -747,7 +747,7 @@ class Optimize:
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -779,9 +779,9 @@ class Optimize:
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
         print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(B_g**2).mean()), self.RMS_FORCE_THRESHOLD))
+        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g**2).mean())), self.RMS_FORCE_THRESHOLD))
         print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
-        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt(displacement_vector**2).mean()), self.RMS_DISPLACEMENT_THRESHOLD))
+        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector**2).mean())), self.RMS_DISPLACEMENT_THRESHOLD))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return

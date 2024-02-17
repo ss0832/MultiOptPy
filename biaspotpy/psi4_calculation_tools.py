@@ -93,7 +93,7 @@ class Calculation:
                 print("\n")
 
                 
-                if self.FC_COUNT == -1:
+                if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
                 elif iter % self.FC_COUNT == 0:
@@ -122,4 +122,8 @@ class Calculation:
                 return 0, 0, 0, finish_frag 
                 
             psi4.core.clean() 
+        self.energy = e
+        self.gradient = g
+        self.coordinate = input_data_for_display
+        
         return e, g, input_data_for_display, finish_frag

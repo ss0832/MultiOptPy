@@ -119,7 +119,7 @@ class Calculation:
                 print("\n")
 
                 
-                if self.FC_COUNT == -1:
+                if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
                 elif iter % self.FC_COUNT == 0:
@@ -143,5 +143,9 @@ class Calculation:
                 print("This molecule could not be optimized.")
                 finish_frag = True
                 return 0, 0, 0, finish_frag 
+            
+        self.energy = e
+        self.gradient = g
+        self.coordinate = positions
         
         return e, g, positions, finish_frag
