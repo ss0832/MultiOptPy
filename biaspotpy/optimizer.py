@@ -27,6 +27,45 @@ class Model_hess_tmp:
         self.momentum_disp = momentum_disp
         self.momentum_grad = momentum_grad
 
+
+class LineSearch:
+    def __init__(self, prev_move_vector, move_vector, gradient, prev_gradient, energy, prev_energy,  hessian=None):
+        
+        self.move_vector = move_vector
+        self.prev_move_vector = prev_move_vector
+        self.gradient = gradient
+        self.prev_gradient = prev_gradient
+        self.energy = energy
+        self.prev_energy = prev_energy
+        self.hessian = hessian
+        self.convergence_criterion = 0.2
+        
+
+    def linesearch(self):
+        self.prev_gradient = self.prev_gradient.reshape(len(self.prev_gradient)*3, 1)
+        self.gradient = self.prev_gradient.reshape(len(self.gradient)*3, 1)
+        self.prev_move_vector = self.prev_move_vector.reshape(len(self.prev_move_vector)*3, 1)
+        
+        cos = np.sum(self.gradient*self.prev_move_vector)/(np.linalg.norm(self.gradient)*np.linalg.norm(self.prev_move_vector)+1e-8)
+        print("orthogonality", cos)
+        if abs(cos) < self.convergence_criterion:
+            new_move_vector = self.move_vector
+            print("optimal step is found.")
+            optimal_step_flag = True
+        else:
+            if self.prev_energy < self.energy:
+                new_move_vector = abs(cos) ** 6 * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
+            
+            else:
+                new_move_vector = -1 * abs(cos) ** 6 * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
+            
+            print("linesearching...")
+            optimal_step_flag = False
+            
+        return new_move_vector, optimal_step_flag
+
+
+
 class CalculateMoveVector:
     def __init__(self, DELTA, Opt_params, Model_hess, BPA_hessian, trust_radii, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0):
         self.Opt_params = Opt_params 
@@ -46,7 +85,8 @@ class CalculateMoveVector:
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
-        self.trust_radii_update = "trust"
+        self.trust_radii_update = "legacy"
+        
         
     def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector):
     
@@ -114,7 +154,8 @@ class CalculateMoveVector:
         
         return delta_hess
 
-    def RFOv2_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+
+    def RFOv2_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv2_MSP_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -160,9 +201,10 @@ class CalculateMoveVector:
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
 
-    def RFOv2_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFOv2_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv2_FSB_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -207,9 +249,10 @@ class CalculateMoveVector:
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
 
-    def RFOv2_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFOv2_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv2_BFGS_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -254,9 +297,10 @@ class CalculateMoveVector:
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
 
-    def RFOv2_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFOv2_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv2_Bofill_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -301,9 +345,10 @@ class CalculateMoveVector:
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector.reshape(len(geom_num_list), 3)
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
 
-    def RFO_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_MSP_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -339,10 +384,10 @@ class CalculateMoveVector:
             
 
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
-    def MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def MSP_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("MSP_quasi_newton_method")
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
@@ -365,9 +410,10 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
   
-    def RFO_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_Bofill_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -403,10 +449,10 @@ class CalculateMoveVector:
             
 
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
-    def Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def Bofill_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("Bofill_quasi_newton_method")
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
@@ -429,9 +475,10 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
               
-    def RFO_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_BFGS_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -467,10 +514,10 @@ class CalculateMoveVector:
             
 
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
-    def BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def BFGS_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("BFGS_quasi_newton_method")
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
@@ -493,10 +540,11 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     
 
-    def RFO_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_FSB_quasi_newton_method")
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
@@ -530,9 +578,10 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
-    def FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def FSB_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("FSB_quasi_newton_method")
         delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
@@ -554,10 +603,77 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+
+    def FSB_linesearch_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("FSB_quasi_newton_method (linesearch)")
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        prev_move_vector = geom_num_list - pre_geom
+        displacement = prev_move_vector.reshape(len(geom_num_list)*3, 1)
+        
+
+        delta_hess = self.FSB_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+        
+        DELTA_for_QNM = self.DELTA
+        
+        
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+        LS = LineSearch(prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
+        new_move_vector, optimal_step_flag = LS.linesearch()
+
+        
+        print("step size: ",DELTA_for_QNM,"\n")
+        if np.linalg.norm(move_vector) > 1e-5:
+            self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - new_move_vector.reshape(len(geom_num_list), 3)) * self.bohr2angstroms #ang.
+        
+        if not optimal_step_flag:
+            move_vector = new_move_vector.reshape(len(geom_num_list), 3)
+        
+        
+        return move_vector
+
+    def BFGS_linesearch_quasi_newton_method(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("BFGS_quasi_newton_method (linesearch)")
+        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
+        prev_move_vector = geom_num_list - pre_geom
+        displacement = prev_move_vector.reshape(len(geom_num_list)*3, 1)
+        
+
+        delta_hess = self.BFGS_hessian_update(self.Model_hess.model_hess, displacement, delta_grad)
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            new_hess = self.Model_hess.model_hess + delta_hess + self.BPA_hessian
+        else:
+            new_hess = self.Model_hess.model_hess + self.BPA_hessian
+        
+        DELTA_for_QNM = self.DELTA
+        
+        
+        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        
+        LS = LineSearch(prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
+        new_move_vector, optimal_step_flag = LS.linesearch()
+
+        
+        print("step size: ",DELTA_for_QNM,"\n")
+        
+        self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
+        self.new_geometry = (geom_num_list - new_move_vector.reshape(len(geom_num_list), 3)) * self.bohr2angstroms #ang.
+        if not optimal_step_flag:
+            move_vector = new_move_vector.reshape(len(geom_num_list), 3)
+        
         return move_vector
     
     # arXiv:2307.13744v1
-    def momentum_based_BFGS(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def momentum_based_BFGS(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("momentum_based_BFGS")
         adam_count = self.Opt_params.adam_count
         if adam_count == 1:
@@ -599,10 +715,10 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector 
     
-    def momentum_based_FSB(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def momentum_based_FSB(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("momentum_based_FSB")
         adam_count = self.Opt_params.adam_count
         if adam_count == 1:
@@ -641,10 +757,11 @@ class CalculateMoveVector:
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector 
             
         
-    def RFO_momentum_based_BFGS(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_momentum_based_BFGS(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_momentum_based_BFGS")
         print("saddle order:", self.saddle_order)
         adam_count = self.Opt_params.adam_count
@@ -694,9 +811,10 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector 
     
-    def RFO_momentum_based_FSB(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g):
+    def RFO_momentum_based_FSB(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO_momentum_based_FSB")
         print("saddle order:", self.saddle_order)
         adam_count = self.Opt_params.adam_count
@@ -742,6 +860,7 @@ class CalculateMoveVector:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian, new_momentum_disp, new_momentum_grad)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector 
     
     def conjugate_gradient_descent(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
@@ -754,9 +873,22 @@ class CalculateMoveVector:
         beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) ** 2#based on polak-ribiere
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
-    
+
+    def conjugate_gradient_descent_PR(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
+        #cg method
+        
+        alpha = np.dot(B_g.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_v.reshape(len(geom_num_list)*3, 1))
+        
+        move_vector = self.DELTA * alpha * self.Opt_params.adam_v
+        
+        beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) #polak-ribiere
+        
+        self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+
     def conjugate_gradient_descent_FR(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
         #cg method
         
@@ -767,7 +899,7 @@ class CalculateMoveVector:
         beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), B_g.reshape(len(geom_num_list)*3, 1)) / np.dot(pre_B_g.reshape(1, len(geom_num_list)*3), pre_B_g.reshape(len(geom_num_list)*3, 1)) #fletcher-reeeves
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
     def conjugate_gradient_descent_HS(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
@@ -780,8 +912,10 @@ class CalculateMoveVector:
         beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1))#Hestenes-stiefel
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
-        
-        return move_vector 
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+    
+    
     def conjugate_gradient_descent_DY(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
         #cg method
         
@@ -792,24 +926,8 @@ class CalculateMoveVector:
         beta = np.dot(B_g.reshape(1, len(geom_num_list)*3), B_g.reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)) #Dai-Yuan
         
         self.Opt_params.adam_v = copy.copy(-1 * B_g + abs(beta) * self.Opt_params.adam_v)
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector 
-    
-    #def conjugate_gradient_descent_v2(self, geom_num_list, pre_move_vector, B_g, pre_B_g):
-        #cg method
-        
-    #    alpha = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_m).reshape(len(geom_num_list)*3, 1)) / np.dot(self.Opt_params.adam_m.reshape(1, len(geom_num_list)*3), self.Opt_params.adam_m.reshape(len(geom_num_list)*3, 1))
-        
-    #    move_vector = self.DELTA * alpha * self.Opt_params.adam_v
-        
-    #    prev_opt_params_adam_v = self.Opt_params.adam_v
-    #    self.Opt_params.adam_v -= alpha * self.Opt_params.adam_m
-        
-    #    beta = np.dot(self.Opt_params.adam_v.reshape(1, len(geom_num_list)*3), (self.Opt_params.adam_v).reshape(len(geom_num_list)*3, 1)) / np.dot(prev_opt_params_adam_v.reshape(1, len(geom_num_list)*3), prev_opt_params_adam_v.reshape(len(geom_num_list)*3, 1))
-        
-    #    self.Opt_params.adam_m = self.Opt_params.adam_v + beta * self.Opt_params.adam_m
-        
-    #    return move_vector
     
     #Engineering Applications of Artificial Intelligence 2023, 119, 105755. https://doi.org/10.1016/j.engappai.2022.105755
     def Adaderivative(self, geom_num_list, B_g, pre_B_g):
@@ -833,7 +951,7 @@ class CalculateMoveVector:
             move_vector.append(self.DELTA*new_adam_m[i]/np.sqrt(new_adam_v[i]+Epsilon))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         
-       
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
        
@@ -865,6 +983,7 @@ class CalculateMoveVector:
         for i in range(len(geom_num_list)):
             move_vector.append((self.DELTA / (beta_m ** adam_count)) * (adam_m[i] / new_adamax_u))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count, new_adamax_u)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
     #https://cs229.stanford.edu/proj2015/054_report.pdf
@@ -892,6 +1011,7 @@ class CalculateMoveVector:
             move_vector.append( (self.DELTA*new_adam_m_hat[i]) / (np.sqrt(new_adam_v_hat[i] + Epsilon)))
             
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     
     
@@ -936,6 +1056,7 @@ class CalculateMoveVector:
         
         print("dt, alpha, n_reset :", dt, alpha, n_reset)
         self.Opt_params = Opt_calc_tmps(self.Opt_params.adam_m, velocity, adam_count, [dt, alpha, n_reset])
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     #RAdam
     #arXiv:1908.03265v4
@@ -973,6 +1094,7 @@ class CalculateMoveVector:
             for i in range(len(geom_num_list)):
                 move_vector.append(self.DELTA*new_adam_m_hat[i])
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     #AdaBelief
     #ref. arXiv:2010.07468v5
@@ -996,6 +1118,7 @@ class CalculateMoveVector:
         for i in range(len(geom_num_list)):
             move_vector.append(self.DELTA*new_adam_m[i]/np.sqrt(new_adam_v[i]+Epsilon))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
         
@@ -1028,6 +1151,7 @@ class CalculateMoveVector:
         for i in range(len(geom_num_list)):
                 move_vector.append(self.DELTA*new_adam_m_hat[i]/np.sqrt(new_adam_v_hat[i]+Epsilon))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     
     #EVE
@@ -1071,6 +1195,7 @@ class CalculateMoveVector:
         for i in range(len(geom_num_list)):
                 move_vector.append((self.DELTA/eve_d_tilde)*new_adam_m_hat[i]/(np.sqrt(new_adam_v_hat[i])+Epsilon))
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count, eve_d_tilde)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     #AdamW
     #arXiv:2302.06675v4
@@ -1103,6 +1228,7 @@ class CalculateMoveVector:
                 move_vector.append(self.DELTA*new_adam_m_hat[i]/np.sqrt(new_adam_v_hat[i]+Epsilon) + AdamW_lambda * geom_num_list[i])
                 
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     #Adam
     #arXiv:1412.6980
@@ -1134,6 +1260,7 @@ class CalculateMoveVector:
                 move_vector.append(self.DELTA*new_adam_m_hat[i]/np.sqrt(new_adam_v_hat[i]+Epsilon))
                 
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
     def third_order_momentum_Adam(self, geom_num_list, B_g):
@@ -1209,7 +1336,7 @@ class CalculateMoveVector:
                 move_vector.append(alpha*new_adam_u_hat[i])
                 
         self.Opt_params = Opt_calc_tmps(new_adam_v, new_adam_u, adam_count)
-    
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     #Prodigy
     #arXiv:2306.06101v1
@@ -1251,6 +1378,7 @@ class CalculateMoveVector:
                 move_vector.append(self.DELTA*new_d*new_adam_m[i]/(np.sqrt(new_adam_v[i])+Epsilon*d))
         
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count, [new_d, new_adam_r, new_adam_s])
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     
     #AdaBound
@@ -1285,7 +1413,7 @@ class CalculateMoveVector:
                 
         for i in range(len(geom_num_list)):
             move_vector.append(Eta[i] * new_adam_m[i])
-        
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector    
     
     #Adadelta
@@ -1315,6 +1443,7 @@ class CalculateMoveVector:
             new_adam_v[i] = copy.copy(rho * adam_v[i] + (1.0 - rho) * (move_vector[i]) ** 2)
                 
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
     
 
@@ -1419,6 +1548,15 @@ class CalculateMoveVector:
                     self.Opt_params.adam_v = copy.copy(-1 * B_g)
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+
+            elif opt_method == "CG_PR":
+                if iter != 0:
+                    tmp_move_vector = self.conjugate_gradient_descent_PR(geom_num_list, pre_move_vector, B_g, pre_B_g)
+                    move_vector_list.append(tmp_move_vector)
+                else:
+                    self.Opt_params.adam_v = copy.copy(-1 * B_g)
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)
   
             elif opt_method == "CG_FR":
                 if iter != 0:
@@ -1438,6 +1576,7 @@ class CalculateMoveVector:
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
 
+
             elif opt_method == "CG_DY":
                 if iter != 0:
                     tmp_move_vector = self.conjugate_gradient_descent_DY(geom_num_list, pre_move_vector, B_g, pre_B_g)
@@ -1446,32 +1585,30 @@ class CalculateMoveVector:
                     self.Opt_params.adam_v = copy.copy(-1 * B_g)
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
-            
-            #elif opt_method == "CG2":
-            #    if iter != 0:
-            #        tmp_move_vector = self.conjugate_gradient_descent_v2(geom_num_list, pre_move_vector, B_g, pre_B_g)
-            #        move_vector_list.append(tmp_move_vector)
-            #    else:
-            #        self.Opt_params.adam_v = copy.copy(B_g)
-            #        self.Opt_params.adam_m = copy.copy(B_g)
-            #        tmp_move_vector = 0.01*B_g
-            #        move_vector_list.append(tmp_move_vector)    
+             
             
             # group of quasi-Newton method
         
                     
             elif opt_method == "BFGS":
                 if iter != 0:
-                    tmp_move_vector = self.BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+            elif opt_method == "BFGS_LS":
+                if iter != 0:
+                    tmp_move_vector = self.BFGS_linesearch_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
                     
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)              
             elif opt_method == "RFO_BFGS":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1480,7 +1617,7 @@ class CalculateMoveVector:
                     
             elif opt_method == "RFO2_BFGS":
                 if iter != 0:
-                    tmp_move_vector = self.RFOv2_BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFOv2_BFGS_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1489,7 +1626,7 @@ class CalculateMoveVector:
                     
             elif opt_method == "Bofill":
                 if iter != 0:
-                    tmp_move_vector = self.Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1497,7 +1634,7 @@ class CalculateMoveVector:
                     move_vector_list.append(tmp_move_vector)
             elif opt_method == "RFO_Bofill":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1506,7 +1643,7 @@ class CalculateMoveVector:
 
             elif opt_method == "RFO2_Bofill":
                 if iter != 0:
-                    tmp_move_vector = self.RFOv2_Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFOv2_Bofill_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1515,7 +1652,7 @@ class CalculateMoveVector:
                                
             elif opt_method == "MSP":
                 if iter != 0:
-                    tmp_move_vector = self.MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1523,7 +1660,7 @@ class CalculateMoveVector:
                     move_vector_list.append(tmp_move_vector)
             elif opt_method == "RFO_MSP":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
@@ -1532,7 +1669,7 @@ class CalculateMoveVector:
 
             elif opt_method == "RFO2_MSP":
                 if iter != 0:
-                    tmp_move_vector = self.RFOv2_MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFOv2_MSP_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g
@@ -1540,16 +1677,25 @@ class CalculateMoveVector:
                     
             elif opt_method == "FSB":
                 if iter != 0:
-                    tmp_move_vector = self.FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                     
                 else:
                     tmp_move_vector = 0.01*B_g
                     move_vector_list.append(tmp_move_vector)
+            
+            elif opt_method == "FSB_LS":
+                if iter != 0:
+                    tmp_move_vector = self.FSB_linesearch_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
+                    move_vector_list.append(tmp_move_vector)
+                    
+                else:
+                    tmp_move_vector = 0.01*B_g
+                    move_vector_list.append(tmp_move_vector)        
                     
             elif opt_method == "RFO_FSB":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g
@@ -1557,7 +1703,7 @@ class CalculateMoveVector:
                     
             elif opt_method == "RFO2_FSB":
                 if iter != 0:
-                    tmp_move_vector = self.RFOv2_FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFOv2_FSB_quasi_newton_method(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g
@@ -1565,28 +1711,28 @@ class CalculateMoveVector:
                     
             elif opt_method == "mBFGS":
                 if iter != 0:
-                    tmp_move_vector = self.momentum_based_BFGS(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.momentum_based_BFGS(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g 
                     move_vector_list.append(tmp_move_vector)
             elif opt_method == "mFSB":
                 if iter != 0:
-                    tmp_move_vector = self.momentum_based_FSB(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.momentum_based_FSB(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g 
                     move_vector_list.append(tmp_move_vector)
             elif opt_method == "RFO_mBFGS":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_momentum_based_BFGS(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_momentum_based_BFGS(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g 
                     move_vector_list.append(tmp_move_vector)
             elif opt_method == "RFO_mFSB":
                 if iter != 0:
-                    tmp_move_vector = self.RFO_momentum_based_FSB(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, pre_g, g)
+                    tmp_move_vector = self.RFO_momentum_based_FSB(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
                     move_vector_list.append(tmp_move_vector)
                 else:
                     tmp_move_vector = 0.01*B_g 
@@ -1627,8 +1773,9 @@ class CalculateMoveVector:
         print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
         
         #---------------------------------
-        new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        if iter == 0:
+            self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         
-        return new_geometry, np.array(move_vector, dtype="float64"), self.Opt_params, self.Model_hess, self.trust_radii
+        return self.new_geometry, np.array(move_vector, dtype="float64"), self.Opt_params, self.Model_hess, self.trust_radii
 
 

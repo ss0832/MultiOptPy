@@ -104,7 +104,7 @@ class Calculation:
                 print(error)
                 print("This molecule could not be optimized.")
                 finish_frag = True
-                return 0, 0, 0, finish_frag  
+                return np.array([0]), np.array([0]), np.array([0]), finish_frag  
              
         self.energy = e
         self.gradient = g

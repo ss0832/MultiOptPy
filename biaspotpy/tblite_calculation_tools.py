@@ -41,7 +41,7 @@ class Calculation:
                         
                         for direction in [1, -1]:
                             geom_num_list = np.array(geom_num_list, dtype="float64")
-                            max_scf_iteration = len(element_list) * 100 + 2500 
+                            max_scf_iteration = len(element_list) * 50 + 1000 
                             copy_geom_num_list = copy.copy(geom_num_list)
                             copy_geom_num_list[atom_num][i] += direction * numerical_delivative_delta
                             
@@ -103,7 +103,7 @@ class Calculation:
                         
                 
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
-                max_scf_iteration = len(element_number_list) * 100 + 2500 
+                max_scf_iteration = len(element_number_list) * 50 + 1000 
                 if int(electric_charge_and_multiplicity[1]) > 1:
                     calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
                 else:
@@ -143,7 +143,7 @@ class Calculation:
                 print(error)
                 print("This molecule could not be optimized.")
                 finish_frag = True
-                return 0, 0, 0, finish_frag 
+                return np.array([0]), np.array([0]), np.array([0]), finish_frag 
             
         self.energy = e
         self.gradient = g

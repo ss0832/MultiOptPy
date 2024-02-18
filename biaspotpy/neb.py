@@ -254,6 +254,7 @@ class NEB:
         delete_pre_total_velocity = []
         num_list = []
         finish_frag = False
+        method = self.args.usextb
         try:
             os.mkdir(file_directory)
         except:
