@@ -95,6 +95,14 @@ class Optimize:
                 args.DELTA = 1.0
             elif args.opt_method[0] == "CG_FR":
                 args.DELTA = 1.0
+            elif args.opt_method[0] == "SADAM":
+                args.DELTA = 1.0
+            elif args.opt_method[0] == "SAMSGrad":
+                args.DELTA = 1.0
+            elif args.opt_method[0] == "YOGI":
+                args.DELTA = 0.05
+            elif args.opt_method[0] == "Adamod":
+                args.DELTA = 1.0
             #elif args.opt_method[0] == "CG2":
             #    args.DELTA = 1.0    
             else:

@@ -39,6 +39,7 @@ class LineSearch:
         self.prev_energy = prev_energy
         self.hessian = hessian
         self.convergence_criterion = 0.2
+        self.order = 6.0
         
 
     def linesearch(self):
@@ -54,10 +55,10 @@ class LineSearch:
             optimal_step_flag = True
         else:
             if self.prev_energy < self.energy:
-                new_move_vector = abs(cos) ** 6 * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
+                new_move_vector = abs(cos) ** self.order * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
             
             else:
-                new_move_vector = -1 * abs(cos) ** 6 * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
+                new_move_vector = -1 * abs(cos) ** self.order * self.prev_move_vector# / np.linalg.norm(self.prev_move_vector)
             
             print("linesearching...")
             optimal_step_flag = False
@@ -954,7 +955,113 @@ class CalculateMoveVector:
         self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
         
-       
+    #arXiv:1908.00700v2
+    def SAdam(self, geom_num_list, B_g):
+        print("SAdam")
+        beta_m = 0.9
+        beta_v = 0.999
+        Epsilon = 1e-08
+        adam_count = self.Opt_params.adam_count
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy(beta_m*adam_m[i] + (1.0-beta_m)*(B_g[i]))
+            new_adam_v[i] = copy.copy(beta_v*adam_v[i] + (1.0-beta_v)*(B_g[i])**2)
+    
+        move_vector = []
+        
+        for i in range(len(geom_num_list)):
+            move_vector.append(self.DELTA*new_adam_m[i]/(np.log(1.0 + np.exp(np.sqrt(new_adam_v[i])))+Epsilon))
+                
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+        
+    #arXiv:1908.00700v2
+    def SAMSGrad(self, geom_num_list, B_g):
+        print("SAMSGrad")
+        beta_m = 0.9
+        beta_v = 0.999
+        Epsilon = 1e-08
+        adam_count = self.Opt_params.adam_count
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy(beta_m*adam_m[i] + (1.0-beta_m)*(B_g[i]))
+            new_adam_v[i] = copy.copy(beta_v*adam_v[i] + (1.0-beta_v)*(B_g[i])**2)
+            for j in range(len(new_adam_v[i])):
+                
+                new_adam_v[i][j] = max(new_adam_v[i][j], adam_v[i][j])
+                    
+        move_vector = []
+
+        for i in range(len(geom_num_list)):
+            move_vector.append(self.DELTA*new_adam_m[i]/(np.log(1.0 + np.exp(np.sqrt(new_adam_v[i])))+Epsilon))
+                
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+    
+    #arXiv:1810.06801v4    
+    def QHAdam(self, geom_num_list, B_g):
+        print("QHAdam")
+        beta_m = 0.9
+        beta_v = 0.999
+        Epsilon = 1e-08
+        adam_count = self.Opt_params.adam_count
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        nu_m = 1.0
+        nu_v = 1.0
+
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy(beta_m*adam_m[i] + (1.0-beta_m)*(B_g[i]))
+            new_adam_v[i] = copy.copy(beta_v*adam_v[i] + (1.0-beta_v)*(B_g[i])**2)
+    
+                    
+        move_vector = []
+
+        for i in range(len(geom_num_list)):
+                move_vector.append(self.DELTA*((1.0 - nu_m) * B_g[i] + new_adam_m[i] * nu_m)/np.sqrt(((1.0 - nu_v) * B_g[i] ** 2 + new_adam_v[i] * nu_v)+Epsilon))
+                
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+    
+    #https://doi.org/10.1145/3441501.3441507
+    def YOGI(self, geom_num_list, B_g):
+        print("YOGI")
+        beta_m = 0.9
+        beta_v = 0.999
+        Epsilon = 1e-08
+        adam_count = self.Opt_params.adam_count
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy(beta_m*adam_m[i] + (1.0-beta_m)*(B_g[i]))
+            new_adam_v[i] = copy.copy(adam_v[i] - (1.0 - beta_v) * np.sign(adam_v[i] - B_g[i] ** 2) * (B_g[i])**2)
+    
+                    
+        move_vector = []
+
+        for i in range(len(geom_num_list)):
+                move_vector.append(self.DELTA*(new_adam_m[i])/np.sqrt((new_adam_v[i])+Epsilon))
+                
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+    
     
     #arXiv:1412.6980v9
     def AdaMax(self, geom_num_list, B_g):#not worked well
@@ -1153,6 +1260,59 @@ class CalculateMoveVector:
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
+    
+    #arXiv:1910.12249v1 
+    def Adamod(self, geom_num_list, B_g):
+        print("Adamod")
+        
+        beta_m = 0.9
+        beta_v = 0.999
+        beta_s = 0.999
+        Epsilon = 1e-08
+        adam_count = self.Opt_params.adam_count
+
+        adam_m = self.Opt_params.adam_m
+        adam_v = self.Opt_params.adam_v
+        if adam_count == 1:
+            adam_r = adam_m*0.0
+            adam_s = adam_m*0.0
+            self.Opt_params = Opt_calc_tmps(adam_m, adam_v, adam_count - 1, [adam_r, adam_s])
+        else:
+            adam_r = self.Opt_params.eve_d_tilde[0]
+            adam_s = self.Opt_params.eve_d_tilde[1]
+            
+        new_adam_m = adam_m*0.0
+        new_adam_v = adam_v*0.0
+        new_adam_s = adam_s*0.0
+        new_adam_r = adam_s*0.0
+        new_adam_m_hat = adam_m*0.0
+        new_adam_v_hat = adam_v*0.0
+        new_adam_r_hat = adam_r*0.0
+        for i in range(len(geom_num_list)):
+            new_adam_m[i] = copy.copy(beta_m*adam_m[i] + (1.0-beta_m)*(B_g[i]))
+            new_adam_v[i] = copy.copy(beta_v*adam_v[i] + (1.0-beta_v)*(B_g[i])**2)
+            
+            
+            
+        for i in range(len(geom_num_list)):
+            new_adam_m_hat[i] = copy.copy(new_adam_m[i]/(1 - beta_m**adam_count))
+            new_adam_v_hat[i] = copy.copy((new_adam_v[i] + Epsilon)/(1 - beta_v**adam_count))
+            new_adam_s[i] =  self.DELTA / (np.sqrt(beta_v) + Epsilon)
+            new_adam_r[i] = beta_s * adam_r[i] + (1 - beta_s) * new_adam_s[i]
+        
+        for i in range(len(geom_num_list)):
+            for j in range(len(new_adam_r_hat[i])):
+                new_adam_r_hat[i][j] = min(new_adam_r[i][j], new_adam_s[i][j])
+        
+        move_vector = []
+
+        for i in range(len(geom_num_list)):
+                move_vector.append(new_adam_r_hat[i]*new_adam_m_hat[i])
+        
+        self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count, [new_adam_r, new_adam_s])
+        self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
+        return move_vector
+    
     
     #EVE
     #ref.arXiv:1611.01505v3
@@ -1480,6 +1640,26 @@ class CalculateMoveVector:
                 tmp_move_vector = self.RADAM(geom_num_list, B_g)
                 move_vector_list.append(tmp_move_vector)
                 
+            elif opt_method == "Adamod":
+                tmp_move_vector = self.Adamod(geom_num_list, B_g)
+                move_vector_list.append(tmp_move_vector)      
+                          
+            elif opt_method == "YOGI":
+                tmp_move_vector = self.YOGI(geom_num_list, B_g)
+                move_vector_list.append(tmp_move_vector)            
+                  
+            elif opt_method == "SADAM":
+                tmp_move_vector = self.SAdam(geom_num_list, B_g)
+                move_vector_list.append(tmp_move_vector)
+                
+            elif opt_method == "QHADAM":
+                tmp_move_vector = self.QHAdam(geom_num_list, B_g)
+                move_vector_list.append(tmp_move_vector)
+                
+            elif opt_method == "SAMSGrad":
+                tmp_move_vector = self.SAMSGrad(geom_num_list, B_g)
+                move_vector_list.append(tmp_move_vector)     
+                               
             elif opt_method == "Adam":
                 tmp_move_vector = self.Adam(geom_num_list, B_g) 
                 move_vector_list.append(tmp_move_vector)
