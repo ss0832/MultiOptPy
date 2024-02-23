@@ -820,8 +820,8 @@ class NEB:
                 break
             node_num = len(energy_list)
             print(max(idx_max_ene-image_num, 0), min(idx_max_ene+1+image_num, node_num-1))
-            energy_list = copy.copy(energy_list[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num-1)])
-            new_geometory = copy.copy(new_geometory[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num-1)])
+            energy_list = copy.copy(energy_list[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
+            new_geometory = copy.copy(new_geometory[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
             
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
