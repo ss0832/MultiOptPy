@@ -160,6 +160,8 @@ def nebparser():
     parser.add_argument("-cineb", "--apply_CI_NEB",  type=int, default='99999', help='apply CI_NEB method')
     parser.add_argument("-sd", "--steepest_descent",  type=int, default='99999', help='apply steepest_descent method')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
+    parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.fix_atoms = []
