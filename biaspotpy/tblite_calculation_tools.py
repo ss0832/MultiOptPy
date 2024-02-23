@@ -46,9 +46,9 @@ class Calculation:
                             copy_geom_num_list[atom_num][i] += direction * numerical_delivative_delta
                             
                             if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
-                                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+                                calc = Calculator(method, element_list, geom_num_list, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
                             else:
-                                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
+                                calc = Calculator(method, element_list, geom_num_list, charge=int(electric_charge_and_multiplicity[0]))
                             
                             calc.set("max-iter", max_scf_iteration)
                             calc.set("verbosity", 0)
