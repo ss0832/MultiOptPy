@@ -138,12 +138,7 @@ class MD:
                 print(self.SUB_BASIS_SET) #
             
         #-----------------------------
-        if args.usextb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
-        else:
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time())+"/"
-        
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
+
         
         self.Model_hess = None #
         self.Opt_params = None #
@@ -161,8 +156,14 @@ class MD:
 
     def md_tblite(self):
         from tblite_calculation_tools import Calculation
+        
+        self.NUM_LIST = []
+        self.ENERGY_LIST_FOR_PLOTTING = []
+        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
+        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.args.usextb+"_"+str(time.time())+"/"
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-      
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
+        temperature_list = []
         force_data = force_data_parser(self.args)
         finish_frag = False
         
@@ -294,6 +295,7 @@ class MD:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -322,8 +324,13 @@ class MD:
 
     def md_psi4(self):
         from psi4_calculation_tools import Calculation
+        
+        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-      
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
+        self.NUM_LIST = []
+        self.ENERGY_LIST_FOR_PLOTTING = []
+        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
         force_data = force_data_parser(self.args)
         finish_frag = False
         
@@ -450,6 +457,7 @@ class MD:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -476,8 +484,13 @@ class MD:
     
     def md_pyscf(self):
         from pyscf_calculation_tools import Calculation
+        
+        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-      
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
+        self.NUM_LIST = []
+        self.ENERGY_LIST_FOR_PLOTTING = []
+        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
         force_data = force_data_parser(self.args)
         finish_frag = False
         
@@ -604,6 +617,7 @@ class MD:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
