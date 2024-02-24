@@ -89,6 +89,9 @@ def ieipparser():
     args.opt_method = ""    
     return args
 
+
+
+
 def optimizeparser():
     parser = argparse.ArgumentParser()
     parser.add_argument("INPUT", help='input xyz file name')
@@ -166,6 +169,41 @@ def nebparser():
     args = parser.parse_args()
     args.fix_atoms = []
     
+    args.geom_info = ["0"]
+    args.opt_method = ""
+    return args
+
+
+def mdparser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("INPUT", help='input psi4 files')
+    parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
+    parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
+    parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+
+    parser.add_argument("-time", "--NSTEP",  type=int, default='100000', help='time scale')
+    parser.add_argument("-traj", "--TRAJECTORY",  type=int, default='10', help='number of trajectory to generate (default) 10')
+   
+    parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperature [unit. K] (default) 298.15 K')
+    parser.add_argument("-press", "--pressure",  type=float, default='1013', help='pressure [unit. kPa] (default) 1013 kPa')
+    
+    parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
+    parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
+    parser.add_argument("-mom", "--momenta", nargs="*",  type=str, default=['0.0', '1', '2'], help='manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]')
+    parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
+    parser.add_argument("-cond", "--condition",  type=str, default='v', help='specify condition to do MD (ex.) "p"=fix pressure "v"=fix volume (default) v')
+    
+    parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
+    parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
+    parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
+    parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
+    parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
+    parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for (n-1)-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
+    parser.add_argument('-cmds','--cmds', help="apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
+    parser.add_argument("-xtb", "--usextb",  type=str, default="GFN2-xTB", help='use extended tight bonding method to calculate. default is GFN2-xTB (ex.) GFN1-xTB, GFN2-xTB ')
+    
+    parser = parser_for_biasforce(parser)
+    args = parser.parse_args()
     args.geom_info = ["0"]
     args.opt_method = ""
     return args

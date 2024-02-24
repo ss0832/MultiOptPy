@@ -95,5 +95,9 @@ class UnitValueLib:
         self.hartree2kcalmol = 627.509 #
         self.bohr2angstroms = 0.52917721067 #
         self.hartree2kjmol = 2625.500 #
+        self.amu2kg = 1.66053906660 * 10 ** (-27)
+        self.au2kg = 9.1093837015 * 10 ** (-31)
+        self.hartree2j =  4.3597447222071 * 10 ** (-18) 
+        self.bohr2m = 5.29177210903 * 10 ** (-11)
         return
         
