@@ -151,3 +151,50 @@ class Calculation:
         self.coordinate = positions
         
         return e, g, positions, finish_frag
+    
+    def single_point_no_directory(self, positions, element_number_list, electric_charge_and_multiplicity, method):#positions:Bohr
+        """execute extended tight binding method calclation."""
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        geometry_optimized_num_list = []
+        finish_frag = False
+        
+        if type(element_number_list[0]) is str:
+            tmp = copy.copy(element_number_list)
+            element_number_list = []
+            
+            for elem in tmp:    
+                element_number_list.append(element_number(elem))
+            element_number_list = np.array(element_number_list)
+        
+        
+        try:
+            
+            positions = np.array(positions, dtype="float64") 
+            max_scf_iteration = len(element_number_list) * 50 + 1000 
+            if int(electric_charge_and_multiplicity[1]) > 1:
+                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+            else:
+                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
+            
+            calc.set("max-iter", max_scf_iteration)           
+            calc.set("verbosity", 0)
+            
+            res = calc.singlepoint()
+            
+            e = float(res.get("energy"))  #hartree
+            g = res.get("gradient") #hartree/Bohr
+                    
+            print("\n")
+
+        except Exception as error:
+            print(error)
+            print("This molecule could not be optimized.")
+            finish_frag = True
+            return np.array([0]), np.array([0]), finish_frag 
+            
+        self.energy = e
+        self.gradient = g
+        
+        return e, g, finish_frag

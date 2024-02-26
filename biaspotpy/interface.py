@@ -189,9 +189,8 @@ def mdparser():
     
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
-    parser.add_argument("-mom", "--momenta", nargs="*",  type=str, default=['0.0', '1', '2'], help='manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
-    parser.add_argument("-cond", "--condition",  type=str, default='v', help='specify condition to do MD (ex.) "p"=fix pressure "v"=fix volume (default) v')
+    parser.add_argument("-mt", "--mdtype",  type=str, default='nosehoover', help='specify condition to do MD (ex.) velocityverlet (default) nosehoover')
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')

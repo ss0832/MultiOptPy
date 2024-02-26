@@ -23,8 +23,9 @@ from cmds_analysis import CMDSPathAnalysis
 
 class Thermostat:
     def __init__(self, momentum_list, temperature, pressure):
-    
+
         self.momentum_list = momentum_list #list
+        
         self.temperature = temperature
         self.initial_temperature = temperature
         self.pressure = pressure
@@ -32,14 +33,15 @@ class Thermostat:
         
         self.zeta = 0.0
         self.eta = 0.0
-        self.scaling = 0.0
+        self.scaling = 1e-3
+        self.Ps_momentum = 1e-3
         
         self.g_value = len(momentum_list) * 3
         self.Q_value = 1.0
-        #self.M_value = 1.0
+        self.M_value = 1000.0
         self.Boltzmann_constant = 3.16681 * 10 ** (-6) # hartree/K
-        self.delta_timescale = 0.10
-        self.volume = 1.00
+        self.delta_timescale = 1e-1
+        self.volume = 1e-1
         
         self.Instantaneous_temperatures_list = []
         self.Instantaneous_momentum_list = []
@@ -47,8 +49,58 @@ class Thermostat:
         return
     
 
+    def Nose_Poincare_thermostat(self, geom_num_list, element_list, new_g, B_e, iter):#NVT 
+        new_g *= -1
+        if iter != 0:
+            #----------
+            self.scaling *= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale)) ** 2
+            self.Ps_momentum /= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale))
+            #-------------------
+            self.momentum_list += self.scaling * new_g * (self.delta_timescale)
+            self.Ps_momentum -= B_e * (self.delta_timescale)
+            #-------------------
+        else:
+            #----------
+            self.scaling *= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale*0.5)) ** 2
+            self.Ps_momentum /= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale*0.5))
+            #-------------------
+            self.momentum_list += self.scaling * new_g * (self.delta_timescale*0.5)
+            self.Ps_momentum -= B_e * (self.delta_timescale*0.5)
+            #-------------------
+            
+        tmp_list = []
+        for i, elem in enumerate(element_list):
+            tmp_list.append(self.delta_timescale * self.momentum_list[i] / (atomic_mass(elem) * self.scaling))
+        
+        new_geometry = geom_num_list + tmp_list
+        #------------
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i]) ** 2 / atomic_mass(elem))
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ",Instantaneous_temperature ," K")
+
+        self.Instantaneous_temperatures_list.append(tmp_value / (self.g_value * self.Boltzmann_constant))
+        #----------
+        tmp_val = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_val += self.delta_timescale * np.sum(self.momentum_list[i]) ** 2 / (2 * atomic_mass(elem) * self.scaling ** 2)
+        tmp_val += (-self.g_value * self.Boltzmann_constant * self.initial_temperature * (np.log(self.scaling) + 1) + self.init_hamiltonian) * self.delta_timescale
+        self.Ps_momentum += tmp_val
+        
+        #-------------------
+        #self.momentum_list += self.scaling * new_g * (self.delta_timescale * 0.5)
+        #self.Ps_momentum -= B_e * (self.delta_timescale * 0.5)
+        #-------------------
+        #self.scaling *= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale * 0.5)) ** 2
+        #self.Ps_momentum /= (1 + (self.Ps_momentum /(2 * self.Q_value)) * (self.delta_timescale * 0.5))
+        #-------------------
+        #print(self.Ps_momentum, self.scaling)
+        return new_geometry
     
-    def Nose_Hoover_thermostat(self, geom_num_list, element_list, new_g):#fixed volume
+    def Nose_Hoover_thermostat(self, geom_num_list, element_list, new_g):#fixed volume #NVT ensemble
         new_g *= -1
         self.momentum_list = self.momentum_list * np.exp(-self.delta_timescale * self.zeta * 0.5)
 
@@ -59,15 +111,16 @@ class Thermostat:
             tmp_list.append(self.delta_timescale * self.momentum_list[i] / atomic_mass(elem))
         
         new_geometry = geom_num_list + tmp_list
-        
+        #------------
         tmp_value = 0.0
         
         for i, elem in enumerate(element_list):
-            tmp_value += (np.sum(self.momentum_list[i]) ** 2 / atomic_mass(elem))
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
         Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
         print("Instantaneous_temperature: ",Instantaneous_temperature ," K")
 
         self.Instantaneous_temperatures_list.append(tmp_value / (self.g_value * self.Boltzmann_constant))
+        #----------
         self.zeta += self.delta_timescale * (tmp_value - self.g_value * self.Boltzmann_constant * self.initial_temperature) / self.Q_value
         
         #print(tmp_value, self.g_value * self.Boltzmann_constant * self.temperature)
@@ -78,7 +131,193 @@ class Thermostat:
         
         
         return new_geometry
+    
+    def Velocity_Verlet(self, geom_num_list, element_list, new_g, iter):#NVE ensemble 
+        new_g *= -1
+        if iter != 0:
+            self.momentum_list += new_g*(self.delta_timescale)
+        else:
+            self.momentum_list += new_g*(self.delta_timescale*0.5)
+        #-----------
+        tmp_list = []
+        for i, elem in enumerate(element_list):
+            tmp_list.append(self.delta_timescale * self.momentum_list[i] / atomic_mass(elem))
+        new_geometry = geom_num_list + tmp_list
+        #------------    
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ",Instantaneous_temperature ," K")
 
+        self.Instantaneous_temperatures_list.append(tmp_value / (self.g_value * self.Boltzmann_constant))
+        #-------------
+        
+        #self.momentum_list += new_g*(self.delta_timescale*0.5)
+        
+        return new_geometry
+    
+    def Nose_Andersen_thermostat(self, geom_num_list, element_list, new_g, iter):
+        new_g *= -1
+        #--------------
+        if iter != 0:
+        #--------------
+            self.volume += self.scaling * (self.pressure / self.M_value) * self.delta_timescale * 0.5
+
+            #-------------
+            self.momentum_list += new_g * self.delta_timescale * 0.5 * self.volume ** (1/3)
+            #-------------
+            tmp_value = 0.0
+            
+            for i, elem in enumerate(element_list):
+                tmp_value += np.sum(geom_num_list[i] * new_g[i])
+            
+            self.pressure += self.scaling * ((1 / (3 * self.volume)) * tmp_value - self.initial_pressure) * self.delta_timescale * 0.5 
+            #-------------
+            self.eta += self.zeta * 0.5 * self.delta_timescale 
+            self.scaling = np.exp(self.eta)
+        
+            self.momentum_list *= np.exp(-self.delta_timescale * self.zeta * 0.5)
+            #-------------
+            
+            
+            tmp_value = 0.0
+            
+            for i, elem in enumerate(element_list):
+                tmp_value += (np.sum(self.momentum_list[i] ** 2) / (atomic_mass(elem) *  self.volume ** (2/3)))
+
+            self.zeta += 0.5 * self.delta_timescale * (tmp_value - self.g_value * self.Boltzmann_constant * self.initial_temperature) / self.Q_value
+        
+        #-------------
+            
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / (atomic_mass(elem) * self.volume ** (2/3)))
+
+        self.zeta += 0.5 * self.delta_timescale * (tmp_value - self.g_value * self.Boltzmann_constant * self.initial_temperature) / self.Q_value
+        #--------------
+        self.eta += self.zeta * 0.5 * self.delta_timescale 
+        #--------------
+        self.scaling = np.exp(self.eta)
+        
+        #--------------
+        self.momentum_list *= np.exp(-self.zeta * 0.5 *self.delta_timescale)
+
+        #--------------
+        
+        self.momentum_list += new_g * self.delta_timescale * 0.5 * self.volume ** (1/3)
+        #---------------
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += np.sum(geom_num_list[i] * new_g[i])
+        
+        self.pressure += self.scaling * ((1 / (3 * self.volume)) * tmp_value - self.initial_pressure) * self.delta_timescale * 0.5 
+        #-------------
+        
+        self.volume += self.scaling * (self.pressure / self.M_value) * self.delta_timescale * 0.5
+        
+        #-------------
+        tmp_list = []
+        tmp_value = 0.0
+        for i, elem in enumerate(element_list):
+            tmp_list.append(self.delta_timescale * self.momentum_list[i] / (atomic_mass(elem) * self.volume ** (2/3)))
+            tmp_value += self.scaling * (np.sum(self.momentum_list[i] ** 2) / (3.0 * atomic_mass(elem) * self.volume ** (5/3)))
+        
+        new_geometry = geom_num_list + tmp_list
+        self.pressure += tmp_value
+        #--------------
+        #--------------
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
+        
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ", Instantaneous_temperature," K")
+        
+        
+        self.Instantaneous_temperatures_list.append(Instantaneous_temperature)
+        
+        print("Volume  : ", self.volume)
+        print("Pressure: ", self.pressure)
+        #--------------
+        #--------------
+        return new_geometry
+    
+    def Andersen_thermostat(self, geom_num_list, element_list, new_g, iter):
+        new_g *= -1
+
+        #-------------
+        self.momentum_list += new_g * self.delta_timescale * 0.5 * self.volume ** (1/3)
+        #--------------
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += np.sum(geom_num_list[i] * new_g[i])
+        
+        self.pressure += ((1 / (3 * self.volume)) * tmp_value - self.initial_pressure) * self.delta_timescale * 0.5 
+        #--------------
+        self.volume += (self.pressure / self.M_value) * self.delta_timescale * 0.5
+        
+        #---------------
+        tmp_list = []
+        
+        for i, elem in enumerate(element_list):
+            tmp_list.append(self.delta_timescale * self.momentum_list[i] ** 2 / (atomic_mass(elem) * self.volume ** (2/3)))
+        
+        new_geometry = geom_num_list + tmp_list
+        
+        #---------------
+       
+        tmp_value = 0.0
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / (3.0 * atomic_mass(elem) * self.volume ** (5/3)))
+        
+        self.pressure += tmp_value
+        #--------------
+        
+        self.volume += (self.pressure / self.M_value) * self.delta_timescale * 0.5
+        
+        #--------------
+        self.momentum_list += new_g * self.delta_timescale * 0.5 * self.volume ** (1/3)
+        #--------------
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += np.sum(geom_num_list[i] * new_g[i])
+        
+        self.pressure += ((1 / (3 * self.volume)) * tmp_value - self.initial_pressure) * self.delta_timescale * 0.5 
+        #-------------
+        #--------------
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
+        
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ", Instantaneous_temperature," K")
+        
+        
+        self.Instantaneous_temperatures_list.append(Instantaneous_temperature)
+        
+        print("Pressure: ", self.pressure)
+        #--------------
+        #--------------
+        return new_geometry
+    
+    
+    def init_purtubation(self, geometry, B_e, element_list):
+        
+        addtional_momentum = np.random.rand(len(geometry), 3)
+        #print(addtional_momentum)
+        
+        self.momentum_list += addtional_momentum * 1e-10
+       
+       
+        self.init_hamiltonian = B_e
+        for i, elem in enumerate(element_list):
+            self.init_hamiltonian += (np.sum(self.momentum_list[i]) ** 2 / (2 * atomic_mass(elem)))
+       
+        return
 
 
 class MD:
@@ -98,7 +337,7 @@ class MD:
 
         self.initial_temperature = args.temperature
         self.num_of_trajectory = args.TRAJECTORY
-        self.condition = args.condition
+       
         self.momentum_list = None
         self.initial_pressure = args.pressure * 1000 * ( UnitValueLib().bohr2m ** 3  / UnitValueLib().hartree2j )
 
@@ -139,20 +378,40 @@ class MD:
             
         #-----------------------------
 
-        
+        self.mdtype = args.mdtype
         self.Model_hess = None #
         self.Opt_params = None #
         self.DC_check_dist = 10.0#ang.
         self.unrestrict = args.unrestrict
         return
     
-    def init_purtubation(self, geometry):
+
+
+    def exec_md(self, TM, geom_num_list, element_list, B_g, B_e, iter):
+        if self.mdtype == "nosehoover": 
+            new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
+        elif self.mdtype == "velocityverlet":
+            new_geometry = TM.Velocity_Verlet(geom_num_list, element_list, B_g, iter)
+        #elif self.mdtype == "noseandersen":
+        #    new_geometry = TM.Nose_Andersen_thermostat(geom_num_list, element_list, B_g, iter)    
+        #elif self.mdtype == "andersen":
+        #    new_geometry = TM.Andersen_thermostat(geom_num_list, element_list, B_g, iter)
+            
+        #elif self.mdtype == "nosepoincare":
+        #    new_geometry = TM.Nose_Poincare_thermostat(geom_num_list, element_list, B_g, B_e, iter)    
+        else:
+            print("Unexpected method.", self.mdtype)
+            raise
         
-        addtional_momentum = np.random.rand(len(geometry), 3)
+        #tmp_value = 0.0
         
-        self.momentum_list += addtional_momentum * self.Boltzmann_constant * self.initial_temperature 
-       
-        return
+        #for i in range(len(geom_num_list)):
+        #    tmp_value += np.sum(TM.momentum_list[i] ** 2) / (2 * atomic_mass(element_list[i]))
+        
+        #hamiltonian = B_e + tmp_value
+        #print("hamiltonian :", hamiltonian)
+        
+        return new_geometry
 
     def md_tblite(self):
         from tblite_calculation_tools import Calculation
@@ -171,7 +430,8 @@ class MD:
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
         self.momentum_list = np.zeros((len(element_list), 3))
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
+        initial_geom_num_list = np.zeros((len(element_list), 3))
+        
         self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
@@ -199,6 +459,7 @@ class MD:
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
                          unrestrict = self.unrestrict)
+        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -220,14 +481,15 @@ class MD:
             
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
-
             self.Model_hess = SP.Model_hess
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
-                 
+            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            
+
+             
             #---------------------------------------
             if iter == 0:
-                self.init_purtubation(geom_num_list)
+                TM.init_purtubation(geom_num_list, B_e, element_list)
                 initial_geom_num_list = geom_num_list
                 pre_geom = initial_geom_num_list    
             else:
@@ -250,15 +512,17 @@ class MD:
                 break   
             
 
-            
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
+
 
             #----------------------------
 
             #----------------------------
             
-            new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+
+            if iter % 10 != 0:
+                shutil.rmtree(file_directory)
+            
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -338,7 +602,8 @@ class MD:
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
         self.momentum_list = np.zeros((len(element_list), 3))
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
+        initial_geom_num_list = np.zeros((len(element_list), 3))
+        
         self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
@@ -369,7 +634,7 @@ class MD:
                          Model_hess = self.Model_hess,
                          unrestrict = self.unrestrict)
         #----------------------------------
-        
+        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
 
@@ -383,20 +648,18 @@ class MD:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
-            
-   
-            
             self.Model_hess = SP.Model_hess
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
-                 
+
+            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+                         
             #---------------------------------------
             if iter == 0:
-                self.init_purtubation(geom_num_list)
+                TM.init_purtubation(geom_num_list, B_e, element_list)
                 initial_geom_num_list = geom_num_list
                 pre_geom = initial_geom_num_list    
             else:
                 pass
+            
 
             #-------------------energy profile 
             if iter == 0:
@@ -415,15 +678,15 @@ class MD:
                 break   
             
 
-            
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
-
             #----------------------------
 
             #----------------------------
             
-            new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+        
+            if iter % 10 != 0:
+                shutil.rmtree(file_directory)
+            
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -498,7 +761,8 @@ class MD:
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
         self.momentum_list = np.zeros((len(element_list), 3))
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
+        initial_geom_num_list = np.zeros((len(element_list), 3))
+       
         self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
@@ -531,7 +795,7 @@ class MD:
                          electronic_charge = self.electronic_charge,
                          unrestrict = self.unrestrict)
         #----------------------------------
-        
+        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
 
@@ -547,12 +811,13 @@ class MD:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
 
             self.Model_hess = SP.Model_hess
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
+
+            
+            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
                  
             #---------------------------------------
             if iter == 0:
-                self.init_purtubation(geom_num_list)
+                TM.init_purtubation(geom_num_list, B_e, element_list)
                 initial_geom_num_list = geom_num_list
                 pre_geom = initial_geom_num_list    
             else:
@@ -575,15 +840,15 @@ class MD:
                 break   
             
 
-            
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
-
             #----------------------------
 
             #----------------------------
             
-            new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+          
+            if iter % 10 != 0:
+                shutil.rmtree(file_directory)
+            
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
