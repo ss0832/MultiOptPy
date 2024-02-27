@@ -163,8 +163,31 @@ class LJRepulsivePotential:
             energy += UFF_VDW_well_depth * ( abs(self.config["repulsive_potential_v2_const_rep"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_rep"] -1 * abs(self.config["repulsive_potential_v2_const_attr"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_attr"])
             
         return energy
-    
- 
+    #calc_energy_gau
+    def calc_energy_gau(self, geom_num_list):
+
+        """
+        # required variables: self.config["repulsive_potential_gaussian_LJ_well_depth"], 
+                             self.config["repulsive_potential_gaussian_LJ_dist"], 
+                             self.config["repulsive_potential_gaussian_gau_well_depth"],
+                             self.config["repulsive_potential_gaussian_gau_dist"]
+                             self.config["repulsive_potential_gaussian_gau_range"], 
+                             self.config["repulsive_potential_gaussian_fragm_1"], 
+                             self.config["repulsive_potential_gaussian_fragm_2"],
+                             self.config["element_list"]
+        """
+        energy = 0.0
+        gau_range_const = 0.03
+        for i, j in itertools.product(self.config["repulsive_potential_gaussian_fragm_1"], self.config["repulsive_potential_gaussian_fragm_2"]):
+            LJ_well_depth = self.config["repulsive_potential_gaussian_LJ_well_depth"]/self.hartree2kjmol
+            LJ_distance = self.config["repulsive_potential_gaussian_LJ_dist"]/self.bohr2angstroms
+            Gau_well_depth = self.config["repulsive_potential_gaussian_gau_well_depth"]/self.hartree2kjmol
+            Gau_distance = self.config["repulsive_potential_gaussian_gau_dist"]/self.bohr2angstroms
+            Gau_range = self.config["repulsive_potential_gaussian_gau_range"]/self.bohr2angstroms
+            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
+            energy += LJ_well_depth * ( -2 * ( LJ_distance / vector ) ** 6 + ( LJ_distance / vector ) ** 12) -1 * Gau_well_depth * torch.exp(-1 * (vector - Gau_distance) ** 2 / (gau_range_const * (Gau_range) ** 2))
+       
+        return energy
 
     
     def calc_cone_potential_energy(self, geom_num_list):
@@ -676,11 +699,11 @@ class BiasPotentialCalculation:
                                                 repulsive_potential_v2_dist_scale=force_data["repulsive_potential_v2_dist_scale"][i], 
                                                 repulsive_potential_v2_length=force_data["repulsive_potential_v2_length"][i],
                                                 repulsive_potential_v2_const_rep=force_data["repulsive_potential_v2_const_rep"][i],
-                                                repulsive_potential_v2_const_attr=force_data["repulsive_potential_v2_const_attr"], 
-                                                repulsive_potential_v2_order_rep=force_data["repulsive_potential_v2_order_rep"], 
-                                                repulsive_potential_v2_order_attr=force_data["repulsive_potential_v2_order_attr"],
-                                                repulsive_potential_v2_center=force_data["repulsive_potential_v2_center"],
-                                                repulsive_potential_v2_target=force_data["repulsive_potential_v2_target"],
+                                                repulsive_potential_v2_const_attr=force_data["repulsive_potential_v2_const_attr"][i], 
+                                                repulsive_potential_v2_order_rep=force_data["repulsive_potential_v2_order_rep"][i], 
+                                                repulsive_potential_v2_order_attr=force_data["repulsive_potential_v2_order_attr"][i],
+                                                repulsive_potential_v2_center=force_data["repulsive_potential_v2_center"][i],
+                                                repulsive_potential_v2_target=force_data["repulsive_potential_v2_target"][i],
                                                 element_list=element_list,
                                                 jobid=self.JOBID)
                     
@@ -697,11 +720,11 @@ class BiasPotentialCalculation:
                                                 repulsive_potential_v2_dist_value=force_data["repulsive_potential_v2_dist_scale"][i], 
                                                 repulsive_potential_v2_length=force_data["repulsive_potential_v2_length"][i],
                                                 repulsive_potential_v2_const_rep=force_data["repulsive_potential_v2_const_rep"][i],
-                                                repulsive_potential_v2_const_attr=force_data["repulsive_potential_v2_const_attr"], 
-                                                repulsive_potential_v2_order_rep=force_data["repulsive_potential_v2_order_rep"], 
-                                                repulsive_potential_v2_order_attr=force_data["repulsive_potential_v2_order_attr"],
-                                                repulsive_potential_v2_center=force_data["repulsive_potential_v2_center"],
-                                                repulsive_potential_v2_target=force_data["repulsive_potential_v2_target"],
+                                                repulsive_potential_v2_const_attr=force_data["repulsive_potential_v2_const_attr"][i], 
+                                                repulsive_potential_v2_order_rep=force_data["repulsive_potential_v2_order_rep"][i], 
+                                                repulsive_potential_v2_order_attr=force_data["repulsive_potential_v2_order_attr"][i],
+                                                repulsive_potential_v2_center=force_data["repulsive_potential_v2_center"][i],
+                                                repulsive_potential_v2_target=force_data["repulsive_potential_v2_target"][i],
                                                 element_list=element_list,
                                                 jobid=self.JOBID)
                     
@@ -763,8 +786,30 @@ class BiasPotentialCalculation:
             else:
                 pass
         
-    
+        #-----------------
         
+        for i in range(len(force_data["repulsive_potential_gaussian_LJ_well_depth"])):
+            
+            if force_data["repulsive_potential_gaussian_LJ_well_depth"][i] != 0.0 or force_data["repulsive_potential_gaussian_gau_well_depth"][i] != 0.0:
+                
+                LJRP = LJRepulsivePotential(repulsive_potential_gaussian_LJ_well_depth=force_data["repulsive_potential_gaussian_LJ_well_depth"][i], 
+                                                repulsive_potential_gaussian_LJ_dist=force_data["repulsive_potential_gaussian_LJ_dist"][i], 
+                                                repulsive_potential_gaussian_gau_well_depth=force_data["repulsive_potential_gaussian_gau_well_depth"][i],
+                                                repulsive_potential_gaussian_gau_dist=force_data["repulsive_potential_gaussian_gau_dist"][i],
+                                                repulsive_potential_gaussian_gau_range=force_data["repulsive_potential_gaussian_gau_range"][i], 
+                                                repulsive_potential_gaussian_fragm_1=force_data["repulsive_potential_gaussian_fragm_1"][i], 
+                                                repulsive_potential_gaussian_fragm_2=force_data["repulsive_potential_gaussian_fragm_2"][i],
+                                                element_list=element_list,
+                                                jobid=self.JOBID)
+                    
+                B_e += LJRP.calc_energy_gau(geom_num_list)
+                tensor_BPA_grad = torch.func.jacfwd(LJRP.calc_energy_gau)(geom_num_list)
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                tensor_BPA_hessian = torch.func.hessian(LJRP.calc_energy_gau)(geom_num_list)
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+                
         #------------------
         for i in range(len(force_data["cone_potential_well_value"])):
             if force_data["cone_potential_well_value"][i] != 0.0:

@@ -126,8 +126,9 @@ def parser_for_biasforce(parser):
     parser.add_argument("-ma", "--manual_AFIR", nargs="*",  type=str, default=['0.0', '1', '2'], help='manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]')
     parser.add_argument("-rp", "--repulsive_potential", nargs="*",  type=str, default=['0.0','1.0', '1', '2', 'scale'], help='Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpv2", "--repulsive_potential_v2", nargs="*",  type=str, default=['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale'], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value(kJ/mol ang.)] ...]')
-
-
+    parser.add_argument("-rpg", "--repulsive_potential_gaussian", nargs="*",  type=str, default=['0.0','1.0','0.0','1.0','1.0', '1,2', '1-2'], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε_LJ[(σ/r)^(12) - 2 * (σ/r)^(6)] - ε_gau * exp(-((r-σ_gau)/b)^2)) (ex.) [[LJ_well_depth (kJ/mol)] [LJ_dist (ang.)] [Gaussian_well_depth (kJ/mol)] [Gaussian_dist (ang.)] [Gaussian_range (ang.)] [Fragm.1 (1,2)] [Fragm.2 (3-5,8)] ...]')
+    
+    
     parser.add_argument("-cp", "--cone_potential", nargs="*",  type=str, default=['0.0','1.0','90','1', '2,3,4', '5-9'], help='Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
     
     
@@ -272,8 +273,30 @@ def force_data_parser(args):
             sys.exit(0)
 
     #---------------------
+    if len(args.repulsive_potential_gaussian) % 7 != 0:
+        print("invaild input (-rpg)")
+        sys.exit(0)
+    print(args.repulsive_potential_gaussian)
+    force_data["repulsive_potential_gaussian_LJ_well_depth"] = []
+    force_data["repulsive_potential_gaussian_LJ_dist"] = []
+    force_data["repulsive_potential_gaussian_gau_well_depth"] = []
+    force_data["repulsive_potential_gaussian_gau_dist"] = []
+    force_data["repulsive_potential_gaussian_gau_range"] = []
+    force_data["repulsive_potential_gaussian_fragm_1"] = []
+    force_data["repulsive_potential_gaussian_fragm_2"] = []
 
     
+    for i in range(int(len(args.repulsive_potential_gaussian)/7)):
+        force_data["repulsive_potential_gaussian_LJ_well_depth"].append(float(args.repulsive_potential_gaussian[7*i+0]))
+        force_data["repulsive_potential_gaussian_LJ_dist"].append(float(args.repulsive_potential_gaussian[7*i+1]))
+        force_data["repulsive_potential_gaussian_gau_well_depth"].append(float(args.repulsive_potential_gaussian[7*i+2]))
+        force_data["repulsive_potential_gaussian_gau_dist"].append(float(args.repulsive_potential_gaussian[7*i+3]))
+        force_data["repulsive_potential_gaussian_gau_range"].append(float(args.repulsive_potential_gaussian[7*i+4]))
+        force_data["repulsive_potential_gaussian_fragm_1"].append(num_parse(args.repulsive_potential_gaussian[7*i+5]))
+        force_data["repulsive_potential_gaussian_fragm_2"].append(num_parse(args.repulsive_potential_gaussian[7*i+6]))
+       
+
+    #---------------------    
     if len(args.cone_potential) % 6 != 0:
         print("invaild input (-cp)")
         sys.exit(0)
