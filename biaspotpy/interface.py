@@ -67,7 +67,7 @@ def ieipparser():
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
-
+    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='fix atoms by setting the gradient of internal coordinates to zero (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mi", "--microiter",  type=int, default=0, help='microiteration for relaxing reaction pathways')
     parser.add_argument("-beta", "--BETA",  type=float, default='1.0', help='force for optimization')
@@ -107,6 +107,7 @@ def optimizeparser():
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
+    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='fix atoms by setting the gradient of internal coordinates to zero (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-md", "--md_like_perturbation",  type=str, default="0.0", help='add perturbation like molecule dynamics (ex.) [[temperature (unit. K)]]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["AdaBelief"], help='optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method group) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE, conjugate_gradient_descent (quasi-Newton method group) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
@@ -166,6 +167,7 @@ def nebparser():
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
+    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='fix atoms by setting the gradient of internal coordinates to zero (ex.) [[atoms (ex.) 1,2] ...]')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.fix_atoms = []
@@ -276,7 +278,7 @@ def force_data_parser(args):
     if len(args.repulsive_potential_gaussian) % 7 != 0:
         print("invaild input (-rpg)")
         sys.exit(0)
-    print(args.repulsive_potential_gaussian)
+
     force_data["repulsive_potential_gaussian_LJ_well_depth"] = []
     force_data["repulsive_potential_gaussian_LJ_dist"] = []
     force_data["repulsive_potential_gaussian_gau_well_depth"] = []
@@ -568,6 +570,15 @@ def force_data_parser(args):
         force_data["fix_atoms"] = num_parse(args.fix_atoms[0])
     else:
         force_data["fix_atoms"] = ""
+    
+    if len(args.gradient_fix_atoms) > 0:
+        force_data["gradient_fix_atoms"] = []
+        
+        for j in range(len(args.gradient_fix_atoms)):
+           
+            force_data["gradient_fix_atoms"].append(num_parse(args.gradient_fix_atoms[j]))
+    else:
+        force_data["gradient_fix_atoms"] = ""
     
     force_data["geom_info"] = num_parse(args.geom_info[0])
     

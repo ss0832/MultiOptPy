@@ -1,4 +1,3 @@
-import argparse
 import sys
 import os
 import copy
@@ -18,6 +17,7 @@ from param import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
+from redundant_coordinations import RedundantInternalCoordinates
 
 class Optimize:
     def __init__(self, args):
@@ -160,6 +160,24 @@ class Optimize:
         self.unrestrict = args.unrestrict
         return
 
+    def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
+        #fix_atom_list: force_data["gradient_fix_atoms"]
+        RIC = RedundantInternalCoordinates()
+        b_mat = RIC.B_matrix(geom_num_list)
+        int_grad = RIC.cartgrad2RICgrad(gradient.reshape(len(geom_num_list)*3, 1), b_mat)
+        
+        RIC_idx_list = list(itertools.combinations([i+1 for i in range(len(geom_num_list))], 2))
+        for fix_atoms in fix_atom_list:
+            fix_combination_list = list(itertools.combinations(sorted(fix_atoms), 2))
+            for fix in fix_combination_list:
+                int_grad_idx = RIC_idx_list.index(fix)
+                int_grad[int_grad_idx] *= 0.0
+               
+        fixed_gradient = RIC.RICgrad2cartgrad(int_grad, b_mat).reshape(len(geom_num_list), 3)
+        
+        return fixed_gradient
+    
+    
     def optimize_using_tblite(self):
         from tblite_calculation_tools import Calculation
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
@@ -259,7 +277,11 @@ class Optimize:
             
 
             #----------------------------
-
+            if len(force_data["gradient_fix_atoms"]) > 0:
+                #fix_atom_list: force_data["gradient_fix_atoms"]
+                B_g = self.grad_fix_atoms(B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
+                
             #----------------------------
             
             CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
@@ -435,7 +457,11 @@ class Optimize:
             
 
             #----------------------------
-
+            if len(force_data["gradient_fix_atoms"]) > 0:
+                #fix_atom_list: force_data["gradient_fix_atoms"]
+                B_g = self.grad_fix_atoms(B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
+                
             #----------------------------
             
             CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
@@ -607,7 +633,11 @@ class Optimize:
             
 
             #----------------------------
-
+            if len(force_data["gradient_fix_atoms"]) > 0:
+                #fix_atom_list: force_data["gradient_fix_atoms"]
+                B_g = self.grad_fix_atoms(B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
+                
             #----------------------------
             
             CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)

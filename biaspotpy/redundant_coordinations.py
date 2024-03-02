@@ -8,11 +8,12 @@ import numpy as np
 
 class RedundantInternalCoordinates:
     def __init__(self):
+        
         return
         
     def B_matrix(self, coord):#cartecian coord (atom num × 3)
         
-        idx_list = [i for i in range(len(coord))]
+        idx_list = [i for i in range(len(coord))]#1-2, 1-3, ..., (N-2)-N, (N-1)-N
         internal_coord_idx = list(itertools.combinations(idx_list, 2))
         b_mat = np.zeros((len(internal_coord_idx), 3*len(coord)))
         internal_coord_count = 0
@@ -23,9 +24,9 @@ class RedundantInternalCoordinates:
             dr_dyi = (coord[i][1] - coord[j][1]) / norm  
             dr_dzi = (coord[i][2] - coord[j][2]) / norm  
             
-            dr_dxj = -(coord[i][0] - coord[j][0]) / norm  
-            dr_dyj = -(coord[i][1] - coord[j][1]) / norm  
-            dr_dzj = -(coord[i][2] - coord[j][2]) / norm  
+            dr_dxj = -1*(coord[i][0] - coord[j][0]) / norm  
+            dr_dyj = -1*(coord[i][1] - coord[j][1]) / norm  
+            dr_dzj = -1*(coord[i][2] - coord[j][2]) / norm  
 
             b_mat[internal_coord_count][3*i+0] = dr_dxi
             b_mat[internal_coord_count][3*i+1] = dr_dyi
@@ -42,17 +43,19 @@ class RedundantInternalCoordinates:
     
     def G_matrix(self, b_mat):
         return np.dot(b_mat, b_mat.T)
-    
+
+
     def RICgrad2cartgrad(self, RICgrad, b_mat):
-        g_mat = self.G_matrix(b_mat)
-        cartgrad = np.dot(np.dot(np.linalg.inv(b_mat), g_mat), RICgrad)
-        return cartgrad.reshape(int(len(cartgrad)/3), 3) #atom_num × 3
+        b_mat_T = b_mat.T
+        cartgrad = np.dot(b_mat_T, RICgrad)
+        return cartgrad
     
+
     def cartgrad2RICgrad(self, cartgrad, b_mat):
         g_mat = self.G_matrix(b_mat)
-        g_mat_inv = np.linalg.inv(g_mat)
-        
-        RICgrad = np.dot(np.dot(g_mat_inv, b_mat), cartgrad)
+        #g_mat_inv = np.linalg.inv(g_mat)
+        RICgrad = np.linalg.solve(g_mat, np.dot(b_mat, cartgrad)) 
+        #RICgrad = np.dot(g_mat_inv, np.dot(b_mat, cartgrad)) Calculating inverse matrix using np.linalg.inv gives Low-precision results. 
         return RICgrad
         
     

@@ -47,6 +47,9 @@ class LineSearch:
         self.gradient = self.prev_gradient.reshape(len(self.gradient)*3, 1)
         self.prev_move_vector = self.prev_move_vector.reshape(len(self.prev_move_vector)*3, 1)
         
+        #self.gradient = self.gradient/np.linalg.norm(self.gradient)
+        #self.prev_move_vector = self.prev_move_vector/np.linalg.norm(self.prev_move_vector)
+        
         cos = np.sum(self.gradient*self.prev_move_vector)/(np.linalg.norm(self.gradient)*np.linalg.norm(self.prev_move_vector)+1e-8)
         print("orthogonality", cos)
         if abs(cos) < self.convergence_criterion:
@@ -373,9 +376,9 @@ class CalculateMoveVector:
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
-
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
             
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        #move_vector = DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         
         DELTA_for_QNM = self.DELTA
         
@@ -405,8 +408,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
 
         
         print("step size: ",DELTA_for_QNM,"\n")
@@ -439,10 +442,10 @@ class CalculateMoveVector:
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
 
-            
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)   
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
         
-        DELTA_for_QNM = self.DELTA
+        
         
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
@@ -470,8 +473,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
 
         
         print("step size: ",DELTA_for_QNM,"\n")
@@ -503,11 +506,11 @@ class CalculateMoveVector:
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
-
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
             
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
         
-        DELTA_for_QNM = self.DELTA
+    
         
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
@@ -535,8 +538,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
 
         
         print("step size: ",DELTA_for_QNM,"\n")
@@ -569,12 +572,11 @@ class CalculateMoveVector:
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
-
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
             
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
         
-        DELTA_for_QNM = self.DELTA
-
+        
             
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
@@ -598,9 +600,9 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
         
-
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         
         print("step size: ",DELTA_for_QNM,"\n")
         self.Model_hess = Model_hess_tmp(new_hess - self.BPA_hessian)
@@ -624,8 +626,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         LS = LineSearch(prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
         new_move_vector, optimal_step_flag = LS.linesearch()
 
@@ -658,8 +660,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         LS = LineSearch(prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
         new_move_vector, optimal_step_flag = LS.linesearch()
 
@@ -710,8 +712,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
 
         
         print("step size: ",DELTA_for_QNM,"\n")
@@ -752,8 +754,8 @@ class CalculateMoveVector:
         DELTA_for_QNM = self.DELTA
         
         
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         
         
         print("step size: ",DELTA_for_QNM,"\n")
@@ -806,8 +808,8 @@ class CalculateMoveVector:
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
 
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
     
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
@@ -855,8 +857,8 @@ class CalculateMoveVector:
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
 
-        move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3))), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)*3)), B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
         
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
