@@ -474,7 +474,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
-                         Model_hess = np.eye(3*len(geometry_list_1)))
+                         Model_hess = np.eye(3*len(geometry_list_1)),
+                         unrestrict=self.unrestrict)
         file_directory_1 = FIO_img1.make_psi4_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_psi4_input_file(geometry_list_2, 0)
         
@@ -501,7 +502,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye((3*len(geometry_list_1))),
-                         SUB_BASIS_SET = self.SUB_BASIS_SET)
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         unrestrict=self.unrestrict)
                          
         file_directory_1 = FIO_img1.make_psi4_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_psi4_input_file(geometry_list_2, 0)
