@@ -170,8 +170,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
 
             
-            total_disp_1 = (total_disp_1 / np.linalg.norm(total_disp_1)) * min(np.linalg.norm(total_disp_1), L_1)            
-            total_disp_2 = (total_disp_2 / np.linalg.norm(total_disp_2)) * min(np.linalg.norm(total_disp_2), L_2)            
+            total_disp_1 = (total_disp_1 / np.linalg.norm(total_disp_1)) * min(np.linalg.norm(total_disp_1), L_1/2)            
+            total_disp_2 = (total_disp_2 / np.linalg.norm(total_disp_2)) * min(np.linalg.norm(total_disp_2), L_2/2)            
 
             geom_num_list_1 -= total_disp_1 
             geom_num_list_2 -= total_disp_2
