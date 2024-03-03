@@ -57,7 +57,7 @@ class NEB:
         self.lup = args.LUP
         self.dneb = args.DNEB
         self.nesb = args.NESB
-        self.NESB_band_width = 0.2
+        self.NESB_band_width = 0.1
         self.usextb = args.usextb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
@@ -707,7 +707,7 @@ class NEB:
                 check_direction = np.sum(np.dot(tangent_tau, tangent_tau_list[i-1].T))
                 if check_direction <= 0:
                     tangent_tau *= -1 
-            
+            tangent_tau = tangent_tau/np.linalg.norm(tangent_tau)
 
             tangent_tau_list.append(tangent_tau)
             #force_stiff
