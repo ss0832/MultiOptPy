@@ -33,7 +33,7 @@ class NEB:
     def __init__(self, args):
     
         self.basic_set_and_function = args.functional+"/"+args.basisset
-
+        self.QUASI_NEWTOM_METHOD = args.QUASI_NEWTOM_METHOD
         self.N_THREAD = args.N_THREAD
         self.SET_MEMORY = args.SET_MEMORY
         self.NEB_NUM = args.NSTEP
@@ -707,7 +707,7 @@ class NEB:
                 check_direction = np.sum(np.dot(tangent_tau, tangent_tau_list[i-1].T))
                 if check_direction <= 0:
                     tangent_tau *= -1 
-            tangent_tau = tangent_tau/np.linalg.norm(tangent_tau)
+            tangent_tau = tangent_tau/(np.linalg.norm(tangent_tau)+1e-8)
 
             tangent_tau_list.append(tangent_tau)
             #force_stiff
@@ -1093,7 +1093,73 @@ class NEB:
         new_geometory = (geometry_num_list + move_vector)*self.bohr2angstroms
 
         return new_geometory
+    
+    def FSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, hessian, biased_energy_list, pre_biased_energy_list):
+        print("Quasi-Newton method")
+        total_delta = []
+        for i in range(len(geom_num_list)):
+            
+            delta_grad = (g[i] - pre_g[i]).reshape(len(geom_num_list[i])*3, 1)
+            displacement = (geom_num_list[i] - pre_geom[i]).reshape(len(geom_num_list[i])*3, 1)
+            
+            delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad) 
+            hessian[i] += delta_hess
+            DELTA_for_QNM = 0.03
 
+            if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
+                
+                delta = -1 * (DELTA_for_QNM*np.linalg.solve(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+            
+            else:
+                
+                print("#NODE", i," linesearching...")
+                cos = np.sum(displacement.reshape(len(geom_num_list[i]), 3) * g[i]) / (np.linalg.norm(displacement) * np.linalg.norm(g[i]) + 1e-8)
+                print("cos = ", cos)
+                delta = -1 * (abs(cos) + 0.01) * displacement.reshape(len(geom_num_list[i]), 3)
+            
+            total_delta.append(delta)
+        #---------------------
+        move_vector = [total_delta[0]]
+        trust_radii_1_list = []
+        trust_radii_2_list = []
+        
+        for i in range(1, len(total_delta)-1):
+            #total_delta[i] *= (abs(cos_list[i]) ** 0.1 + 0.1)
+            trust_radii_1 = np.linalg.norm(geom_num_list[i] - geom_num_list[i-1]) / 2.0
+            trust_radii_2 = np.linalg.norm(geom_num_list[i] - geom_num_list[i+1]) / 2.0
+            
+            trust_radii_1_list.append(str(trust_radii_1*2))
+            trust_radii_2_list.append(str(trust_radii_2*2))
+            
+            
+            if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
+            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
+                move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+            else:
+                move_vector.append(total_delta[i])
+            
+        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
+            f.write(",".join(trust_radii_1_list)+"\n")
+        
+        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_2.csv", "a") as f:
+            f.write(",".join(trust_radii_2_list)+"\n")
+        
+        move_vector.append(total_delta[-1])
+        #--------------------
+        
+        new_geometory = (geom_num_list + move_vector)*self.bohr2angstroms
+        return new_geometory
+        
+    def FSB_hessian_update(self, hess, displacement, delta_grad):
+        #J. Chem. Phys. 1999, 111, 10806
+        A = delta_grad - np.dot(hess, displacement)
+        delta_hess_SR1 = np.dot(A, A.T) / (np.dot(A.T, displacement) + 1e-8) 
+        delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / (np.dot(displacement.T, delta_grad) + 1e-8))  - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ (np.dot(np.dot(displacement.T, hess), displacement) + 1e-8)) 
+        Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / (np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement) + 1e-8)
+        delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
+        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
+        return delta_hess
 
     def adaptic_method(self, energy_list, gradient_list, new_geometory, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
         print("ANEB (Adaptic NEB)")#J. Chem. Phys. 117, 4651–4658 (2002) https://doi.org/10.1063/1.1495401
@@ -1110,7 +1176,7 @@ class NEB:
             print(max(idx_max_ene-image_num, 0), min(idx_max_ene+1+image_num, node_num-1))
             energy_list = copy.copy(energy_list[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
             new_geometory = copy.copy(new_geometory[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
-            
+           
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
             geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(file_directory, part_num)
@@ -1121,7 +1187,7 @@ class NEB:
                     tmp_list.append(g[1:4])
                 new_geometory.append(tmp_list)
             new_geometory = np.array(new_geometory, dtype="float64")
-
+           
             
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
@@ -1132,6 +1198,11 @@ class NEB:
             n_reset = 0
             a = self.FIRE_a_start
             dummy_hess = np.eye(len(element_list*3))
+            #prepare for quasi-Newton method
+            if self.QUASI_NEWTOM_METHOD:
+                hessian_list = np.array([np.eye(len(element_list*3)) for i in range(len(geometry_list))], dtype="float64")
+            
+            
             if self.args.usextb == "None":
                 pass
             else:
@@ -1187,17 +1258,23 @@ class NEB:
                 self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
                 
                 #------------------
-                if optimize_num < self.sd:
+                if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
+                    new_geometory = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
+                
+                
+                elif optimize_num < self.sd:
                     total_velocity = self.force2velocity(total_force, element_list)
                     new_geometory, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                     
                 else:
                     new_geometory = self.SD_calc(geometry_num_list, total_force)
                 #------------------
+                pre_geom = geometry_num_list
                 geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
                 file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
-    
+                pre_total_force = total_force
                 pre_total_velocity = total_velocity
+                pre_biased_energy_list = biased_energy_list
                 #------------------
                 with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
                     f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
@@ -1228,7 +1305,11 @@ class NEB:
         exit_flag = False
         with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
+        #prepare for quasi-Newton method
+        if self.QUASI_NEWTOM_METHOD:
+            hessian_list = np.array([np.eye(len(element_list*3)) for i in range(len(geometry_list))], dtype="float64")
         
+        min_biased_energy_list = []
         for optimize_num in range(self.NEB_NUM):
             
             exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -1253,6 +1334,7 @@ class NEB:
                 biased_gradient_list.append(B_g)
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
+            
             #------------------
             if self.om:
                 total_force = self.OM_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
@@ -1273,17 +1355,23 @@ class NEB:
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             
             #------------------
-            if optimize_num < self.sd:
+            if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
+                new_geometory = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
+                
+            elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
                 new_geometory, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                 
             else:
                 new_geometory = self.SD_calc(geometry_num_list, total_force)
+            
             #------------------
+            pre_geom = geometry_num_list
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
- 
+            pre_total_force = total_force
             pre_total_velocity = total_velocity
+            pre_biased_energy_list = biased_energy_list
             #------------------
             with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
                 f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
