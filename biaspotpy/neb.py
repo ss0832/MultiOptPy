@@ -1098,24 +1098,33 @@ class NEB:
         print("Quasi-Newton method")
         total_delta = []
         for i in range(len(geom_num_list)):
-            
+
             delta_grad = (g[i] - pre_g[i]).reshape(len(geom_num_list[i])*3, 1)
             displacement = (geom_num_list[i] - pre_geom[i]).reshape(len(geom_num_list[i])*3, 1)
             
             delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad) 
             hessian[i] += delta_hess
             DELTA_for_QNM = 0.03
-
+            matrix_for_RFO = np.append(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1), axis=1)
+            tmp = np.array([np.append(g[i].reshape(1, len(geom_num_list[i])*3), 0.0)], dtype="float64")
+            
+            matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+            RFO_eigenvalue, _ = np.linalg.eig(matrix_for_RFO)
+            RFO_eigenvalue = np.sort(RFO_eigenvalue)
+            lambda_for_calc = float(RFO_eigenvalue[0])
+            print("# NODE",i," LAMBDA: ", lambda_for_calc)
             if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
                 
-                delta = -1 * (DELTA_for_QNM*np.linalg.solve(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+                delta = -1 * (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
             
             else:
                 
                 print("#NODE", i," linesearching...")
+                alpha = np.abs(np.dot(g[i].reshape(1, len(geom_num_list[i])*3), displacement) / (np.dot(displacement.T, displacement) + 1e-8))
                 cos = np.sum(displacement.reshape(len(geom_num_list[i]), 3) * g[i]) / (np.linalg.norm(displacement) * np.linalg.norm(g[i]) + 1e-8)
                 print("cos = ", cos)
-                delta = -1 * (abs(cos) + 0.01) * displacement.reshape(len(geom_num_list[i]), 3)
+                print("alpha =", alpha)
+                delta = -1 * (abs(cos) * alpha) * displacement.reshape(len(geom_num_list[i]), 3)
             
             total_delta.append(delta)
         #---------------------
@@ -1214,6 +1223,7 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
                 f.write(str(vars(self.args)))
             
+            init_num = self.NEB_NUM*(adaptic_num+1)+1
             for optimize_num in range(self.NEB_NUM*(adaptic_num+1)+1, self.NEB_NUM*(adaptic_num+2)+1):
                 
                 exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -1258,7 +1268,7 @@ class NEB:
                 self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
                 
                 #------------------
-                if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
+                if self.QUASI_NEWTOM_METHOD and optimize_num > init_num:
                     new_geometory = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
                 
                 
