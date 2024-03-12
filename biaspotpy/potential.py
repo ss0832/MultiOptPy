@@ -287,6 +287,33 @@ class StructKeepPotential:
         vector = torch.linalg.norm((geom_num_list[self.config["keep_pot_atom_pairs"][0]-1] - geom_num_list[self.config["keep_pot_atom_pairs"][1]-1]), ord=2)
         energy = 0.5 * self.config["keep_pot_spring_const"] * (vector - self.config["keep_pot_distance"]/self.bohr2angstroms) ** 2
         return energy #hartree
+    
+    def calc_energy_v2(self, geom_num_list):
+        """
+        # required variables: self.config["keep_pot_v2_spring_const"], 
+                             self.config["keep_pot_v2_distance"], 
+                             self.config["keep_pot_v2_fragm1"],
+                             self.config["keep_pot_v2_fragm2"],
+                             
+        """
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_pot_v2_fragm1"]:
+            fragm_1_center = fragm_1_center + geom_num_list[i-1]
+        
+        fragm_1_center = fragm_1_center / len(self.config["keep_pot_v2_fragm1"])
+        
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_pot_v2_fragm2"]:
+            fragm_2_center = fragm_2_center + geom_num_list[i-1]
+        
+        fragm_2_center = fragm_2_center / len(self.config["keep_pot_v2_fragm2"])     
+        
+        vector = torch.linalg.norm(fragm_1_center - fragm_2_center, ord=2)
+        energy = 0.5 * self.config["keep_pot_v2_spring_const"] * (vector - self.config["keep_pot_v2_distance"]/self.bohr2angstroms) ** 2
+        
+        return energy #hartree
+    
+    
 
 class StructAnharmonicKeepPotential:
     def __init__(self, **kwarg):
@@ -336,6 +363,43 @@ class StructKeepAnglePotential:
         cos_theta = dot_product / (magnitude1 * magnitude2)
         theta = torch.arccos(cos_theta)
         energy = 0.5 * self.config["keep_angle_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_angle"]))) ** 2
+        return energy #hartree
+       
+    def calc_energy_v2(self, geom_num_list):
+        """
+        # required variables: self.config["keep_angle_v2_spring_const"], 
+                             self.config["keep_angle_v2_angle"], 
+                             self.config["keep_angle_v2_fragm1"],
+                             self.config["keep_angle_v2_fragm2"],
+                             self.config["keep_angle_v2_fragm3"],
+                             
+        """
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_angle_v2_fragm1"]:
+            fragm_1_center = fragm_1_center + geom_num_list[i-1]
+        
+        fragm_1_center = fragm_1_center / len(self.config["keep_angle_v2_fragm1"])
+        
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_angle_v2_fragm2"]:
+            fragm_2_center = fragm_2_center + geom_num_list[i-1]
+        
+        fragm_2_center = fragm_2_center / len(self.config["keep_angle_v2_fragm2"]) 
+            
+        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_angle_v2_fragm3"]:
+            fragm_3_center = fragm_3_center + geom_num_list[i-1]
+        
+        fragm_3_center = fragm_3_center / len(self.config["keep_angle_v2_fragm3"])   
+           
+        vector1 = fragm_1_center - fragm_2_center
+        vector2 = fragm_3_center - fragm_2_center
+        magnitude1 = torch.linalg.norm(vector1)
+        magnitude2 = torch.linalg.norm(vector2)
+        dot_product = torch.matmul(vector1, vector2)
+        cos_theta = dot_product / (magnitude1 * magnitude2)
+        theta = torch.arccos(cos_theta)
+        energy = 0.5 * self.config["keep_angle_v2_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_v2_angle"]))) ** 2
         return energy #hartree
         
     def calc_atom_dist_dependent_energy(self, geom_num_list):
@@ -397,6 +461,53 @@ class StructKeepDihedralAnglePotential:
         energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
         
         return energy #hartree    
+    
+    def calc_energy_v2(self, geom_num_list):
+        """
+        # required variables: self.config["keep_dihedral_angle_v2_spring_const"], 
+                             self.config["keep_dihedral_angle_v2_angle"], 
+                             self.config["keep_dihedral_angle_v2_fragm1"],
+                             self.config["keep_dihedral_angle_v2_fragm2"],
+                             self.config["keep_dihedral_angle_v2_fragm3"],
+                             self.config["keep_dihedral_angle_v2_fragm4"],
+                             
+        """
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_dihedral_angle_v2_fragm1"]:
+            fragm_1_center = fragm_1_center + geom_num_list[i-1]
+        
+        fragm_1_center = fragm_1_center / len(self.config["keep_dihedral_angle_v2_fragm1"])
+        
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_dihedral_angle_v2_fragm2"]:
+            fragm_2_center = fragm_2_center + geom_num_list[i-1]
+        
+        fragm_2_center = fragm_2_center / len(self.config["keep_dihedral_angle_v2_fragm2"]) 
+            
+        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_dihedral_angle_v2_fragm3"]:
+            fragm_3_center = fragm_3_center + geom_num_list[i-1]
+        
+        fragm_3_center = fragm_3_center / len(self.config["keep_dihedral_angle_v2_fragm3"])   
+
+        fragm_4_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["keep_dihedral_angle_v2_fragm4"]:
+            fragm_4_center = fragm_4_center + geom_num_list[i-1]
+        
+        fragm_4_center = fragm_4_center / len(self.config["keep_dihedral_angle_v2_fragm4"])  
+              
+        a1 = fragm_2_center - fragm_1_center
+        a2 = fragm_3_center - fragm_2_center
+        a3 = fragm_4_center - fragm_3_center
+
+        v1 = torch.cross(a1, a2)
+        v1 = v1 / torch.linalg.norm(v1, ord=2)
+        v2 = torch.cross(a2, a3)
+        v2 = v2 / torch.linalg.norm(v2, ord=2)
+        angle = torch.arccos((v1*v2).sum(-1) / ((v1**2).sum() * (v2**2).sum())**0.5)
+
+        energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
+        return energy #hartree
 
 class VoidPointPotential:
     def __init__(self, **kwarg):
@@ -851,6 +962,26 @@ class BiasPotentialCalculation:
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
             else:
                 pass
+            
+        for i in range(len(force_data["keep_pot_v2_spring_const"])):
+            if force_data["keep_pot_v2_spring_const"][i] != 0.0:
+                SKP = StructKeepPotential(keep_pot_v2_spring_const=force_data["keep_pot_v2_spring_const"][i], 
+                                            keep_pot_v2_distance=force_data["keep_pot_v2_distance"][i], 
+                                            keep_pot_v2_fragm1=force_data["keep_pot_v2_fragm1"][i],
+                                            keep_pot_v2_fragm2=force_data["keep_pot_v2_fragm2"][i]
+                                            )
+                
+                B_e += SKP.calc_energy_v2(geom_num_list)
+                
+                tensor_BPA_grad = torch.func.jacfwd(SKP.calc_energy_v2)(geom_num_list)
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                tensor_BPA_hessian = torch.func.hessian(SKP.calc_energy_v2)(geom_num_list)
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            else:
+                pass
+                 
+            
         #print("akp")
         #------------------        
         for i in range(len(force_data["anharmonic_keep_pot_spring_const"])):
@@ -987,6 +1118,29 @@ class BiasPotentialCalculation:
         #------------------
         
         if len(geom_num_list) > 2:
+            for i in range(len(force_data["keep_angle_v2_spring_const"])):
+                if force_data["keep_angle_v2_spring_const"][i] != 0.0:
+                    SKAngleP = StructKeepAnglePotential(
+                        keep_angle_v2_fragm1=force_data["keep_angle_v2_fragm1"][i], 
+                        keep_angle_v2_fragm2=force_data["keep_angle_v2_fragm2"][i], 
+                        keep_angle_v2_fragm3=force_data["keep_angle_v2_fragm3"][i], 
+                                                keep_angle_v2_spring_const=force_data["keep_angle_v2_spring_const"][i], 
+                                                keep_angle_v2_angle=force_data["keep_angle_v2_angle"][i])
+                    
+                    B_e += SKAngleP.calc_energy_v2(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKAngleP.calc_energy_v2)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                    tensor_BPA_hessian = torch.func.hessian(SKAngleP.calc_energy_v2)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+
+        else:
+            pass
+        
+        #------------------
+        if len(geom_num_list) > 2:
             for i in range(len(force_data["aDD_keep_angle_spring_const"])):
                 if force_data["aDD_keep_angle_spring_const"][i] != 0.0:
                     aDDKAngleP = StructKeepAnglePotential(aDD_keep_angle_spring_const=force_data["aDD_keep_angle_spring_const"][i], 
@@ -1023,6 +1177,30 @@ class BiasPotentialCalculation:
                     BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
 
                     tensor_BPA_hessian = torch.func.hessian(SKDAP.calc_energy)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+                else:
+                    pass
+        else:
+            pass
+
+        #------------------
+        if len(geom_num_list) > 3:
+            for i in range(len(force_data["keep_dihedral_angle_v2_spring_const"])):
+                if force_data["keep_dihedral_angle_v2_spring_const"][i] != 0.0:
+                    SKDAP = StructKeepDihedralAnglePotential(keep_dihedral_angle_v2_spring_const=force_data["keep_dihedral_angle_v2_spring_const"][i], 
+                                                keep_dihedral_angle_v2_fragm1=force_data["keep_dihedral_angle_v2_fragm1"][i], 
+                                                keep_dihedral_angle_v2_fragm2=force_data["keep_dihedral_angle_v2_fragm2"][i], 
+                                                keep_dihedral_angle_v2_fragm3=force_data["keep_dihedral_angle_v2_fragm3"][i], 
+                                                keep_dihedral_angle_v2_fragm4=force_data["keep_dihedral_angle_v2_fragm4"][i], 
+                                                keep_dihedral_angle_v2_angle=force_data["keep_dihedral_angle_v2_angle"][i])
+                    
+                    B_e += SKDAP.calc_energy_v2(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKDAP.calc_energy_v2)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                    tensor_BPA_hessian = torch.func.hessian(SKDAP.calc_energy_v2)(geom_num_list)
                     tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
                     BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
                 else:
