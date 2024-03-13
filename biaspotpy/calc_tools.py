@@ -2,7 +2,7 @@ import itertools
 
 import numpy as np
 
-from param import UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, element_number, number_element, atomic_mass, UnitValueLib
+from parameter import UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, element_number, number_element, atomic_mass, UnitValueLib
 
 
 
@@ -209,6 +209,17 @@ class Calculationtools:
         
         return dist
 
+    def calc_geodesic_distance(self, geom_num_list_1, geom_num_list_2):
+        #doi:10.1002/jcc.27030
+        geodesic_dist_mat = np.ones((len(geom_num_list_1), 3))
+        dist = np.linalg.norm(geom_num_list_2 - geom_num_list_1)
+        geodesic_dist_mat *= dist / np.sqrt(3 * len(geom_num_list_1))
+        return geodesic_dist_mat
+    
+    def calc_euclidean_distance(self, geom_num_list_1, geom_num_list_2):
+        #doi:10.1002/jcc.27030
+        euclidean_dist_mat = geom_num_list_2 - geom_num_list_1
+        return euclidean_dist_mat
 
     def kabsch_algorithm(self, P, Q):
         #scipy.spatial.transform.Rotation.align_vectors
@@ -224,3 +235,65 @@ class Calculationtools:
             R = np.dot(Vt.T, U.T)
         P = np.dot(R, P.T).T
         return P, Q
+    def gen_n_dinensional_rot_matrix(self, vector_1, vector_2):
+        #Zhelezov NRMG algorithm (doi:10.5923/j.ajcam.20170702.04)
+        dimension_1 = len(vector_1)
+        dimension_2 = len(vector_2)
+        assert dimension_1 == dimension_2
+        R_1 = np.eye((dimension_1))
+        R_2 = np.eye((dimension_2))
+        
+        
+        
+        step = 1
+        
+        while step < dimension_1:
+            A_1 = np.eye((dimension_1))
+            n = 1
+            #print(step)
+            while n <= dimension_1 - step:
+                #print(n)
+                print(vector_1[n + step - 1])
+                r2 = vector_1[n - 1] ** 2 + vector_1[n + step - 1] ** 2
+                if r2 > 0:
+                    r = r2 ** 0.5
+                    p_cos = vector_1[n - 1] / r
+                    
+                    p_sin = -1 * vector_1[n + step - 1] / r
+                    A_1[n - 1][n - 1] = p_cos.item()
+                    A_1[n - 1][n + step - 1] = -1 * p_sin.item()
+                    A_1[n + step - 1][n - 1] = p_sin.item()
+                    A_1[n + step - 1][n + step - 1] = p_cos.item()
+                n += 2 * step
+            step *= 2
+            vector_1 = np.dot(A_1, vector_1)
+            R_1 = np.dot(A_1, R_1)
+
+        step = 1
+        
+        while step < dimension_2:
+            A_2 = np.eye((dimension_2))
+            n = 1
+            while n <= dimension_2 - step:
+                r2 = vector_2[n - 1] ** 2 + vector_2[n + step - 1] ** 2
+                if r2 > 0:
+                    r = r2 ** 0.5
+                    p_cos = vector_2[n - 1] / r
+                    p_sin = -1 * vector_2[n + step - 1] / r
+                    A_2[n - 1][n - 1] = p_cos.item()
+                    A_2[n - 1][n + step - 1] = -1 * p_sin.item()
+                    A_2[n + step - 1][n - 1] = p_sin.item()
+                    A_2[n + step - 1][n + step - 1] = p_cos.item()
+                n += 2 * step
+            step *= 2
+            vector_2 = np.dot(A_2, vector_2)
+            R_2 = np.dot(A_2, R_2)
+        print(R_1, R_2)
+        R_12 = np.dot(R_2.T, R_1)
+        #vector_1 -> vector_2's direction
+        return R_12
+
+
+
+    
+    

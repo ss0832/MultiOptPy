@@ -103,13 +103,13 @@ class FileIO:
             electric_charge_and_multiplicity = start_data[1]
             
         else:
-            electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
+            electric_charge_and_multiplicity = args_electric_charge_and_multiplicity#list
             
         element_list = []
             
 
 
-        for i in range(2, len(start_data)):
+        for i in range(1, len(start_data)):
             if len(start_data[i]) < 4:
                 continue
             element_list.append(start_data[i][0])
@@ -216,7 +216,7 @@ class FileIO:
     def xyz_file_make_for_pyscf(self):
         """optimized path is saved."""
         print("\ngeometry collection processing...\n")
-        file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")  
+        file_list = sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")) 
         #print(file_list,"\n")
         for m, file in enumerate(file_list):
             #print(file,m)
@@ -236,7 +236,7 @@ class FileIO:
     def xyz_file_make(self):
         """optimized path is saved."""
         print("\ngeometry collection processing...\n")
-        file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")  
+        file_list = sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")) 
         step_num = len(file_list)
         for m, file in enumerate(file_list[1:], 1):
             #print(file,m)
@@ -255,16 +255,20 @@ class FileIO:
             if m == step_num - 1:
                 with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","w") as w3:
                     w3.write(str(atom_num)+"\n")
-                    w3.write("Optimized Structure\n")
+                    w3.write("OptimizedStructure\n")
                     for i in sample[1:]:
                         w3.write(i)
         print("\ngeometry collection is completed...\n")
         return
-        
+
+    def xyz_file_save_for_IRC(self):
+        return
+    
+    
     def xyz_file_make_for_DM(self, img_1="reactant", img_2="product"):
         """optimized path is saved."""
         print("\ngeometry collection processing...\n")
-        file_list = glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz") + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9]/*.xyz")[::-1] + glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9]/*.xyz")[::-1]   
+        file_list = sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*"+str(img_1)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz"))[::-1] + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz"))[::-1] + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9][0-9]/*.xyz"))[::-1] + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9][0-9]/*.xyz"))[::-1] + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9][0-9]/*.xyz"))[::-1] + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+str(img_2)+"_[0-9]/*.xyz"))[::-1]   
         #print(file_list,"\n")
         
         

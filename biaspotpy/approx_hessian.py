@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 
 from bond_connectivity import BondConnectivity
-from param import UnitValueLib, number_element, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
+from parameter import UnitValueLib, number_element, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, atomic_mass
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
 
@@ -99,8 +99,13 @@ class ApproxHessian:
                 
                 if len(idx) == 2:
                     tmp_idx = sorted([idx[0], idx[1]])
+                    mass_1 = atomic_mass(element_list[tmp_idx[0]]) 
+                    mass_2 = atomic_mass(element_list[tmp_idx[1]])
+                    
+                    reduced_mass = (mass_1 * mass_2) / (mass_1 + mass_2)
+                    
                     tmpnum = RIC_idx_list.index(tmp_idx)
-                    RIC_approx_diag_hessian[tmpnum] += force_const
+                    RIC_approx_diag_hessian[tmpnum] += force_const/reduced_mass
                   
                 elif len(idx) == 3:
                     tmp_idx_1 = sorted([idx[0], idx[1]])

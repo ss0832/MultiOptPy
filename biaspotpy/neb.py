@@ -24,10 +24,10 @@ color_list = ["g"] #use for matplotlib
 
 from interface import force_data_parser
 
-from param import element_number, atomic_mass
+from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
 from optimizer import Model_hess_tmp
-
+from calc_tools import Calculationtools 
 
 class NEB:
     def __init__(self, args):
@@ -1102,7 +1102,7 @@ class NEB:
             delta_grad = (g[i] - pre_g[i]).reshape(len(geom_num_list[i])*3, 1)
             displacement = (geom_num_list[i] - pre_geom[i]).reshape(len(geom_num_list[i])*3, 1)
             
-            delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad) 
+            delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
             hessian[i] += delta_hess
             DELTA_for_QNM = 0.03
             matrix_for_RFO = np.append(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1), axis=1)
@@ -1113,9 +1113,10 @@ class NEB:
             RFO_eigenvalue = np.sort(RFO_eigenvalue)
             lambda_for_calc = float(RFO_eigenvalue[0])
             print("# NODE",i," LAMBDA: ", lambda_for_calc)
+          
             if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
                 
-                delta = -1 * (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+                delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
             
             else:
                 
@@ -1146,7 +1147,8 @@ class NEB:
             elif np.linalg.norm(total_delta[i]) > trust_radii_2:
                 move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
             else:
-                move_vector.append(total_delta[i])
+                move_vector_delta = min(0.05, np.linalg.norm(move_vector))
+                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
@@ -1160,14 +1162,14 @@ class NEB:
         new_geometory = (geom_num_list + move_vector)*self.bohr2angstroms
         return new_geometory
         
-    def FSB_hessian_update(self, hess, displacement, delta_grad):
+    def FSB_hessian_update(self, hess, displacement, delta_grad, geom_num_list):
         #J. Chem. Phys. 1999, 111, 10806
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_SR1 = np.dot(A, A.T) / (np.dot(A.T, displacement) + 1e-8) 
         delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / (np.dot(displacement.T, delta_grad) + 1e-8))  - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ (np.dot(np.dot(displacement.T, hess), displacement) + 1e-8)) 
         Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / (np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement) + 1e-8)
         delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
-        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, self.geom_num_list)
+        delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, geom_num_list)
         return delta_hess
 
     def adaptic_method(self, energy_list, gradient_list, new_geometory, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
@@ -1297,6 +1299,7 @@ class NEB:
     def run(self):
         
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
+        self.element_list = element_list
         file_directory = self.make_psi4_input_file(geometry_list,0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)

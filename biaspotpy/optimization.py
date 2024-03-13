@@ -13,7 +13,7 @@ from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from visualization import Graph
 from fileio import FileIO
-from param import UnitValueLib, element_number
+from parameter import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis

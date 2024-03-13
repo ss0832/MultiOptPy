@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from param import covalent_radii_lib
+from parameter import covalent_radii_lib
 
 
 class BondConnectivity:#Bohr

@@ -14,7 +14,7 @@ from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from visualization import Graph
 from fileio import FileIO
-from param import UnitValueLib, element_number, atomic_mass
+from parameter import UnitValueLib, element_number, atomic_mass
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
@@ -310,7 +310,7 @@ class Thermostat:
         addtional_momentum = np.random.rand(len(geometry), 3)
         #print(addtional_momentum)
         
-        self.momentum_list += addtional_momentum * 1e-10
+        self.momentum_list += addtional_momentum * 1e-4
        
        
         self.init_hamiltonian = B_e

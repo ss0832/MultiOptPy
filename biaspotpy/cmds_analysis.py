@@ -6,7 +6,7 @@ import numpy as np
 
 
 from calc_tools import Calculationtools #kabsch_algorithm
-from param import atomic_mass, UnitValueLib
+from parameter import atomic_mass, UnitValueLib
 
 #ref. Chem. Commun. 2021, 57 (89), 11734–11750.
 #https://doi.org/10.1039/D1CC04667E
