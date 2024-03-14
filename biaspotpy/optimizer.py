@@ -1957,7 +1957,7 @@ class CalculateMoveVector:
         print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
         
         #---------------------------------
-        if iter == 0:
+        if iter == 0 or "_LS" not in opt_method:
             self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         
         return self.new_geometry, np.array(move_vector, dtype="float64"), self.Opt_params, self.Model_hess, self.trust_radii
