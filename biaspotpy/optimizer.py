@@ -1633,7 +1633,7 @@ class CalculateMoveVector:
         else:
             self.trust_radii = self.update_trust_radii(self.trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector)
             if self.saddle_order > 0:
-                self.trust_radii = min(self.trust_radii, 0.1)
+                self.trust_radii = min(self.trust_radii, 0.01)
             
         #---------------------------------
         #calculate move vector
