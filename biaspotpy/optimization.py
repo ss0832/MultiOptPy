@@ -18,6 +18,7 @@ from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
+from riemann_curvature import CalculationCurvature
 
 class Optimize:
     def __init__(self, args):
@@ -42,6 +43,7 @@ class Optimize:
         #---------------------------
         self.temperature = float(args.md_like_perturbation)
         self.CMDS = args.cmds 
+        self.ricci_curvature = args.ricci_curvature
         #---------------------------
         if len(args.opt_method) > 2:
             print("invaild input (-opt)")
@@ -790,5 +792,8 @@ class Optimize:
         if self.CMDS:
             CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
             CMDPA.main()
+        if self.ricci_curvature:
+            CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
+            CC.main()
         
         return

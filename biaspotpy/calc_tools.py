@@ -253,7 +253,7 @@ class Calculationtools:
             #print(step)
             while n <= dimension_1 - step:
                 #print(n)
-                print(vector_1[n + step - 1])
+                #print(vector_1[n + step - 1])
                 r2 = vector_1[n - 1] ** 2 + vector_1[n + step - 1] ** 2
                 if r2 > 0:
                     r = r2 ** 0.5
@@ -288,7 +288,7 @@ class Calculationtools:
             step *= 2
             vector_2 = np.dot(A_2, vector_2)
             R_2 = np.dot(A_2, R_2)
-        print(R_1, R_2)
+        #print(R_1, R_2)
         R_12 = np.dot(R_2.T, R_1)
         #vector_1 -> vector_2's direction
         return R_12
