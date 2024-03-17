@@ -1047,7 +1047,7 @@ class NEB:
             cos_1 = np.sum(normalized_vec_1 * normalized_delta) 
             cos_2 = np.sum(normalized_vec_2 * normalized_delta)
             print("DEBUG:  vector (cos_1, cos_2)", cos_1, cos_2)
-            if (cos_1 > 0 and cos_2 > 0) or (cos_1 < 0 and cos_2 < 0):
+            if (cos_1 > 0 and cos_2 < 0) or (cos_1 < 0 and cos_2 > 0):
                 if np.linalg.norm(total_delta[i]) > trust_radii_1 and cos_1 > 0:
                     move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
                     print("DEBUG: TR radii 1 (considered cos_1)")
@@ -1056,6 +1056,9 @@ class NEB:
                     print("DEBUG: TR radii 2 (considered cos_2)")
                 else:
                     move_vector.append(total_delta[i])
+            elif (cos_1 < 0 and cos_2 < 0):
+                move_vector.append(total_delta[i])
+                print("DEBUG: no TR")
             else:
                 if np.linalg.norm(total_delta[i]) > trust_radii_1:
                     move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
@@ -1065,7 +1068,7 @@ class NEB:
                     print("DEBUG: TR radii 2")
                 else:
                     move_vector.append(total_delta[i])      
-                    
+            print("---")
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
