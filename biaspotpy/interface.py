@@ -81,10 +81,10 @@ def ieipparser():
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     
-
+    
     args = parser.parse_args()
     args.fix_atoms = []
-    
+    args.gradient_fix_atoms = []
     args.geom_info = ["0"]
     args.opt_method = ""    
     return args
@@ -178,7 +178,7 @@ def nebparser():
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.fix_atoms = []
-    
+    args.gradient_fix_atoms = []
     args.geom_info = ["0"]
     args.opt_method = ""
     return args
@@ -214,6 +214,7 @@ def mdparser():
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.geom_info = ["0"]
+    args.gradient_fix_atoms = []
     args.opt_method = ""
     return args
 
