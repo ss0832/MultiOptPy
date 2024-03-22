@@ -235,6 +235,9 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        
+        orthogonal_bias_grad_list = []
+        orthogonal_grad_list = []
 
         #----------------------------------
         for iter in range(self.NSTEP):
@@ -304,6 +307,18 @@ class Optimize:
             
             
             grad_list.append(np.sqrt((g**2).mean()))
+            #----------------------
+            if iter > 0:
+                norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
+                RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
+                orthogonal_bias_grad_list.append(RMS_ortho_B_g)
+                orthogonal_grad_list.append(RMS_ortho_g)
+            
+            
+            #------------------------
             if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
@@ -318,7 +333,8 @@ class Optimize:
             if DC_exit_flag:
                 break
 
-            
+
+                 
             #----------------------------
             pre_B_e = B_e#Hartree
             pre_e = e
@@ -326,6 +342,8 @@ class Optimize:
             pre_g = g
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
+            #---------------------------
+            
             
             geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
@@ -336,6 +354,10 @@ class Optimize:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        
+        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
@@ -414,6 +436,8 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        orthogonal_bias_grad_list = []
+        orthogonal_grad_list = []
 
         #----------------------------------
         for iter in range(self.NSTEP):
@@ -483,6 +507,15 @@ class Optimize:
             
             
             grad_list.append(np.sqrt((g**2).mean()))
+            
+            if iter > 0:
+                norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
+                RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
+                orthogonal_bias_grad_list.append(RMS_ortho_B_g)
+                orthogonal_grad_list.append(RMS_ortho_g)
             if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
@@ -518,7 +551,8 @@ class Optimize:
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
-        
+        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
         #
         FIO.xyz_file_make()
         
@@ -592,6 +626,8 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        orthogonal_bias_grad_list = []
+        orthogonal_grad_list = []
 
         #----------------------------------
         for iter in range(self.NSTEP):
@@ -659,6 +695,15 @@ class Optimize:
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             grad_list.append(np.sqrt((g**2).mean()))
+            
+            if iter > 0:
+                norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
+                RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
+                orthogonal_bias_grad_list.append(RMS_ortho_B_g)
+                orthogonal_grad_list.append(RMS_ortho_g)
             if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
             #-------------------------
@@ -694,7 +739,8 @@ class Optimize:
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
-        
+        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
         #
         FIO.xyz_file_make_for_pyscf()
         

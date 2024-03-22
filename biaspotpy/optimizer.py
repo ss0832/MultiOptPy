@@ -1032,7 +1032,7 @@ class CalculateMoveVector:
         move_vector = []
 
         for i in range(len(geom_num_list)):
-                move_vector.append(self.DELTA*((1.0 - nu_m) * B_g[i] + new_adam_m[i] * nu_m)/np.sqrt(((1.0 - nu_v) * B_g[i] ** 2 + new_adam_v[i] * nu_v)+Epsilon))
+            move_vector.append(self.DELTA*((1.0 - nu_m) * B_g[i] + new_adam_m[i] * nu_m)/np.sqrt(((1.0 - nu_v) * B_g[i] ** 2 + new_adam_v[i] * nu_v)+Epsilon))
                 
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
@@ -1058,7 +1058,7 @@ class CalculateMoveVector:
         move_vector = []
 
         for i in range(len(geom_num_list)):
-                move_vector.append(self.DELTA*(new_adam_m[i])/np.sqrt((new_adam_v[i])+Epsilon))
+            move_vector.append(self.DELTA*(new_adam_m[i])/np.sqrt((new_adam_v[i])+Epsilon))
                 
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
@@ -1205,6 +1205,7 @@ class CalculateMoveVector:
         self.Opt_params = Opt_calc_tmps(new_adam_m, new_adam_v, adam_count)
         self.new_geometry = (geom_num_list - move_vector) * self.bohr2angstroms #ang.
         return move_vector
+        
     #AdaBelief
     #ref. arXiv:2010.07468v5
     def AdaBelief(self, geom_num_list, B_g):
