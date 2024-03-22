@@ -235,6 +235,7 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        bias_grad_list = []
         
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
@@ -260,6 +261,14 @@ class Optimize:
             else:
                 pass
 
+
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
             #-------------------energy profile 
             if iter == 0:
                 with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
@@ -273,14 +282,12 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                 f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-            CalcBiaspot.Model_hess = self.Model_hess
-            
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
-
+            if iter == 0:
+                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
+            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            #-------------------
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
                 #fix_atom_list: force_data["gradient_fix_atoms"]
@@ -307,11 +314,12 @@ class Optimize:
             
             
             grad_list.append(np.sqrt((g**2).mean()))
+            bias_grad_list.append(np.sqrt((B_g**2).mean()))
             #----------------------
             if iter > 0:
                 norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
-                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
-                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
                 RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
                 RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
@@ -354,6 +362,10 @@ class Optimize:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
+        G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        
         
         G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
         G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
@@ -370,7 +382,24 @@ class Optimize:
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
+        
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
         
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
             f.write("ITER.,energy[kcal/mol]\n")
@@ -436,6 +465,7 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        bias_grad_list = []
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
 
@@ -461,6 +491,15 @@ class Optimize:
             else:
                 pass
 
+
+            
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
             #-------------------energy profile 
             if iter == 0:
                 with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
@@ -474,14 +513,12 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                 f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-            CalcBiaspot.Model_hess = self.Model_hess
-            
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
-
+            if iter == 0:
+                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
+            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            #-------------------
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
                 #fix_atom_list: force_data["gradient_fix_atoms"]
@@ -489,7 +526,7 @@ class Optimize:
                 g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
                 
             #----------------------------
-            
+
             CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
             new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
             self.Opt_params = Opt_params
@@ -507,11 +544,11 @@ class Optimize:
             
             
             grad_list.append(np.sqrt((g**2).mean()))
-            
+            bias_grad_list.append(np.sqrt((B_g**2).mean()))
             if iter > 0:
                 norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
-                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
-                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
                 RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
                 RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
@@ -548,11 +585,17 @@ class Optimize:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
+        G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        
+        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
-        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
         #
         FIO.xyz_file_make()
         
@@ -561,7 +604,24 @@ class Optimize:
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
+        
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
         
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
             f.write("ITER.,energy[kcal/mol]\n")
@@ -626,6 +686,7 @@ class Optimize:
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
+        bias_grad_list = []
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
 
@@ -649,6 +710,14 @@ class Optimize:
             else:
                 pass
 
+
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
             #-------------------energy profile 
             if iter == 0:
                 with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
@@ -662,14 +731,12 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                 f.write(str(np.sqrt((g**2).mean()))+"\n")
             #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-            CalcBiaspot.Model_hess = self.Model_hess
-            
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-            
-
+            if iter == 0:
+                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
+            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            #-------------------
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
                 #fix_atom_list: force_data["gradient_fix_atoms"]
@@ -695,11 +762,11 @@ class Optimize:
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
             
             grad_list.append(np.sqrt((g**2).mean()))
-            
+            bias_grad_list.append(np.sqrt((B_g**2).mean()))
             if iter > 0:
                 norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
-                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
-                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec.T, norm_pre_move_vec))
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
                 RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
                 RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
@@ -736,20 +803,43 @@ class Optimize:
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
+        G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        
+        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
-        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
         #
-        FIO.xyz_file_make_for_pyscf()
+        FIO.xyz_file_make()
         
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
         
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
+        
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
+        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
+            f.write("ITER.,orthogonal gradient[a.u.]\n")
+            for i in range(len(orthogonal_bias_grad_list)):
+                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
         
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
             f.write("ITER.,energy[kcal/mol]\n")
