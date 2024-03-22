@@ -482,6 +482,8 @@ class MD:
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
             self.Model_hess = SP.Model_hess
+            if finish_frag:
+                break
             _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             
             
@@ -649,7 +651,8 @@ class MD:
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
             self.Model_hess = SP.Model_hess
-
+            if finish_frag:
+                break
             _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
                          
             #---------------------------------------
@@ -812,7 +815,8 @@ class MD:
 
             self.Model_hess = SP.Model_hess
 
-            
+            if finish_frag:
+                break
             _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
                  
             #---------------------------------------
