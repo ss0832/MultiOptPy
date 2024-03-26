@@ -87,6 +87,7 @@ def ieipparser():
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
     args.opt_method = ""    
+    args.opt_fragment = []
     return args
 
 
@@ -119,7 +120,7 @@ def optimizeparser():
     parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for (n-1)-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
     parser.add_argument('-cmds','--cmds', help="apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-rc','--ricci_curvature', help="calculate Ricci scalar of calculated approx. reaction path.", action='store_true')
-    
+    parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
     
     args = parser.parse_args()
     return args
@@ -181,6 +182,7 @@ def nebparser():
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
     args.opt_method = ""
+    args.opt_fragment = []
     return args
 
 
@@ -216,6 +218,7 @@ def mdparser():
     args.geom_info = ["0"]
     args.gradient_fix_atoms = []
     args.opt_method = ""
+    args.opt_fragment = []
     return args
 
        
@@ -650,7 +653,7 @@ def force_data_parser(args):
     force_data["opt_method"] = args.opt_method
     
     force_data["xtb"] = args.usextb
-    
+    force_data["opt_fragment"] = [num_parse(args.opt_fragment[i]) for i in range(len(args.opt_fragment))]
     return force_data
 
 
@@ -699,6 +702,7 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.fix_atoms = []  
         self.geom_info = []
         self.opt_method = ""
+        self.opt_fragment = []
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -718,6 +722,8 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.fix_atoms = []  
         self.geom_info = []
         self.opt_method = ""
+        self.opt_fragment = []
+        return
     
 
 
@@ -745,5 +751,6 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.electronic_charge = 0
         self.spin_multiplicity = 1#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
         self.saddle_order = 0
+        self.opt_fragment = []
         return
  

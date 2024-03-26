@@ -179,6 +179,18 @@ class Optimize:
         
         return fixed_gradient
     
+    def calc_fragement_grads(self, gradient, fragment_list):
+        calced_gradient = gradient
+        for fragment in fragment_list:
+            tmp_grad = np.array([0.0, 0.0, 0.0], dtype="float64")
+            for atom_num in fragment:
+                tmp_grad += gradient[atom_num-1]
+            tmp_grad /= len(fragment)
+
+            for atom_num in fragment:
+                calced_gradient[atom_num-1] = copy.copy(tmp_grad)
+        #print(calced_gradient)
+        return calced_gradient
     
     def optimize_using_tblite(self):
         from tblite_calculation_tools import Calculation
@@ -268,6 +280,12 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            #----------------------------
+            if len(force_data["opt_fragment"]) > 0:
+                B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
+                g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
+            
             
             #-------------------energy profile 
             if iter == 0:
@@ -499,6 +517,11 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            #----------------------------
+            if len(force_data["opt_fragment"]) > 0:
+                B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
+                g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
+            
             
             #-------------------energy profile 
             if iter == 0:
@@ -717,6 +740,11 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            #----------------------------
+            if len(force_data["opt_fragment"]) > 0:
+                B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
+                g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
+            
             
             #-------------------energy profile 
             if iter == 0:
