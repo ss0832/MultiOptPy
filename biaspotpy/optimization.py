@@ -324,7 +324,7 @@ class Optimize:
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)   
+            self.geom_info_extract(force_data, file_directory, B_g, g, iter)   
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
@@ -560,7 +560,7 @@ class Optimize:
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)   
+            self.geom_info_extract(force_data, file_directory, B_g, g, iter)   
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
@@ -783,7 +783,7 @@ class Optimize:
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)     
+            self.geom_info_extract(force_data, file_directory, B_g, g, iter)     
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
@@ -880,7 +880,7 @@ class Optimize:
         return
     
     
-    def geom_info_extract(self, force_data, file_directory, B_g, g):
+    def geom_info_extract(self, force_data, file_directory, B_g, g, iter):
         if len(force_data["geom_info"]) > 1:
             CSI = CalculationStructInfo()
             

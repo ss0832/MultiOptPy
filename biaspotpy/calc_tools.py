@@ -74,9 +74,10 @@ class CalculationStructInfo:
         mole_struct_list = self.read_xyz_file(file)
         DBD_list = []
         DBD_name_list = []
-        print(file)
+        #print(file, atom_numbers)
         if len(atom_numbers) > 1:
             for a1, a2 in list(itertools.combinations(atom_numbers,2)):
+                #print(a1, a2)
                 try:
                     distance = self.calculate_distance(mole_struct_list[int(a1) - 1][1:4], mole_struct_list[int(a2) - 1][1:4])
                     DBD_name_list.append("Distance ("+str(a1)+"-"+str(a2)+")  [ang.]")
