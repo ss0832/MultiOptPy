@@ -390,7 +390,7 @@ class Optimize:
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
         
         #
         FIO.xyz_file_make()
@@ -617,7 +617,7 @@ class Optimize:
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
         
         #
         FIO.xyz_file_make()
@@ -840,7 +840,7 @@ class Optimize:
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
         
         #
         FIO.xyz_file_make()
