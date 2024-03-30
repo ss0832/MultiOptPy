@@ -432,7 +432,7 @@ class MD:
         self.momentum_list = np.zeros((len(element_list), 3))
         initial_geom_num_list = np.zeros((len(element_list), 3))
         
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+        self.Model_hess = np.eye(len(element_list*3))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
@@ -606,7 +606,7 @@ class MD:
         self.momentum_list = np.zeros((len(element_list), 3))
         initial_geom_num_list = np.zeros((len(element_list), 3))
         
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+        self.Model_hess = np.eye(len(element_list*3))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
@@ -766,7 +766,7 @@ class MD:
         self.momentum_list = np.zeros((len(element_list), 3))
         initial_geom_num_list = np.zeros((len(element_list), 3))
        
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+        self.Model_hess = np.eye(len(element_list*3))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
