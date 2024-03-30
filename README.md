@@ -77,8 +77,6 @@ Optimization is performed using the RFO method (Rational Function Optimization m
 
 Available optimization methods:
 
-`RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE, mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, RFO_BFGS, FSB, RFO_FSB, BFGS`
-
 Recommended optimization methods:
 
 - AdaBelief (fast convergence)
