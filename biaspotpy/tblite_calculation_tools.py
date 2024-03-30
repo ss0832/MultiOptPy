@@ -7,7 +7,6 @@ import numpy as np
 from tblite.interface import Calculator
 
 from calc_tools import Calculationtools
-from optimizer import Model_hess_tmp
 from parameter import UnitValueLib, element_number
 
 class Calculation:
@@ -133,7 +132,7 @@ class Calculation:
                     print("eigenvalues: ", eigenvalues)
                     
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_number_list.tolist(), positions)
-                    self.Model_hess = Model_hess_tmp(exact_hess, momentum_disp=self.Model_hess.momentum_disp, momentum_grad=self.Model_hess.momentum_grad)
+                    self.Model_hess = exact_hess
                    
                                  
                 

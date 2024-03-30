@@ -26,7 +26,6 @@ from interface import force_data_parser
 
 from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
-from optimizer import Model_hess_tmp
 from calc_tools import Calculationtools 
 
 class NEB:

@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from optimizer import CalculateMoveVector, Opt_calc_tmps, Model_hess_tmp
+from optimizer import CalculateMoveVector
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from visualization import Graph

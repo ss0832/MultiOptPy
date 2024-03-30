@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from optimizer import CalculateMoveVector, Opt_calc_tmps, Model_hess_tmp
+from optimizer import CalculateMoveVector
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from visualization import Graph
@@ -19,6 +19,7 @@ from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
+
 
 class Optimize:
     def __init__(self, args):
@@ -50,68 +51,9 @@ class Optimize:
             sys.exit(0)
         
         if args.DELTA == "x":
-            if args.opt_method[0] == "FSB":
-                args.DELTA = 0.1
-            elif args.opt_method[0] == "FSB_LS":
-                args.DELTA = 0.3
-            elif args.opt_method[0] == "RFO_FSB":
-                args.DELTA = 0.5
-            elif args.opt_method[0] == "RFO2_FSB":
-                args.DELTA = 0.5    
-                
-            elif args.opt_method[0] == "BFGS":
-                args.DELTA = 0.5
-            elif args.opt_method[0] == "BFGS_LS":
-                args.DELTA = 0.2
-            elif args.opt_method[0] == "RFO_BFGS":
-                args.DELTA = 0.5
-            elif args.opt_method[0] == "Bofill":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "RFO_Bofill":
-                args.DELTA = 0.5
-            elif args.opt_method[0] == "RFO2_Bofill":
-                args.DELTA = 0.5 
-            elif args.opt_method[0] == "MSP":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "RFO2_MSP":
-                args.DELTA = 0.5
-            elif args.opt_method[0] == "mBFGS":
-                args.DELTA = 0.50
-            elif args.opt_method[0] == "mFSB":
-                args.DELTA = 0.50
-            elif args.opt_method[0] == "RFO_mBFGS":
-                args.DELTA = 0.30
-            elif args.opt_method[0] == "RFO_mFSB":
-                args.DELTA = 0.30
-            elif args.opt_method[0] == "Adaderivative":
-                args.DELTA = 0.002
-            elif args.opt_method[0] == "Adabound":
-                args.DELTA = 0.01
-            elif args.opt_method[0] == "AdaMax":
-                args.DELTA = 0.01
-            elif args.opt_method[0] == "CG":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "CG_HS":
-                args.DELTA = 1.0            
-            elif args.opt_method[0] == "CG_DY":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "CG_FR":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "SADAM":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "SAMSGrad":
-                args.DELTA = 1.0
-            elif args.opt_method[0] == "YOGI":
-                args.DELTA = 0.05
-            elif args.opt_method[0] == "Adamod":
-                args.DELTA = 1.0
-            #elif args.opt_method[0] == "CG2":
-            #    args.DELTA = 1.0    
-            else:
-                args.DELTA = 0.06
+            self.DELTA = "x"
         else:
-            pass 
-        self.DELTA = float(args.DELTA) # 
+            self.DELTA = float(args.DELTA) # 
 
         self.N_THREAD = args.N_THREAD #
         self.SET_MEMORY = args.SET_MEMORY #
@@ -200,18 +142,10 @@ class Optimize:
         finish_frag = False
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.Model_hess = np.eye(len(element_list)*3)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
         
-        adam_m = []
-        adam_v = []    
-        for i in range(len(element_list)):
-            adam_m.append(np.array([0,0,0], dtype="float64"))
-            adam_v.append(np.array([0,0,0], dtype="float64"))        
-        adam_m = np.array(adam_m, dtype="float64")
-        adam_v = np.array(adam_v, dtype="float64")    
-        self.Opt_params = Opt_calc_tmps(adam_m, adam_v, 0)
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
@@ -228,7 +162,6 @@ class Optimize:
         pre_g = pre_B_g
         #-------------------------------------
         finish_frag = False
-        exit_flag = False
         #-----------------------------------
         SP = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
@@ -251,7 +184,15 @@ class Optimize:
         
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
-
+        
+        CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        optimizer_instances = CMV.initialization(force_data["opt_method"])
+        
+        for i in range(len(optimizer_instances)):
+            optimizer_instances[i].set_hessian(self.Model_hess)
+            if self.DELTA != "x":
+                optimizer_instances[i].DELTA = self.DELTA
+            
         #----------------------------------
         for iter in range(self.NSTEP):
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -280,6 +221,12 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            for i in range(len(optimizer_instances)):
+                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                     optimizer_instances[i].set_hessian(self.Model_hess)
+                     
             
             #----------------------------
             if len(force_data["opt_fragment"]) > 0:
@@ -314,17 +261,14 @@ class Optimize:
                 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
-            new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
-            self.Opt_params = Opt_params
-            self.Model_hess = Model_hess
+            new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g, iter)   
+            self.geom_info_extract(force_data, file_directory, B_g, g)   
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
@@ -441,16 +385,8 @@ class Optimize:
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
-        
-        adam_m = []
-        adam_v = []    
-        for i in range(len(element_list)):
-            adam_m.append(np.array([0,0,0], dtype="float64"))
-            adam_v.append(np.array([0,0,0], dtype="float64"))        
-        adam_m = np.array(adam_m, dtype="float64")
-        adam_v = np.array(adam_v, dtype="float64")    
-        self.Opt_params = Opt_calc_tmps(adam_m, adam_v, 0)
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+        self.Model_hess = np.eye(len(element_list)*3)
+
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
@@ -486,7 +422,14 @@ class Optimize:
         bias_grad_list = []
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
-
+        
+        CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        optimizer_instances = CMV.initialization(force_data["opt_method"])
+        
+        for i in range(len(optimizer_instances)):
+            optimizer_instances[i].set_hessian(self.Model_hess)
+            if self.DELTA != "x":
+                optimizer_instances[i].DELTA = self.DELTA
         #----------------------------------
         for iter in range(self.NSTEP):
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -515,6 +458,13 @@ class Optimize:
                 break   
             
             CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            for i in range(len(optimizer_instances)):
+                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                     optimizer_instances[i].set_hessian(self.Model_hess)
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------------------------
@@ -550,17 +500,15 @@ class Optimize:
                 
             #----------------------------
 
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
-            new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
-            self.Opt_params = Opt_params
-            self.Model_hess = Model_hess
+            new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g, iter)   
+            self.geom_info_extract(force_data, file_directory, B_g, g)   
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
             self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
@@ -665,16 +613,8 @@ class Optimize:
         geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
         file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
         #------------------------------------
-        
-        adam_m = []
-        adam_v = []    
-        for i in range(len(element_list)):
-            adam_m.append(np.array([0,0,0], dtype="float64"))
-            adam_v.append(np.array([0,0,0], dtype="float64"))        
-        adam_m = np.array(adam_m, dtype="float64")
-        adam_v = np.array(adam_v, dtype="float64")    
-        self.Opt_params = Opt_calc_tmps(adam_m, adam_v, 0)
-        self.Model_hess = Model_hess_tmp(np.eye(len(element_list*3)))
+        self.Model_hess = np.eye(len(element_list)*3)
+
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
         #-----------------------------------
@@ -712,7 +652,14 @@ class Optimize:
         bias_grad_list = []
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
-
+        
+        CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        optimizer_instances = CMV.initialization(force_data["opt_method"])
+        
+        for i in range(len(optimizer_instances)):
+            optimizer_instances[i].set_hessian(self.Model_hess)
+            if self.DELTA != "x":
+                optimizer_instances[i].DELTA = self.DELTA
         #----------------------------------
         for iter in range(self.NSTEP):
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -738,6 +685,13 @@ class Optimize:
                 break   
             
             CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            for i in range(len(optimizer_instances)):
+                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                     optimizer_instances[i].set_hessian(self.Model_hess)
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------------------------
@@ -773,17 +727,16 @@ class Optimize:
                 
             #----------------------------
             
-            CMV = CalculateMoveVector(self.DELTA, self.Opt_params, self.Model_hess, BPA_hessian, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
-            new_geometry, move_vector, Opt_params, Model_hess, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, force_data["opt_method"], pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
-            self.Opt_params = Opt_params
-            self.Model_hess = Model_hess
+            new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+
+
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
             
             #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g, iter)     
+            self.geom_info_extract(force_data, file_directory, B_g, g)     
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
@@ -880,7 +833,7 @@ class Optimize:
         return
     
     
-    def geom_info_extract(self, force_data, file_directory, B_g, g, iter):
+    def geom_info_extract(self, force_data, file_directory, B_g, g):
         if len(force_data["geom_info"]) > 1:
             CSI = CalculationStructInfo()
             

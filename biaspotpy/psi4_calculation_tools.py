@@ -5,7 +5,6 @@ import os
 import numpy as np
 
 from calc_tools import Calculationtools
-from optimizer import Model_hess_tmp
 
 class Calculation:
     def __init__(self, **kwarg):
@@ -111,7 +110,7 @@ class Calculation:
                     print("eigenvalues: ", eigenvalues)
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_list, input_data_for_display)
 
-                    self.Model_hess = Model_hess_tmp(exact_hess, momentum_disp=self.Model_hess.momentum_disp, momentum_grad=self.Model_hess.momentum_grad)
+                    self.Model_hess = exact_hess
                 
                 
 
