@@ -1046,27 +1046,34 @@ class NEB:
             cos_1 = np.sum(normalized_vec_1 * normalized_delta) 
             cos_2 = np.sum(normalized_vec_2 * normalized_delta)
             print("DEBUG:  vector (cos_1, cos_2)", cos_1, cos_2)
-            if (cos_1 > 0 and cos_2 < 0) or (cos_1 < 0 and cos_2 > 0):
-                if np.linalg.norm(total_delta[i]) > trust_radii_1 and cos_1 > 0:
-                    move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                    print("DEBUG: TR radii 1 (considered cos_1)")
-                elif np.linalg.norm(total_delta[i]) > trust_radii_2 and cos_2 > 0:
-                    move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                    print("DEBUG: TR radii 2 (considered cos_2)")
-                else:
+            force_move_vec_cos = np.sum(total_force_list[i] * total_delta[i]) / (np.linalg.norm(total_force_list[i]) * np.linalg.norm(total_delta[i])) 
+            
+            if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
+                if (cos_1 > 0 and cos_2 < 0) or (cos_1 < 0 and cos_2 > 0):
+                    if np.linalg.norm(total_delta[i]) > trust_radii_1 and cos_1 > 0:
+                        move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
+                        print("DEBUG: TR radii 1 (considered cos_1)")
+                    elif np.linalg.norm(total_delta[i]) > trust_radii_2 and cos_2 > 0:
+                        move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+                        print("DEBUG: TR radii 2 (considered cos_2)")
+                    else:
+                        move_vector.append(total_delta[i])
+                elif (cos_1 < 0 and cos_2 < 0):
                     move_vector.append(total_delta[i])
-            elif (cos_1 < 0 and cos_2 < 0):
-                move_vector.append(total_delta[i])
-                print("DEBUG: no TR")
-            else:
-                if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                    move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                    print("DEBUG: TR radii 1")
-                elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                    move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                    print("DEBUG: TR radii 2")
+                    print("DEBUG: no TR")
                 else:
-                    move_vector.append(total_delta[i])      
+                    if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                        move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
+                        print("DEBUG: TR radii 1")
+                    elif np.linalg.norm(total_delta[i]) > trust_radii_2:
+                        move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+                        print("DEBUG: TR radii 2")
+                    else:
+                        move_vector.append(total_delta[i])      
+            else:
+                print("zero move vec (Projected velocity-verlet algorithm)")
+                move_vector.append(total_delta[i] * 0.0) 
+            
             print("---")
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
@@ -1162,14 +1169,19 @@ class NEB:
             trust_radii_1_list.append(str(trust_radii_1*2))
             trust_radii_2_list.append(str(trust_radii_2*2))
             
+            force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
             
-            if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+            if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
+                if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                    move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
+                elif np.linalg.norm(total_delta[i]) > trust_radii_2:
+                    move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+                else:
+                    move_vector_delta = min(0.05, np.linalg.norm(move_vector))
+                    move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
             else:
-                move_vector_delta = min(0.05, np.linalg.norm(move_vector))
-                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
+                print("zero move vec (Projected velocity-verlet algorithm)")
+                move_vector.append(total_delta[i] * 0.0)  
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
