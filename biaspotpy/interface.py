@@ -137,9 +137,11 @@ def parser_for_biasforce(parser):
     
     parser.add_argument("-kp", "--keep_pot", nargs="*",  type=str, default=['0.0', '1.0', '1,2'], help='keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-kpv2", "--keep_pot_v2", nargs="*",  type=str, default=['0.0', '1.0', '1', '2'], help='keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
+    parser.add_argument("-anikpv2", "--aniso_keep_pot_v2", nargs="*",  type=str, default=['0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0', '1.0', '1', '2'], help='aniso keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)(xx xy xz yx yy yz zx zy zz)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
     parser.add_argument("-akp", "--anharmonic_keep_pot", nargs="*",  type=str, default=['0.0', '1.0', '1.0', '1,2'], help='Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-ka", "--keep_angle", nargs="*",  type=str, default=['0.0', '90', '1,2,3'], help='keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] ')
     parser.add_argument("-kav2", "--keep_angle_v2", nargs="*",  type=str, default=['0.0', '90', '1', '2', '3'], help='keep angle_v2 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] ...] ')
+    
     
     parser.add_argument("-ddka", "--atom_distance_dependent_keep_angle", nargs="*",  type=str, default=['0.0', '90', "120", "1.4", "5", "1", '2,3,4'], help='atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] ')
     
@@ -440,6 +442,27 @@ def force_data_parser(args):
        
     #---------------------
     
+    if len(args.aniso_keep_pot_v2) % 12 != 0:
+        print("invaild input (-anikpv2)")
+        sys.exit(0)
+    
+    force_data["aniso_keep_pot_v2_spring_const_mat"] = []
+    force_data["aniso_keep_pot_v2_dist"] = []
+    force_data["aniso_keep_pot_v2_fragm1"] = []
+    force_data["aniso_keep_pot_v2_fragm2"] = []
+    
+    for i in range(int(len(args.aniso_keep_pot_v2)/12)):
+        tmp_mat = np.array([[float(args.aniso_keep_pot_v2[12*i]),float(args.aniso_keep_pot_v2[12*i+1]),float(args.aniso_keep_pot_v2[12*i+2])],
+                   [float(args.aniso_keep_pot_v2[12*i+3]),float(args.aniso_keep_pot_v2[12*i+4]),float(args.aniso_keep_pot_v2[12*i+5])],
+                   [float(args.aniso_keep_pot_v2[12*i+6]),float(args.aniso_keep_pot_v2[12*i+7]),float(args.aniso_keep_pot_v2[12*i+8])]], dtype="float64")
+        force_data["aniso_keep_pot_v2_spring_const_mat"].append(tmp_mat)#au
+        force_data["aniso_keep_pot_v2_dist"].append(float(args.aniso_keep_pot_v2[12*i+9]))#degrees
+        force_data["aniso_keep_pot_v2_fragm1"].append(num_parse(args.aniso_keep_pot_v2[12*i+10]))
+        force_data["aniso_keep_pot_v2_fragm2"].append(num_parse(args.aniso_keep_pot_v2[12*i+11]))
+       
+    #---------------------
+    
+    
     if len(args.atom_distance_dependent_keep_angle) % 7 != 0:#[[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...]
         print("invaild input (-ddka)")
         sys.exit(0)
@@ -667,6 +690,9 @@ class BiasPotInterface:
         
         self.keep_pot = ['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] 
         self.keep_pot_v2 = ['0.0', '1.0', '1','2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] 
+        self.aniso_keep_pot_v2 = ['0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0', '1.0', '1', '2']
+        
+        
         self.anharmonic_keep_pot = ['0.0', '1.0', '1.0', '1,2']#Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] 
         self.keep_angle = ['0.0', '90', '1,2,3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] 
         self.keep_angle_v2 = ['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] 
@@ -712,17 +738,28 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.basisset = '6-31G(d)'
         self.functional = 'b3lyp'
         self.NSTEP = "10"
+        self.unrestrict = False
         self.OM = False
+        self.LUP = False
+        self.DNEB = False
+        self.NSEB = False
         self.partition = "0"
         self.N_THREAD = "8"
         self.SET_MEMORY = "1GB"
         self.apply_CI_NEB = '99999'
         self.steepest_descent = '99999'
+        self.QUASI_NEWTOM_METHOD = False
+        self.ANEB_num = "0"
         self.usextb = "None"
         self.fix_atoms = []  
         self.geom_info = []
         self.opt_method = ""
         self.opt_fragment = []
+        self.fixedges = 0
+        self.gradient_fix_atoms = ""
+        
+        
+        
         return
     
 

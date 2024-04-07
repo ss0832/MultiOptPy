@@ -313,6 +313,37 @@ class StructKeepPotential:
         
         return energy #hartree
     
+    def calc_energy_aniso_v2(self, geom_num_list):
+        """
+        # required variables:   self.config["aniso_keep_pot_v2_spring_const_mat"]
+                                self.config["aniso_keep_pot_v2_dist"] 
+                                self.config["aniso_keep_pot_v2_fragm1"]
+                                self.config["aniso_keep_pot_v2_fragm2"]
+                             
+        """
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["aniso_keep_pot_v2_fragm1"]:
+            fragm_1_center = fragm_1_center + geom_num_list[i-1]
+        
+        fragm_1_center = fragm_1_center / len(self.config["aniso_keep_pot_v2_fragm1"])
+        
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+        for i in self.config["aniso_keep_pot_v2_fragm2"]:
+            fragm_2_center = fragm_2_center + geom_num_list[i-1]
+        
+        fragm_2_center = fragm_2_center / len(self.config["aniso_keep_pot_v2_fragm2"])     
+        x_dist = torch.abs(fragm_1_center[0] - fragm_2_center[0])
+        y_dist = torch.abs(fragm_1_center[1] - fragm_2_center[1])
+        z_dist = torch.abs(fragm_1_center[2] - fragm_2_center[2])
+        eq_dist = self.config["aniso_keep_pot_v2_dist"]  / (3 ** 0.5) / self.bohr2angstroms
+        dist_vec = torch.stack([(x_dist - eq_dist) ** 2,(y_dist - eq_dist) ** 2,(z_dist - eq_dist) ** 2])
+        dist_vec = torch.reshape(dist_vec, (3, 1))
+        vec_pot = torch.matmul(torch.tensor(self.config["aniso_keep_pot_v2_spring_const_mat"], dtype=torch.float64), dist_vec)
+        
+        energy = torch.sum(vec_pot)
+        
+        
+        return energy #hartree
     
 
 class StructAnharmonicKeepPotential:
@@ -963,6 +994,25 @@ class BiasPotentialCalculation:
             else:
                 pass
             
+        for i in range(len(force_data["aniso_keep_pot_v2_spring_const_mat"])):
+            if np.any(force_data["aniso_keep_pot_v2_spring_const_mat"][i] != 0.0):
+                SKP = StructKeepPotential(aniso_keep_pot_v2_spring_const_mat=force_data["aniso_keep_pot_v2_spring_const_mat"][i], 
+                                            aniso_keep_pot_v2_dist=force_data["aniso_keep_pot_v2_dist"][i], 
+                                              aniso_keep_pot_v2_fragm1=force_data["aniso_keep_pot_v2_fragm1"][i],
+                                            aniso_keep_pot_v2_fragm2=force_data["aniso_keep_pot_v2_fragm2"][i]
+                                           )
+                
+                B_e += SKP.calc_energy_aniso_v2(geom_num_list)
+                
+                tensor_BPA_grad = torch.func.jacfwd(SKP.calc_energy_aniso_v2)(geom_num_list)
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+                
+
+                tensor_BPA_hessian = torch.func.hessian(SKP.calc_energy_aniso_v2)(geom_num_list)
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            else:
+                pass
+               
         for i in range(len(force_data["keep_pot_v2_spring_const"])):
             if force_data["keep_pot_v2_spring_const"][i] != 0.0:
                 SKP = StructKeepPotential(keep_pot_v2_spring_const=force_data["keep_pot_v2_spring_const"][i], 

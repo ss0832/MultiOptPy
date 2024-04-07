@@ -31,6 +31,7 @@ class Thermostat:
         self.pressure = pressure
         self.initial_pressure = pressure
         
+        self.Langevin_zeta = 0.01
         self.zeta = 0.0
         self.eta = 0.0
         self.scaling = 1e-3
@@ -304,14 +305,78 @@ class Thermostat:
         #--------------
         return new_geometry
     
+    def Langevin_equation(self, geom_num_list, element_list, new_g, pre_g, iter):
+        #self.Langevin_zeta
+        #Allen argorithum
+        C_0 = np.exp(-1 * self.Langevin_zeta * self.delta_timescale)
+        C_1 = (1 - C_0) / (self.Langevin_zeta * self.delta_timescale)
+        C_2 = (1 - C_1) / (self.Langevin_zeta * self.delta_timescale)
+        for i in range(len(element_list)):
+            self.momentum_list[i] += C_2 * (-1) * pre_g[i] * self.delta_timescale
+        
+        delta_coord_Gaussian = self.generate_normal_random_variables(len(element_list)*3).reshape(len(element_list), 3)
+        delta_momentum_Gaussian = self.generate_normal_random_variables(len(element_list)*3).reshape(len(element_list), 3)
+        
+        for i in range(len(element_list)):
+            
+            delta_coord_Gaussian[i] *= np.sqrt(self.delta_timescale * ((self.Boltzmann_constant * self.temperature) / (self.Langevin_zeta * atomic_mass(element_list[i]))) * (2.0 -1 * (1/(self.Langevin_zeta * self.delta_timescale)) * (3.0 -4 * np.exp(-1 * self.Langevin_zeta * self.delta_timescale) + np.exp(-1 * self.Langevin_zeta * self.delta_timescale * 2))))
+            delta_momentum_Gaussian *= np.sqrt((atomic_mass(element_list[i]) * self.Boltzmann_constant * self.temperature) * (1.0 -np.exp(-1 * self.Langevin_zeta * self.delta_timescale * 2)))
+        
+        new_geometry = copy.copy(geom_num_list)
+        for i in range(len(element_list)):
+            new_geometry[i] += C_1 * (self.momentum_list[i] / atomic_mass(element_list[i])) * self.delta_timescale + C_2 * ((-1) *new_g[i] / atomic_mass(element_list[i])) * self.delta_timescale ** 2 + delta_coord_Gaussian[i]
+            
+            self.momentum_list[i] *= C_0 
+            self.momentum_list[i] += (C_1 - C_2) * (-1) * new_g[i] * self.delta_timescale + delta_momentum_Gaussian[i]
+        
+        #-------------------
+        tmp_value = 0.0
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
+        
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ", Instantaneous_temperature," K")
+        self.Instantaneous_temperatures_list.append(Instantaneous_temperature)
+        #----------------
+        return new_geometry
+    
+    def generate_normal_random_variables(self, n_variables):
+        random_variables = []
+        for _ in range(n_variables // 2):
+            u1, u2 = np.random.rand(2)
+            #Box-Muller method
+            z1 = np.sqrt(-2 * np.log(u1)) * np.cos(2 * np.pi * u2)
+            z2 = np.sqrt(-2 * np.log(u1)) * np.sin(2 * np.pi * u2)
+            random_variables.extend([z1, z2])
+        
+        if n_variables % 2 == 1:
+            u1, u2 = np.random.rand(2)
+            z1 = np.sqrt(-2 * np.log(u1)) * np.cos(2 * np.pi * u2)
+            random_variables.append(z1)
+        
+        return np.array([random_variables], dtype="float64")
+
+    def calc_rand_moment_based_on_boltzman_const(self, random_variables, element_list):
+        rand_moment = random_variables
+        
+        for i in range(len(element_list)):
+            random_variables[i] *= np.sqrt(self.Boltzmann_constant * self.temperature / atomic_mass(element_list[i]))
+        
+        
+        return rand_moment
     
     def init_purtubation(self, geometry, B_e, element_list):
+        random_variables = self.generate_normal_random_variables(len(element_list)*3).reshape(len(element_list), 3)
         
-        addtional_momentum = np.random.rand(len(geometry), 3)
-        #print(addtional_momentum)
         
-        self.momentum_list += addtional_momentum * 1e-4
-       
+        
+        addtional_velocity = self.calc_rand_moment_based_on_boltzman_const(random_variables, element_list) # velocity
+        init_momentum = addtional_velocity * 0.0
+        
+        for i in range(len(element_list)):
+            init_momentum[i] += addtional_velocity[i] * atomic_mass(element_list[i])
+        
+        self.momentum_list += init_momentum
        
         self.init_hamiltonian = B_e
         for i, elem in enumerate(element_list):
@@ -387,7 +452,7 @@ class MD:
     
 
 
-    def exec_md(self, TM, geom_num_list, element_list, B_g, B_e, iter):
+    def exec_md(self, TM, geom_num_list, element_list, B_g, B_e, pre_B_g, iter):
         if self.mdtype == "nosehoover": 
             new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
         elif self.mdtype == "velocityverlet":
@@ -399,6 +464,8 @@ class MD:
             
         #elif self.mdtype == "nosepoincare":
         #    new_geometry = TM.Nose_Poincare_thermostat(geom_num_list, element_list, B_g, B_e, iter)    
+        elif self.mdtype == "langevin":
+            new_geometry = TM.Langevin_equation(geom_num_list, element_list, B_g, pre_B_g, iter)
         else:
             print("Unexpected method.", self.mdtype)
             raise
@@ -520,7 +587,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, pre_B_g, iter)
 
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)
@@ -685,7 +752,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, pre_B_g, iter)
         
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)
@@ -848,7 +915,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, element_list, B_g, B_e, pre_B_g, iter)
           
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)
