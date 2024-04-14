@@ -800,6 +800,7 @@ class BiasPotentialCalculation:
         self.Model_hess = Model_hess
         self.FC_COUNT = FC_COUNT
         self.JOBID = random.randint(0, 1000000)
+        self.partition = 300
     
     def ndarray2tensor(self, ndarray):
         tensor = copy.copy(torch.tensor(ndarray, dtype=torch.float64, requires_grad=True))
@@ -1283,8 +1284,14 @@ class BiasPotentialCalculation:
         
         #------------------
         for i in range(len(force_data["AFIR_gamma"])):
-            if force_data["AFIR_gamma"][i] != 0.0:
-                AP = AFIRPotential(AFIR_gamma=force_data["AFIR_gamma"][i], 
+            if not 0.0 in force_data["AFIR_gamma"][i]:
+                if len(force_data["AFIR_gamma"][i]) == 2 and iter != "":
+                    AFIR_gamma_tmp = force_data["AFIR_gamma"][i][0] + ((force_data["AFIR_gamma"][i][1] - force_data["AFIR_gamma"][i][0]) / self.partition) * int(iter)
+                    print(AFIR_gamma_tmp)
+                else:
+                    AFIR_gamma_tmp = force_data["AFIR_gamma"][i][0]
+                
+                AP = AFIRPotential(AFIR_gamma=AFIR_gamma_tmp, 
                                             AFIR_Fragm_1=force_data["AFIR_Fragm_1"][i], 
                                             AFIR_Fragm_2=force_data["AFIR_Fragm_2"][i],
                                             element_list=element_list)

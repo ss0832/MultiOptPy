@@ -347,7 +347,7 @@ def force_data_parser(args):
     
 
     for i in range(int(len(args.manual_AFIR)/3)):
-        force_data["AFIR_gamma"].append(float(args.manual_AFIR[3*i]))#kj/mol
+        force_data["AFIR_gamma"].append(list(map(float, args.manual_AFIR[3*i].split(","))))#kj/mol
         force_data["AFIR_Fragm_1"].append(num_parse(args.manual_AFIR[3*i+1]))
         force_data["AFIR_Fragm_2"].append(num_parse(args.manual_AFIR[3*i+2]))
     

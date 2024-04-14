@@ -421,6 +421,7 @@ class MD:
         if args.pyscf:
             self.electronic_charge = args.electronic_charge
             self.spin_multiplicity = args.spin_multiplicity
+            self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
             self.SUB_BASIS_SET = {}
             if len(args.sub_basisset) > 0:
                 self.SUB_BASIS_SET["default"] = str(self.BASIS_SET) # 
@@ -947,8 +948,8 @@ class MD:
             pre_g = g
             pre_geom = geom_num_list#Bohr
             
-            geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry*self.bohr2angstroms, element_list)
+            file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
