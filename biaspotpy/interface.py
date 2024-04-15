@@ -399,7 +399,7 @@ def force_data_parser(args):
     force_data["keep_pot_v2_fragm2"] = []
     
     for i in range(int(len(args.keep_pot_v2)/4)):
-        force_data["keep_pot_v2_spring_const"].append(float(args.keep_pot_v2[4*i]))#au
+        force_data["keep_pot_v2_spring_const"].append(list(map(float, args.keep_pot_v2[4*i].split(","))))#au
         force_data["keep_pot_v2_distance"].append(float(args.keep_pot_v2[4*i+1]))#ang
         force_data["keep_pot_v2_fragm1"].append(num_parse(args.keep_pot_v2[4*i+2]))
         force_data["keep_pot_v2_fragm2"].append(num_parse(args.keep_pot_v2[4*i+3]))
@@ -434,7 +434,7 @@ def force_data_parser(args):
     force_data["keep_angle_v2_fragm3"] = []
     
     for i in range(int(len(args.keep_angle_v2)/5)):
-        force_data["keep_angle_v2_spring_const"].append(float(args.keep_angle_v2[5*i]))#au
+        force_data["keep_angle_v2_spring_const"].append(list(map(float, args.keep_angle_v2[5*i].split(","))))#au
         force_data["keep_angle_v2_angle"].append(float(args.keep_angle_v2[5*i+1]))#degrees
         force_data["keep_angle_v2_fragm1"].append(num_parse(args.keep_angle_v2[5*i+2]))
         force_data["keep_angle_v2_fragm2"].append(num_parse(args.keep_angle_v2[5*i+3]))
@@ -520,7 +520,7 @@ def force_data_parser(args):
     force_data["keep_dihedral_angle_v2_fragm4"] = []
     
     for i in range(int(len(args.keep_dihedral_angle_v2)/6)):
-        force_data["keep_dihedral_angle_v2_spring_const"].append(float(args.keep_dihedral_angle_v2[6*i]))#au
+        force_data["keep_dihedral_angle_v2_spring_const"].append(list(map(float, args.keep_dihedral_angle_v2[6*i].split(","))))#au
         force_data["keep_dihedral_angle_v2_angle"].append(float(args.keep_dihedral_angle_v2[6*i+1]))#degrees
         force_data["keep_dihedral_angle_v2_fragm1"].append(num_parse(args.keep_dihedral_angle_v2[6*i+2]))
         force_data["keep_dihedral_angle_v2_fragm2"].append(num_parse(args.keep_dihedral_angle_v2[6*i+3]))

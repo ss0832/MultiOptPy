@@ -1015,8 +1015,13 @@ class BiasPotentialCalculation:
                 pass
                
         for i in range(len(force_data["keep_pot_v2_spring_const"])):
-            if force_data["keep_pot_v2_spring_const"][i] != 0.0:
-                SKP = StructKeepPotential(keep_pot_v2_spring_const=force_data["keep_pot_v2_spring_const"][i], 
+            if not 0.0 in force_data["keep_pot_v2_spring_const"][i]:
+                if len(force_data["keep_pot_v2_spring_const"][i]) == 2 and iter != "":
+                    spring_const_tmp = self.gradually_change_param(force_data["keep_pot_v2_spring_const"][i][0], force_data["keep_pot_v2_spring_const"][i][1], iter)
+                    print(spring_const_tmp)
+                else:
+                    spring_const_tmp = force_data["keep_pot_v2_spring_const"][i][0]
+                SKP = StructKeepPotential(keep_pot_v2_spring_const=spring_const_tmp, 
                                             keep_pot_v2_distance=force_data["keep_pot_v2_distance"][i], 
                                             keep_pot_v2_fragm1=force_data["keep_pot_v2_fragm1"][i],
                                             keep_pot_v2_fragm2=force_data["keep_pot_v2_fragm2"][i]
@@ -1170,12 +1175,17 @@ class BiasPotentialCalculation:
         
         if len(geom_num_list) > 2:
             for i in range(len(force_data["keep_angle_v2_spring_const"])):
-                if force_data["keep_angle_v2_spring_const"][i] != 0.0:
+                if not 0.0 in force_data["keep_angle_v2_spring_const"][i]:
+                    if len(force_data["keep_angle_v2_spring_const"][i]) == 2 and iter != "":
+                        spring_const_tmp = self.gradually_change_param(force_data["keep_angle_v2_spring_const"][i][0], force_data["keep_angle_v2_spring_const"][i][1], iter)
+                        print(spring_const_tmp)
+                    else:
+                        spring_const_tmp = force_data["keep_angle_v2_spring_const"][i][0]
                     SKAngleP = StructKeepAnglePotential(
                         keep_angle_v2_fragm1=force_data["keep_angle_v2_fragm1"][i], 
                         keep_angle_v2_fragm2=force_data["keep_angle_v2_fragm2"][i], 
                         keep_angle_v2_fragm3=force_data["keep_angle_v2_fragm3"][i], 
-                                                keep_angle_v2_spring_const=force_data["keep_angle_v2_spring_const"][i], 
+                                                keep_angle_v2_spring_const=spring_const_tmp, 
                                                 keep_angle_v2_angle=force_data["keep_angle_v2_angle"][i])
                     
                     B_e += SKAngleP.calc_energy_v2(geom_num_list)
@@ -1238,8 +1248,14 @@ class BiasPotentialCalculation:
         #------------------
         if len(geom_num_list) > 3:
             for i in range(len(force_data["keep_dihedral_angle_v2_spring_const"])):
-                if force_data["keep_dihedral_angle_v2_spring_const"][i] != 0.0:
-                    SKDAP = StructKeepDihedralAnglePotential(keep_dihedral_angle_v2_spring_const=force_data["keep_dihedral_angle_v2_spring_const"][i], 
+                if not 0.0 in force_data["keep_dihedral_angle_v2_spring_const"][i]:
+                    if len(force_data["keep_dihedral_angle_v2_spring_const"][i]) == 2 and iter != "":
+                        spring_const_tmp = self.gradually_change_param(force_data["keep_dihedral_angle_v2_spring_const"][i][0], force_data["keep_dihedral_angle_v2_spring_const"][i][1], iter)
+                        print(spring_const_tmp)
+                    else:
+                        spring_const_tmp = force_data["keep_dihedral_angle_v2_spring_const"][i][0]
+                
+                    SKDAP = StructKeepDihedralAnglePotential(keep_dihedral_angle_v2_spring_const=spring_const_tmp, 
                                                 keep_dihedral_angle_v2_fragm1=force_data["keep_dihedral_angle_v2_fragm1"][i], 
                                                 keep_dihedral_angle_v2_fragm2=force_data["keep_dihedral_angle_v2_fragm2"][i], 
                                                 keep_dihedral_angle_v2_fragm3=force_data["keep_dihedral_angle_v2_fragm3"][i], 
@@ -1286,7 +1302,7 @@ class BiasPotentialCalculation:
         for i in range(len(force_data["AFIR_gamma"])):
             if not 0.0 in force_data["AFIR_gamma"][i]:
                 if len(force_data["AFIR_gamma"][i]) == 2 and iter != "":
-                    AFIR_gamma_tmp = force_data["AFIR_gamma"][i][0] + ((force_data["AFIR_gamma"][i][1] - force_data["AFIR_gamma"][i][0]) / self.partition) * int(iter)
+                    AFIR_gamma_tmp = self.gradually_change_param(force_data["AFIR_gamma"][i][0], force_data["AFIR_gamma"][i][1], iter)
                     print(AFIR_gamma_tmp)
                 else:
                     AFIR_gamma_tmp = force_data["AFIR_gamma"][i][0]
@@ -1316,3 +1332,9 @@ class BiasPotentialCalculation:
         #B_e:hartree
 
         return BPA_grad_list, B_e, B_g, BPA_hessian
+    
+    
+    def gradually_change_param(self, param_1, param_2, iter):
+        parameter = param_1 + ((param_2 - param_1)/self.partition) * int(iter)
+    
+        return parameter
