@@ -1021,8 +1021,14 @@ class BiasPotentialCalculation:
                     print(spring_const_tmp)
                 else:
                     spring_const_tmp = force_data["keep_pot_v2_spring_const"][i][0]
+                    
+                if len(force_data["keep_pot_v2_distance"][i]) == 2 and iter != "":
+                    dist_tmp = self.gradually_change_param(force_data["keep_pot_v2_distance"][i][0], force_data["keep_pot_v2_distance"][i][1], iter)
+                    print(dist_tmp)
+                else:
+                    dist_tmp = force_data["keep_pot_v2_distance"][i][0]      
                 SKP = StructKeepPotential(keep_pot_v2_spring_const=spring_const_tmp, 
-                                            keep_pot_v2_distance=force_data["keep_pot_v2_distance"][i], 
+                                            keep_pot_v2_distance=dist_tmp, 
                                             keep_pot_v2_fragm1=force_data["keep_pot_v2_fragm1"][i],
                                             keep_pot_v2_fragm2=force_data["keep_pot_v2_fragm2"][i]
                                             )
@@ -1181,12 +1187,19 @@ class BiasPotentialCalculation:
                         print(spring_const_tmp)
                     else:
                         spring_const_tmp = force_data["keep_angle_v2_spring_const"][i][0]
+                        
+                    if len(force_data["keep_angle_v2_angle"][i]) == 2 and iter != "":
+                        angle_tmp = self.gradually_change_param(force_data["keep_angle_v2_angle"][i][0], force_data["keep_angle_v2_angle"][i][1], iter)
+                        print(angle_tmp)
+                    else:
+                        angle_tmp = force_data["keep_angle_v2_angle"][i][0]
+                        
                     SKAngleP = StructKeepAnglePotential(
                         keep_angle_v2_fragm1=force_data["keep_angle_v2_fragm1"][i], 
                         keep_angle_v2_fragm2=force_data["keep_angle_v2_fragm2"][i], 
                         keep_angle_v2_fragm3=force_data["keep_angle_v2_fragm3"][i], 
                                                 keep_angle_v2_spring_const=spring_const_tmp, 
-                                                keep_angle_v2_angle=force_data["keep_angle_v2_angle"][i])
+                                                keep_angle_v2_angle=angle_tmp)
                     
                     B_e += SKAngleP.calc_energy_v2(geom_num_list)
                     
@@ -1254,13 +1267,19 @@ class BiasPotentialCalculation:
                         print(spring_const_tmp)
                     else:
                         spring_const_tmp = force_data["keep_dihedral_angle_v2_spring_const"][i][0]
-                
+                        
+                    if len(force_data["keep_dihedral_angle_v2_angle"][i]) == 2 and iter != "":
+                        angle_tmp = self.gradually_change_param(force_data["keep_dihedral_angle_v2_angle"][i][0], force_data["keep_dihedral_angle_v2_angle"][i][1], iter)
+                        print(angle_tmp)
+                    else:
+                        angle_tmp = force_data["keep_dihedral_angle_v2_angle"][i][0]
+                        
                     SKDAP = StructKeepDihedralAnglePotential(keep_dihedral_angle_v2_spring_const=spring_const_tmp, 
                                                 keep_dihedral_angle_v2_fragm1=force_data["keep_dihedral_angle_v2_fragm1"][i], 
                                                 keep_dihedral_angle_v2_fragm2=force_data["keep_dihedral_angle_v2_fragm2"][i], 
                                                 keep_dihedral_angle_v2_fragm3=force_data["keep_dihedral_angle_v2_fragm3"][i], 
                                                 keep_dihedral_angle_v2_fragm4=force_data["keep_dihedral_angle_v2_fragm4"][i], 
-                                                keep_dihedral_angle_v2_angle=force_data["keep_dihedral_angle_v2_angle"][i])
+                                                keep_dihedral_angle_v2_angle=angle_tmp)
                     
                     B_e += SKDAP.calc_energy_v2(geom_num_list)
                     
