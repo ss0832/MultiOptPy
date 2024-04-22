@@ -389,6 +389,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             if delta_geometry < self.img_distance_convage_criterion:#Bohr
                 print("Converged!!!")
                 break
+            
+            if delta_geometry > prev_delta_geometry:
+                self.BETA *= 1.01
         
         bias_ene_list = BIAS_ENERGY_LIST_A + BIAS_ENERGY_LIST_B[::-1]
         bias_grad_list = BIAS_GRAD_LIST_A + BIAS_GRAD_LIST_B[::-1]
