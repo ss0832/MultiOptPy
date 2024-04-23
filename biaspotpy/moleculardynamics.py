@@ -402,7 +402,7 @@ class MD:
 
         self.initial_temperature = args.temperature
         self.num_of_trajectory = args.TRAJECTORY
-       
+        self.change_temperature = args.change_temperature
         self.momentum_list = None
         self.initial_pressure = args.pressure * 1000 * ( UnitValueLib().bohr2m ** 3  / UnitValueLib().hartree2j )
 
@@ -539,7 +539,19 @@ class MD:
         grad_list = []
 
         #----------------------------------
+        ct_count = 0
+        
+        
         for iter in range(self.NSTEP):
+            #-----------------------------
+            if ct_count < len(self.change_temperature):
+                if int(self.change_temperature[ct_count]) == iter:
+                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
+                    ct_count += 2
+                    
+            
+            #------------------------------
+            
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -707,9 +719,16 @@ class MD:
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
-
+        ct_count = 0
+        
         #----------------------------------
         for iter in range(self.NSTEP):
+            
+            if ct_count < len(self.change_temperature):
+                if int(self.change_temperature[ct_count]) == iter:
+                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
+                    ct_count += 2
+                    
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -869,9 +888,15 @@ class MD:
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
-
+        ct_count = 0
+        
         #----------------------------------
         for iter in range(self.NSTEP):
+            if ct_count < len(self.change_temperature):
+                if int(self.change_temperature[ct_count]) == iter:
+                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
+                    ct_count += 2
+                    
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
