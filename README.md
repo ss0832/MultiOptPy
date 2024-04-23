@@ -52,6 +52,13 @@ For iEIP method
 ```
 python ieipmain.py ieip_test -xtb GFN2-xTB 
 ```
+For Molecular Dynamics (MD)
+
+```
+python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 5 -time 100000
+```
+(Default deterministic algorithm for MD is Nosé–Hoover thermostat.)
+
 ## Options
 (optmain.py)
 
