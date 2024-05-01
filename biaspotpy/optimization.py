@@ -9,8 +9,8 @@ import time
 import numpy as np
 
 from optimizer import CalculateMoveVector
-from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools
+
+
 from visualization import Graph
 from fileio import FileIO
 from parameter import UnitValueLib, element_number
@@ -19,7 +19,8 @@ from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
-
+from potential import BiasPotentialCalculation
+from calc_tools import CalculationStructInfo, Calculationtools
 
 class Optimize:
     def __init__(self, args):
@@ -147,7 +148,7 @@ class Optimize:
         #------------------------------------
         
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -329,8 +330,8 @@ class Optimize:
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
         
         
-        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
@@ -388,7 +389,7 @@ class Optimize:
         self.Model_hess = np.eye(len(element_list)*3)
 
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -466,7 +467,7 @@ class Optimize:
                 if iter % self.FC_COUNT == 0:
                      optimizer_instances[i].set_hessian(self.Model_hess)
             
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+          
             #----------------------------
             if len(force_data["opt_fragment"]) > 0:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
@@ -560,8 +561,8 @@ class Optimize:
         G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
         
-        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
@@ -788,8 +789,8 @@ class Optimize:
         G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
         
-        G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
         
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
