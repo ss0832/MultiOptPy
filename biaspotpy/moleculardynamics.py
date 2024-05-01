@@ -39,10 +39,17 @@ class Thermostat:
         
         self.g_value = len(momentum_list) * 3
         self.Q_value = 1.0
+        
+        
         self.M_value = 1000.0
         self.Boltzmann_constant = 3.16681 * 10 ** (-6) # hartree/K
         self.delta_timescale = 1e-1
         self.volume = 1e-1
+        
+        # Nose-Hoover-chain
+        self.Q_value_chain = [1.0, 2.0, 3.0, 6.0, 10.0, 20, 40, 50, 100, 200]#mass of thermostat 
+        self.zeta_chain = [0.0 for i in range(len(self.Q_value_chain))]
+        
         
         self.Instantaneous_temperatures_list = []
         self.Instantaneous_momentum_list = []
@@ -132,7 +139,45 @@ class Thermostat:
         
         
         return new_geometry
+
+    def Nose_Hoover_chain_thermostat(self, geom_num_list, element_list, new_g):#fixed volume #NVT ensemble
+        #ref. J. Chem. Phys. 97, 2635-2643 (1992)
+        new_g *= -1
+        self.momentum_list = self.momentum_list * np.exp(-self.delta_timescale * self.zeta_chain[0] * 0.5)
+
+        self.momentum_list += new_g * self.delta_timescale * 0.5
+        print(np.sum(np.abs(self.momentum_list)))
+        
+        tmp_list = []
+        for i, elem in enumerate(element_list):
+            tmp_list.append(self.delta_timescale * self.momentum_list[i] / atomic_mass(elem))
+        
+        new_geometry = geom_num_list + tmp_list
+        #------------
+        tmp_value = 0.0
+        
+        for i, elem in enumerate(element_list):
+            tmp_value += (np.sum(self.momentum_list[i] ** 2) / atomic_mass(elem))
+        Instantaneous_temperature = tmp_value / (self.g_value * self.Boltzmann_constant)
+        print("Instantaneous_temperature: ",Instantaneous_temperature ," K")
+
+        self.Instantaneous_temperatures_list.append(tmp_value / (self.g_value * self.Boltzmann_constant))
+        #----------
+        self.zeta_chain[0] += self.delta_timescale * (tmp_value - self.g_value * self.Boltzmann_constant * self.initial_temperature) / self.Q_value_chain[0] -1* self.delta_timescale * (self.zeta_chain[0] * self.zeta_chain[1])
+        
+        for j in range(1, len(self.zeta_chain)-1):
+            self.zeta_chain[j] += self.delta_timescale * (self.Q_value_chain[j-1]*self.zeta_chain[j-1]**2 - self.Boltzmann_constant * self.initial_temperature) / self.Q_value_chain[j] -1* self.delta_timescale * (self.zeta_chain[j] * self.zeta_chain[j+1])
+        
+        self.zeta_chain[-1] += self.delta_timescale * (self.Q_value_chain[-2]*self.zeta_chain[-2]**2 -1*self.Boltzmann_constant * self.initial_temperature) / self.Q_value_chain[-1]
+        
+        #print(tmp_value, self.g_value * self.Boltzmann_constant * self.temperature)
     
+        
+        self.momentum_list += new_g * self.delta_timescale * 0.5
+        self.momentum_list = self.momentum_list * np.exp(-self.delta_timescale * self.zeta_chain[0] * 0.5)
+        print("zeta_list (Coefficient of friction): ", self.zeta_chain)    
+        return new_geometry
+
     def Velocity_Verlet(self, geom_num_list, element_list, new_g, iter):#NVE ensemble 
         new_g *= -1
         if iter != 0:
@@ -456,6 +501,8 @@ class MD:
     def exec_md(self, TM, geom_num_list, element_list, B_g, B_e, pre_B_g, iter):
         if self.mdtype == "nosehoover": 
             new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, element_list, B_g)
+        elif self.mdtype == "nosehooverchain": 
+            new_geometry = TM.Nose_Hoover_chain_thermostat(geom_num_list, element_list, B_g)
         elif self.mdtype == "velocityverlet":
             new_geometry = TM.Velocity_Verlet(geom_num_list, element_list, B_g, iter)
         #elif self.mdtype == "noseandersen":
@@ -502,7 +549,7 @@ class MD:
         
         self.Model_hess = np.eye(len(element_list*3))
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -688,7 +735,7 @@ class MD:
         
         self.Model_hess = np.eye(len(element_list*3))
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -855,7 +902,7 @@ class MD:
        
         self.Model_hess = np.eye(len(element_list*3))
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
