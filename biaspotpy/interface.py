@@ -142,6 +142,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-akp", "--anharmonic_keep_pot", nargs="*",  type=str, default=['0.0', '1.0', '1.0', '1,2'], help='Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-ka", "--keep_angle", nargs="*",  type=str, default=['0.0', '90', '1,2,3'], help='keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] ')
     parser.add_argument("-kav2", "--keep_angle_v2", nargs="*",  type=str, default=['0.0', '90', '1', '2', '3'], help='keep angle_v2 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] ...] ')
+    parser.add_argument("-lpka", "--lone_pair_keep_angle", nargs="*",  type=str, default=['0.0', '90', '1,2,3,4', '5,6,7,8'], help='lone pair keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [lone_pair_1 (center,atom1,atom2,atom3)] [lone_pair_2 (center,atom1,atom2,atom3)] ...] ')
     
     
     parser.add_argument("-ddka", "--atom_distance_dependent_keep_angle", nargs="*",  type=str, default=['0.0', '90', "120", "1.4", "5", "1", '2,3,4'], help='atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] ')
@@ -174,7 +175,8 @@ def nebparser():
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
     parser.add_argument("-cineb", "--apply_CI_NEB",  type=int, default='99999', help='apply CI_NEB method')
     parser.add_argument("-sd", "--steepest_descent",  type=int, default='99999', help='apply steepest_descent method')
-    parser.add_argument("-qnt", "--QUASI_NEWTOM_METHOD", action='store_true', help='changing default optimizer to quasi-Newton method')
+    parser.add_argument("-qnt", "--QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to quasi-Newton method')
+    parser.add_argument("-gqnt", "--GLOBAL_QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to global-quasi-Newton method')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
@@ -258,8 +260,10 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
     
-
-
+    #---------------------
+    
+ 
+        
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
@@ -426,6 +430,29 @@ def force_data_parser(args):
             print("invaild input (-ka atom_pairs)")
             sys.exit(0)
     
+    #------------------------
+    #lone_pair_keep_angle
+    if len(args.lone_pair_keep_angle) % 4 != 0:
+        print("invaild input (-lpka)")
+        sys.exit(0)
+    
+    force_data["lone_pair_keep_angle_spring_const"] = []
+    force_data["lone_pair_keep_angle_angle"] = []
+    force_data["lone_pair_keep_angle_atom_pair_1"] = []
+    force_data["lone_pair_keep_angle_atom_pair_2"] = []
+    
+    for i in range(int(len(args.lone_pair_keep_angle)/4)):
+        force_data["lone_pair_keep_angle_spring_const"].append(float(args.lone_pair_keep_angle[4*i]))#au
+        force_data["lone_pair_keep_angle_angle"].append(float(args.lone_pair_keep_angle[4*i+1]))#degrees
+        force_data["lone_pair_keep_angle_atom_pair_1"].append(num_parse(args.lone_pair_keep_angle[4*i+2]))
+        force_data["lone_pair_keep_angle_atom_pair_2"].append(num_parse(args.lone_pair_keep_angle[4*i+3]))
+        if len(force_data["lone_pair_keep_angle_atom_pair_1"][i]) != 4:
+            print("invaild input (-ka lone_pair_atom_pairs_1)")
+            sys.exit(0)
+        if len(force_data["lone_pair_keep_angle_atom_pair_2"][i]) != 4:
+            print("invaild input (-ka lone_pair_atom_pairs_2)")
+            sys.exit(0)
+            
     #---------------------
     if len(args.keep_angle_v2) % 5 != 0:
         print("invaild input (-kav2)")
@@ -689,7 +716,7 @@ class BiasPotInterface:
         self.manual_AFIR = ['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = ['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = ['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
-        
+     
         self.cone_potential = ['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
         
         self.keep_pot = ['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] 
@@ -701,6 +728,8 @@ class BiasPotInterface:
         self.keep_angle = ['0.0', '90', '1,2,3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] 
         self.keep_angle_v2 = ['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] 
         self.atom_distance_dependent_keep_angle = ['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
+        self.lone_pair_keep_angle = ['0.0', '90', '1,2,3,4', '5,6,7,8']
+        
         
         self.keep_dihedral_angle = ['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...] 
         self.keep_dihedral_angle_v2 = ['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...] 
@@ -753,6 +782,7 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.apply_CI_NEB = '99999'
         self.steepest_descent = '99999'
         self.QUASI_NEWTOM_METHOD = False
+        self.GLOBAL_QUASI_NEWTOM_METHOD = False
         self.ANEB_num = "0"
         self.usextb = "None"
         self.fix_atoms = []  
