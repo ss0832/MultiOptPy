@@ -118,8 +118,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             energy_1, gradient_1, geom_num_list_1, _ = SP.single_point(file_directory_1, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
             energy_2, gradient_2, geom_num_list_2, _ = SP.single_point(file_directory_2, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
             
-            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
-            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
+            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
@@ -240,8 +240,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 ini_geom_1 = geom_num_list_1
                 ini_geom_2 = geom_num_list_2
             
-            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
-            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT)
+            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
@@ -418,7 +418,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         return N 
     
     def dist_2imgs(self, geom_num_list_1, geom_num_list_2):
-        L = np.linalg.norm(geom_num_list_2 - geom_num_list_1)
+        L = np.linalg.norm(geom_num_list_2 - geom_num_list_1) + 1e-10
         return L #Bohr
    
     def target_dist_2imgs(self, L):
@@ -432,12 +432,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
 
     def displacement(self, force):
         n_force = np.linalg.norm(force)
-        displacement = (force / n_force) * min(n_force, self.displacement_limit)
+        displacement = (force / (n_force + 1e-10)) * min(n_force, self.displacement_limit)
         return displacement
     
     def displacement_prime(self, force):
         n_force = np.linalg.norm(force)
-        displacement = (force / n_force) * self.displacement_limit 
+        displacement = (force / (n_force + 1e-10)) * self.displacement_limit 
         return displacement
     
     def initial_structure_dependent_force(self, geom, ini_geom):
