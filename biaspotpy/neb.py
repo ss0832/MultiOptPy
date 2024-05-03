@@ -1368,7 +1368,7 @@ class NEB:
                 #------------------
                 if self.QUASI_NEWTOM_METHOD and optimize_num > init_num:
                     new_geometory, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
-                elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > 0:
+                elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > init_num:
                     new_geometory, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
             
                 
