@@ -21,6 +21,7 @@ from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
+from NRO_analysis import NROAnalysis
 
 class Optimize:
     def __init__(self, args):
@@ -103,6 +104,7 @@ class Optimize:
         self.Opt_params = None #
         self.DC_check_dist = 10.0#ang.
         self.unrestrict = args.unrestrict
+        self.NRO_analysis = args.NRO_analysis
         return
 
     def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
@@ -195,6 +197,12 @@ class Optimize:
                 optimizer_instances[i].DELTA = self.DELTA
             
         #----------------------------------
+        if self.NRO_analysis:
+            NRO = NROAnalysis(xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
+        
+        
+        
+        #---------------------------------
         for iter in range(self.NSTEP):
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
@@ -288,7 +296,8 @@ class Optimize:
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
                 orthogonal_grad_list.append(RMS_ortho_g)
             
-            
+            if self.NRO_analysis:
+                NRO.run(SP, geom_num_list, move_vector)
             #------------------------
             if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
                 break
@@ -320,6 +329,7 @@ class Optimize:
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
             #----------------------------
 
+
             #----------------------------
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
@@ -328,7 +338,7 @@ class Optimize:
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
         G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
-        
+        NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING, self.BPA_FOLDER_DIRECTORY)
         
         #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
         #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
