@@ -64,7 +64,7 @@ class Calculation:
         
         return hessian
     
-    def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method):
+    def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):
         """execute extended tight binding method calclation."""
         gradient_list = []
         energy_list = []
@@ -87,20 +87,21 @@ class Calculation:
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
             try:
-                
-                print("\n",input_file,"\n")
+                if geom_num_list is None:
+                    print("\n",input_file,"\n")
 
-                with open(input_file,"r") as f:
-                    input_data = f.readlines()
-                
-                positions = []
-                if iter == 0:
-                    for word in input_data[2:]:
-                        positions.append(word.split()[1:4])
+                    with open(input_file,"r") as f:
+                        input_data = f.readlines()
+                    
+                    positions = []
+                    if iter == 0:
+                        for word in input_data[2:]:
+                            positions.append(word.split()[1:4])
+                    else:
+                        for word in input_data[1:]:
+                            positions.append(word.split()[1:4])
                 else:
-                    for word in input_data[1:]:
-                        positions.append(word.split()[1:4])
-                        
+                    positions = geom_num_list        
                 
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 max_scf_iteration = len(element_number_list) * 50 + 1000 
@@ -111,14 +112,31 @@ class Calculation:
                 
                 calc.set("max-iter", max_scf_iteration)           
                 calc.set("verbosity", 0)
+                calc.set("save-integrals", 1)
                 
                 res = calc.singlepoint()
                 
                 e = float(res.get("energy"))  #hartree
                 g = res.get("gradient") #hartree/Bohr
-                        
-                print("\n")
-
+                
+                self.orbital_coefficients = copy.deepcopy(res.get("orbital-coefficients"))
+                self.overlap_matrix = copy.deepcopy(res.get("overlap-matrix"))
+                self.density_matrix = copy.deepcopy(res.get("density-matrix"))
+                self.orbital_energies = copy.deepcopy(res.get("orbital-energies"))
+                self.orbital_occupations = copy.deepcopy(res.get("orbital-occupations"))
+                self.charges = copy.deepcopy(res.get("charges"))
+                
+                #print("Orbital_energies :", self.orbital_energies)    
+                #print("Orbital_occupations :", self.orbital_occupations)    
+                tmp = list(map(str, self.orbital_energies.tolist()))
+                with open(self.BPA_FOLDER_DIRECTORY+"orbital-energies.csv" ,"a") as f:
+                    f.write(",".join(tmp)+"\n")
+                tmp = list(map(str, self.orbital_occupations.tolist()))
+                with open(self.BPA_FOLDER_DIRECTORY+"orbital_occupations.csv" ,"a") as f:
+                    f.write(",".join(tmp)+"\n")
+                tmp = list(map(str, self.charges.tolist()))
+                with open(self.BPA_FOLDER_DIRECTORY+"charges.csv" ,"a") as f:
+                    f.write(",".join(tmp)+"\n")
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
@@ -179,12 +197,16 @@ class Calculation:
             
             calc.set("max-iter", max_scf_iteration)           
             calc.set("verbosity", 0)
+            calc.set("save-integrals", 1)
             
             res = calc.singlepoint()
             
             e = float(res.get("energy"))  #hartree
             g = res.get("gradient") #hartree/Bohr
-                    
+            self.orbital_coefficients = res.get("orbital-coefficients")
+            self.overlap_matrix = res.get("overlap-matrix")
+            self.density_matrix = res.get("density-matrix")
+                                 
             print("\n")
 
         except Exception as error:
