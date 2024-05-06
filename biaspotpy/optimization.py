@@ -105,6 +105,10 @@ class Optimize:
         self.DC_check_dist = 10.0#ang.
         self.unrestrict = args.unrestrict
         self.NRO_analysis = args.NRO_analysis
+        if self.NRO_analysis:
+            if args.usextb == "None":
+                print("Currently, Naturak Reaction Orbital analysis is only available for xTB method.")
+                sys.exit(1)
         return
 
     def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
@@ -338,7 +342,8 @@ class Optimize:
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
         G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
-        NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING, self.BPA_FOLDER_DIRECTORY)
+        if self.NRO_analysis:
+            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING, self.BPA_FOLDER_DIRECTORY)
         
         #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
         #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
