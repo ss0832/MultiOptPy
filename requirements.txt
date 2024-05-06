@@ -1,0 +1,7 @@
+# Please input `pip install -r requirements.txt` to your command line.
+scipy
+numpy
+matplotlib
+tblite
+torch
+pyscf
