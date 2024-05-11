@@ -18,7 +18,7 @@ from parameter import UnitValueLib, element_number, atomic_mass
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
-
+from constraint_condition import shake_parser, SHAKE
 
 
 class Thermostat:
@@ -262,7 +262,7 @@ class Thermostat:
         new_g *= -1
         time_and_volume_scaling_momentum_list = self.scaling * abs(self.volume) ** (1/3) * self.momentum_list
         
-        scaled_geom_num_list = self.volume ** (-1/3) * geom_num_list 
+        scaled_geom_num_list = abs(self.volume) ** (-1/3) * geom_num_list 
         
         if iter == 0:
             tmp_value = 0.0
@@ -276,8 +276,8 @@ class Thermostat:
         self.scaling *= (1.0 + (self.Ps_momentum/(2 * self.Q_value))*(self.delta_timescale / 2))
         self.Ps_momentum = self.Ps_momentum / (1.0 + (self.Ps_momentum/(2 * self.Q_value))*(self.delta_timescale / 2))
         #------------------
-        time_and_volume_scaling_momentum_list += self.scaling * self.volume ** (1/3) * new_g * 0.5 * self.delta_timescale
-        self.Ps_momentum -= ((energy) + self.initial_pressure * self.volume) * 0.5 * self.delta_timescale  
+        time_and_volume_scaling_momentum_list += self.scaling * abs(self.volume) ** (1/3) * new_g * 0.5 * self.delta_timescale
+        self.Ps_momentum -= ((energy) + self.initial_pressure * abs(self.volume)) * 0.5 * self.delta_timescale  
         
         tmp_value = 0.0
         tmp_value_2 = 0.0
@@ -301,7 +301,7 @@ class Thermostat:
             tmp_value_2 += np.sum(time_and_volume_scaling_momentum_list[i]**2/atomic_mass(self.element_list[i]))
         tmp_list = np.array(tmp_list, dtype="float64")
         scaled_geom_num_list += tmp_list / (self.scaling * abs(self.volume) ** (2/3)) * self.delta_timescale
-        self.Ps_momentum += (tmp_value_2 / (2*self.scaling ** 2 *abs(self.volume)**(2/3)) -1 * self.g_value * self.Boltzmann_constant * self.initial_temperature * np.log(self.scaling) + self.init_hamiltonian -1*self.g_value * self.Boltzmann_constant * self.initial_temperature ) * self.delta_timescale
+        self.Ps_momentum += (tmp_value_2 / (2*self.scaling ** 2 *abs(self.volume)**(2/3)) -1 * self.g_value * self.Boltzmann_constant * self.initial_temperature * np.log(abs(self.scaling)) + self.init_hamiltonian -1*self.g_value * self.Boltzmann_constant * self.initial_temperature ) * self.delta_timescale
         self.pressure += tmp_value_2 / (3*self.scaling*abs(self.volume)**(5/3)) * self.delta_timescale
         
         #------------------
@@ -331,7 +331,7 @@ class Thermostat:
         #--------------
         
         new_geometry = scaled_geom_num_list * abs(self.volume) ** (1/3)
-        self.momentum_list = time_and_volume_scaling_momentum_list * (1/self.scaling) * self.volume ** (-1/3)
+        self.momentum_list = time_and_volume_scaling_momentum_list * (1/self.scaling) * abs(self.volume) ** (-1/3)
        
         return new_geometry
 
@@ -475,11 +475,17 @@ class MD:
         self.Opt_params = None #
         self.DC_check_dist = 10.0#ang.
         self.unrestrict = args.unrestrict
+        if len(args.constraint_condition) > 0:
+            self.constraint_condition_list = shake_parser(args.constraint_condition)
+        else:
+            self.constraint_condition_list = []
         return
     
 
 
-    def exec_md(self, TM, geom_num_list, B_g, B_e, pre_B_g, iter):
+    def exec_md(self, TM, geom_num_list, prev_geom_num_list, B_g, B_e, pre_B_g, iter):
+        if iter == 0:
+            self.class_SHAKE = SHAKE(TM.delta_timescale, self.constraint_condition_list)
         if self.mdtype == "nosehoover": 
             new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, B_g)
         elif self.mdtype == "nosehooverchain": 
@@ -497,6 +503,11 @@ class MD:
             print("Unexpected method.", self.mdtype)
             raise
         
+        if iter > 0 and len(self.constraint_condition_list) > 0:
+            
+            new_geometry, tmp_momentum_list = self.class_SHAKE.run(new_geometry, prev_geom_num_list, TM.momentum_list, TM.element_list)
+            TM.momentum_list = copy.copy(tmp_momentum_list)
+
         #tmp_value = 0.0
         
         #for i in range(len(geom_num_list)):
@@ -626,7 +637,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, B_g, B_e, pre_B_g, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
 
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)
@@ -798,7 +809,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, B_g, B_e, pre_B_g, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
         
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)
@@ -967,7 +978,7 @@ class MD:
 
             #----------------------------
             
-            new_geometry = self.exec_md(TM, geom_num_list, B_g, B_e, pre_B_g, iter)
+            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
           
             if iter % 10 != 0:
                 shutil.rmtree(file_directory)

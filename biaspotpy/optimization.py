@@ -22,6 +22,7 @@ from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from NRO_analysis import NROAnalysis
+from constraint_condition import GradientSHAKE, shake_parser
 
 class Optimize:
     def __init__(self, args):
@@ -107,8 +108,12 @@ class Optimize:
         self.NRO_analysis = args.NRO_analysis
         if self.NRO_analysis:
             if args.usextb == "None":
-                print("Currently, Naturak Reaction Orbital analysis is only available for xTB method.")
+                print("Currently, Natural Reaction Orbital analysis is only available for xTB method.")
                 sys.exit(1)
+        if len(args.constraint_condition) > 0:
+            self.constraint_condition_list = shake_parser(args.constraint_condition)
+        else:
+            self.constraint_condition_list = []
         return
 
     def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
@@ -152,7 +157,8 @@ class Optimize:
         self.Model_hess = np.eye(len(element_list)*3)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
-        
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
          
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
@@ -273,9 +279,18 @@ class Optimize:
                 g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
                 
             #----------------------------
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
+                g = class_GradientSHAKE.run_grad(pre_geom, g) 
+            
             
             new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
+               
+                new_geometry = tmp_new_geometry * self.bohr2angstroms
 
+            #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
@@ -401,6 +416,8 @@ class Optimize:
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
         self.Model_hess = np.eye(len(element_list)*3)
 
          
@@ -515,8 +532,16 @@ class Optimize:
                 g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
                 
             #----------------------------
-
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
+                g = class_GradientSHAKE.run_grad(pre_geom, g) 
+            
+            
             new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
+               
+                new_geometry = tmp_new_geometry * self.bohr2angstroms
 
 
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
@@ -629,6 +654,8 @@ class Optimize:
         geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
         file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
         #------------------------------------
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
         self.Model_hess = np.eye(len(element_list)*3)
 
          
@@ -742,8 +769,16 @@ class Optimize:
                 g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
                 
             #----------------------------
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
+                g = class_GradientSHAKE.run_grad(pre_geom, g) 
+            
             
             new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
+               
+                new_geometry = tmp_new_geometry * self.bohr2angstroms
 
 
 
