@@ -484,7 +484,7 @@ class MD:
 
 
     def exec_md(self, TM, geom_num_list, prev_geom_num_list, B_g, B_e, pre_B_g, iter):
-        if iter == 0:
+        if iter == 0 and len(self.constraint_condition_list) > 0:
             self.class_SHAKE = SHAKE(TM.delta_timescale, self.constraint_condition_list)
         if self.mdtype == "nosehoover": 
             new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, B_g)
