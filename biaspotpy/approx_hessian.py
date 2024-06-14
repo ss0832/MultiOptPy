@@ -158,8 +158,11 @@ class ApproxHessian:
         #print(connnectivity, len(connnectivity[0])+len(connnectivity[1])+len(connnectivity[2]))
         cart_hess = RedundantInternalCoordinates().RIChess2carthess(coord, connnectivity, 
                                                                     int_approx_hess, b_mat, int_grad)
+        cart_hess = np.nan_to_num(cart_hess, nan=0.0)
+        #eigenvalue, _ = np.linalg.eig(cart_hess)
+        #print(sorted(eigenvalue))
         hess_proj = Calculationtools().project_out_hess_tr_and_rot(cart_hess, element_list, coord)
-        return hess_proj
+        return hess_proj#cart_hess
         
 if __name__ == "__main__":#test
     AH = ApproxHessian()

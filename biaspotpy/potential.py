@@ -1,797 +1,29 @@
-import torch
+
+from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
+from calc_tools import Calculationtools
+
 import itertools
 import math
 import numpy as np
 import copy
 import random
+import torch
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
+from electrostatic_potential import ElectroStaticPotential
+from LJ_repulsive_potential import LJRepulsivePotential
+from AFIR_potential import AFIRPotential
+from keep_potential import StructKeepPotential
+from anharmonic_keep_potential import StructAnharmonicKeepPotential
+from keep_angle_potential import StructKeepAnglePotential
+from keep_dihedral_angle_potential import StructKeepDihedralAnglePotential
+from keep_outofplain_angle_potential import StructKeepOutofPlainAnglePotential
+from void_point_potential import VoidPointPotential
+from switching_potential import WellPotential
+from gaussian_potential import GaussianPotential
+from spacer_model_potential import SpacerModelPotential
 
-
-
-class ElectroStaticPotential:
-    def __init__(self, pot_type="UFF", **kwarg):
-        if pot_type == "UFF":
-            self.effective_charge_lib = UFF_effective_charge_lib #function
-        else:
-            raise "Please input MM potential type."
-        self.config = kwarg
-        
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        
-        return
-    
-    def calc_energy_type_fragm(self, geom_num_list): #For QM/MM interaction
-        epsilon = 1.0
-        """
-        # required variables:self.config["es_charge_scale"], 
-                             self.config["es_Fragm_1"],
-                             self.config["es_Fragm_2"]
-                             self.config["element_list"]
-        """
-        energy = 0.0
-
-        for i, j in itertools.product(self.config["es_Fragm_1"], self.config["es_Fragm_2"]):
-            electrostaticcharge = self.config["es_charge_scale"]*self.effective_charge_lib(self.config["element_list"][i-1])*self.effective_charge_lib(self.config["element_list"][j-1])
-           
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) * self.bohr2angstroms #ang.
-            energy += ((332.0637 * electrostaticcharge) / (epsilon * vector)) / self.hartree2kcalmol
-            
-        return energy
-    
-    def calc_energy_type_atom_pair(self, geom_num_list):
-        epsilon = 1.0
-        """
-        # required variables:self.config["es_charge_scale"], 
-                             self.config["es_atoms"],
-                             self.config["element_list"]
-        """
-        energy = 0.0
-
-        for i, j in itertools.combinations(self.config["es_atoms"], 2):
-            electrostaticcharge = self.config["es_charge_scale"]*self.effective_charge_lib(self.config["element_list"][i-1])*self.effective_charge_lib(self.config["element_list"][j-1])
-           
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) * self.bohr2angstroms #ang.
-            energy += ((332.0637 * electrostaticcharge) / (epsilon * vector)) / self.hartree2kcalmol
-            
-        return energy
-    
-    
-
-class LJRepulsivePotential:
-    def __init__(self, mm_pot_type="UFF", **kwarg):
-        if mm_pot_type == "UFF":
-            self.VDW_distance_lib = UFF_VDW_distance_lib #function
-            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
-        else:
-            raise "No MM potential type"
-        self.config = kwarg
-        
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        
-        return
-    
-    
-    def calc_energy_scale(self, geom_num_list):#geom_num_list: torch.float64
-        """
-        # required variables: self.config["repulsive_potential_well_scale"], 
-                             self.config["repulsive_potential_dist_scale"], 
-                             self.config["repulsive_potential_Fragm_1"],
-                             self.config["repulsive_potential_Fragm_2"]
-                             self.config["element_list"]
-        """
-        energy = 0.0
-
-        for i, j in itertools.product(self.config["repulsive_potential_Fragm_1"], self.config["repulsive_potential_Fragm_2"]):
-            UFF_VDW_well_depth = math.sqrt(self.config["repulsive_potential_well_scale"]*self.VDW_well_depth_lib(self.config["element_list"][i-1]) * self.config["repulsive_potential_well_scale"]*self.VDW_well_depth_lib(self.config["element_list"][j-1]))
-            UFF_VDW_distance = math.sqrt(self.VDW_distance_lib(self.config["element_list"][i-1])*self.config["repulsive_potential_dist_scale"] * self.VDW_distance_lib(self.config["element_list"][j-1])*self.config["repulsive_potential_dist_scale"])
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            energy += UFF_VDW_well_depth * ( -2 * ( UFF_VDW_distance / vector ) ** 6 + ( UFF_VDW_distance / vector ) ** 12)
-            
-        return energy
-    
-    def calc_energy_value(self, geom_num_list):#geom_num_list: torch.float64
-        """
-        # required variables: self.config["repulsive_potential_well_value"], 
-                             self.config["repulsive_potential_dist_value"], 
-                             self.config["repulsive_potential_Fragm_1"],
-                             self.config["repulsive_potential_Fragm_2"]
-                             self.config["element_list"]
-        """
-        energy = 0.0
-
-        for i, j in itertools.product(self.config["repulsive_potential_Fragm_1"], self.config["repulsive_potential_Fragm_2"]):
-            UFF_VDW_well_depth = self.config["repulsive_potential_well_value"]/self.hartree2kjmol
-            UFF_VDW_distance = self.config["repulsive_potential_dist_value"]/self.bohr2angstroms
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            energy += UFF_VDW_well_depth * ( -2 * ( UFF_VDW_distance / vector ) ** 6 + ( UFF_VDW_distance / vector ) ** 12)
-            
-        return
-    
-    def calc_energy_scale_v2(self, geom_num_list):
-        """
-        # required variables: self.config["repulsive_potential_v2_well_scale"], 
-                             self.config["repulsive_potential_v2_dist_scale"], 
-                             self.config["repulsive_potential_v2_length"],
-                             self.config["repulsive_potential_v2_const_rep"]
-                             self.config["repulsive_potential_v2_const_attr"], 
-                             self.config["repulsive_potential_v2_order_rep"], 
-                             self.config["repulsive_potential_v2_order_attr"],
-                             self.config["repulsive_potential_v2_center"]
-                             self.config["repulsive_potential_v2_target"]
-                             self.config["element_list"]
-        """
-        energy = 0.0
-        
-        LJ_pot_center = geom_num_list[self.config["repulsive_potential_v2_center"][1]-1] + (self.config["repulsive_potential_v2_length"]/self.bohr2angstroms) * (geom_num_list[self.config["repulsive_potential_v2_length"][1]-1] - geom_num_list[self.config["repulsive_potential_v2_length"][0]-1] / torch.linalg.norm(geom_num_list[self.config["repulsive_potential_v2_length"][1]-1] - geom_num_list[self.config["repulsive_potential_v2_length"][0]-1])) 
-        for i in self.config["repulsive_potential_v2_target"]:
-            UFF_VDW_well_depth = math.sqrt(self.config["repulsive_potential_v2_well_scale"]*self.VDW_well_depth_lib(self.config["element_list"][self.config["repulsive_potential_v2_center"][1]-1]) * self.VDW_well_depth_lib(self.config["element_list"][i-1]))
-            UFF_VDW_distance = math.sqrt(self.VDW_distance_lib(self.config["element_list"][self.config["repulsive_potential_v2_center"][1]-1])*self.config["repulsive_potential_v2_dist_scale"] * self.VDW_distance_lib(self.config["repulsive_potential_v2_center"][i-1]))
-            
-            vector = torch.linalg.norm(geom_num_list[i-1] - LJ_pot_center, ord=2) #bohr
-            energy += UFF_VDW_well_depth * ( abs(self.config["repulsive_potential_v2_const_rep"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_rep"] -1 * abs(self.config["repulsive_potential_v2_const_attr"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_attr"])
-            
-        return energy
-    def calc_energy_value_v2(self, geom_num_list):
-
-        """
-        # required variables: self.config["repulsive_potential_v2_well_value"], 
-                             self.config["repulsive_potential_v2_dist_value"], 
-                             self.config["repulsive_potential_v2_length"],
-                             self.config["repulsive_potential_v2_const_rep"]
-                             self.config["repulsive_potential_v2_const_attr"], 
-                             self.config["repulsive_potential_v2_order_rep"], 
-                             self.config["repulsive_potential_v2_order_attr"],
-                             self.config["repulsive_potential_v2_center"]
-                             self.config["repulsive_potential_v2_target"]
-                             self.config["element_list"]
-        """
-        energy = 0.0
-        
-        LJ_pot_center = geom_num_list[self.config["repulsive_potential_v2_center"][1]-1] + (self.config["repulsive_potential_v2_length"]/self.bohr2angstroms) * (geom_num_list[self.config["repulsive_potential_v2_length"][1]-1] - geom_num_list[self.config["repulsive_potential_v2_length"][0]-1] / torch.linalg.norm(geom_num_list[self.config["repulsive_potential_v2_length"][1]-1] - geom_num_list[self.config["repulsive_potential_v2_length"][0]-1])) 
-        for i in self.config["repulsive_potential_v2_target"]:
-            UFF_VDW_well_depth = math.sqrt(self.config["repulsive_potential_v2_well_value"]/self.hartree2kjmol * self.VDW_well_depth_lib(self.config["element_list"][i-1]))
-            UFF_VDW_distance = math.sqrt(self.config["repulsive_potential_v2_dist_value"]/self.bohr2angstroms * self.VDW_distance_lib(self.config["repulsive_potential_v2_center"][i-1]))
-            
-            vector = torch.linalg.norm(geom_num_list[i-1] - LJ_pot_center, ord=2) #bohr
-            energy += UFF_VDW_well_depth * ( abs(self.config["repulsive_potential_v2_const_rep"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_rep"] -1 * abs(self.config["repulsive_potential_v2_const_attr"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_attr"])
-            
-        return energy
-    #calc_energy_gau
-    def calc_energy_gau(self, geom_num_list):
-
-        """
-        # required variables: self.config["repulsive_potential_gaussian_LJ_well_depth"], 
-                             self.config["repulsive_potential_gaussian_LJ_dist"], 
-                             self.config["repulsive_potential_gaussian_gau_well_depth"],
-                             self.config["repulsive_potential_gaussian_gau_dist"]
-                             self.config["repulsive_potential_gaussian_gau_range"], 
-                             self.config["repulsive_potential_gaussian_fragm_1"], 
-                             self.config["repulsive_potential_gaussian_fragm_2"],
-                             self.config["element_list"]
-        """
-        energy = 0.0
-        gau_range_const = 0.03
-        for i, j in itertools.product(self.config["repulsive_potential_gaussian_fragm_1"], self.config["repulsive_potential_gaussian_fragm_2"]):
-            LJ_well_depth = self.config["repulsive_potential_gaussian_LJ_well_depth"]/self.hartree2kjmol
-            LJ_distance = self.config["repulsive_potential_gaussian_LJ_dist"]/self.bohr2angstroms
-            Gau_well_depth = self.config["repulsive_potential_gaussian_gau_well_depth"]/self.hartree2kjmol
-            Gau_distance = self.config["repulsive_potential_gaussian_gau_dist"]/self.bohr2angstroms
-            Gau_range = self.config["repulsive_potential_gaussian_gau_range"]/self.bohr2angstroms
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            energy += LJ_well_depth * ( -2 * ( LJ_distance / vector ) ** 6 + ( LJ_distance / vector ) ** 12) -1 * Gau_well_depth * torch.exp(-1 * (vector - Gau_distance) ** 2 / (gau_range_const * (Gau_range) ** 2))
-       
-        return energy
-
-    
-    def calc_cone_potential_energy(self, geom_num_list):
-
-        a_value = 1.0
-        """
-        # ref.  ACS Catal. 2022, 12, 7, 3752–3766
-        # required variables: self.config["cone_potential_well_value"], 
-                             self.config["cone_potential_dist_value"], 
-                             self.config["cone_potential_cone_angle"],
-                             self.config["cone_potential_center"], 
-                             self.config["cone_potential_three_atoms"]
-                             self.config["cone_potential_target"]   
-                             self.config["element_list"]
-        """
-        apex_vector = geom_num_list[self.config["cone_potential_center"]-1] - (2.28/self.bohr2angstroms) * ((geom_num_list[self.config["cone_potential_three_atoms"][0]-1] + geom_num_list[self.config["cone_potential_three_atoms"][1]-1] + geom_num_list[self.config["cone_potential_three_atoms"][2]-1] -3.0 * geom_num_list[self.config["cone_potential_center"]-1]) / torch.linalg.norm(geom_num_list[self.config["cone_potential_three_atoms"][0]-1] + geom_num_list[self.config["cone_potential_three_atoms"][1]-1] + geom_num_list[self.config["cone_potential_three_atoms"][2]-1] -3.0 * geom_num_list[self.config["cone_potential_center"]-1]))
-        cone_angle = torch.deg2rad(torch.tensor(self.config["cone_potential_cone_angle"], dtype=torch.float64))
-        energy = 0.0
-        for i in self.config["cone_potential_target"]:
-            UFF_VDW_well_depth = math.sqrt(self.config["cone_potential_well_value"]/self.hartree2kjmol * self.VDW_well_depth_lib(self.config["element_list"][i-1]))
-            UFF_VDW_distance = math.sqrt(self.config["cone_potential_dist_value"]/self.bohr2angstroms * self.VDW_distance_lib(self.config["element_list"][i-1]))
-            s_a_length = (geom_num_list[i-1] - apex_vector).view(1,3)
-            c_a_length = (geom_num_list[self.config["cone_potential_center"]-1] - apex_vector).view(1,3)
-            sub_angle = torch.arccos((torch.matmul(c_a_length, s_a_length.T)) / (torch.linalg.norm(c_a_length) * torch.linalg.norm(s_a_length)))#rad
-            dist = torch.linalg.norm(s_a_length)
-            
-            if sub_angle - cone_angle / 2 <= torch.pi / 2:
-                length = (dist * torch.sin(sub_angle - cone_angle / 2)).view(1,1)
-            
-            else:
-                length = dist.view(1,1)
-            
-            energy += 4 * UFF_VDW_well_depth * ((UFF_VDW_distance / (length + a_value * UFF_VDW_distance)) ** 12 - (UFF_VDW_distance / (length + a_value * UFF_VDW_distance)) ** 6)
-            
-        
-        return energy
-        
-class AFIRPotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["AFIR_gamma"], 
-                             self.config["AFIR_Fragm_1"], 
-                             self.config["AFIR_Fragm_2"],
-                             self.config["element_list"]
-        """
-        """
-        ###  Reference  ###
-            Chem. Rec., 2016, 16, 2232
-            J. Comput. Chem., 2018, 39, 233
-            WIREs Comput. Mol. Sci., 2021, 11, e1538
-        """
-        R_0 = 3.8164/self.bohr2angstroms #ang.→bohr
-        EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
-        if self.config["AFIR_gamma"] > 0.0 or self.config["AFIR_gamma"] < 0.0:
-            alpha = (self.config["AFIR_gamma"]/self.hartree2kjmol) / ((2 ** (-1/6) - (1 + math.sqrt(1 + (abs(self.config["AFIR_gamma"]/self.hartree2kjmol) / EPSIRON))) ** (-1/6))*R_0) #hartree/Bohr
-        else:
-            alpha = 0.0
-        A = 0.0
-        B = 0.0
-        
-        p = 6.0
-
-        for i, j in itertools.product(self.config["AFIR_Fragm_1"], self.config["AFIR_Fragm_2"]):
-            R_i = covalent_radii_lib(self.config["element_list"][i-1])
-            R_j = covalent_radii_lib(self.config["element_list"][j-1])
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            omega = ((R_i + R_j) / vector) ** p #no unit
-            A += omega * vector
-            B += omega
-        
-        energy = alpha*(A/B)#A/B:Bohr
-        return energy #hartree
-      
-class StructKeepPotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["keep_pot_spring_const"], 
-                             self.config["keep_pot_distance"], 
-                             self.config["keep_pot_atom_pairs"],
-                             
-        """
-        vector = torch.linalg.norm((geom_num_list[self.config["keep_pot_atom_pairs"][0]-1] - geom_num_list[self.config["keep_pot_atom_pairs"][1]-1]), ord=2)
-        energy = 0.5 * self.config["keep_pot_spring_const"] * (vector - self.config["keep_pot_distance"]/self.bohr2angstroms) ** 2
-        return energy #hartree
-    
-    def calc_energy_v2(self, geom_num_list):
-        """
-        # required variables: self.config["keep_pot_v2_spring_const"], 
-                             self.config["keep_pot_v2_distance"], 
-                             self.config["keep_pot_v2_fragm1"],
-                             self.config["keep_pot_v2_fragm2"],
-                             
-        """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_pot_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["keep_pot_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_pot_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_pot_v2_fragm2"])     
-        
-        vector = torch.linalg.norm(fragm_1_center - fragm_2_center, ord=2)
-        energy = 0.5 * self.config["keep_pot_v2_spring_const"] * (vector - self.config["keep_pot_v2_distance"]/self.bohr2angstroms) ** 2
-        
-        return energy #hartree
-    
-    def calc_energy_aniso_v2(self, geom_num_list):
-        """
-        # required variables:   self.config["aniso_keep_pot_v2_spring_const_mat"]
-                                self.config["aniso_keep_pot_v2_dist"] 
-                                self.config["aniso_keep_pot_v2_fragm1"]
-                                self.config["aniso_keep_pot_v2_fragm2"]
-                             
-        """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["aniso_keep_pot_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["aniso_keep_pot_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["aniso_keep_pot_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["aniso_keep_pot_v2_fragm2"])     
-        x_dist = torch.abs(fragm_1_center[0] - fragm_2_center[0])
-        y_dist = torch.abs(fragm_1_center[1] - fragm_2_center[1])
-        z_dist = torch.abs(fragm_1_center[2] - fragm_2_center[2])
-        eq_dist = self.config["aniso_keep_pot_v2_dist"]  / (3 ** 0.5) / self.bohr2angstroms
-        dist_vec = torch.stack([(x_dist - eq_dist) ** 2,(y_dist - eq_dist) ** 2,(z_dist - eq_dist) ** 2])
-        dist_vec = torch.reshape(dist_vec, (3, 1))
-        vec_pot = torch.matmul(torch.tensor(self.config["aniso_keep_pot_v2_spring_const_mat"], dtype=torch.float64), dist_vec)
-        
-        energy = torch.sum(vec_pot)
-        
-        
-        return energy #hartree
-    
-
-class StructAnharmonicKeepPotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["anharmonic_keep_pot_spring_const"],
-                              self.config["anharmonic_keep_pot_potential_well_depth"]
-                              self.config["anharmonic_keep_pot_atom_pairs"]
-                              self.config["anharmonic_keep_pot_distance"]
-
-        """
-        vector = torch.linalg.norm((geom_num_list[self.config["anharmonic_keep_pot_atom_pairs"][0]-1] - geom_num_list[self.config["anharmonic_keep_pot_atom_pairs"][1]-1]), ord=2)
-        if self.config["anharmonic_keep_pot_potential_well_depth"] != 0.0:
-            energy = self.config["anharmonic_keep_pot_potential_well_depth"] * ( 1.0 - torch.exp( - math.sqrt(self.config["anharmonic_keep_pot_spring_const"] / (2 * self.config["anharmonic_keep_pot_potential_well_depth"])) * (vector - self.config["anharmonic_keep_pot_distance"]/self.bohr2angstroms)) ) ** 2
-        else:
-            energy = torch.tensor(0.0, requires_grad=True, dtype=torch.float64)
-
-        return energy
-
-class StructKeepAnglePotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["keep_angle_atom_pairs"],
-                              self.config["keep_angle_spring_const"]
-                              self.config["keep_angle_angle"]
-
-        """
-       
-        vector1 = geom_num_list[self.config["keep_angle_atom_pairs"][0]-1] - geom_num_list[self.config["keep_angle_atom_pairs"][1]-1]
-        vector2 = geom_num_list[self.config["keep_angle_atom_pairs"][2]-1] - geom_num_list[self.config["keep_angle_atom_pairs"][1]-1]
-        magnitude1 = torch.linalg.norm(vector1)
-        magnitude2 = torch.linalg.norm(vector2)
-        dot_product = torch.matmul(vector1, vector2)
-        cos_theta = dot_product / (magnitude1 * magnitude2)
-        theta = torch.arccos(cos_theta)
-        energy = 0.5 * self.config["keep_angle_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_angle"]))) ** 2
-        return energy #hartree
-       
-    def calc_energy_v2(self, geom_num_list):
-        """
-        # required variables: self.config["keep_angle_v2_spring_const"], 
-                             self.config["keep_angle_v2_angle"], 
-                             self.config["keep_angle_v2_fragm1"],
-                             self.config["keep_angle_v2_fragm2"],
-                             self.config["keep_angle_v2_fragm3"],
-                             
-        """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_angle_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["keep_angle_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_angle_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_angle_v2_fragm2"]) 
-            
-        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_angle_v2_fragm3"]:
-            fragm_3_center = fragm_3_center + geom_num_list[i-1]
-        
-        fragm_3_center = fragm_3_center / len(self.config["keep_angle_v2_fragm3"])   
-           
-        vector1 = fragm_1_center - fragm_2_center
-        vector2 = fragm_3_center - fragm_2_center
-        magnitude1 = torch.linalg.norm(vector1)
-        magnitude2 = torch.linalg.norm(vector2)
-        dot_product = torch.matmul(vector1, vector2)
-        cos_theta = dot_product / (magnitude1 * magnitude2)
-        theta = torch.arccos(cos_theta)
-        energy = 0.5 * self.config["keep_angle_v2_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_v2_angle"]))) ** 2
-        return energy #hartree
-        
-    def calc_atom_dist_dependent_energy(self, geom_num_list):
-        """
-        # required variables: self.config["aDD_keep_angle_spring_const"] 
-                              self.config["aDD_keep_angle_min_angle"] 
-                              self.config["aDD_keep_angle_max_angle"]
-                              self.config["aDD_keep_angle_base_dist"]
-                              self.config["aDD_keep_angle_reference_atom"] 
-                              self.config["aDD_keep_angle_center_atom"] 
-                              self.config["aDD_keep_angle_atoms"]
-        
-        """
-        energy = 0.0
-        self.config["keep_angle_spring_const"] = self.config["aDD_keep_angle_spring_const"] 
-        max_angle = torch.tensor(self.config["aDD_keep_angle_max_angle"])
-        min_angle = torch.tensor(self.config["aDD_keep_angle_min_angle"])
-        ref_dist = torch.linalg.norm(geom_num_list[self.config["aDD_keep_angle_center_atom"]-1] - geom_num_list[self.config["aDD_keep_angle_reference_atom"]-1]) / self.bohr2angstroms
-        base_dist = self.config["aDD_keep_angle_base_dist"] / self.bohr2angstroms
-        eq_angle = min_angle + ((max_angle - min_angle)/(1 + torch.exp(-(ref_dist - base_dist))))
-        
-        self.config["keep_angle_angle"] = eq_angle
-        
-        
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][0] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]]
-        energy += self.calc_energy(geom_num_list)
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][2] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]]
-        energy += self.calc_energy(geom_num_list)
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][0] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][2]]
-        energy += self.calc_energy(geom_num_list)
-    
-        return energy
-
-class StructKeepDihedralAnglePotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["keep_dihedral_angle_spring_const"],
-                              self.config["keep_dihedral_angle_atom_pairs"]
-                              self.config["keep_dihedral_angle_angle"]
-                        
-        """
-        a1 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][1]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][0]-1]
-        a2 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][1]-1]
-        a3 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][3]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1]
-
-        v1 = torch.cross(a1, a2)
-        v1 = v1 / torch.linalg.norm(v1, ord=2)
-        v2 = torch.cross(a2, a3)
-        v2 = v2 / torch.linalg.norm(v2, ord=2)
-        angle = torch.arccos((v1*v2).sum(-1) / ((v1**2).sum() * (v2**2).sum())**0.5)
-
-        energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
-        
-        return energy #hartree    
-    
-    def calc_energy_v2(self, geom_num_list):
-        """
-        # required variables: self.config["keep_dihedral_angle_v2_spring_const"], 
-                             self.config["keep_dihedral_angle_v2_angle"], 
-                             self.config["keep_dihedral_angle_v2_fragm1"],
-                             self.config["keep_dihedral_angle_v2_fragm2"],
-                             self.config["keep_dihedral_angle_v2_fragm3"],
-                             self.config["keep_dihedral_angle_v2_fragm4"],
-                             
-        """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["keep_dihedral_angle_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_dihedral_angle_v2_fragm2"]) 
-            
-        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm3"]:
-            fragm_3_center = fragm_3_center + geom_num_list[i-1]
-        
-        fragm_3_center = fragm_3_center / len(self.config["keep_dihedral_angle_v2_fragm3"])   
-
-        fragm_4_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm4"]:
-            fragm_4_center = fragm_4_center + geom_num_list[i-1]
-        
-        fragm_4_center = fragm_4_center / len(self.config["keep_dihedral_angle_v2_fragm4"])  
-              
-        a1 = fragm_2_center - fragm_1_center
-        a2 = fragm_3_center - fragm_2_center
-        a3 = fragm_4_center - fragm_3_center
-
-        v1 = torch.cross(a1, a2)
-        v1 = v1 / torch.linalg.norm(v1, ord=2)
-        v2 = torch.cross(a2, a3)
-        v2 = v2 / torch.linalg.norm(v2, ord=2)
-        angle = torch.arccos((v1*v2).sum(-1) / ((v1**2).sum() * (v2**2).sum())**0.5)
-
-        energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
-        return energy #hartree
-
-class VoidPointPotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["void_point_pot_spring_const"],
-                              self.config["void_point_pot_atoms"]
-                              self.config["void_point_pot_coord"]  #need to convert tensor type 
-                              
-                              self.config["void_point_pot_distance"]
-                              self.config["void_point_pot_order"]
-                        
-        """
-        vector = torch.linalg.norm((geom_num_list[self.config["void_point_pot_atoms"]-1] - self.config["void_point_pot_coord"]), ord=2)
-        energy = (1 / self.config["void_point_pot_order"]) * self.config["void_point_pot_spring_const"] * (vector - self.config["void_point_pot_distance"]/self.bohr2angstroms) ** self.config["void_point_pot_order"]
-        return energy #hartree
-
-class WellPotential:
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        return
-    
-    def calc_energy(self, geom_num_list):
-        """
-        # required variables: self.config["well_pot_wall_energy"]
-                              self.config["well_pot_fragm_1"]
-                              self.config["well_pot_fragm_2"]
-                              self.config["well_pot_limit_dist"]
-                              
-                              
-        """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["well_pot_fragm_1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["well_pot_fragm_1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["well_pot_fragm_2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["well_pot_fragm_2"])        
-        
-        vec_norm = torch.linalg.norm(fragm_1_center - fragm_2_center) 
-        a = float(self.config["well_pot_limit_dist"][0]) / self.bohr2angstroms
-        b = float(self.config["well_pot_limit_dist"][1]) / self.bohr2angstroms
-        c = float(self.config["well_pot_limit_dist"][2]) / self.bohr2angstroms
-        d = float(self.config["well_pot_limit_dist"][3]) / self.bohr2angstroms
-        short_dist_linear_func_slope = 0.5 / (b - a)
-        short_dist_linear_func_intercept = 1.0 - 0.5 * b / (b - a) 
-        long_dist_linear_func_slope = 0.5 / (c - d)
-        long_dist_linear_func_intercept = 1.0 - 0.5 * c / (c - d) 
-
-        x_short = short_dist_linear_func_slope * vec_norm + short_dist_linear_func_intercept
-        x_long = long_dist_linear_func_slope * vec_norm + long_dist_linear_func_intercept
-
-        if vec_norm <= a:
-            energy = (self.config["well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_short + 2.875)
-            
-        elif a < vec_norm and vec_norm <= b:
-            energy = (self.config["well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_short ** 3 + 30.0 * x_short ** 4 - 12.0 * x_short ** 5)
-                
-        elif b < vec_norm and vec_norm < c:
-            energy = torch.tensor(0.0, requires_grad=True, dtype=torch.float64)
-            
-        elif c <= vec_norm and vec_norm < d:
-            energy = (self.config["well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_long ** 3 + 30.0 * x_long ** 4 - 12.0 * x_long ** 5)
-            
-        elif d <= vec_norm:
-            energy = (self.config["well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_long + 2.875)
-            
-        else:
-            print("well pot error")
-            raise "well pot error"
-        #print(energy)
-        return energy
-        
-    def calc_energy_wall(self, geom_num_list):
-        """
-        # required variables: self.config["wall_well_pot_wall_energy"]
-                              self.config["wall_well_pot_direction"] 
-                              self.config["wall_well_pot_limit_dist"]
-                              self.config["wall_well_pot_target"]
-                              
-                              
-        """
-        
-        if self.config["wall_well_pot_direction"] == "x":
-            direction_num = 0
-        elif self.config["wall_well_pot_direction"] == "y":
-            direction_num = 1
-        elif self.config["wall_well_pot_direction"] == "z":
-            direction_num = 2
-                     
-        
-        
-        energy = 0.0
-        for i in self.config["wall_well_pot_target"]:
-
-            vec_norm = abs(torch.linalg.norm(geom_num_list[i-1][direction_num])) 
-                     
-            a = float(self.config["wall_well_pot_limit_dist"][0]) / self.bohr2angstroms
-            b = float(self.config["wall_well_pot_limit_dist"][1]) / self.bohr2angstroms
-            c = float(self.config["wall_well_pot_limit_dist"][2]) / self.bohr2angstroms
-            d = float(self.config["wall_well_pot_limit_dist"][3]) / self.bohr2angstroms
-            short_dist_linear_func_slope = 0.5 / (b - a)
-            short_dist_linear_func_intercept = 1.0 - 0.5 * b / (b - a) 
-            long_dist_linear_func_slope = 0.5 / (c - d)
-            long_dist_linear_func_intercept = 1.0 - 0.5 * c / (c - d) 
-
-            x_short = short_dist_linear_func_slope * vec_norm + short_dist_linear_func_intercept
-            x_long = long_dist_linear_func_slope * vec_norm + long_dist_linear_func_intercept
-
-            if vec_norm <= a:
-                energy += (self.config["wall_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_short + 2.875)
-                
-            elif a < vec_norm and vec_norm <= b:
-                energy += (self.config["wall_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_short ** 3 + 30.0 * x_short ** 4 - 12.0 * x_short ** 5)
-                    
-            elif b < vec_norm and vec_norm < c:
-                energy += torch.tensor(0.0, requires_grad=True, dtype=torch.float64)
-                
-            elif c <= vec_norm and vec_norm < d:
-                energy += (self.config["wall_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_long ** 3 + 30.0 * x_long ** 4 - 12.0 * x_long ** 5)
-                
-            elif d <= vec_norm:
-                energy += (self.config["wall_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_long + 2.875)
-                
-            else:
-                print("well pot error")
-                raise "well pot error"
-                
- 
-        #print(energy)
-        return energy
-        
-    def calc_energy_vp(self, geom_num_list):
-        """
-        # required variables: self.config["void_point_well_pot_wall_energy"]
-                              self.config["void_point_well_pot_coordinate"] 
-                              self.config["void_point_well_pot_limit_dist"]
-                              self.config["void_point_well_pot_target"]
-                              
-                              
-        """
-        self.config["void_point_well_pot_coordinate"]  = torch.tensor(self.config["void_point_well_pot_coordinate"], dtype=torch.float64)
-
-        
-        energy = 0.0
-        for i in self.config["void_point_well_pot_target"]:
-
-            vec_norm = torch.linalg.norm(geom_num_list[i-1] - self.config["void_point_well_pot_coordinate"]) 
-                     
-            a = float(self.config["void_point_well_pot_limit_dist"][0]) / self.bohr2angstroms
-            b = float(self.config["void_point_well_pot_limit_dist"][1]) / self.bohr2angstroms
-            c = float(self.config["void_point_well_pot_limit_dist"][2]) / self.bohr2angstroms
-            d = float(self.config["void_point_well_pot_limit_dist"][3]) / self.bohr2angstroms
-            short_dist_linear_func_slope = 0.5 / (b - a)
-            short_dist_linear_func_intercept = 1.0 - 0.5 * b / (b - a) 
-            long_dist_linear_func_slope = 0.5 / (c - d)
-            long_dist_linear_func_intercept = 1.0 - 0.5 * c / (c - d) 
-
-            x_short = short_dist_linear_func_slope * vec_norm + short_dist_linear_func_intercept
-            x_long = long_dist_linear_func_slope * vec_norm + long_dist_linear_func_intercept
-
-            if vec_norm <= a:
-                energy += (self.config["void_point_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_short + 2.875)
-                
-            elif a < vec_norm and vec_norm <= b:
-                energy += (self.config["void_point_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_short ** 3 + 30.0 * x_short ** 4 - 12.0 * x_short ** 5)
-                    
-            elif b < vec_norm and vec_norm < c:
-                energy += torch.tensor(0.0, requires_grad=True, dtype=torch.float64)
-                
-            elif c <= vec_norm and vec_norm < d:
-                energy += (self.config["void_point_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_long ** 3 + 30.0 * x_long ** 4 - 12.0 * x_long ** 5)
-                
-            elif d <= vec_norm:
-                energy += (self.config["void_point_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_long + 2.875)
-                
-            else:
-                print("well pot error")
-                raise "well pot error"
-                
- 
-        #print(energy)
-        return energy
-        
-    def calc_energy_around(self, geom_num_list):
-        """
-        # required variables: self.config["around_well_pot_wall_energy"]
-                              self.config["around_well_pot_center"] 
-                              self.config["around_well_pot_limit_dist"]
-                              self.config["around_well_pot_target"]
-                              
-                              
-        """
-        geom_center_coord = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["around_well_pot_center"]:
-            geom_center_coord = geom_center_coord + geom_num_list[i-1]
-        geom_center_coord = geom_center_coord/len(self.config["around_well_pot_center"])
-        energy = 0.0
-        for i in self.config["around_well_pot_target"]:
-
-            vec_norm = torch.linalg.norm(geom_num_list[i-1] - geom_center_coord) 
-                     
-            a = float(self.config["around_well_pot_limit_dist"][0]) / self.bohr2angstroms
-            b = float(self.config["around_well_pot_limit_dist"][1]) / self.bohr2angstroms
-            c = float(self.config["around_well_pot_limit_dist"][2]) / self.bohr2angstroms
-            d = float(self.config["around_well_pot_limit_dist"][3]) / self.bohr2angstroms
-            short_dist_linear_func_slope = 0.5 / (b - a)
-            short_dist_linear_func_intercept = 1.0 - 0.5 * b / (b - a) 
-            long_dist_linear_func_slope = 0.5 / (c - d)
-            long_dist_linear_func_intercept = 1.0 - 0.5 * c / (c - d) 
-
-            x_short = short_dist_linear_func_slope * vec_norm + short_dist_linear_func_intercept
-            x_long = long_dist_linear_func_slope * vec_norm + long_dist_linear_func_intercept
-
-            if vec_norm <= a:
-                energy += (self.config["around_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_short + 2.875)
-                
-            elif a < vec_norm and vec_norm <= b:
-                energy += (self.config["around_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_short ** 3 + 30.0 * x_short ** 4 - 12.0 * x_short ** 5)
-                    
-            elif b < vec_norm and vec_norm < c:
-                energy += torch.tensor(0.0, requires_grad=True, dtype=torch.float64)
-                
-            elif c <= vec_norm and vec_norm < d:
-                energy += (self.config["around_well_pot_wall_energy"] / self.hartree2kjmol) * (2.0 - 20.0 * x_long ** 3 + 30.0 * x_long ** 4 - 12.0 * x_long ** 5)
-                
-            elif d <= vec_norm:
-                energy += (self.config["around_well_pot_wall_energy"] / self.hartree2kjmol) * (-3.75 * x_long + 2.875)
-                
-            else:
-                print("well pot error")
-                raise "well pot error"
-                
- 
-        #print(energy)
-        return energy
-      
 class BiasPotentialCalculation:
-    def __init__(self, Model_hess, FC_COUNT):
+    def __init__(self, Model_hess, FC_COUNT, FOLDER_DIRECTORY="./"):
         torch.set_printoptions(precision=12)
         UVL = UnitValueLib()
         self.hartree2kcalmol = UVL.hartree2kcalmol #
@@ -801,6 +33,11 @@ class BiasPotentialCalculation:
         self.FC_COUNT = FC_COUNT
         self.JOBID = random.randint(0, 1000000)
         self.partition = 300
+        self.microiteration_num = 300
+        self.rand_search_num = 800
+        self.BPA_FOLDER_DIRECTORY = FOLDER_DIRECTORY
+        self.metaD_history_list = None
+        self.miter_delta = 1.0
     
     def ndarray2tensor(self, ndarray):
         tensor = copy.copy(torch.tensor(ndarray, dtype=torch.float64, requires_grad=True))
@@ -817,7 +54,7 @@ class BiasPotentialCalculation:
         return ndarray
     
     def main(self, e, g, geom_num_list, element_list,  force_data, pre_B_g="", iter="", initial_geom_num_list=""):
-        numerical_derivative_delta = 0.0001 #unit:Bohr
+        numerical_derivative_delta = 1e-5 #unit:Bohr
         
         #g:hartree/Bohr
         #e:hartree
@@ -828,13 +65,87 @@ class BiasPotentialCalculation:
         B_e = e
         BPA_grad_list = g*0.0
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
-        #debug_delta_BPA_grad_list = g*0.0
         geom_num_list = self.ndarray2tensor(geom_num_list)
-        #print("rpv2")   torch.tensor(*** , dtype=torch.float64, requires_grad=True)
+        #------------------------------------------------
+         
+        if iter == 0 and force_data["spacer_model_potential_well_depth"][0] != 0.0:
+            self.smp_particle_coord_list = []
+            for i in range(len(force_data["spacer_model_potential_well_depth"])):
+                center = torch.mean(geom_num_list[np.array(force_data["spacer_model_potential_target"][i])-1], dim=0)
+                smp_particle_coord = torch.normal(mean=0, std=5, size=(force_data["spacer_model_potential_particle_number"][i], 3)) + center
+                self.smp_particle_coord_list.append(smp_particle_coord)
+                
+        for i in range(len(force_data["spacer_model_potential_well_depth"])):
+        
+            if force_data["spacer_model_potential_well_depth"][i] != 0.0:
+                SMP = SpacerModelPotential(spacer_model_potential_target=force_data["spacer_model_potential_target"][i],
+                                           spacer_model_potential_distance=force_data["spacer_model_potential_distance"][i],
+                                           spacer_model_potential_well_depth=force_data["spacer_model_potential_well_depth"][i],
+                                           spacer_model_potential_cavity_scaling=force_data["spacer_model_potential_cavity_scaling"][i],
+                                           element_list=element_list,
+                                           directory=self.BPA_FOLDER_DIRECTORY)
+                
+                self.microiteration_num = 100 * force_data["spacer_model_potential_particle_number"][i]
+                #---------------------- microiteration
+                print("processing microiteration...") 
+                for jter in range(self.microiteration_num):#TODO: improvement of convergence
 
+                    
+                    ene = SMP.calc_energy(geom_num_list, self.smp_particle_coord_list[i])
+                    particle_grad_list = torch.func.jacfwd(SMP.calc_energy, argnums=1)(geom_num_list, self.smp_particle_coord_list[i]).reshape(1, len(self.smp_particle_coord_list[i])*3)
+                    if jter % 50 ==  0:   
+                        particle_model_hess = torch.func.hessian(SMP.calc_energy, argnums=1)(geom_num_list, self.smp_particle_coord_list[i]).reshape(len(self.smp_particle_coord_list[i])*3, len(self.smp_particle_coord_list[i])*3)
+                    print("ITR. ", jter, " energy:", ene)
+                    
+                    if jter > 0:
+                        diff_grad = particle_grad_list - prev_particle_grad_list
+                        diff_coord = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) - prev_particle_list
+                        
+                        #BFGS method
+                        diff_hess = (torch.matmul(torch.t(diff_grad), diff_grad)) / (torch.matmul(diff_grad, torch.t(diff_grad))) -1 * (torch.matmul(particle_model_hess, torch.matmul(torch.t(diff_coord), torch.matmul(diff_coord, particle_model_hess)))/torch.matmul(diff_coord, torch.matmul(particle_model_hess, torch.t(diff_coord))))
+                       
+                        particle_model_hess = particle_model_hess + diff_hess
+                        move_vector = torch.linalg.solve(particle_model_hess, particle_grad_list.reshape(len(self.smp_particle_coord_list[i])*3, 1))
+                        prev_particle_list = copy.copy(self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3))
+                        new_particle_list = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) -1*self.miter_delta*particle_grad_list
+                        self.smp_particle_coord_list[i] = copy.copy(new_particle_list)
+                    else:
+                        prev_particle_list = copy.copy(self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3))
+                        new_particle_list = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) -1*self.miter_delta*particle_grad_list
+                        self.smp_particle_coord_list[i] = copy.copy(new_particle_list)
+                    prev_ene = copy.copy(ene)   
+                    
+                    self.smp_particle_coord_list[i] = self.smp_particle_coord_list[i].reshape(force_data["spacer_model_potential_particle_number"][i], 3)
+                    prev_particle_grad_list = copy.copy(particle_grad_list)
+                    
+                    #print(self.smp_particle_coord_list[i], prev_particle_list)
+                    
+                    if torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list) < 1e-4:#converge criteria
+                        print("gradient: ",torch.sqrt(torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list)).item())
+                        print("Microiteration: ", jter)
+                        print("microiteration completed...")
+                        microitr_converged_flag = True
+                        break
+                    if jter % 5 == 0:
+                        print("gradient:", torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list)) 
+                else:
+                    print("not converged... (microiteration)")    
+                    microitr_converged_flag = False
+                
+                B_e += SMP.calc_energy(geom_num_list, self.smp_particle_coord_list[i])
+                
+                tensor_BPA_grad = torch.func.jacfwd(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
 
+                tensor_BPA_hessian = torch.func.hessian(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                SMP.save_spacer_xyz_for_visualization(geom_num_list, self.smp_particle_coord_list[i])
+            else:
+                pass
+        
 
-
+            
+        #-----------------------------------------------
         for i in range(len(force_data["repulsive_potential_v2_well_scale"])):
             if force_data["repulsive_potential_v2_well_scale"][i] != 0.0:
                 if force_data["repulsive_potential_v2_unit"][i] == "scale":
@@ -1176,6 +487,27 @@ class BiasPotentialCalculation:
 
         else:
             pass
+        #-------------------
+        if len(geom_num_list) > 7:
+            for i in range(len(force_data["lone_pair_keep_angle_spring_const"])):
+                if force_data["lone_pair_keep_angle_spring_const"][i] != 0.0:
+                    SKAngleP = StructKeepAnglePotential(lone_pair_keep_angle_spring_const=force_data["lone_pair_keep_angle_spring_const"][i], 
+                                                lone_pair_keep_angle_angle=force_data["lone_pair_keep_angle_angle"][i], 
+                                                lone_pair_keep_angle_atom_pair_1=force_data["lone_pair_keep_angle_atom_pair_1"][i],
+                                                lone_pair_keep_angle_atom_pair_2=force_data["lone_pair_keep_angle_atom_pair_2"][i]
+                                                )
+                    
+                    B_e += SKAngleP.calc_lone_pair_angle_energy(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKAngleP.calc_lone_pair_angle_energy)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                    tensor_BPA_hessian = torch.func.hessian(SKAngleP.calc_lone_pair_angle_energy)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+
+        else:
+            pass
         
         #------------------
         
@@ -1257,7 +589,26 @@ class BiasPotentialCalculation:
                     pass
         else:
             pass
+        #------------------
+        if len(geom_num_list) > 3:
+            for i in range(len(force_data["keep_out_of_plain_angle_spring_const"])):
+                if force_data["keep_out_of_plain_angle_spring_const"][i] != 0.0:
+                    SKOPAP = StructKeepOutofPlainAnglePotential(keep_out_of_plain_angle_spring_const=force_data["keep_out_of_plain_angle_spring_const"][i], 
+                                                keep_out_of_plain_angle_atom_pairs=force_data["keep_out_of_plain_angle_atom_pairs"][i], 
+                                                keep_out_of_plain_angle_angle=force_data["keep_out_of_plain_angle_angle"][i])
+                    
+                    B_e += SKOPAP.calc_energy(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKOPAP.calc_energy)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
 
+                    tensor_BPA_hessian = torch.func.hessian(SKOPAP.calc_energy)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+                else:
+                    pass
+        else:
+            pass
         #------------------
         if len(geom_num_list) > 3:
             for i in range(len(force_data["keep_dihedral_angle_v2_spring_const"])):
@@ -1293,7 +644,41 @@ class BiasPotentialCalculation:
                     pass
         else:
             pass
+        #------------------
+        if len(geom_num_list) > 3:
+            for i in range(len(force_data["keep_out_of_plain_angle_v2_spring_const"])):
+                if not 0.0 in force_data["keep_out_of_plain_angle_v2_spring_const"][i]:
+                    if len(force_data["keep_out_of_plain_angle_v2_spring_const"][i]) == 2 and iter != "":
+                        spring_const_tmp = self.gradually_change_param(force_data["keep_out_of_plain_angle_v2_spring_const"][i][0], force_data["keep_out_of_plain_angle_v2_spring_const"][i][1], iter)
+                        print(spring_const_tmp)
+                    else:
+                        spring_const_tmp = force_data["keep_out_of_plain_angle_v2_spring_const"][i][0]
+                        
+                    if len(force_data["keep_out_of_plain_angle_v2_angle"][i]) == 2 and iter != "":
+                        angle_tmp = self.gradually_change_param(force_data["keep_out_of_plain_angle_v2_angle"][i][0], force_data["keep_out_of_plain_angle_v2_angle"][i][1], iter)
+                        print(angle_tmp)
+                    else:
+                        angle_tmp = force_data["keep_out_of_plain_angle_v2_angle"][i][0]
+                        
+                    SKOPAP = StructKeepOutofPlainAnglePotential(keep_out_of_plain_angle_v2_spring_const=spring_const_tmp, 
+                                                keep_out_of_plain_angle_v2_fragm1=force_data["keep_out_of_plain_angle_v2_fragm1"][i], 
+                                                keep_out_of_plain_angle_v2_fragm2=force_data["keep_out_of_plain_angle_v2_fragm2"][i], 
+                                                keep_out_of_plain_angle_v2_fragm3=force_data["keep_out_of_plain_angle_v2_fragm3"][i], 
+                                                keep_out_of_plain_angle_v2_fragm4=force_data["keep_out_of_plain_angle_v2_fragm4"][i], 
+                                                keep_out_of_plain_angle_v2_angle=angle_tmp)
+                    
+                    B_e += SKOPAP.calc_energy_v2(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKOPAP.calc_energy_v2)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
 
+                    tensor_BPA_hessian = torch.func.hessian(SKOPAP.calc_energy_v2)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+                else:
+                    pass
+        else:
+            pass
         #------------------
         for i in range(len(force_data["void_point_pot_spring_const"])):
             if force_data["void_point_pot_spring_const"][i] != 0.0:
@@ -1341,6 +726,28 @@ class BiasPotentialCalculation:
                 BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
+        #------------------    
+        if len(force_data["gaussian_potential_target"]) > 0:
+            if self.metaD_history_list is None:
+                self.metaD_history_list = [[] for i in range(len(force_data["gaussian_potential_target"]))]
+            prev_metaD_history_list = self.metaD_history_list 
+            METAD = GaussianPotential(gaussian_potential_target=force_data["gaussian_potential_target"], 
+                                            gaussian_potential_height=force_data["gaussian_potential_height"], 
+                                            gaussian_potential_width=force_data["gaussian_potential_width"],
+                                            gaussian_potential_tgt_atom=force_data["gaussian_potential_tgt_atom"])
+            METAD.history_list = prev_metaD_history_list
+            
+            B_e += METAD.calc_energy_for_metadyn(geom_num_list)
+            
+            tensor_BPA_grad = torch.func.jacfwd(METAD.calc_energy_for_metadyn)(geom_num_list)
+            BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+            tensor_BPA_hessian = torch.func.hessian(METAD.calc_energy_for_metadyn)(geom_num_list)
+            tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian) 
+            
+            self.metaD_history_list = METAD.history_list
+            
         #------------------        
         B_g = g + BPA_grad_list
 

@@ -1,21 +1,9 @@
 import argparse
 import sys
-import os
-import copy
-import glob
-import itertools
-import datetime
-import time
 import random
 
 import numpy as np
 
-from optimizer import CalculateMoveVector
-from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools
-from visualization import Graph
-from fileio import FileIO
-from parameter import UnitValueLib, element_number
 
 try:
     import psi4
@@ -89,6 +77,7 @@ def ieipparser():
     args.geom_info = ["0"]
     args.opt_method = ""    
     args.opt_fragment = []
+    args.oniom_method = []
     return args
 
 
@@ -100,12 +89,13 @@ def optimizeparser():
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
-
+    
     parser.add_argument("-ns", "--NSTEP",  type=int, default='300', help='iter. number')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
+    parser.add_argument("-oniom", "--oniom_method", type=str, nargs="*", default=[], help='Use ONIOM2 (our own 2-layered integrated molecular orbital and molecular machine) method (ex.) [[atom label numbers for high layer (1,2)] [link atoms (3,4)] [calculation level for low layer (GFN2-xTB, GFN1-xTB, mace_mp, etc.)]] (ref.) Int. J. Quantum Chem., 60, 1101-1109 (1996).')
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -124,6 +114,7 @@ def optimizeparser():
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-nro", "--NRO_analysis",  help="apply Natural Reaction Orbial analysis. (ref. Phys. Chem. Chem. Phys. 24, 3532 (2022))", action='store_true')
+    parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     
     
     args = parser.parse_args()
@@ -134,8 +125,6 @@ def parser_for_biasforce(parser):
     parser.add_argument("-rp", "--repulsive_potential", nargs="*",  type=str, default=['0.0','1.0', '1', '2', 'scale'], help='Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpv2", "--repulsive_potential_v2", nargs="*",  type=str, default=['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale'], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpg", "--repulsive_potential_gaussian", nargs="*",  type=str, default=['0.0','1.0','0.0','1.0','1.0', '1,2', '1-2'], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε_LJ[(σ/r)^(12) - 2 * (σ/r)^(6)] - ε_gau * exp(-((r-σ_gau)/b)^2)) (ex.) [[LJ_well_depth (kJ/mol)] [LJ_dist (ang.)] [Gaussian_well_depth (kJ/mol)] [Gaussian_dist (ang.)] [Gaussian_range (ang.)] [Fragm.1 (1,2)] [Fragm.2 (3-5,8)] ...]')
-    
-   
     parser.add_argument("-cp", "--cone_potential", nargs="*",  type=str, default=['0.0','1.0','90','1', '2,3,4', '5-9'], help='Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
     
     
@@ -161,6 +150,9 @@ def parser_for_biasforce(parser):
     parser.add_argument("-wwp", "--wall_well_pot", nargs="*", type=str, default=['0.0','x','0.5,0.6,1.5,1.6',"1"], help="Add potential to limit atoms movement. (like sandwich) (ex.) [[wall energy (kJ/mol)] [direction (x,y,z)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (1,2,3-5)] ...]")
     parser.add_argument("-vpwp", "--void_point_well_pot", nargs="*", type=str, default=['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6',"1"], help="Add potential to limit atom movement. (like sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (1,2,3-5)] ...]")
     parser.add_argument("-awp", "--around_well_pot", nargs="*", type=str, default=['0.0','1','0.5,0.6,1.5,1.6',"2"], help="Add potential to limit atom movement. (like sphere around fragment) (ex.) [[wall energy (kJ/mol)] [center (1,2-4)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
+    parser.add_argument("-smp", "--spacer_model_potential", nargs="*", type=str, default=['0.0',"1.0",'1.0','5',"1,2"], help="Add potential based on Morse potential to reproduce solvent molecules around molecule. (ex.) [[solvent particle well depth (kJ/mol)] [solvent particle e.q. distance (ang.)] [scaling of cavity (2.0)] [number of particles] [target atoms (2,3-5)] ...]")
+    parser.add_argument("-metad", "--metadynamics", nargs="*", type=str, default=[], help="apply meta-dynamics (use gaussian potential) (ex.) [[[bond] [potential height (kJ/mol)] [potential width (ang.)] [(atom1),(atom2)]] [[angle] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3)]] [[dihedral] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]] [[outofplain] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]]...] ")
+    
     return parser
 
 
@@ -185,14 +177,15 @@ def nebparser():
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
-    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
+    parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
+    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default=[], help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
-    args.fix_atoms = []
-    args.gradient_fix_atoms = []
+
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
+    args.oniom_method = []
     return args
 
 
@@ -221,9 +214,10 @@ def mdparser():
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for (n-1)-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
     parser.add_argument('-cmds','--cmds', help="apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
-    parser.add_argument("-xtb", "--usextb",  type=str, default="GFN2-xTB", help='use extended tight bonding method to calculate. default is GFN2-xTB (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is GFN2-xTB (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-ct", "--change_temperature",  type=str, nargs="*", default=[], help='change temperature of thermostat (defalut) No change (ex.) [1000(time), 500(K) 5000(time), 1000(K)...]')
-    parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
+    parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
+    parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -231,6 +225,7 @@ def mdparser():
     args.gradient_fix_atoms = []
     args.opt_method = ""
     args.opt_fragment = []
+    args.oniom_method = []
     return args
 
        
@@ -247,6 +242,24 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    #---------------------
+    if len(args.spacer_model_potential) % 5 != 0:
+        print("invaild input (-smp)")
+        sys.exit(0)
+    force_data["spacer_model_potential_target"] = []
+    force_data["spacer_model_potential_distance"] = []
+    force_data["spacer_model_potential_well_depth"] = []
+    force_data["spacer_model_potential_particle_number"] = [] #ang.
+    force_data["spacer_model_potential_cavity_scaling"] = []
+    print(len(args.spacer_model_potential))
+    for i in range(int(len(args.spacer_model_potential)/5)):
+        force_data["spacer_model_potential_well_depth"].append(float(args.spacer_model_potential[5*i]))
+        force_data["spacer_model_potential_distance"].append(float(args.spacer_model_potential[5*i+1]))
+        force_data["spacer_model_potential_cavity_scaling"].append(float(args.spacer_model_potential[5*i+2]))
+        force_data["spacer_model_potential_particle_number"].append(int(args.spacer_model_potential[5*i+3]))
+        force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
+
+
     #---------------------
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
@@ -266,7 +279,7 @@ def force_data_parser(args):
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
     
 
-  
+        
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
@@ -728,9 +741,18 @@ def force_data_parser(args):
         force_data["void_point_pot_atoms"].append(num_parse(args.void_point_pot[5*i+3]))
         force_data["void_point_pot_order"].append(float(args.void_point_pot[5*i+4]))
     #---------------------
+    force_data["gaussian_potential_target"] = []
+    force_data["gaussian_potential_height"] = []
+    force_data["gaussian_potential_width"] = []
+    force_data["gaussian_potential_tgt_atom"] = []
 
-    
-    
+    if len(args.metadynamics) > 0:
+        for i in range(int(len(args.metadynamics)/4)):
+            force_data["gaussian_potential_target"].append(str(args.metadynamics[4*i]))
+            force_data["gaussian_potential_height"].append(float(args.metadynamics[4*i+1]))
+            force_data["gaussian_potential_width"].append(float(args.metadynamics[4*i+2]))
+            force_data["gaussian_potential_tgt_atom"].append(num_parse(args.metadynamics[4*i+3]))
+        
     if len(args.fix_atoms) > 0:
         force_data["fix_atoms"] = num_parse(args.fix_atoms[0])
     else:
@@ -745,12 +767,18 @@ def force_data_parser(args):
     else:
         force_data["gradient_fix_atoms"] = ""
     
+    
+    
     force_data["geom_info"] = num_parse(args.geom_info[0])
     
     force_data["opt_method"] = args.opt_method
     
     force_data["xtb"] = args.usextb
     force_data["opt_fragment"] = [num_parse(args.opt_fragment[i]) for i in range(len(args.opt_fragment))]
+    if len(args.oniom_method) > 0:
+        force_data["oniom_method"] = [num_parse(args.oniom_method[0]), num_parse(args.oniom_method[1]), args.oniom_method[2]]
+    
+    
     return force_data
 
 
@@ -759,7 +787,6 @@ class BiasPotInterface:
         self.manual_AFIR = ['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = ['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = ['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
-        
         self.cone_potential = ['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
         
         self.keep_pot = ['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] 
@@ -783,8 +810,9 @@ class BiasPotInterface:
         self.well_pot = ['0.0','1','2','0.5,0.6,1.5,1.6']
         self.wall_well_pot = ['0.0','x','0.5,0.6,1.5,1.6', '1']#Add potential to limit atoms movement. (sandwich) (ex.) [[wall energy (kJ/mol)] [direction (x,y,z)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
         self.void_point_well_pot = ['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6', '1']#"Add potential to limit atom movement. (sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
-        self.around_well_pot =['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
-
+        self.around_well_pot = ['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
+        self.spacer_model_potential = ['0.0',"1.0",'1.0','5',"1,2"]
+        self.metadynamics = []
 
 class iEIPInterface(BiasPotInterface):# inheritance is not good for readable code.
     def __init__(self, folder_name=""):
@@ -869,6 +897,8 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.saddle_order = 0
         self.opt_fragment = []
         self.constraint_condition = []
+        self.othersoft = "None"
         self.NRO_analysis = False
+        self.oniom_method = []
         return
  

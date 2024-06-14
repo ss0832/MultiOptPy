@@ -28,6 +28,23 @@ from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
 from calc_tools import Calculationtools 
 
+
+
+def extremum_list_index(energy_list):
+    local_max_energy_list_index = argrelextrema(energy_list, np.greater)
+    inverse_energy_list = (-1)*energy_list
+    local_min_energy_list_index = argrelextrema(inverse_energy_list, np.greater)
+
+    local_max_energy_list_index = local_max_energy_list_index[0].tolist()
+    local_min_energy_list_index = local_min_energy_list_index[0].tolist()
+    local_max_energy_list_index.append(0)
+    local_min_energy_list_index.append(0)
+    local_max_energy_list_index.append(0)
+    local_min_energy_list_index.append(0)
+    return local_max_energy_list_index, local_min_energy_list_index
+
+
+
 class NEB:
     def __init__(self, args):
     
@@ -57,7 +74,7 @@ class NEB:
         self.lup = args.LUP
         self.dneb = args.DNEB
         self.nesb = args.NESB
-        self.NESB_band_width = 0.1
+        
         self.usextb = args.usextb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
@@ -357,631 +374,6 @@ class NEB:
                         w2.write(i)
         print("\ngeometry integration complete...\n")
         return
-
-
-    def extremum_list_index(self, energy_list):
-        local_max_energy_list_index = argrelextrema(energy_list, np.greater)
-        inverse_energy_list = (-1)*energy_list
-        local_min_energy_list_index = argrelextrema(inverse_energy_list, np.greater)
-
-        local_max_energy_list_index = local_max_energy_list_index[0].tolist()
-        local_min_energy_list_index = local_min_energy_list_index[0].tolist()
-        local_max_energy_list_index.append(0)
-        local_min_energy_list_index.append(0)
-        local_max_energy_list_index.append(0)
-        local_min_energy_list_index.append(0)
-        return local_max_energy_list_index, local_min_energy_list_index
-
-    def OM_calc(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):#J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593
-        #This improved NEB method is inspired by the Onsager-Machlup (OM) action.
-        print("OMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOM")
-        local_max_energy_list_index, local_min_energy_list_index = self.extremum_list_index(energy_list)
-        delta_t = 1
-        damping_const = 1
-        OM_spring_const = 0.001
-       
-        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
-            
-        for i in range(1,len(energy_list)-1):
-            
-
-        
-            tau_plus, tau_minus, tau = [], [], []
-            
-            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            
-            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):
-                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
-           
-                 
-            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):      
-                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-          
-            
-            
-            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
-                for t in range(len(geometry_num_list[i])):         
-                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
-                                     ,out=np.zeros_like(geometry_num_list[i][t]),
-                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-
-                for t in range(len(geometry_num_list[i])):
-                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
-
-                if energy_list[i-1] > energy_list[i+1]:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
-                else:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
-
-            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
-
-            L_minus = []
-            L_neutral = []
-            for t in range(len(geometry_num_list[i])):
-                atom_mass = atomic_mass(element_list[t])
-                L_minus.append(-(delta_t/(atom_mass * damping_const)) * gradient_list[i-1][t])
-                L_neutral.append(-(delta_t/(atom_mass * damping_const)) * gradient_list[i][t])
-            L_minus = np.array(L_minus, dtype="float64")
-            L_neutral = np.array(L_neutral, dtype="float64")
-        
-            OM_action_force = OM_spring_const * (geometry_num_list[i+1] + geometry_num_list[i-1] - 2 * geometry_num_list[i] + L_minus - L_neutral)
-            
-            cos_phi = np.sum((geometry_num_list[i+1]-geometry_num_list[i]) * (geometry_num_list[i]-geometry_num_list[i-1])) /(np.linalg.norm(geometry_num_list[i+1]-geometry_num_list[i]) * np.linalg.norm(geometry_num_list[i]-geometry_num_list[i-1]))
-            phi = np.arccos(cos_phi)
-            
-            if 0 <= phi and phi <= np.pi/2:
-                f_phi = 0.5 * (1 + np.cos(np.pi * cos_phi))
-            else:
-                f_phi = 1.0
-            OM_action_force_perpendicularity, OM_action_force_parallelism = [], []
-            
-            force_perpendicularity, force_parallelism = [], []
-            
-            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
-                for f in range(len(geometry_num_list[i])):
-                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
-                    #print(str(force_perpendicularity))
-                total_force = np.array(force_perpendicularity, dtype="float64")
-                del local_max_energy_list_index[0]
-
-            else:    
-                for f in range(len(geometry_num_list[i])):
-                    grad = 0.0
-                    
-                    for gg in range(len(gradient_list[i])):
-                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
-                    
-                    grad = grad/len(gradient_list[i])
-                    
-       
-                    #print("spring_constant:",self.spring_constant_k)
-                    
-                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))
-                    OM_action_force_parallelism.append(np.array(OM_action_force[f] * np.dot(tau[f], tau[f]), dtype = "float64"))
-                
-                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
-                    OM_action_force_perpendicularity.append(f_phi * np.array(OM_action_force[f]-(np.dot(OM_action_force[f], tau[f]))*tau[f], dtype = "float64"))
-                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
-                
-                    
-                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
-                
-                OM_action_force_perpendicularity, OM_action_force_parallelism = np.array(OM_action_force_perpendicularity, dtype = "float64"), np.array(OM_action_force_parallelism, dtype = "float64")
-                
-                
-                
-                
-                total_force = np.array((-1)*force_perpendicularity - force_parallelism + OM_action_force_parallelism + OM_action_force_perpendicularity, dtype = "float64")
-            
-            if np.nanmean(np.nanmean(total_force)) > 10:
-                total_force = total_force / np.nanmean(np.nanmean(total_force))
-            
-            total_force_list.append(total_force.tolist())
-
-                
-        
-        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
-        
-        return np.array(total_force_list, dtype = "float64")
-
-    def NEB_calc(self, geometry_num_list, energy_list, gradient_list, optimize_num):
-        print("NEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEB")
-        local_max_energy_list_index, local_min_energy_list_index = self.extremum_list_index(energy_list)
-
-      
-        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
-        for i in range(1,len(energy_list)-1):
-            tau_plus, tau_minus, tau = [], [], []
-            
-            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            
-            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):
-                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
-           
-                 
-            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):      
-                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-          
-            
-            
-            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
-                for t in range(len(geometry_num_list[i])):         
-                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
-                                     ,out=np.zeros_like(geometry_num_list[i][t]),
-                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-
-                for t in range(len(geometry_num_list[i])):
-                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
-
-                if energy_list[i-1] > energy_list[i+1]:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
-                else:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
-
-            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
-            #print("tau_minus:\n",tau_minus)
-            #print("tau_plus:\n",tau_plus)
-            #print("tau:\n",str(tau))
-            force_perpendicularity, force_parallelism = [], []
-            
-            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
-                for f in range(len(geometry_num_list[i])):
-                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
-                    #print(str(force_perpendicularity))
-                total_force = np.array(force_perpendicularity, dtype="float64")
-                del local_max_energy_list_index[0]
-                #print(str(total_force))
-            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
-            #    for f in range(len(geometry_num_list[i])):
-            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
-            #        #print(str(force_perpendicularity))
-            #    total_force = np.array(force_perpendicularity, dtype="float64")
-            #    del local_min_energy_list_index[0]
-            else:    
-                for f in range(len(geometry_num_list[i])):
-                    grad = 0.0
-                    
-                    for gg in range(len(gradient_list[i])):
-                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
-                    
-                    grad = grad/len(gradient_list[i])
-                    
-       
-                    #print("spring_constant:",self.spring_constant_k)
-                    
-                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
-                
-                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
-                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
-                
-                   
-                
-                  
-                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
-                total_force = np.array((-1)*force_perpendicularity - force_parallelism, dtype = "float64")
-            
-            if np.nanmean(np.nanmean(total_force)) > 10:
-                total_force = total_force / np.nanmean(np.nanmean(total_force))
-            
-            total_force_list.append(total_force.tolist())
-
-                
-        
-       
-        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
-        
-        return np.array(total_force_list, dtype = "float64")
-
-
-
-    def NESB_calc(self, geometry_num_list, energy_list, gradient_list, optimize_num):
-        #Nudged elastic stiffness band method 
-        #ref.: J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169
-        print("NESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESB")
-        local_max_energy_list_index, local_min_energy_list_index = self.extremum_list_index(energy_list)
-
-        
-        tau_list = [np.array(gradient_list[0], dtype = "float64") * 0.0]
-        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
-        for i in range(1,len(energy_list)-1):
-            tau_plus, tau_minus, tau = [], [], []
-            
-            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            
-            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):
-                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
-           
-                 
-            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):      
-                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-          
-            
-            
-            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
-                for t in range(len(geometry_num_list[i])):         
-                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
-                                     ,out=np.zeros_like(geometry_num_list[i][t]),
-                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-
-                for t in range(len(geometry_num_list[i])):
-                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
-
-                if energy_list[i-1] > energy_list[i+1]:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
-                else:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
-
-            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
-            #print("tau_minus:\n",tau_minus)
-            #print("tau_plus:\n",tau_plus)
-            #print("tau:\n",str(tau))
-            tau_list.append(tau)
-            #-----------------------------------
-        tau_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
-        tangent_tau_list = [np.array(gradient_list[0], dtype = "float64") * 0.0]
-        for i in range(1,len(energy_list)-1):
-            #NESB
-
-            tangent_tau = []
-            
-            v_1 = geometry_num_list[i-1] - geometry_num_list[i]
-            v_2 = geometry_num_list[i+1] - geometry_num_list[i]
-            
-            
-            for l in range(len(geometry_num_list[i])):
-                
-                v_1_tau = np.dot(v_1[l], tau_list[i][l].T)
-                v_2_tau = np.dot(v_2[l], tau_list[i][l].T)
-                if abs(v_1_tau) < 1e-8 and abs(v_2_tau) < 1e-8:
-                    tangent_tau.append(v_1[l])
-                
-                elif abs(v_1_tau) < 1e-8:
-                    tmp_a = -1 * (v_1_tau / v_2_tau)
-                    tangent_tau.append(v_1[l]+v_2[l]*tmp_a)
-                
-                elif abs(v_1_tau) > 0.9 and abs(v_2_tau) > 0.9:
-                   
-                    tmp_a = -1 * (np.dot(tangent_tau_list[i-1][l], tau_list[i][l].T) / np.dot(tau_list[i][l], tau_list[i][l].T))
-                    tangent_tau.append(tmp_a*tau_list[i][l]+tangent_tau_list[i-1][l])
-              
-                else:
-                    tmp_a = -1 * (v_2_tau / v_1_tau)
-                    tangent_tau.append(v_2[l]+v_1[l]*tmp_a) 
-                
-            
-            tangent_tau = np.array(tangent_tau, dtype="float64")
-            
-            
-            if i > 1:
-                check_direction = np.sum(np.dot(tangent_tau, tangent_tau_list[i-1].T))
-                if check_direction <= 0:
-                    tangent_tau *= -1 
-            tangent_tau = tangent_tau/(np.linalg.norm(tangent_tau)+1e-8)
-
-            tangent_tau_list.append(tangent_tau)
-            #force_stiff
-
-        tangent_tau_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)    
-            
-            #-------------------------------------
-        force_stiff_list = [np.array(gradient_list[0], dtype = "float64") * 0.0, np.array(gradient_list[0], dtype = "float64") * 0.0]
-        for i in range(2,len(energy_list)-2):
-            virtual_image_in_geometry_num_list = geometry_num_list[i] + 0.5 * self.NESB_band_width * tangent_tau_list[i]
-            virtual_image_out_geometry_num_list = geometry_num_list[i] - 0.5 * self.NESB_band_width * tangent_tau_list[i]
-            next_virtual_image_in_geometry_num_list = geometry_num_list[i+1] + 0.5 * self.NESB_band_width * tangent_tau_list[i+1]
-            next_virtual_image_out_geometry_num_list = geometry_num_list[i+1] - 0.5 * self.NESB_band_width * tangent_tau_list[i+1]
-            vi_in_geom_dist = np.linalg.norm(virtual_image_in_geometry_num_list) 
-            vi_out_geom_dist = np.linalg.norm(virtual_image_out_geometry_num_list) 
-            next_vi_in_geom_dist = np.linalg.norm(next_virtual_image_in_geometry_num_list) 
-            next_vi_out_geom_dist = np.linalg.norm(next_virtual_image_out_geometry_num_list) 
-            force_stiff_plus = 0.5 * (next_vi_out_geom_dist - next_vi_in_geom_dist) * tangent_tau_list[i+1] 
-            force_stiff_minus = 0.5 * (vi_out_geom_dist - vi_in_geom_dist) * tangent_tau_list[i] 
-            force_stiff = force_stiff_minus + force_stiff_plus
-            force_stiff_list.append(force_stiff)
-            
-        force_stiff_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
-        force_stiff_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
-            
-        for i in range(1,len(energy_list)-1):
-            force_perpendicularity, force_parallelism = [], []
-            
-            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
-                for f in range(len(geometry_num_list[i])):
-                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau_list[i][f]))*tau_list[i][f]), dtype = "float64"))
-                    #print(str(force_perpendicularity))
-                total_force = np.array(force_perpendicularity, dtype="float64")
-                del local_max_energy_list_index[0]
-                #print(str(total_force))
-            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
-            #    for f in range(len(geometry_num_list[i])):
-            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
-            #        #print(str(force_perpendicularity))
-            #    total_force = np.array(force_perpendicularity, dtype="float64")
-            #    del local_min_energy_list_index[0]
-            else:    
-                for f in range(len(geometry_num_list[i])):
-                    grad = 0.0
-                    
-                    for gg in range(len(gradient_list[i])):
-                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
-                    
-                    grad = grad/len(gradient_list[i])
-                    
-       
-                    #print("spring_constant:",self.spring_constant_k)
-                    
-                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
-                
-                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau_list[i][f]))*tau_list[i][f], dtype = "float64"))
-                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
-                
-                   
-                
-                  
-                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
-                if np.sum(np.dot(force_parallelism, force_stiff_list[i].T)) > 0:
-                    force_stiff_list[i] *= -1
-                
-                total_force = np.array((-1)*force_perpendicularity - force_parallelism + force_stiff_list[i], dtype = "float64")
-            
-            if np.nanmean(np.nanmean(total_force)) > 10:
-                total_force = total_force / np.nanmean(np.nanmean(total_force))
-            
-            total_force_list.append(total_force.tolist())
-
-                
-        
-       
-        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
-        
-        return np.array(total_force_list, dtype = "float64")
-
-    def DNEB_calc(self, geometry_num_list, energy_list, gradient_list, optimize_num):
-        print("DNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEB")
-        local_max_energy_list_index, local_min_energy_list_index = self.extremum_list_index(energy_list)
-
-      
-        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
-        for i in range(1,len(energy_list)-1):
-            tau_plus, tau_minus, tau = [], [], []
-            
-            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            
-            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):
-                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
-           
-                 
-            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):      
-                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-          
-            
-            
-            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
-                for t in range(len(geometry_num_list[i])):         
-                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
-                                     ,out=np.zeros_like(geometry_num_list[i][t]),
-                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-
-                for t in range(len(geometry_num_list[i])):
-                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
-
-                if energy_list[i-1] > energy_list[i+1]:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
-                else:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
-
-            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
-            #print("tau_minus:\n",tau_minus)
-            #print("tau_plus:\n",tau_plus)
-            #print("tau:\n",str(tau))
-            force_perpendicularity, force_parallelism, force_parallelism_perpendicularity , swiching_double_neb_force = [], [], [], []
-            
-            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
-                for f in range(len(geometry_num_list[i])):
-                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
-                    #print(str(force_perpendicularity))
-                total_force = np.array(force_perpendicularity, dtype="float64")
-                del local_max_energy_list_index[0]
-                #print(str(total_force))
-            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
-            #    for f in range(len(geometry_num_list[i])):
-            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
-            #        #print(str(force_perpendicularity))
-            #    total_force = np.array(force_perpendicularity, dtype="float64")
-            #    del local_min_energy_list_index[0]
-            else:    
-                for f in range(len(geometry_num_list[i])):
-                    grad = 0.0
-                    
-                    for gg in range(len(gradient_list[i])):
-                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
-                    
-                    grad = grad/len(gradient_list[i])
-                    
-            
-                    #print("spring_constant:",self.spring_constant_k)
-                    
-                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
-                
-                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
-                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
-                
-                    force_parallelism_perpendicularity.append(np.array(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2))), dtype = "float64") - (np.dot(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2))), dtype = "float64"), tau[f]))*tau[f], dtype = "float64"))
-                
-                    swiching_double_neb_force.append((2.0/np.pi)*np.arctan(np.divide(np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)**2, np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)**2 ,out=np.zeros_like(force_parallelism_perpendicularity[f]) ,where=np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)!=0))*(force_parallelism_perpendicularity[f] - np.dot(force_parallelism_perpendicularity[f],force_perpendicularity[f])*force_perpendicularity[f]))
-            
-                force_perpendicularity, force_parallelism, force_parallelism_perpendicularity, swiching_double_neb_force = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64"),np.array(force_parallelism_perpendicularity, dtype = "float64"), np.array(swiching_double_neb_force, dtype = "float64")
-                total_force = np.array((-1)*force_perpendicularity - force_parallelism - swiching_double_neb_force, dtype = "float64")
-            
-            if np.nanmean(np.nanmean(total_force)) > 10:
-                total_force = total_force / np.nanmean(np.nanmean(total_force))
-            
-            total_force_list.append(total_force.tolist())
-
-                
-        
-       
-        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
-        
-        return np.array(total_force_list, dtype = "float64")
-
-    def LUP_calc(self, geometry_num_list, energy_list, gradient_list, optimize_num):
-        print("LUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUP")
-        #ref. Ulitsky, A., & Elber, R. (1990). A new technique to calculate steepest descent paths in flexible polyatomic systems. The Journal of Chemical Physics, 92(2), 1510.
-        #https://doi.org/10.1063/1.458112
-        local_max_energy_list_index, local_min_energy_list_index = self.extremum_list_index(energy_list)
-
-           
-        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
-        for i in range(1,len(energy_list)-1):
-            tau_plus, tau_minus, tau = [], [], []
-            
-            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
-            
-            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):
-                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
-           
-                 
-            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
-                for t in range(len(geometry_num_list[i])):      
-                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-          
-            
-            
-            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
-                for t in range(len(geometry_num_list[i])):         
-                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
-                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
-                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
-                                     ,out=np.zeros_like(geometry_num_list[i][t]),
-                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
-
-                for t in range(len(geometry_num_list[i])):
-                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
-                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
-                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
-
-                if energy_list[i-1] > energy_list[i+1]:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
-                else:
-                    for t in range(len(geometry_num_list[i])):
-                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
-                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
-                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
-
-            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
-            #print("tau_minus:\n",tau_minus)
-            #print("tau_plus:\n",tau_plus)
-            #print("tau:\n",str(tau))
-            force_perpendicularity = []
-            
-        
-            for f in range(len(geometry_num_list[i])):
-                grad = 0.0
-                    
-                for gg in range(len(gradient_list[i])):
-                    grad += np.linalg.norm(gradient_list[i][gg], ord=2)
-                    
-                grad = grad/len(gradient_list[i])
-                    
-             
-                
-                force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
-               
-                
-            
-            force_perpendicularity = np.array(force_perpendicularity, dtype = "float64")
-            total_force = np.array((-1)*force_perpendicularity, dtype = "float64")
-            
-            if np.nanmean(np.nanmean(total_force)) > 10:
-                total_force = total_force / np.nanmean(np.nanmean(total_force))
-            
-            total_force_list.append(total_force.tolist())
-
-                
-        
-
-        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
-        
-        return np.array(total_force_list, dtype = "float64")
-
 
 
     def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list):
@@ -1322,6 +714,19 @@ class NEB:
                 f.write(str(vars(self.args)))
             
             init_num = self.NEB_NUM*(adaptic_num+1)+1
+            
+        
+            if self.om:
+                STRING_FORCE_CALC = CaluculationOM(self.APPLY_CI_NEB)
+            elif self.lup:
+                STRING_FORCE_CALC = CaluculationLUP(self.APPLY_CI_NEB)
+            elif self.dneb:
+                STRING_FORCE_CALC = CaluculationDNEB(self.APPLY_CI_NEB)
+            elif self.nesb:
+                STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
+            else:
+                STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
+            
             for optimize_num in range(self.NEB_NUM*(adaptic_num+1)+1, self.NEB_NUM*(adaptic_num+2)+1):
                 
                 exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -1333,11 +738,16 @@ class NEB:
                 print("\n\n\nNEB:   "+str(optimize_num)+" ITR. \n\n\n")
                 self.xyz_file_make(file_directory)
                 #------------------
+                #get energy and gradient
                 if self.args.usextb == "None":
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
                 else:
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
+                #--------------
+                if optimize_num == init_num:
+                    init_geometry_num_list = geometry_num_list
                 
+                #-------------
                 biased_energy_list = []
                 biased_gradient_list = []
                 for i in range(len(energy_list)):
@@ -1347,16 +757,8 @@ class NEB:
                 biased_energy_list = np.array(biased_energy_list ,dtype="float64")
                 biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
                 #------------------
-                if self.om:
-                    total_force = self.OM_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-                elif self.lup:
-                    total_force = self.LUP_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-                elif self.dneb:
-                    total_force = self.DNEB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-                elif self.nesb:
-                    total_force = self.NESB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-                else:
-                    total_force = self.NEB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
+                #calculate force
+                total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
                 #------------------
                 cos_list = []
                 for i in range(len(total_force)):
@@ -1366,6 +768,7 @@ class NEB:
                 self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
                 
                 #------------------
+                #relax path
                 if self.QUASI_NEWTOM_METHOD and optimize_num > init_num:
                     new_geometory, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
                 elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > init_num:
@@ -1378,7 +781,15 @@ class NEB:
                     
                 else:
                     new_geometory = self.SD_calc(geometry_num_list, total_force)
+                
                 #------------------
+                #fix atoms
+                if len(force_data["fix_atoms"]) > 0:
+                    for k in range(len(new_geometory)):
+                        for j in force_data["fix_atoms"]:
+                            new_geometory[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
+                #-------------    
+                
                 pre_geom = geometry_num_list
                 geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
                 file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
@@ -1424,6 +835,19 @@ class NEB:
             global_hessian = np.eye(len(element_list)*3*len(geometry_list))
         
         min_biased_energy_list = []
+        
+        
+        if self.om:
+            STRING_FORCE_CALC = CaluculationOM(self.APPLY_CI_NEB)
+        elif self.lup:
+            STRING_FORCE_CALC = CaluculationLUP(self.APPLY_CI_NEB)
+        elif self.dneb:
+            STRING_FORCE_CALC = CaluculationDNEB(self.APPLY_CI_NEB)
+        elif self.nesb:
+            STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
+        else:
+            STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
+        
         for optimize_num in range(self.NEB_NUM):
             
             exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -1435,10 +859,14 @@ class NEB:
             print("\n\n\nNEB:   "+str(optimize_num)+" ITR. \n\n\n")
             self.xyz_file_make(file_directory)
             #------------------
+            #get energy and gradient
             if self.args.usextb == "None":
                 energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
             else:
                 energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
+            
+            if optimize_num == 0:
+                init_geometry_num_list = geometry_num_list
             
             biased_energy_list = []
             biased_gradient_list = []
@@ -1450,16 +878,9 @@ class NEB:
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
             #------------------
-            if self.om:
-                total_force = self.OM_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-            elif self.lup:
-                total_force = self.LUP_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-            elif self.dneb:
-                total_force = self.DNEB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-            elif self.nesb:
-                total_force = self.NESB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
-            else:
-                total_force = self.NEB_calc(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num)
+            #calculate force
+            total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+       
             #------------------
             cos_list = []
             for i in range(len(total_force)):
@@ -1469,6 +890,7 @@ class NEB:
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             
             #------------------
+            #relax path
             if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
                 new_geometory, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
             
@@ -1482,6 +904,13 @@ class NEB:
             else:
                 new_geometory = self.SD_calc(geometry_num_list, total_force)
             
+            #------------------
+            #fix atoms
+            if len(force_data["fix_atoms"]) > 0:
+                for k in range(len(new_geometory)):
+                    for j in force_data["fix_atoms"]:
+                        new_geometory[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
+                
             #------------------
             pre_geom = geometry_num_list
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
@@ -1517,3 +946,644 @@ class NEB:
         return
 
 
+class CaluculationOM:
+    def __init__(self, APPLY_CI_NEB=99999):
+        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = APPLY_CI_NEB
+        self.force_const_for_cineb = 0.01
+        
+    def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):#J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593
+        #This improved NEB method is inspired by the Onsager-Machlup (OM) action.
+        print("OMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOMOM")
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
+        delta_t = 1
+        damping_const = 1
+        OM_spring_const = 0.001
+       
+        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
+            
+        for i in range(1,len(energy_list)-1):
+            
+
+        
+            tau_plus, tau_minus, tau = [], [], []
+            
+            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            
+            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):
+                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
+           
+                 
+            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):      
+                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+          
+            
+            
+            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
+                for t in range(len(geometry_num_list[i])):         
+                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
+                                     ,out=np.zeros_like(geometry_num_list[i][t]),
+                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+
+                for t in range(len(geometry_num_list[i])):
+                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
+
+                if energy_list[i-1] > energy_list[i+1]:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
+                else:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
+
+            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
+
+            L_minus = []
+            L_neutral = []
+            for t in range(len(geometry_num_list[i])):
+                atom_mass = atomic_mass(element_list[t])
+                L_minus.append(-(delta_t/(atom_mass * damping_const)) * gradient_list[i-1][t])
+                L_neutral.append(-(delta_t/(atom_mass * damping_const)) * gradient_list[i][t])
+            L_minus = np.array(L_minus, dtype="float64")
+            L_neutral = np.array(L_neutral, dtype="float64")
+        
+            OM_action_force = OM_spring_const * (geometry_num_list[i+1] + geometry_num_list[i-1] - 2 * geometry_num_list[i] + L_minus - L_neutral)
+            
+            cos_phi = np.sum((geometry_num_list[i+1]-geometry_num_list[i]) * (geometry_num_list[i]-geometry_num_list[i-1])) /(np.linalg.norm(geometry_num_list[i+1]-geometry_num_list[i]) * np.linalg.norm(geometry_num_list[i]-geometry_num_list[i-1]))
+            phi = np.arccos(cos_phi)
+            
+            if 0 <= phi and phi <= np.pi/2:
+                f_phi = 0.5 * (1 + np.cos(np.pi * cos_phi))
+            else:
+                f_phi = 1.0
+            OM_action_force_perpendicularity, OM_action_force_parallelism = [], []
+            
+            force_perpendicularity, force_parallelism = [], []
+            
+            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
+                for f in range(len(geometry_num_list[i])):
+                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
+                    #print(str(force_perpendicularity))
+                total_force = np.array(force_perpendicularity, dtype="float64")
+                del local_max_energy_list_index[0]
+
+            else:    
+                for f in range(len(geometry_num_list[i])):
+                    grad = 0.0
+                    
+                    for gg in range(len(gradient_list[i])):
+                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
+                    
+                    grad = grad/len(gradient_list[i])
+                    
+       
+                    #print("spring_constant:",self.spring_constant_k)
+                    
+                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))
+                    OM_action_force_parallelism.append(np.array(OM_action_force[f] * np.dot(tau[f], tau[f]), dtype = "float64"))
+                
+                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
+                    OM_action_force_perpendicularity.append(f_phi * np.array(OM_action_force[f]-(np.dot(OM_action_force[f], tau[f]))*tau[f], dtype = "float64"))
+                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
+                
+                    
+                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
+                
+                OM_action_force_perpendicularity, OM_action_force_parallelism = np.array(OM_action_force_perpendicularity, dtype = "float64"), np.array(OM_action_force_parallelism, dtype = "float64")
+                
+                
+                
+                
+                total_force = np.array((-1)*force_perpendicularity - force_parallelism + OM_action_force_parallelism + OM_action_force_perpendicularity, dtype = "float64")
+            
+            if np.nanmean(np.nanmean(total_force)) > 10:
+                total_force = total_force / np.nanmean(np.nanmean(total_force))
+            
+            total_force_list.append(total_force.tolist())
+
+                
+        
+        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
+        
+        return np.array(total_force_list, dtype = "float64")
+
+
+class CaluculationNEB:
+    def __init__(self, APPLY_CI_NEB=99999):
+        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = APPLY_CI_NEB
+        self.force_const_for_cineb = 0.01
+
+    def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
+        print("NEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEBNEB")
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
+
+      
+        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
+        for i in range(1,len(energy_list)-1):
+            tau_plus, tau_minus, tau = [], [], []
+            
+            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            
+            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):
+                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
+           
+                 
+            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):      
+                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+          
+            
+            
+            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
+                for t in range(len(geometry_num_list[i])):         
+                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
+                                     ,out=np.zeros_like(geometry_num_list[i][t]),
+                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+
+                for t in range(len(geometry_num_list[i])):
+                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
+
+                if energy_list[i-1] > energy_list[i+1]:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
+                else:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
+
+            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
+            #print("tau_minus:\n",tau_minus)
+            #print("tau_plus:\n",tau_plus)
+            #print("tau:\n",str(tau))
+            force_perpendicularity, force_parallelism = [], []
+            
+            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
+                for f in range(len(geometry_num_list[i])):
+                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
+                    #print(str(force_perpendicularity))
+                total_force = np.array(force_perpendicularity, dtype="float64")
+                del local_max_energy_list_index[0]
+                #print(str(total_force))
+            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
+            #    for f in range(len(geometry_num_list[i])):
+            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
+            #        #print(str(force_perpendicularity))
+            #    total_force = np.array(force_perpendicularity, dtype="float64")
+            #    del local_min_energy_list_index[0]
+            else:    
+                for f in range(len(geometry_num_list[i])):
+                    grad = 0.0
+                    
+                    for gg in range(len(gradient_list[i])):
+                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
+                    
+                    grad = grad/len(gradient_list[i])
+                    
+       
+                    #print("spring_constant:",self.spring_constant_k)
+                    
+                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
+                
+                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
+                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
+                
+                   
+                
+                  
+                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
+                total_force = np.array((-1)*force_perpendicularity - force_parallelism, dtype = "float64")
+            
+            if np.nanmean(np.nanmean(total_force)) > 10:
+                total_force = total_force / np.nanmean(np.nanmean(total_force))
+            
+            total_force_list.append(total_force.tolist())
+
+                
+        
+       
+        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
+        
+        return np.array(total_force_list, dtype = "float64")
+
+
+class CaluculationNESB:
+    def __init__(self, APPLY_CI_NEB=99999):
+        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = APPLY_CI_NEB
+        self.force_const_for_cineb = 0.01
+        self.NESB_band_width = 0.1
+
+    def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
+        #Nudged elastic stiffness band method 
+        #ref.: J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169
+        print("NESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESBNESB")
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
+
+        
+        tau_list = [np.array(gradient_list[0], dtype = "float64") * 0.0]
+        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
+        for i in range(1,len(energy_list)-1):
+            tau_plus, tau_minus, tau = [], [], []
+            
+            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            
+            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):
+                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
+           
+                 
+            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):      
+                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+          
+            
+            
+            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
+                for t in range(len(geometry_num_list[i])):         
+                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
+                                     ,out=np.zeros_like(geometry_num_list[i][t]),
+                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+
+                for t in range(len(geometry_num_list[i])):
+                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
+
+                if energy_list[i-1] > energy_list[i+1]:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
+                else:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
+
+            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
+            #print("tau_minus:\n",tau_minus)
+            #print("tau_plus:\n",tau_plus)
+            #print("tau:\n",str(tau))
+            tau_list.append(tau)
+            #-----------------------------------
+        tau_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
+        tangent_tau_list = [np.array(gradient_list[0], dtype = "float64") * 0.0]
+        for i in range(1,len(energy_list)-1):
+            #NESB
+
+            tangent_tau = []
+            
+            v_1 = geometry_num_list[i-1] - geometry_num_list[i]
+            v_2 = geometry_num_list[i+1] - geometry_num_list[i]
+            
+            
+            for l in range(len(geometry_num_list[i])):
+                
+                v_1_tau = np.dot(v_1[l], tau_list[i][l].T)
+                v_2_tau = np.dot(v_2[l], tau_list[i][l].T)
+                if abs(v_1_tau) < 1e-8 and abs(v_2_tau) < 1e-8:
+                    tangent_tau.append(v_1[l])
+                
+                elif abs(v_1_tau) < 1e-8:
+                    tmp_a = -1 * (v_1_tau / v_2_tau)
+                    tangent_tau.append(v_1[l]+v_2[l]*tmp_a)
+                
+                elif abs(v_1_tau) > 0.9 and abs(v_2_tau) > 0.9:
+                   
+                    tmp_a = -1 * (np.dot(tangent_tau_list[i-1][l], tau_list[i][l].T) / np.dot(tau_list[i][l], tau_list[i][l].T))
+                    tangent_tau.append(tmp_a*tau_list[i][l]+tangent_tau_list[i-1][l])
+              
+                else:
+                    tmp_a = -1 * (v_2_tau / v_1_tau)
+                    tangent_tau.append(v_2[l]+v_1[l]*tmp_a) 
+                
+            
+            tangent_tau = np.array(tangent_tau, dtype="float64")
+            
+            
+            if i > 1:
+                check_direction = np.sum(np.dot(tangent_tau, tangent_tau_list[i-1].T))
+                if check_direction <= 0:
+                    tangent_tau *= -1 
+            tangent_tau = tangent_tau/(np.linalg.norm(tangent_tau)+1e-8)
+
+            tangent_tau_list.append(tangent_tau)
+            #force_stiff
+
+        tangent_tau_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)    
+            
+            #-------------------------------------
+        force_stiff_list = [np.array(gradient_list[0], dtype = "float64") * 0.0, np.array(gradient_list[0], dtype = "float64") * 0.0]
+        for i in range(2,len(energy_list)-2):
+            virtual_image_in_geometry_num_list = geometry_num_list[i] + 0.5 * self.NESB_band_width * tangent_tau_list[i]
+            virtual_image_out_geometry_num_list = geometry_num_list[i] - 0.5 * self.NESB_band_width * tangent_tau_list[i]
+            next_virtual_image_in_geometry_num_list = geometry_num_list[i+1] + 0.5 * self.NESB_band_width * tangent_tau_list[i+1]
+            next_virtual_image_out_geometry_num_list = geometry_num_list[i+1] - 0.5 * self.NESB_band_width * tangent_tau_list[i+1]
+            vi_in_geom_dist = np.linalg.norm(virtual_image_in_geometry_num_list) 
+            vi_out_geom_dist = np.linalg.norm(virtual_image_out_geometry_num_list) 
+            next_vi_in_geom_dist = np.linalg.norm(next_virtual_image_in_geometry_num_list) 
+            next_vi_out_geom_dist = np.linalg.norm(next_virtual_image_out_geometry_num_list) 
+            force_stiff_plus = 0.5 * (next_vi_out_geom_dist - next_vi_in_geom_dist) * tangent_tau_list[i+1] 
+            force_stiff_minus = 0.5 * (vi_out_geom_dist - vi_in_geom_dist) * tangent_tau_list[i] 
+            force_stiff = force_stiff_minus + force_stiff_plus
+            force_stiff_list.append(force_stiff)
+            
+        force_stiff_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
+        force_stiff_list.append(np.array(gradient_list[0], dtype = "float64") * 0.0)
+            
+        for i in range(1,len(energy_list)-1):
+            force_perpendicularity, force_parallelism = [], []
+            
+            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
+                for f in range(len(geometry_num_list[i])):
+                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau_list[i][f]))*tau_list[i][f]), dtype = "float64"))
+                    #print(str(force_perpendicularity))
+                total_force = np.array(force_perpendicularity, dtype="float64")
+                del local_max_energy_list_index[0]
+                #print(str(total_force))
+            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
+            #    for f in range(len(geometry_num_list[i])):
+            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
+            #        #print(str(force_perpendicularity))
+            #    total_force = np.array(force_perpendicularity, dtype="float64")
+            #    del local_min_energy_list_index[0]
+            else:    
+                for f in range(len(geometry_num_list[i])):
+                    grad = 0.0
+                    
+                    for gg in range(len(gradient_list[i])):
+                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
+                    
+                    grad = grad/len(gradient_list[i])
+                    
+       
+                    #print("spring_constant:",self.spring_constant_k)
+                    
+                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
+                
+                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau_list[i][f]))*tau_list[i][f], dtype = "float64"))
+                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
+                
+                   
+                
+                  
+                force_perpendicularity, force_parallelism = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64")
+                if np.sum(np.dot(force_parallelism, force_stiff_list[i].T)) > 0:
+                    force_stiff_list[i] *= -1
+                
+                total_force = np.array((-1)*force_perpendicularity - force_parallelism + force_stiff_list[i], dtype = "float64")
+            
+            if np.nanmean(np.nanmean(total_force)) > 10:
+                total_force = total_force / np.nanmean(np.nanmean(total_force))
+            
+            total_force_list.append(total_force.tolist())
+
+                
+        
+       
+        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
+        
+        return np.array(total_force_list, dtype = "float64")
+    
+class CaluculationDNEB:
+    def __init__(self, APPLY_CI_NEB=99999):
+        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = APPLY_CI_NEB
+        self.force_const_for_cineb = 0.01
+
+    def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
+        print("DNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEBDNEB")
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
+
+      
+        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
+        for i in range(1,len(energy_list)-1):
+            tau_plus, tau_minus, tau = [], [], []
+            
+            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            
+            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):
+                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
+           
+                 
+            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):      
+                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+          
+            
+            
+            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
+                for t in range(len(geometry_num_list[i])):         
+                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
+                                     ,out=np.zeros_like(geometry_num_list[i][t]),
+                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+
+                for t in range(len(geometry_num_list[i])):
+                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
+
+                if energy_list[i-1] > energy_list[i+1]:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
+                else:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
+
+            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
+            #print("tau_minus:\n",tau_minus)
+            #print("tau_plus:\n",tau_plus)
+            #print("tau:\n",str(tau))
+            force_perpendicularity, force_parallelism, force_parallelism_perpendicularity , swiching_double_neb_force = [], [], [], []
+            
+            if energy_list[i] == energy_list[local_max_energy_list_index[0]] and self.APPLY_CI_NEB < optimize_num: #CI-NEB
+                for f in range(len(geometry_num_list[i])):
+                    force_perpendicularity.append(np.array((-1)*self.force_const_for_cineb*(gradient_list[i][f]-2.0*(np.dot(gradient_list[i][f], tau[f]))*tau[f]), dtype = "float64"))
+                    #print(str(force_perpendicularity))
+                total_force = np.array(force_perpendicularity, dtype="float64")
+                del local_max_energy_list_index[0]
+                #print(str(total_force))
+            #elif energy_list[i] == energy_list[local_min_energy_list_index[0]]: #for discovering intermidiate
+            #    for f in range(len(geometry_num_list[i])):
+            #        force_perpendicularity.append(np.array(((-1)*(gradient_list[i][f])), dtype = "float64"))
+            #        #print(str(force_perpendicularity))
+            #    total_force = np.array(force_perpendicularity, dtype="float64")
+            #    del local_min_energy_list_index[0]
+            else:    
+                for f in range(len(geometry_num_list[i])):
+                    grad = 0.0
+                    
+                    for gg in range(len(gradient_list[i])):
+                        grad += np.linalg.norm(gradient_list[i][gg], ord=2)
+                    
+                    grad = grad/len(gradient_list[i])
+                    
+            
+                    #print("spring_constant:",self.spring_constant_k)
+                    
+                    force_parallelism.append(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2)))*tau[f], dtype = "float64"))  
+                
+                    force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
+                    #doubly nudged elastic band method :https://doi.org/10.1063/1.1636455
+                
+                    force_parallelism_perpendicularity.append(np.array(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2))), dtype = "float64") - (np.dot(np.array((self.spring_constant_k*(np.linalg.norm(geometry_num_list[i+1][f]-geometry_num_list[i][f], ord=2))+(-1.0)*self.spring_constant_k*(np.linalg.norm(geometry_num_list[i][f]-geometry_num_list[i-1][f], ord=2))), dtype = "float64"), tau[f]))*tau[f], dtype = "float64"))
+                
+                    swiching_double_neb_force.append((2.0/np.pi)*np.arctan(np.divide(np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)**2, np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)**2 ,out=np.zeros_like(force_parallelism_perpendicularity[f]) ,where=np.linalg.norm(force_parallelism_perpendicularity[f], ord=2)!=0))*(force_parallelism_perpendicularity[f] - np.dot(force_parallelism_perpendicularity[f],force_perpendicularity[f])*force_perpendicularity[f]))
+            
+                force_perpendicularity, force_parallelism, force_parallelism_perpendicularity, swiching_double_neb_force = np.array(force_perpendicularity, dtype = "float64"), np.array(force_parallelism, dtype = "float64"),np.array(force_parallelism_perpendicularity, dtype = "float64"), np.array(swiching_double_neb_force, dtype = "float64")
+                total_force = np.array((-1)*force_perpendicularity - force_parallelism - swiching_double_neb_force, dtype = "float64")
+            
+            if np.nanmean(np.nanmean(total_force)) > 10:
+                total_force = total_force / np.nanmean(np.nanmean(total_force))
+            
+            total_force_list.append(total_force.tolist())
+
+                
+        
+       
+        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
+        
+        return np.array(total_force_list, dtype = "float64")
+    
+    
+class CaluculationLUP:
+    def __init__(self, APPLY_CI_NEB=99999):
+        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = APPLY_CI_NEB
+        self.force_const_for_cineb = 0.01
+
+    def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
+        print("LUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUPLUP")
+        #ref. Ulitsky, A., & Elber, R. (1990). A new technique to calculate steepest descent paths in flexible polyatomic systems. The Journal of Chemical Physics, 92(2), 1510.
+        #https://doi.org/10.1063/1.458112
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
+
+           
+        total_force_list = [((-1)*np.array(gradient_list[0], dtype = "float64")).tolist()]
+        for i in range(1,len(energy_list)-1):
+            tau_plus, tau_minus, tau = [], [], []
+            
+            delta_max_energy = np.array(max([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            delta_min_energy = np.array(min([(energy_list[i+1]-energy_list[i]),(energy_list[i-1]-energy_list[i])]), dtype = "float64")
+            
+            if (energy_list[i-1] < energy_list[i]) and (energy_list[i] < energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):
+                    tau_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]) ,where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())       
+           
+                 
+            elif (energy_list[i-1] > energy_list[i]) and (energy_list[i] > energy_list[i+1]):
+                for t in range(len(geometry_num_list[i])):      
+                    tau_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau.append(np.divide(tau_vector, tau_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+          
+            
+            
+            else: #((energy_list[i-1] >= energy_list[i]) and (energy_list[i] <= energy_list[i+1])) or ((energy_list[i-1] <= energy_list[i]) and (energy_list[i] >= energy_list[i+1])):
+                for t in range(len(geometry_num_list[i])):         
+                    tau_minus_vector = geometry_num_list[i][t]-geometry_num_list[i-1][t]
+                    tau_minus_norm = np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)
+                    tau_minus.append(np.divide(tau_minus_vector, tau_minus_norm
+                                     ,out=np.zeros_like(geometry_num_list[i][t]),
+                                     where=np.linalg.norm(geometry_num_list[i][t]-geometry_num_list[i-1][t], ord=2)!=0).tolist())       
+
+                for t in range(len(geometry_num_list[i])):
+                    tau_plus_vector = geometry_num_list[i+1][t]-geometry_num_list[i][t]
+                    tau_plus_norm = np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)
+                    tau_plus.append(np.divide(tau_plus_vector, tau_plus_norm, out=np.zeros_like(geometry_num_list[i][t]), where=np.linalg.norm(geometry_num_list[i+1][t]-geometry_num_list[i][t], ord=2)!=0).tolist())
+
+                if energy_list[i-1] > energy_list[i+1]:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector,tau_norm, out=np.zeros_like(tau_plus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy!=0)).tolist())
+                else:
+                    for t in range(len(geometry_num_list[i])):
+                        tau_vector = (tau_plus[t]*delta_max_energy+tau_minus[t]*delta_min_energy)
+                        tau_norm = np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)
+                        tau.append(np.divide(tau_vector, tau_norm,out=np.zeros_like(tau_minus[0]) ,where=np.linalg.norm(tau_plus[t]*delta_min_energy+tau_minus[t]*delta_max_energy, ord=2)!=0 ).tolist())
+
+            tau_plus, tau_minus, tau = np.array(tau_plus, dtype = "float64"), np.array(tau_minus, dtype = "float64"), np.array(tau, dtype = "float64")    
+            #print("tau_minus:\n",tau_minus)
+            #print("tau_plus:\n",tau_plus)
+            #print("tau:\n",str(tau))
+            force_perpendicularity = []
+            
+        
+            for f in range(len(geometry_num_list[i])):
+                grad = 0.0
+                    
+                for gg in range(len(gradient_list[i])):
+                    grad += np.linalg.norm(gradient_list[i][gg], ord=2)
+                    
+                grad = grad/len(gradient_list[i])
+                    
+             
+                
+                force_perpendicularity.append(np.array(gradient_list[i][f]-(np.dot(gradient_list[i][f], tau[f]))*tau[f], dtype = "float64"))
+               
+                
+            
+            force_perpendicularity = np.array(force_perpendicularity, dtype = "float64")
+            total_force = np.array((-1)*force_perpendicularity, dtype = "float64")
+            
+            if np.nanmean(np.nanmean(total_force)) > 10:
+                total_force = total_force / np.nanmean(np.nanmean(total_force))
+            
+            total_force_list.append(total_force.tolist())
+
+                
+        
+
+        total_force_list.append(((-1)*np.array(gradient_list[-1], dtype = "float64")).tolist())
+        
+        return np.array(total_force_list, dtype = "float64")

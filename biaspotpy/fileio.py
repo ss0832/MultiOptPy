@@ -5,6 +5,18 @@ import numpy as np
 
 from scipy.signal import argrelextrema
 
+def read_software_path(file_path="./"):
+    with open(file_path+"software_path.conf", "r") as f:
+        words = f.read().splitlines()
+    software_path_dict = {}
+    for word in words:
+        tmp_split = word.split("::")
+        soft_name = tmp_split[0]
+        soft_path = tmp_split[1]
+        software_path_dict[soft_name] = soft_path
+    return software_path_dict
+
+
 class FileIO:
     def __init__(self, folder_dir, file):
         self.BPA_FOLDER_DIRECTORY = folder_dir

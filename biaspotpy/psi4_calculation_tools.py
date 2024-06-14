@@ -22,7 +22,7 @@ class Calculation:
         self.hessian_flag = False
         return
     
-    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method=""):
+    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """execute QM calclation."""
         gradient_list = []
         energy_list = []
@@ -54,16 +54,26 @@ class Calculation:
                 
                 psi4.set_options({"cubeprop_tasks": ["esp"],'cubeprop_filepath': file_directory})
                 
-                with open(input_file,"r") as f:
-                    read_data = f.readlines()
-                input_data = ""
-                if iter == 0:
-                    input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
-                    for data in read_data[2:]:
-                        input_data += data
+                if geom_num_list is None:
+                    with open(input_file,"r") as f:
+                        read_data = f.readlines()
+                    input_data = ""
+                    if iter == 0:
+                        input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
+                        for data in read_data[2:]:
+                            input_data += data
+                    else:
+                        for data in read_data:
+                            input_data += data
                 else:
-                    for data in read_data:
-                        input_data += data
+                    input_data = ""
+                    if iter == 0:
+                        input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
+                        for j in range(len(geom_num_list)):
+                            input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
+                    else:
+                        for j in range(len(geom_num_list)):
+                            input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
                 
                 input_data = psi4.geometry(input_data)#ang.
                 input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
@@ -124,6 +134,11 @@ class Calculation:
             psi4.core.clean() 
         self.energy = e
         self.gradient = g
-        self.coordinate = input_data_for_display
+        if geom_num_list is None:
+            self.coordinate = input_data_for_display
+        else:
+            self.coordinate = geom_num_list / psi4.constants.bohr2angstroms
+            return e, g, self.coordinate, finish_frag
+            
         
         return e, g, input_data_for_display, finish_frag

@@ -27,7 +27,7 @@ class SHAKE:
     def __init__(self, time_scale, constraints=[]):
         #ref.: Journal of Computational Physics. 23, (3), 327–341.
         self.convergent_criterion = 1e-5
-        self.maxiter = 1000
+        self.maxiter = 10000
         self.time_scale = time_scale
         self.constraint_condition = constraints[0] + constraints[1] + constraints[2]
 
@@ -58,8 +58,36 @@ class SHAKE:
                     new_momentum_list[idx_j] += g_ij / self.time_scale * prev_r_ij
                     
                 elif len(constraint) == 4: # angle
-                    print("SHAKE for angle is not implemented...")
-                    raise
+                    # Computer Physics Communications 180(2009)360-364
+                    idx_i = constraint[1] - 1
+                    idx_j = constraint[2] - 1
+                    idx_k = constraint[3] - 1
+                    constraint_angle = np.deg2rad(constraint[0])
+                    r_ij = new_geometry[idx_i] - new_geometry[idx_j]
+                    r_kj = new_geometry[idx_k] - new_geometry[idx_j]
+                    inner_product_r_ij_r_kj = np.sum(r_ij * r_kj)
+                    cos = inner_product_r_ij_r_kj / (np.linalg.norm(r_ij) * np.linalg.norm(r_kj) + 1e-8)
+                    constraint_cos = np.cos(constraint_angle)
+                    check_convergence = abs(cos ** 2 - constraint_cos ** 2)
+                    
+                    if check_convergence < self.convergent_criterion:
+                        print(check_convergence)
+                        continue
+                    isconverged = False
+                    
+                    
+                    
+                    d_sigma_d_r_i = 2 * inner_product_r_ij_r_kj * (r_kj * np.linalg.norm(r_ij) ** 2 - r_ij * inner_product_r_ij_r_kj) / (np.linalg.norm(r_ij) ** 4 * np.linalg.norm(r_kj) ** 2 + 1e-8)
+                    d_sigma_d_r_k = 2 * inner_product_r_ij_r_kj * (r_ij * np.linalg.norm(r_kj) ** 2 - r_kj * inner_product_r_ij_r_kj) / (np.linalg.norm(r_kj) ** 4 * np.linalg.norm(r_ij) ** 2 + 1e-8)
+                    d_sigma_d_r_j = -1 * (d_sigma_d_r_i + d_sigma_d_r_k)
+                    new_momentum_list[idx_i] = d_sigma_d_r_i * self.time_scale  ** 2 
+                    new_momentum_list[idx_j] = d_sigma_d_r_j * self.time_scale  ** 2
+                    new_momentum_list[idx_k] = d_sigma_d_r_k * self.time_scale  ** 2 
+                    LAMBDA = 2 * inner_product_r_ij_r_kj * (((np.sum((new_momentum_list[idx_i] - new_momentum_list[idx_j]) * r_kj) * np.sum((new_momentum_list[idx_k] - new_momentum_list[idx_j]) * r_ij))/(np.linalg.norm(r_ij) ** 2 * np.linalg.norm(r_kj) ** 2 + 1e-8)) - ((inner_product_r_ij_r_kj * (np.linalg.norm(r_ij) ** 2 * np.sum((new_momentum_list[idx_k] - new_momentum_list[idx_j]) * r_kj) + np.linalg.norm(r_kj) ** 2 * np.sum((new_momentum_list[idx_i] - new_momentum_list[idx_j]) * r_ij) ))/(np.linalg.norm(r_ij) ** 4 * np.linalg.norm(r_kj) ** 4 + 1e-8)))
+                    new_geometry[idx_i] -= 1e+3 * LAMBDA * new_momentum_list[idx_i]
+                    new_geometry[idx_j] -= 1e+3 * LAMBDA * new_momentum_list[idx_j]
+                    new_geometry[idx_k] -= 1e+3 * LAMBDA * new_momentum_list[idx_k]
+                    
             
                 else: # dihedral angle
                     print("SHAKE for dihedral angle is not implemented...")
@@ -76,7 +104,7 @@ class GradientSHAKE:
     def __init__(self, constraints=[]):
         #ref.:J Comput Chem 1995, 16 (11), 1351–1356.
         self.convergent_criterion = 1e-5
-        self.maxiter = 100
+        self.maxiter = 10000
         self.constraint_condition = constraints[0] + constraints[1] + constraints[2]
                 
     def run_grad(self, prev_geom_num_list, gradient_list):

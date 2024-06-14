@@ -23,6 +23,7 @@ from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from NRO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
+from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 
 class Optimize:
     def __init__(self, args):
@@ -41,7 +42,7 @@ class Optimize:
         self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 #0.0015 
         self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #0.0010
 
-        
+        self.microiter_num = 100
         self.args = args #
         self.FC_COUNT = args.calc_exact_hess # 
         #---------------------------
@@ -94,7 +95,9 @@ class Optimize:
                 print(self.SUB_BASIS_SET) #
             
         #-----------------------------
-        if args.usextb == "None":
+        if args.othersoft != "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time())+"/"
+        elif args.usextb == "None":
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
         else:
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time())+"/"
@@ -103,7 +106,7 @@ class Optimize:
         
         self.Model_hess = None #
         self.Opt_params = None #
-        self.DC_check_dist = 10.0#ang.
+        self.DC_check_dist = 30.0#ang.
         self.unrestrict = args.unrestrict
         self.NRO_analysis = args.NRO_analysis
         if self.NRO_analysis:
@@ -116,35 +119,7 @@ class Optimize:
             self.constraint_condition_list = []
         return
 
-    def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
-        #fix_atom_list: force_data["gradient_fix_atoms"]
-        RIC = RedundantInternalCoordinates()
-        b_mat = RIC.B_matrix(geom_num_list)
-        int_grad = RIC.cartgrad2RICgrad(gradient.reshape(len(geom_num_list)*3, 1), b_mat)
-        
-        RIC_idx_list = list(itertools.combinations([i+1 for i in range(len(geom_num_list))], 2))
-        for fix_atoms in fix_atom_list:
-            fix_combination_list = list(itertools.combinations(sorted(fix_atoms), 2))
-            for fix in fix_combination_list:
-                int_grad_idx = RIC_idx_list.index(fix)
-                int_grad[int_grad_idx] *= 0.0
-               
-        fixed_gradient = RIC.RICgrad2cartgrad(int_grad, b_mat).reshape(len(geom_num_list), 3)
-        
-        return fixed_gradient
-    
-    def calc_fragement_grads(self, gradient, fragment_list):
-        calced_gradient = gradient
-        for fragment in fragment_list:
-            tmp_grad = np.array([0.0, 0.0, 0.0], dtype="float64")
-            for atom_num in fragment:
-                tmp_grad += gradient[atom_num-1]
-            tmp_grad /= len(fragment)
 
-            for atom_num in fragment:
-                calced_gradient[atom_num-1] = copy.copy(tmp_grad)
-        #print(calced_gradient)
-        return calced_gradient
     
     def optimize_using_tblite(self):
         from tblite_calculation_tools import Calculation
@@ -208,7 +183,7 @@ class Optimize:
             
         #----------------------------------
         if self.NRO_analysis:
-            NRO = NROAnalysis(xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
+            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         
         
         
@@ -254,23 +229,7 @@ class Optimize:
             
             
             #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            self.save_tmp_energy_profiles(iter, e, g, B_g)
             #-------------------
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
@@ -358,7 +317,7 @@ class Optimize:
         G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
         if self.NRO_analysis:
-            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING, self.BPA_FOLDER_DIRECTORY)
+            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         
         #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
         #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
@@ -374,37 +333,14 @@ class Optimize:
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
-        
-        
+        self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
         
         
         #----------------------
         print("Complete...")
         return
+
+
 
     def optimize_using_psi4(self):
         from psi4_calculation_tools import Calculation
@@ -507,24 +443,7 @@ class Optimize:
             
             
             #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
-            #-------------------
+            self.save_tmp_energy_profiles(iter, e, g, B_g)
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
                 #fix_atom_list: force_data["gradient_fix_atoms"]
@@ -616,29 +535,7 @@ class Optimize:
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
         
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
+        self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
         
        
         #----------------------
@@ -744,24 +641,7 @@ class Optimize:
             
             
             #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                    f.write("bias gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((B_g**2).mean()))+"\n")
-            #-------------------
+            self.save_tmp_energy_profiles(iter, e, g, B_g)
             #----------------------------
             if len(force_data["gradient_fix_atoms"]) > 0:
                 #fix_atom_list: force_data["gradient_fix_atoms"]
@@ -815,8 +695,6 @@ class Optimize:
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
             if DC_exit_flag:
                 break
-
-             
             #----------------------------
             
             pre_B_e = B_e#Hartree
@@ -829,7 +707,6 @@ class Optimize:
             geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry, element_list)
             file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
             #----------------------------
-
             #----------------------------
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
@@ -845,44 +722,684 @@ class Optimize:
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+        #
+        FIO.xyz_file_make()
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
+        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
+        
+        
+        self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
+       
+        #----------------------
+        print("Complete...")
+        return
+    
+    def optimize_using_ase(self):
+        from ase_calculation_tools import Calculation
+        print("Use", self.args.othersoft)
+        with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
+            f.write(self.args.othersoft+"\n")
+            f.write(self.BASIS_SET+"\n")
+            f.write(self.FUNCTIONAL+"\n")
+
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        trust_radii = 0.01
+        force_data = force_data_parser(self.args)
+        finish_frag = False
+        
+        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.Model_hess = np.eye(len(element_list)*3)
+        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        #------------------------------------
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
+         
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
+        #-----------------------------------
+        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        pre_B_e = 0.0
+        pre_e = 0.0
+        pre_B_g = []
+        pre_g = []
+        for i in range(len(element_list)):
+            pre_B_g.append(np.array([0,0,0], dtype="float64"))
+       
+        pre_move_vector = pre_B_g
+        pre_g = pre_B_g
+        #-------------------------------------
+        finish_frag = False
+        #-----------------------------------
+        SP = Calculation(START_FILE = self.START_FILE,
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         BASIS_SET = self.BASIS_SET,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY ,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         FC_COUNT = self.FC_COUNT,
+                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
+                         Model_hess = self.Model_hess,
+                         unrestrict = self.unrestrict,
+                         software_type = self.args.othersoft)
+        #-----------------------------------
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
+        #----------------------------------
+        
+        self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
+        grad_list = []
+        bias_grad_list = []
+        
+        orthogonal_bias_grad_list = []
+        orthogonal_grad_list = []
+        
+        CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        optimizer_instances = CMV.initialization(force_data["opt_method"])
+        
+        for i in range(len(optimizer_instances)):
+            optimizer_instances[i].set_hessian(self.Model_hess)
+            if self.DELTA != "x":
+                optimizer_instances[i].DELTA = self.DELTA
+            
+        #----------------------------------
+        if self.NRO_analysis:
+            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
+        #---------------------------------
+        for iter in range(self.NSTEP):
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+
+            if exit_file_detect:
+                break
+            print("\n# ITR. "+str(iter)+"\n")
+            #---------------------------------------
+            
+            SP.Model_hess = self.Model_hess
+            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
+
+            self.Model_hess = SP.Model_hess
+            #---------------------------------------
+            if iter == 0:
+                initial_geom_num_list = geom_num_list
+                pre_geom = initial_geom_num_list
+                
+            else:
+                pass
+
+
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            CalcBiaspot.Model_hess = self.Model_hess
+            
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            for i in range(len(optimizer_instances)):
+                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                     optimizer_instances[i].set_hessian(self.Model_hess)
+                     
+            
+            #----------------------------
+            if len(force_data["opt_fragment"]) > 0:
+                B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
+                g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
+            
+            
+            #-------------------energy profile 
+            self.save_tmp_energy_profiles(iter, e, g, B_g)
+            #----------------------------
+            if len(force_data["gradient_fix_atoms"]) > 0:
+                #fix_atom_list: force_data["gradient_fix_atoms"]
+                B_g = self.grad_fix_atoms(B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
+                
+            #----------------------------
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
+                g = class_GradientSHAKE.run_grad(pre_geom, g) 
+            
+            
+            new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
+               
+                new_geometry = tmp_new_geometry * self.bohr2angstroms
+
+            #---------------------------------
+            self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
+            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
+            self.NUM_LIST.append(int(iter))
+            
+            #--------------------geometry info
+            self.geom_info_extract(force_data, file_directory, B_g, g)   
+            
+            #----------------------------
+            displacement_vector = geom_num_list - pre_geom
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
+            
+            
+            grad_list.append(np.sqrt((g**2).mean()))
+            bias_grad_list.append(np.sqrt((B_g**2).mean()))
+            #----------------------
+            if iter > 0:
+                norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
+                orthogonal_bias_grad = B_g.reshape(len(B_g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
+                orthogonal_grad = g.reshape(len(g)*3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
+                RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
+                RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
+                orthogonal_bias_grad_list.append(RMS_ortho_B_g)
+                orthogonal_grad_list.append(RMS_ortho_g)
+            
+            if self.NRO_analysis:
+                NRO.run(SP, geom_num_list, move_vector)
+            #------------------------
+            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                break
+            #-------------------------
+            
+            if len(force_data["fix_atoms"]) > 0:
+                for j in force_data["fix_atoms"]:
+                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
+            #------------------------            
+            #dissociation check
+            DC_exit_flag = self.dissociation_check(new_geometry, element_list)
+            if DC_exit_flag:
+                break
+            #----------------------------
+            pre_B_e = B_e#Hartree
+            pre_e = e
+            pre_B_g = B_g#Hartree/Bohr
+            pre_g = g
+            pre_geom = geom_num_list#Bohr
+            pre_move_vector = move_vector
+            #---------------------------
+            geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            #----------------------------
+            #----------------------------
+        #plot graph
+        G = Graph(self.BPA_FOLDER_DIRECTORY)
+        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
+        G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        if self.NRO_analysis:
+            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
+        if len(force_data["geom_info"]) > 1:
+            for num, i in enumerate(force_data["geom_info"]):
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+        #
+        FIO.xyz_file_make()
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
+        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
+        self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list) 
+        
+        #----------------------
+        print("Complete...")
+        return
+    
+    def optimize_oniom(self):
+        #high layer: psi4
+        #low layer: tbtile, ASE(NNP)
+        force_data = force_data_parser(self.args)
+        from psi4_calculation_tools import Calculation as HL_Calculation
+        calc_method = force_data["oniom_method"][2]
+        link_atom_num = force_data["oniom_method"][1]
+        method = calc_method
+        high_layer_atom_num = force_data["oniom_method"][0]
+        
+        if calc_method == "GFN2-xTB" or calc_method == "GFN1-xTB" or calc_method == "IPEA1-xTB":
+            from tblite_calculation_tools import Calculation as LL_Calculation
+        else:
+            from ase_calculation_tools import Calculation as LL_Calculation
+            
+        with open(self.BPA_FOLDER_DIRECTORY+"ONIOM2.txt", "w") as f:
+            f.write("### Low layer ###\n")
+            f.write(calc_method+"\n")
+            f.write("### High layer ###\n")
+            f.write(self.BASIS_SET+"\n")
+            f.write(self.FUNCTIONAL+"\n")  
+            
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        trust_radii = 0.01
+        finish_frag = False
+        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        self.microiter_num += 10 * len(element_list)
+        #-----------------------------------
+        geom_num_list = []
+        for i in range(2, len(geometry_list[0])):
+            geom_num_list.append(geometry_list[0][i][1:4])
+        geom_num_list = np.array(geom_num_list, dtype="float64") / self.bohr2angstroms
+        #-----------------
+        linker_atom_pair_num = specify_link_atom_pairs(geom_num_list, element_list, high_layer_atom_num, link_atom_num)
+        
+        print("Boundary of high layer and low layer:", linker_atom_pair_num)
+        high_layer_geom_num_list, high_layer_element_list = separate_high_layer_and_low_layer(geom_num_list, linker_atom_pair_num, high_layer_atom_num, element_list)
+        real_2_highlayer_label_connect_dict, highlayer_2_real_label_connect_dict = link_number_high_layer_and_low_layer(high_layer_atom_num)
+
+        #------------------------------------
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
+        
+        #-----------------------------------
+        LL_Model_hess = np.eye(len(element_list)*3)
+        HL_Model_hess = np.eye(len(high_layer_element_list))
+        
+        bool_list = []
+        for i in range(len(element_list)):
+            if i - 1 in high_layer_atom_num:
+                bool_list.extend([True, True, True])
+            else:
+                bool_list.extend([False, False, False])
+        
+        LL_Calc_BiasPot = BiasPotentialCalculation(LL_Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
+        HL_Calc_BiasPot = BiasPotentialCalculation(HL_Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
+        #-----------------------------------
+        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        pre_model_HL_B_e = 0.0
+        pre_model_HL_e = 0.0
+        pre_model_HL_B_g = []
+        pre_model_HL_g = []
+        pre_model_LL_B_e = 0.0
+        pre_model_LL_e = 0.0
+        pre_model_LL_B_g = []
+        pre_model_LL_g = []
+        pre_real_LL_B_e = 0.0
+        pre_real_LL_e = 0.0
+        pre_real_LL_B_g = []
+        pre_real_LL_g = []
+        pre_real_B_e = 0.0
+        pre_real_e = 0.0
+        pre_real_B_g = []
+        pre_real_g = []
+        
+        for i in range(len(element_list)):
+            pre_real_LL_B_g.append(np.array([0,0,0], dtype="float64"))
+        
+        for i in range(len(high_layer_element_list)):
+            pre_model_HL_B_g.append(np.array([0,0,0], dtype="float64"))
+            pre_model_LL_B_g.append(np.array([0,0,0], dtype="float64"))
+        pre_real_LL_B_g = np.array(pre_real_LL_B_g, dtype="float64")
+        pre_model_LL_B_g = np.array(pre_real_LL_B_g, dtype="float64")
+        pre_model_HL_B_g = np.array(pre_real_LL_B_g, dtype="float64")
+       
+       
+        pre_real_LL_move_vector = pre_real_LL_B_g
+        pre_real_LL_g = pre_real_LL_B_g
+        pre_model_LL_g = pre_model_LL_B_g
+        pre_model_HL_g = pre_model_HL_B_g
+        pre_model_HL_move_vector = pre_model_HL_B_g
+        
+        #-------------------------------------
+        finish_frag = False
+        exit_flag = False
+        #-----------------------------------
+        HLSP = HL_Calculation(START_FILE = self.START_FILE,
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         BASIS_SET = self.BASIS_SET,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY ,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         FC_COUNT = self.FC_COUNT,
+                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
+                         Model_hess = HL_Model_hess,
+                         unrestrict = self.unrestrict)
+        #----------------------------------
+        LLSP = LL_Calculation(START_FILE = self.START_FILE,
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         BASIS_SET = self.BASIS_SET,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY ,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         FC_COUNT = self.FC_COUNT,
+                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
+                         Model_hess = LL_Model_hess,
+                         unrestrict = self.unrestrict,
+                         software_type = calc_method)
+        
+        #---------------------------------
+        self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
+        
+        real_LL_grad_list = []
+        real_LL_bias_grad_list = []
+        real_LL_orthogonal_bias_grad_list = []
+        real_LL_orthogonal_grad_list = []
+        model_LL_grad_list = []
+        model_LL_bias_grad_list = []
+        model_LL_orthogonal_bias_grad_list = []
+        model_LL_orthogonal_grad_list = []
+        model_HL_grad_list = []
+        model_HL_bias_grad_list = []
+        model_HL_orthogonal_bias_grad_list = []
+        model_HL_orthogonal_grad_list = []
+        real_grad_list = []
+        real_bias_grad_list = []
+        real_orthogonal_bias_grad_list = []
+        real_orthogonal_grad_list = []
+        
+        HL_CMV = CalculateMoveVector(self.DELTA, trust_radii, high_layer_element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        
+        
+        HL_optimizer_instances = HL_CMV.initialization(force_data["opt_method"])
+        
+        
+        for i in range(len(HL_optimizer_instances)):
+            HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+            if self.DELTA != "x":
+                HL_optimizer_instances[i].DELTA = self.DELTA      
+        
+        
+
+        #----------------------------------
+        for iter in range(self.NSTEP):
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+            if exit_file_detect:
+                break
+            
+            print("\n# ITR. "+str(iter)+"\n")
+            #--------------------------
+            if iter == 0:
+                high_layer_initial_geom_num_list = high_layer_geom_num_list#Bohr
+                high_layer_pre_geom = high_layer_initial_geom_num_list#Bohr
+                real_initial_geom_num_list = geom_num_list#Bohr
+                real_pre_geom = real_initial_geom_num_list#Bohr
+            else:
+                pass
+            
+            #-------------------------
+            #E(lowlayer_model)
+            print("Model low layer calculation")
+            model_LL_e, model_LL_g, high_layer_geom_num_list, finish_frag = LLSP.single_point(file_directory, high_layer_element_list, iter, electric_charge_and_multiplicity, method, geom_num_list=high_layer_geom_num_list*self.bohr2angstroms)#high layer_geom_num_list:output->Bohr input->ang,
+            
+            
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            #-------------------------
+            #microiteration
+            #E(lowlayer_real(lowlayer_model is fixed))
+            LL_CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            LL_optimizer_instances = LL_CMV.initialization(["AdaBelief"])
+            LL_Model_hess = np.eye(len(element_list)*3)
+            print("microiteration...")
+            for microiter in range(self.microiter_num):
+                print("\nMicro ITR. "+str(microiter)+"\n")
+                
+                LLSP.Model_hess = LL_Model_hess
+                real_LL_e, real_LL_g, geom_num_list, finish_frag = LLSP.single_point(file_directory, element_list, microiter, electric_charge_and_multiplicity, method, geom_num_list=geom_num_list*self.bohr2angstroms)#high layer_geom_num_list:output->Bohr input->ang,
+                LL_Model_hess = LLSP.Model_hess 
+    
+                
+                for key, value in highlayer_2_real_label_connect_dict.items():
+                    real_LL_g[value-1] -= model_LL_g[key-1]
+                
+                LL_Calc_BiasPot.Model_hess = LL_Model_hess
+                
+                _, real_LL_B_e, real_LL_B_g, LL_BPA_hessian = LL_Calc_BiasPot.main(real_LL_e, real_LL_g, geom_num_list, element_list, force_data, pre_real_LL_B_g, microiter, real_initial_geom_num_list)#new_geometry:ang.
+                for x in range(len(LL_optimizer_instances)):
+                    LL_optimizer_instances[x].set_bias_hessian(LL_BPA_hessian)
+                    
+                    if microiter % self.FC_COUNT == 0:
+                        LL_optimizer_instances[x].set_hessian(LL_Model_hess)
+                
+                
+                #----------------------------
+                if len(force_data["opt_fragment"]) > 0:
+                    real_LL_B_g = copy.copy(self.calc_fragement_grads(real_LL_B_g, force_data["opt_fragment"]))
+                    real_LL_g = copy.copy(self.calc_fragement_grads(real_LL_g, force_data["opt_fragment"]))
+                
+                #----------------------------
+                if len(force_data["gradient_fix_atoms"]) > 0:
+                    #fix_atom_list: force_data["gradient_fix_atoms"]
+                    real_LL_B_g = self.grad_fix_atoms(real_LL_B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                    real_LL_g = self.grad_fix_atoms(real_LL_g, geom_num_list, force_data["gradient_fix_atoms"])
+                    
+                #----------------------------
+                if len(self.constraint_condition_list) > 0 and microiter > 0:
+                    real_LL_B_g = class_GradientSHAKE.run_grad(real_pre_geom, real_LL_B_g) 
+                    real_LL_g = class_GradientSHAKE.run_grad(real_pre_geom, real_LL_g) 
+                
+                
+                geom_num_list, LL_move_vector, LL_optimizer_instances, trust_radii = LL_CMV.calc_move_vector(microiter, geom_num_list, real_LL_B_g, pre_real_LL_B_g, real_pre_geom, real_LL_B_e, pre_real_LL_B_e, pre_real_LL_move_vector, real_initial_geom_num_list, real_LL_g, pre_real_LL_g, LL_optimizer_instances)
+                
+                if len(self.constraint_condition_list) > 0 and microiter > 0:
+                    tmp_new_geometry = class_GradientSHAKE.run_coord(real_pre_geom, geom_num_list/self.bohr2angstroms, element_list)                 
+                    geom_num_list = tmp_new_geometry * self.bohr2angstroms
+                #---------------------------
+                
+                for key, value in highlayer_2_real_label_connect_dict.items():
+                    geom_num_list[value-1] = copy.copy(high_layer_geom_num_list[key-1]*self.bohr2angstroms)
+                    
+                if len(force_data["fix_atoms"]) > 0:
+                    for j in force_data["fix_atoms"]:
+                        geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
+                geom_num_list /= self.bohr2angstroms
+                self.print_info(["AdaBelief"], real_LL_e, real_LL_B_e, real_LL_B_g, LL_move_vector, pre_real_LL_e, pre_real_LL_B_e)
+
+                pre_real_LL_e = real_LL_e
+                pre_real_LL_B_e = real_LL_B_e
+                pre_real_LL_g = real_LL_g
+                pre_real_LL_B_g = real_LL_B_g
+                pre_real_LL_move_vector = LL_move_vector
+                if abs(pre_real_LL_B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((pre_real_LL_B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(LL_move_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((LL_move_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                    print("converged... (microiteration)")
+                    break
+            else:
+                print("complete microiteration.")
+            #---------------------------------------
+            print("model system (high layer)")
+            HLSP.Model_hess = HL_Model_hess
+            #E(highlayer_model)
+            model_HL_e, model_HL_g, high_layer_geom_num_list, finish_frag = HLSP.single_point(file_directory, high_layer_element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=high_layer_geom_num_list*self.bohr2angstroms)#input->ang. output->Bohr.
+            HL_Model_hess = HLSP.Model_hess
+            
+            #---------------------------------------
+
+            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+                break   
+            
+            #from model to real
+           
+            _, tmp_model_HL_B_e, tmp_model_HL_B_g, HL_BPA_hessian = LL_Calc_BiasPot.main(0.0, real_LL_g*0.0, geom_num_list, element_list, force_data, pre_real_LL_B_g*0.0, iter, real_initial_geom_num_list)#new_geometry:ang.
+            
+            tmp_model_HL_g = tmp_model_HL_B_g*0.0
+            
+            for key, value in real_2_highlayer_label_connect_dict.items():
+                tmp_model_HL_B_g[key-1] += model_HL_g[value-1]
+                tmp_model_HL_g[key-1] += model_HL_g[value-1]
+            
+            HL_BPA_hessian = LL_BPA_hessian[np.ix_(bool_list, bool_list)]
+            
+            for i in range(len(HL_optimizer_instances)):
+                HL_optimizer_instances[i].set_bias_hessian(HL_BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                    HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+                    
+            if len(force_data["opt_fragment"]) > 0:
+                tmp_model_HL_B_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_B_g, force_data["opt_fragment"]))
+                tmp_model_HL_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_g, force_data["opt_fragment"]))
+
+            #----------------------------
+            if len(force_data["gradient_fix_atoms"]) > 0:
+                #fix_atom_list: force_data["gradient_fix_atoms"]
+                tmp_model_HL_B_g = self.grad_fix_atoms(tmp_model_HL_B_g, geom_num_list, force_data["gradient_fix_atoms"])
+                tmp_model_HL_g = self.grad_fix_atoms(tmp_model_HL_g, geom_num_list, force_data["gradient_fix_atoms"])
+                
+            #----------------------------
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_model_HL_B_g = class_GradientSHAKE.run_grad(real_pre_geom, tmp_model_HL_B_g) 
+                tmp_model_HL_g = class_GradientSHAKE.run_grad(real_pre_geom, tmp_model_HL_g) 
+                
+            model_HL_B_g = copy.copy(model_HL_g)
+            model_HL_B_e = model_HL_e + tmp_model_HL_B_e
+            for key, value in real_2_highlayer_label_connect_dict.items():
+                model_HL_B_g[value-1] += tmp_model_HL_B_g[key-1]  
+            
+            pre_high_layer_geom_num_list = high_layer_geom_num_list
+            high_layer_geom_num_list, move_vector, HL_optimizer_instances, trust_radii = HL_CMV.calc_move_vector(iter, high_layer_geom_num_list, model_HL_B_g, pre_model_HL_B_g, pre_high_layer_geom_num_list, model_HL_B_e, pre_model_HL_B_e, pre_model_HL_move_vector, high_layer_pre_geom, model_HL_g, pre_model_HL_g, HL_optimizer_instances)
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(high_layer_pre_geom, high_layer_geom_num_list/self.bohr2angstroms, element_list) 
+                high_layer_geom_num_list = tmp_new_geometry * self.bohr2angstroms#bohr -> ang.
+            
+            
+            
+            for l in range(len(high_layer_geom_num_list) - len(linker_atom_pair_num)):
+                geom_num_list[highlayer_2_real_label_connect_dict[l+1]-1] = copy.copy(high_layer_geom_num_list[l]/self.bohr2angstroms)#bohr
+            
+            high_layer_geom_num_list, high_layer_element_list = separate_high_layer_and_low_layer(geom_num_list, linker_atom_pair_num, high_layer_atom_num, element_list)
+            #--------------------------
+            #combine energy
+            
+            real_e = real_LL_e + model_HL_e - model_LL_e
+            real_B_e = real_LL_B_e + model_HL_B_e - model_LL_e
+            real_g = real_LL_g + tmp_model_HL_g
+            real_B_g = real_LL_B_g +tmp_model_HL_B_g
+            
+            
+            
+            #-------------------energy profile 
+            self.save_tmp_energy_profiles(iter, real_e, real_g, real_B_g)
+                
+            self.ENERGY_LIST_FOR_PLOTTING.append(real_e*self.hartree2kcalmol)
+            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(real_B_e*self.hartree2kcalmol)
+            self.NUM_LIST.append(int(iter))
+            
+            #--------------------geometry info
+            self.geom_info_extract(force_data, file_directory, real_B_g, real_g)   
+            #----------------------------
+            displacement_vector = geom_num_list - real_pre_geom
+            self.print_info(force_data["opt_method"], real_e, real_B_e, real_B_g, displacement_vector, pre_real_e, pre_real_B_e)
+            
+            
+            real_grad_list.append(np.sqrt((real_g**2).mean()))
+            real_bias_grad_list.append(np.sqrt((real_B_g**2).mean()))
+
+            if abs(real_B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((real_B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                break
+            #-------------------------
+            
+            if len(force_data["fix_atoms"]) > 0:
+                for j in force_data["fix_atoms"]:
+                    geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
+            
+            #------------------------            
+            #dissociation check
+
+
+            
+            #----------------------------
+            pre_model_LL_e = model_LL_e
+            pre_model_LL_g = model_LL_g
+            
+            pre_real_B_e = real_B_e#Hartree
+            pre_real_e = real_e
+            pre_real_B_g = real_B_g#Hartree/Bohr
+            pre_real_g = real_g
+            real_pre_geom = geom_num_list#Bohr
+            pre_move_vector = move_vector
+            pre_model_HL_B_g = model_HL_B_g
+            pre_model_HL_g = model_HL_g
+            pre_model_HL_e = model_HL_e
+            pre_model_HL_B_e = model_HL_B_e
+            
+            
+            
+            geometry_list = FIO.make_geometry_list_2(geom_num_list*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            DC_exit_flag = self.dissociation_check(geom_num_list, element_list)
+            if DC_exit_flag:
+                break
+            #----------------------------
+
+            #----------------------------
+        #plot graph
+        G = Graph(self.BPA_FOLDER_DIRECTORY)
+        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        G.single_plot(self.NUM_LIST, real_grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, real_bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], (np.array(real_bias_grad_list[1:]) - np.array(real_orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
+        #G.single_plot(self.NUM_LIST[1:], (np.array(real_grad_list[1:]) - np.array(real_orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
+        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
+        
+        if len(force_data["geom_info"]) > 1:
+            for num, i in enumerate(force_data["geom_info"]):
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
         
         #
         FIO.xyz_file_make()
         
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
-        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
+        FIO.argrelextrema_txt_save(real_grad_list, "local_min_grad", "min")
         
         
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal bias gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
-        with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
-            f.write("ITER.,orthogonal gradient[a.u.]\n")
-            for i in range(len(orthogonal_bias_grad_list)):
-                f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
-        
+        self.save_energy_profiles(real_orthogonal_bias_grad_list, real_orthogonal_grad_list, real_grad_list)
        
         #----------------------
         print("Complete...")
         return
     
+    def save_tmp_energy_profiles(self, iter, e, g, B_g):
+        if iter == 0:
+            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
+                f.write("energy [hartree] \n")
+        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
+            f.write(str(e)+"\n")
+        #-------------------gradient profile
+        if iter == 0:
+            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
+                f.write("gradient (RMS) [hartree/Bohr] \n")
+        with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
+            f.write(str(np.sqrt((g**2).mean()))+"\n")
+        #-------------------
+        if iter == 0:
+            with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+                f.write("bias gradient (RMS) [hartree/Bohr] \n")
+        with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
+            f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            #-------------------
+        return
+    
+    def save_energy_profiles(self, orthogonal_bias_grad_list, orthogonal_grad_list, grad_list):
+        if len(orthogonal_bias_grad_list) != 0 and len(orthogonal_grad_list) != 0:
+            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
+                f.write("ITER.,orthogonal bias gradient[a.u.]\n")
+                for i in range(len(orthogonal_bias_grad_list)):
+                    f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
+            
+            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
+                f.write("ITER.,orthogonal gradient[a.u.]\n")
+                for i in range(len(orthogonal_bias_grad_list)):
+                    f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
+            
+            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
+                f.write("ITER.,orthogonal gradient[a.u.]\n")
+                for i in range(len(orthogonal_grad_list)):
+                    f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
+            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
+                f.write("ITER.,orthogonal gradient[a.u.]\n")
+                for i in range(len(orthogonal_bias_grad_list)):
+                    f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
+        
+        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
+            f.write("ITER.,energy[kcal/mol]\n")
+            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
+                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
+        return
+
     
     def geom_info_extract(self, force_data, file_directory, B_g, g):
         if len(force_data["geom_info"]) > 1:
@@ -948,12 +1465,47 @@ class Optimize:
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
     
+    def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
+        #fix_atom_list: force_data["gradient_fix_atoms"]
+        RIC = RedundantInternalCoordinates()
+        b_mat = RIC.B_matrix(geom_num_list)
+        int_grad = RIC.cartgrad2RICgrad(gradient.reshape(len(geom_num_list)*3, 1), b_mat)
+        
+        RIC_idx_list = list(itertools.combinations([i+1 for i in range(len(geom_num_list))], 2))
+        for fix_atoms in fix_atom_list:
+            fix_combination_list = list(itertools.combinations(sorted(fix_atoms), 2))
+            for fix in fix_combination_list:
+                int_grad_idx = RIC_idx_list.index(fix)
+                int_grad[int_grad_idx] *= 0.0
+               
+        fixed_gradient = RIC.RICgrad2cartgrad(int_grad, b_mat).reshape(len(geom_num_list), 3)
+        
+        return fixed_gradient
+    
+    def calc_fragement_grads(self, gradient, fragment_list):
+        calced_gradient = gradient
+        for fragment in fragment_list:
+            tmp_grad = np.array([0.0, 0.0, 0.0], dtype="float64")
+            for atom_num in fragment:
+                tmp_grad += gradient[atom_num-1]
+            tmp_grad /= len(fragment)
+
+            for atom_num in fragment:
+                calced_gradient[atom_num-1] = copy.copy(tmp_grad)
+        #print(calced_gradient)
+        return calced_gradient
     
     def run(self):
-        if self.args.pyscf:
+        #For ONIOM method
+        if len(self.args.oniom_method) > 0:
+            self.optimize_oniom()
+        # QM (and others) calculation
+        elif self.args.pyscf:
             self.optimize_using_pyscf()
         elif self.args.usextb != "None":
             self.optimize_using_tblite()
+        elif self.args.othersoft != "None":
+            self.optimize_using_ase()
         else:
             self.optimize_using_psi4()
     
