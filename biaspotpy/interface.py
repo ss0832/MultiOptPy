@@ -251,7 +251,6 @@ def force_data_parser(args):
     force_data["spacer_model_potential_well_depth"] = []
     force_data["spacer_model_potential_particle_number"] = [] #ang.
     force_data["spacer_model_potential_cavity_scaling"] = []
-    print(len(args.spacer_model_potential))
     for i in range(int(len(args.spacer_model_potential)/5)):
         force_data["spacer_model_potential_well_depth"].append(float(args.spacer_model_potential[5*i]))
         force_data["spacer_model_potential_distance"].append(float(args.spacer_model_potential[5*i+1]))
