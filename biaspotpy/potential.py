@@ -62,7 +62,7 @@ class BiasPotentialCalculation:
 
   
         #--------------------------------------------------
-        B_e = e
+        B_e = torch.tensor(0.0, dtype=torch.float64)
         BPA_grad_list = g*0.0
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
         geom_num_list = self.ndarray2tensor(geom_num_list)
@@ -753,7 +753,7 @@ class BiasPotentialCalculation:
 
         
         
-        B_e = B_e.item()
+        B_e = B_e.item() + e
         #new_geometry:ang. 
         #B_e:hartree
 

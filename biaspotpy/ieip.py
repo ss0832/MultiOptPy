@@ -28,7 +28,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.L_covergence = 0.03 #Bohr
         
         self.microiterlimit = 1000
-        
+        self.initial_excite_state = args.excited_state[0]
+        self.final_excite_state = args.excited_state[1]
         #self.force_perpendicularity_convage_criterion = 0.008 #Hartree/Bohr
         self.img_distance_convage_criterion = 0.15 #Bohr
         #self.F_R_convage_criterion = 0.012
@@ -70,7 +71,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET) #
             
-        self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
+        self.init_electric_charge_and_multiplicity = [int(args.electronic_charge[0]), int(args.spin_multiplicity[0])]
+        self.final_electric_charge_and_multiplicity = [int(args.electronic_charge[1]), int(args.spin_multiplicity[1])]
         self.basic_set_and_function = args.functional+"/"+args.basisset
         
         if args.usextb == "None":
@@ -110,16 +112,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
        
         return
 
-    def microiteration(self, SP, FIO1, FIO2, file_directory_1, file_directory_2, element_list, electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter):
+    def microiteration(self, SP1, SP2, FIO1, FIO2, file_directory_1, file_directory_2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter):
         #Add force to minimize potential along MEP. (based on nudged elestic bond method)
  
         for i in range(self.microiter_num):
             print("# Microiteration "+str(i))
-            energy_1, gradient_1, geom_num_list_1, _ = SP.single_point(file_directory_1, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
-            energy_2, gradient_2, geom_num_list_2, _ = SP.single_point(file_directory_2, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
             
-            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
-            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_1 = BiasPotentialCalculation(SP1.Model_hess, SP1.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(SP2.Model_hess, SP2.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
@@ -191,8 +193,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 file_directory_2 = FIO2.make_pyscf_input_file([new_geom_num_list_2_tolist], iter) 
             
             else:
-                new_geom_num_list_1_tolist.insert(0, electric_charge_and_multiplicity)
-                new_geom_num_list_2_tolist.insert(0, electric_charge_and_multiplicity)
+                new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
+                new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
                 
                 file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter)
                 file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter)
@@ -209,7 +211,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         return energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2
 
 
-    def iteration(self, file_directory_1, file_directory_2, SP, element_list, electric_charge_and_multiplicity, FIO1, FIO2):
+    def iteration(self, file_directory_1, file_directory_2, SP1, SP2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, FIO1, FIO2):
         G = Graph(self.iEIP_FOLDER_DIRECTORY)
         beta_m = 0.9
         beta_v = 0.999 
@@ -229,8 +231,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 break
             print("# ITR. "+str(iter))
             
-            energy_1, gradient_1, geom_num_list_1, _ = SP.single_point(file_directory_1, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
-            energy_2, gradient_2, geom_num_list_2, _ = SP.single_point(file_directory_2, element_list, iter, electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
             
             if iter == 0:
                 m_1 = gradient_1 * 0.0
@@ -240,14 +242,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 ini_geom_1 = geom_num_list_1
                 ini_geom_2 = geom_num_list_2
             
-            BPC_1 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
-            BPC_2 = BiasPotentialCalculation(SP.Model_hess, SP.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_1 = BiasPotentialCalculation(SP1.Model_hess, SP1.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(SP2.Model_hess, SP2.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
         
             if self.microiter_num > 0 and iter > 0:
-                energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2 = self.microiteration(SP, FIO1, FIO2, file_directory_1, file_directory_2, element_list, electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter)
+                energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2 = self.microiteration(SP, FIO1, FIO2, file_directory_1, file_directory_2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter)
             
         
             if energy_2 > energy_1:
@@ -367,8 +369,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 file_directory_2 = FIO2.make_pyscf_input_file([new_geom_num_list_2_tolist], iter+1) 
             
             else:
-                new_geom_num_list_1_tolist.insert(0, electric_charge_and_multiplicity)
-                new_geom_num_list_2_tolist.insert(0, electric_charge_and_multiplicity)
+                new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
+                new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
                 
                 file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter+1)
                 file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter+1)
@@ -468,21 +470,32 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         FIO_img1 = FileIO(self.iEIP_FOLDER_DIRECTORY, file_path_A)
         FIO_img2 = FileIO(self.iEIP_FOLDER_DIRECTORY, file_path_B)
 
-        geometry_list_1, element_list, electric_charge_and_multiplicity = FIO_img1.make_geometry_list(self.electric_charge_and_multiplicity)
-        geometry_list_2, _, _ = FIO_img2.make_geometry_list(self.electric_charge_and_multiplicity)
+        geometry_list_1, element_list, init_electric_charge_and_multiplicity = FIO_img1.make_geometry_list(self.init_electric_charge_and_multiplicity)
+        geometry_list_2, _, final_electric_charge_and_multiplicity = FIO_img2.make_geometry_list(self.final_electric_charge_and_multiplicity)
         
-        SP = Calculation(START_FILE = self.START_FILE,
+        SP1 = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY ,
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = -1,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye(3*len(geometry_list_1)),
-                         unrestrict=self.unrestrict)
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.initial_excite_state)
+        SP2  = Calculation(START_FILE = self.START_FILE,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY ,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         FC_COUNT = -1,
+                         BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
+                         Model_hess = np.eye(3*len(geometry_list_1)),
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.final_excite_state)
+        
         file_directory_1 = FIO_img1.make_psi4_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_psi4_input_file(geometry_list_2, 0)
         
-        self.iteration(file_directory_1, file_directory_2, SP, element_list, electric_charge_and_multiplicity, FIO_img1, FIO_img2)
+        self.iteration(file_directory_1, file_directory_2, SP1, SP2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, FIO_img1, FIO_img2)
         
         
     def optimize_using_psi4(self):
@@ -493,11 +506,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         FIO_img2 = FileIO(self.iEIP_FOLDER_DIRECTORY, file_path_B)
 
         
-        geometry_list_1, element_list, electric_charge_and_multiplicity = FIO_img1.make_geometry_list(self.electric_charge_and_multiplicity)
-        geometry_list_2, _, _ = FIO_img2.make_geometry_list(self.electric_charge_and_multiplicity)
+        geometry_list_1, element_list, init_electric_charge_and_multiplicity = FIO_img1.make_geometry_list(self.init_electric_charge_and_multiplicity)
+        geometry_list_2, _, final_electric_charge_and_multiplicity = FIO_img2.make_geometry_list(self.final_electric_charge_and_multiplicity)
         
-        
-        SP = Calculation(START_FILE = self.START_FILE,
+        SP1 = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY,
                          FUNCTIONAL = self.FUNCTIONAL,
@@ -506,12 +518,23 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye((3*len(geometry_list_1))),
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         unrestrict=self.unrestrict)
-                         
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.initial_excite_state)
+        SP2 = Calculation(START_FILE = self.START_FILE,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         BASIS_SET = self.BASIS_SET,
+                         FC_COUNT = -1,
+                         BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
+                         Model_hess = np.eye((3*len(geometry_list_1))),
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.final_excite_state)                     
         file_directory_1 = FIO_img1.make_psi4_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_psi4_input_file(geometry_list_2, 0)
         
-        self.iteration(file_directory_1, file_directory_2, SP, element_list, electric_charge_and_multiplicity, FIO_img1, FIO_img2)
+        self.iteration(file_directory_1, file_directory_2, SP1, SP2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, FIO_img1, FIO_img2)
         
     def optimize_using_pyscf(self):
         from pyscf_calculation_tools import Calculation
@@ -525,7 +548,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         geometry_list_2, _ = FIO_img2.make_geometry_list_for_pyscf()
         
     
-        SP = Calculation(START_FILE = self.START_FILE,
+        SP1 = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY,
                          FUNCTIONAL = self.FUNCTIONAL,
@@ -534,12 +557,27 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye(3*len(geometry_list_1)),
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         electronic_charge = self.electronic_charge,
-                         spin_multiplicity = self.spin_multiplicity)
+                         electronic_charge = self.electronic_charge[0],
+                         spin_multiplicity = self.spin_multiplicity[0],
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.initial_excite_state)
+        SP2 = Calculation(START_FILE = self.START_FILE,
+                         N_THREAD = self.N_THREAD,
+                         SET_MEMORY = self.SET_MEMORY,
+                         FUNCTIONAL = self.FUNCTIONAL,
+                         BASIS_SET = self.BASIS_SET,
+                         FC_COUNT = -1,
+                         BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
+                         Model_hess = np.eye(3*len(geometry_list_1)),
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         electronic_charge = self.electronic_charge[1],
+                         spin_multiplicity = self.spin_multiplicity[1],
+                         unrestrict=self.unrestrict, 
+                         excited_state = self.final_excite_state)
         file_directory_1 = FIO_img1.make_pyscf_input_file(geometry_list_1, 0)
         file_directory_2 = FIO_img2.make_pyscf_input_file(geometry_list_2, 0)
         
-        self.iteration(file_directory_1, file_directory_2, SP, element_list, self.electric_charge_and_multiplicity, FIO_img1, FIO_img2)
+        self.iteration(file_directory_1, file_directory_2, SP1, SP2, element_list, self.init_electric_charge_and_multiplicity, self.final_electric_charge_and_multiplicity, FIO_img1, FIO_img2)
         
         
         

@@ -30,7 +30,7 @@ class Thermostat:
         self.initial_temperature = temperature #K
         self.pressure = pressure * (3.39893 * 10 ** (-11)) #kPa -> a.u.
         self.initial_pressure = pressure * (3.39893 * 10 ** (-11)) #kPa -> a.u.
-        
+
         self.Langevin_zeta = 0.01
         self.zeta = 0.0
         self.eta = 0.0
@@ -440,7 +440,7 @@ class MD:
         self.time_atom_unit = 2.419 * 10 ** (-17)
         self.args = args #
         self.FC_COUNT = -1 # 
-
+        self.excited_state = args.excited_state
         self.initial_temperature = args.temperature
         self.num_of_trajectory = args.TRAJECTORY
         self.change_temperature = args.change_temperature
@@ -763,7 +763,8 @@ class MD:
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
                          unrestrict = self.unrestrict,
-                         software_type = self.args.othersoft)
+                         software_type = self.args.othersoft,
+                         excited_state = self.excited_state)
         #----------------------------------
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -1109,7 +1110,8 @@ class MD:
                          Model_hess = self.Model_hess,
                          spin_multiplicity = self.spin_multiplicity,
                          electronic_charge = self.electronic_charge,
-                         unrestrict = self.unrestrict)
+                         unrestrict = self.unrestrict,
+                         excited_state = self.excited_state)
         #----------------------------------
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
         cos_list = [[] for i in range(len(force_data["geom_info"]))]
