@@ -66,7 +66,7 @@ class Optimize:
         #-----------------------------
         self.BASIS_SET = args.basisset # 
         self.FUNCTIONAL = args.functional # 
-        
+        self.excited_state = args.excited_state
         if len(args.sub_basisset) % 2 != 0:
             print("invaild input (-sub_bs)")
             sys.exit(0)
@@ -383,7 +383,8 @@ class Optimize:
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
-                         unrestrict = self.unrestrict)
+                         unrestrict = self.unrestrict,
+                         excited_state = self.excited_state)
         #----------------------------------
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -584,7 +585,8 @@ class Optimize:
                          Model_hess = self.Model_hess,
                          spin_multiplicity = self.spin_multiplicity,
                          electronic_charge = self.electronic_charge,
-                         unrestrict = self.unrestrict)
+                         unrestrict = self.unrestrict,
+                         excited_state = self.excited_state)
         #----------------------------------
         
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -1512,8 +1514,8 @@ class Optimize:
         if self.CMDS:
             CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
             CMDPA.main()
-        if self.ricci_curvature:
-            CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
-            CC.main()
+        #if self.ricci_curvature:
+        #    CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
+        #    CC.main()
         
         return

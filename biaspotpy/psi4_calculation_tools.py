@@ -20,6 +20,10 @@ class Calculation:
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
         self.hessian_flag = False
+        if kwarg["excited_state"]:
+            self.excited_state = kwarg["excited_state"]
+        else:
+            self.excited_state = 0
         return
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
@@ -47,11 +51,14 @@ class Calculation:
                     psi4.set_options({"basis":'User_Basis_Set'})
                 else:
                     psi4.set_options({"basis":self.BASIS_SET})
-                
+                    
+                if self.excited_state > 0:
+                    psi4.set_options({'TDSCF_STATES': self.excited_state})
+
                 psi4.set_output_file(logfile)
                 psi4.set_num_threads(nthread=self.N_THREAD)
                 psi4.set_memory(self.SET_MEMORY)
-                
+                #psi4.procrouting.response.scf_response.tdscf_excitations
                 psi4.set_options({"cubeprop_tasks": ["esp"],'cubeprop_filepath': file_directory})
                 
                 if geom_num_list is None:
@@ -79,6 +86,11 @@ class Calculation:
                 input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
                             
                 g, wfn = psi4.gradient(self.FUNCTIONAL, molecule=input_data, return_wfn=True)
+
+
+
+
+
                 e = float(wfn.energy())
                 g = np.array(g, dtype = "float64")
                 psi4.oeprop(wfn, 'DIPOLE')

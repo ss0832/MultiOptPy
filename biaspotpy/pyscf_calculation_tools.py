@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 
+from pyscf import gto, scf, dft, tddft, tdscf
 from pyscf.hessian import thermo
 
 from calc_tools import Calculationtools
@@ -14,7 +15,7 @@ class Calculation:
         UVL = UnitValueLib()
 
         self.bohr2angstroms = UVL.bohr2angstroms
-        
+        self.hartree2eV = UVL.hartree2eV
         self.START_FILE = kwarg["START_FILE"]
         self.SUB_BASIS_SET = kwarg["SUB_BASIS_SET"]
         self.BASIS_SET = kwarg["BASIS_SET"]
@@ -28,7 +29,11 @@ class Calculation:
         self.spin_multiplicity = kwarg["spin_multiplicity"]
         self.unrestrict = kwarg["unrestrict"]
         self.hessian_flag = False
-    
+        if kwarg["excited_state"]:
+            self.excited_state = kwarg["excited_state"] # Available up to third excited state
+        else:
+            self.excited_state = 0
+            
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method=""):
         """execute QM calclation."""
         gradient_list = []
@@ -42,8 +47,8 @@ class Calculation:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
-            try:
-                
+            #try:
+            if True:
                 pyscf.lib.num_threads(self.N_THREAD)
                 
                 with open(input_file, "r") as f:
@@ -60,22 +65,46 @@ class Calculation:
                                   basis = self.SUB_BASIS_SET,
                                   max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                   verbose=4)
-                if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
-                    if int(self.spin_multiplicity) > 0 or self.unrestrict:
-                        mf = mol.UHF().x2c().density_fit()
+                if self.excited_state  == 0:
+                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
+                        if int(self.spin_multiplicity) > 0 or self.unrestrict:
+                            mf = mol.UHF().density_fit()
+                        else:
+                            mf = mol.RHF().density_fit()
                     else:
-                        mf = mol.RHF().density_fit()
+                        if int(self.spin_multiplicity) > 0 or self.unrestrict:
+                            mf = mol.UKS().x2c().density_fit()
+                        else:
+                            mf = mol.RKS().density_fit()
+                        mf.xc = self.FUNCTIONAL
+                    g = mf.run().nuc_grad_method().kernel()
+                    e = float(vars(mf)["e_tot"])
                 else:
-                    if int(self.spin_multiplicity) > 0 or self.unrestrict:
-                        mf = mol.UKS().x2c().density_fit()
+                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
+                        if int(self.spin_multiplicity) > 0 or self.unrestrict:
+                            mf = mol.UHF().density_fit().run()
+                            mf.kernel()
+                        else:
+                            mf = mol.RHF().density_fit().run()
+                            mf.kernel()
                     else:
-                        mf = mol.RKS().density_fit()
-                    mf.xc = self.FUNCTIONAL
-   
-            
-          
-                g = mf.run().nuc_grad_method().kernel()
-                e = float(vars(mf)["e_tot"])
+                        if int(self.spin_multiplicity) > 0 or self.unrestrict:
+                            mf = mol.UKS().x2c().density_fit().run()
+                            mf.xc = self.FUNCTIONAL
+                            mf.kernel()
+                        else:
+                            mf = mol.RKS().density_fit().run()
+                            mf.xc = self.FUNCTIONAL
+                            mf.kernel()
+
+                    ground_e = float(vars(mf)["e_tot"])
+                    mf = tdscf.TDA(mf)
+
+
+                    g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
+                    e = vars(mf)["e"][self.excited_state-1] / self.hartree2eV
+                    e += ground_e
+
                 g = np.array(g, dtype = "float64")
 
                 print("\n")
@@ -100,11 +129,11 @@ class Calculation:
 
                     self.Model_hess = exact_hess
 
-            except Exception as error:
-                print(error)
-                print("This molecule could not be optimized.")
-                finish_frag = True
-                return np.array([0]), np.array([0]), np.array([0]), finish_frag  
+            #except Exception as error:
+            #    print(error)
+            #    print("This molecule could not be optimized.")
+            #    finish_frag = True
+            #    return np.array([0]), np.array([0]), np.array([0]), finish_frag
              
         self.energy = e
         self.gradient = g

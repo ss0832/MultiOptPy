@@ -68,7 +68,7 @@ class BiasPotentialCalculation:
         geom_num_list = self.ndarray2tensor(geom_num_list)
         #------------------------------------------------
          
-        if iter == 0 and force_data["spacer_model_potential_well_depth"][0] != 0.0:
+        if iter == 0 and len(force_data["spacer_model_potential_well_depth"]) > 0:
             self.smp_particle_coord_list = []
             for i in range(len(force_data["spacer_model_potential_well_depth"])):
                 center = torch.mean(geom_num_list[np.array(force_data["spacer_model_potential_target"][i])-1], dim=0)
