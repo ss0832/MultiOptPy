@@ -288,10 +288,10 @@ class GradientSHAKE:
                     LAMBDA = -2 * cos * (((np.sum(cross_r_ab_r_bc * (cross_r_cd_h_bc + cross_h_cd_r_bc)) + np.sum(cross_r_bc_r_cd * (cross_r_bc_h_ab + cross_h_bc_r_ab))) / (np.linalg.norm(cross_r_ab_r_bc) * np.linalg.norm(cross_r_bc_r_cd))) -1 * ((np.sum(cross_r_ab_r_bc * (cross_r_bc_h_ab + cross_h_bc_r_ab))/np.linalg.norm(cross_r_ab_r_bc) ** 2) + (np.sum(cross_r_bc_r_cd * (cross_r_cd_h_bc + cross_h_cd_r_bc))/np.linalg.norm(cross_r_bc_r_cd) ** 2)) * cos)
 
 
-                    new_geometry[idx_a] -= 1e+2 * LAMBDA * h_a
-                    new_geometry[idx_b] -= 1e+2 * LAMBDA * h_b
-                    new_geometry[idx_c] -= 1e+2 * LAMBDA * h_c
-                    new_geometry[idx_d] -= 1e+2 * LAMBDA * h_d
+                    new_geometry[idx_a] -= 1e+3 * LAMBDA * h_a
+                    new_geometry[idx_b] -= 1e+3 * LAMBDA * h_b
+                    new_geometry[idx_c] -= 1e+3 * LAMBDA * h_c
+                    new_geometry[idx_d] -= 1e+3 * LAMBDA * h_d
             if isconverged:
                 print("converged!!! (SHAKE for energy minimalization)")
                 break
