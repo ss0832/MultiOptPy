@@ -83,19 +83,19 @@ class Calculation:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
                             mf = mol.UHF().density_fit().run()
-                            mf.kernel()
+
                         else:
                             mf = mol.RHF().density_fit().run()
-                            mf.kernel()
+
                     else:
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
                             mf = mol.UKS().x2c().density_fit().run()
                             mf.xc = self.FUNCTIONAL
-                            mf.kernel()
+
                         else:
                             mf = mol.RKS().density_fit().run()
                             mf.xc = self.FUNCTIONAL
-                            mf.kernel()
+                            
 
                     ground_e = float(vars(mf)["e_tot"])
                     mf = tdscf.TDA(mf)
