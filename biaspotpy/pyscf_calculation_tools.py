@@ -99,10 +99,8 @@ class Calculation:
 
                     ground_e = float(vars(mf)["e_tot"])
                     mf = tdscf.TDA(mf)
-
-
                     g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
-                    e = vars(mf)["e"][self.excited_state-1] / self.hartree2eV
+                    e = vars(mf)["e"][self.excited_state-1]
                     e += ground_e
 
                 g = np.array(g, dtype = "float64")
