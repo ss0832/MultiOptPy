@@ -15,6 +15,7 @@ class NROAnalysis:
         
         self.numerical_delta = 0.0001
         self.LAMBDA_list = []
+        self.first_deriv_orbital_ene_list = []
         self.file_directory = self.config["file_directory"]
         return
         
@@ -53,22 +54,29 @@ class NROAnalysis:
                 
             
         return
-        
-    def run(self, SP, geom_num_list, move_vector):
+    
+    
+    
+    def run(self, SP, geom_num_list, move_vector):#geom_num_list :Bohr
         print("### Natural Reaction Orbital analysis ###")
         print("# This method is only available for tblite (xTB).")
-        displacement_for_numerical_differential = self.numerical_delta * move_vector * np.linalg.norm(move_vector)
+        displacement_for_numerical_differential = self.numerical_delta * move_vector / np.linalg.norm(move_vector)
         neutral_orbital_coefficients = SP.orbital_coefficients
         overlap_matrix = SP.overlap_matrix
         #plus  positions, element_number_list, electric_charge_and_multiplicity, method
         _, _, _ = SP.single_point_no_directory(geom_num_list+displacement_for_numerical_differential, self.element_list, self.electric_charge_and_multiplicity, self.method)
         p_orbital_coefficients = SP.orbital_coefficients
+        p_orbita_energy = SP.orbital_energies
         
-        #minus
+        #minus positions
         _, _, _ = SP.single_point_no_directory(geom_num_list-displacement_for_numerical_differential, self.element_list, self.electric_charge_and_multiplicity, self.method)
         m_orbital_coefficients = SP.orbital_coefficients
+        m_orbital_energy = SP.orbital_energies
+        
         
         first_derivative_orbital_coefficients = (p_orbital_coefficients - m_orbital_coefficients) / (self.numerical_delta * 2)
+        first_derivative_orbital_energy = (p_orbita_energy - m_orbital_energy) / (self.numerical_delta * 2)
+       
         first_response_matrix = np.dot(np.conjugate(neutral_orbital_coefficients.T), np.dot(overlap_matrix, first_derivative_orbital_coefficients))
         L, LAMBDA, R = np.linalg.svd(first_response_matrix)
         
@@ -78,10 +86,14 @@ class NROAnalysis:
         #print("LAMBDA:", LAMBDA)
         sum_of_LAMBDA = np.sum(LAMBDA)
         self.LAMBDA_list.append(sum_of_LAMBDA)
+        self.first_deriv_orbital_ene_list.append(first_derivative_orbital_energy)
+        
         # temporary save
         with open(self.file_directory+"NRO_lambda_plot.csv", "a") as f:
-             f.write(str(sum_of_LAMBDA)+"\n")
-       
+            f.write(str(sum_of_LAMBDA)+"\n")
+        with open(self.file_directory+"1st_derivative_orbital_energy_plot.csv", "a") as f:
+            f.write(str(",".join(list(map(str, first_derivative_orbital_energy.tolist()))))+"\n")
+        
         return
     
     

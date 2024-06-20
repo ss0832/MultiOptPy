@@ -206,7 +206,7 @@ class Calculation:
             self.orbital_coefficients = res.get("orbital-coefficients")
             self.overlap_matrix = res.get("overlap-matrix")
             self.density_matrix = res.get("density-matrix")
-                                 
+            self.orbital_energies = copy.deepcopy(res.get("orbital-energies"))                      
             print("\n")
 
         except Exception as error:
