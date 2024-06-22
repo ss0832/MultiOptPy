@@ -21,7 +21,7 @@ from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
-from NRO_analysis import NROAnalysis
+from MO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 
@@ -557,7 +557,7 @@ class Optimize:
         self.Model_hess = np.eye(len(element_list)*3)
 
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT)
+        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(self.args))
