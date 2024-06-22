@@ -14,7 +14,7 @@ About AFIR: https://afir.sci.hokudai.ac.jp/documents/manual/2
 
 ## Required Modules
 
- - psi4 (Official page:https://psicode.org/)
+ - psi4 (Official page:https://psicode.org/) or PySCF 
  - numpy
  - matplotlib
  - scipy
@@ -22,7 +22,6 @@ About AFIR: https://afir.sci.hokudai.ac.jp/documents/manual/2
 
 Optional
  
- - PySCF (Not always necessary)
  - tblite (If you use extended tight binding (xTB) method, this module is required.)
  - ASE 
    
