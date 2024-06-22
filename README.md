@@ -24,7 +24,8 @@ Optional
  
  - PySCF v2.4.0 (Not always necessary)
  - tblite (If you use extended tight binding (xTB) method, this module is required.)
-
+ - ASE 
+   
 ## References
 
 References are given in the source code.
