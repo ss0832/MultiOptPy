@@ -1,6 +1,7 @@
 import itertools
 import math
 import numpy as np
+import copy
 
 from parameter import UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, element_number, number_element, atomic_mass, UnitValueLib
 
@@ -124,9 +125,41 @@ class Calculationtools:
     def __init__(self):
         return
     
-    def project_out_hess_tr_and_rot(self, hessian, element_list, geomerty):
+    def calc_center(self, geomerty, element_list):#geomerty:Bohr
+        center = np.array([0.0, 0.0, 0.0], dtype="float64")
+        for i in range(len(element_list)):
+            
+            center += geomerty[i] 
+        center /= float(len(element_list))
+        
+        return center
+            
+            
+    def calc_center_of_mass(self, geomerty, element_list):#geomerty:Bohr
+        center_of_mass = np.array([0.0, 0.0, 0.0], dtype="float64")
+        elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
+        
+        for i in range(len(elem_mass)):
+            center_of_mass += geomerty[i] * elem_mass[i]
+        
+        center_of_mass /= np.sum(elem_mass)
+        
+        return center_of_mass
+    
+    def coord2massweightedcoord(self, geomerty, element_list):
+        #output: Mass-weighted coordinates adjusted to the origin of the mass-weighted point
+        center_of_mass = self.calc_center_of_mass(geomerty, element_list)
+        geomerty -= center_of_mass
+        elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
+        mass_weighted_coord = geomerty * 0.0
+        for i in range(len(geomerty)):
+            mass_weighted_coord[i] = copy.copy(geomerty[i] * np.sqrt(elem_mass[i]))
+        return mass_weighted_coord
+    
+    def project_out_hess_tr_and_rot(self, hessian, element_list, geomerty):#covert coordination to mass-weighted coordination
         natoms = len(element_list)
-
+        
+        geomerty -= self.calc_center_of_mass(geomerty, element_list)
         
         elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
         
@@ -162,14 +195,49 @@ class Calculationtools:
         for vector in TR_vectors:
             P -= np.outer(vector, vector)
 
-        hess_proj = np.dot(np.dot(P.T, mw_hessian), P)
+        mw_hess_proj = np.dot(np.dot(P.T, mw_hessian), P)
+
+        eigenvalues, eigenvectors = np.linalg.eigh(mw_hess_proj)
+        idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
+        print("=== hessian projected out transition and rotation (mass-weighted coordination) ===")
+        print("eigenvalues: ", eigenvalues[idx_eigenvalues])
+        return mw_hess_proj
+
+    def project_out_hess_tr_and_rot_for_coord(self, hessian, element_list, geomerty):#do not consider atomic mass
+        natoms = len(element_list)
+       
+        geomerty -= self.calc_center(geomerty, element_list)
+        
+    
+        tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
+        tr_y = (np.tile(np.array([0, 1, 0]), natoms)).reshape(-1, 3)
+        tr_z = (np.tile(np.array([0, 0, 1]), natoms)).reshape(-1, 3)
+
+        rot_x = np.cross(geomerty, tr_x).flatten()
+        rot_y = np.cross(geomerty, tr_y).flatten() 
+        rot_z = np.cross(geomerty, tr_z).flatten()
+        tr_x = tr_x.flatten()
+        tr_y = tr_y.flatten()
+        tr_z = tr_z.flatten()
+
+        TR_vectors = np.vstack([tr_x, tr_y, tr_z, rot_x, rot_y, rot_z])
+        
+        Q, R = np.linalg.qr(TR_vectors.T)
+        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
+        TR_vectors = Q.T[keep_indices]
+        n_tr = len(TR_vectors)
+
+        P = np.identity(natoms * 3)
+        for vector in TR_vectors:
+            P -= np.outer(vector, vector)
+
+        hess_proj = np.dot(np.dot(P.T, hessian), P)
 
         eigenvalues, eigenvectors = np.linalg.eigh(hess_proj)
-        eigenvalues = eigenvalues[n_tr:]
-        eigenvectors = eigenvectors[:, n_tr:]
-        print("=== hessian projected out transition and rotation ===")
-        print("eigenvalues: ", eigenvalues)
-        return hess_proj
+        idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
+        print("=== hessian projected out transition and rotation (normal coordination) ===")
+        print("eigenvalues: ", eigenvalues[idx_eigenvalues])
+        return hess_proj    
     
   
     def check_atom_connectivity(self, mol_list, element_list, atom_num, covalent_radii_threshold_scale=1.2):
@@ -411,3 +479,52 @@ def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     cos_theta = dot_product / (magnitude1 * magnitude2)
     angle = torch.arccos(cos_theta)
     return angle
+
+
+
+def output_partial_hess(hessian, atom_num_list, element_list, geometry):#hessian: ndarray 3N*3N, atom_num_list: list
+    partial_hess = np.zeros((3*len(atom_num_list), 3*len(atom_num_list)))
+    partial_geom = np.zeros((len(atom_num_list), 3))
+    partial_element_list = []
+   
+    # Copy the relevant parts of the geometry and element list
+    for i in range(len(atom_num_list)):
+        partial_geom[i] = copy.copy(geometry[atom_num_list[i]-1])
+        partial_element_list.append(element_list[atom_num_list[i]-1])
+    
+    # Copy the relevant parts of the Hessian matrix
+    for i, j in itertools.product(range(len(atom_num_list)), repeat=2):
+        for k in range(3):
+            for l in range(3):
+                partial_hess[3*i+k][3*j+l] = copy.copy(hessian[3*(atom_num_list[i]-1)+k][3*(atom_num_list[j]-1)+l])
+    
+    return partial_hess, partial_geom, partial_element_list
+
+if __name__ == "__main__":#test
+    
+    test_coord = np.array( [[0.075000142905,          0.075000142905,         -0.000000000000],
+                            [ 1.027799531262,         -0.180310974599,          0.000000000000],
+                            [-0.180310974599,          1.027799531262,          0.000000000000],
+                            [-0.622488699568,         -0.622488699568,          0.000000000000]], dtype="float64") / UnitValueLib().bohr2angstroms
+    test_hess = np.array([[ 0.955797621, 0.000024060, -0.000000000, -0.518670978, 0.115520742, 0.000000000, -0.118512045, 0.115518826, 0.000000000, -0.318614598, -0.231063629, -0.000000000],
+                          [ 0.000024060, 0.955797621,  0.000000000, 0.115518826, -0.118512045, -0.000000000, 0.115520742,-0.518670978 ,-0.000000000,-0.231063629, -0.318614598, 0.000000000],
+                          [-0.000000000, 0.000000000,  -0.016934167, 0.000000000, -0.000000000 , 0.005642447, 0.000000000,-0.000000000, 0.005642447, 0.000000000, 0.000000000, 0.005649274 ],
+                          [-0.518670978,  0.115518826,0.000000000,0.534121419,-0.123663333,-0.000000000,-0.000671477,-0.007212539, -0.000000000,-0.014778964,0.015357046,-0.000000000],
+                          [ 0.115520742, -0.118512045,-0.000000000 ,-0.123663333,0.105749196, 0.000000000,0.039787518, -0.000671477,0.000000000,-0.031644928, 0.013434326,-0.000000000],
+                          [ 0.000000000,  -0.000000000,0.005642447,-0.000000000,0.000000000,-0.001877261,-0.000000000,0.000000000,-0.001883273,-0.000000000,0.000000000,-0.001881913],
+                          [-0.118512045, 0.115520742,0.000000000,-0.000671477,0.039787518, -0.000000000, 0.105749196, -0.123663333,0.000000000,0.013434326,-0.031644928,0.000000000],
+                          [ 0.115518826, -0.518670978 ,-0.000000000, -0.007212539,-0.000671477,0.000000000, -0.123663333,0.534121419,0.000000000,0.015357046,-0.014778964,0.000000000],
+                          [ 0.000000000, -0.000000000,0.005642447, -0.000000000,0.000000000,-0.001883273,0.000000000,0.000000000,-0.001877261,0.000000000,0.000000000,-0.001881913],
+                          [-0.318614598, -0.231063629, 0.000000000,-0.014778964,-0.031644928, -0.000000000,0.013434326,0.015357046,0.000000000,0.319959236,0.247351511,-0.000000000],
+                          [-0.231063629, -0.318614598, 0.000000000,0.015357046,0.013434326,0.000000000,-0.031644928,-0.014778964,0.000000000,0.247351511, 0.319959236, -0.000000000],
+                          [-0.000000000, 0.000000000,  0.005649274,-0.000000000, -0.000000000,-0.001881913,0.000000000, 0.000000000,-0.001881913,-0.000000000, -0.000000000,-0.001885447]], dtype="float64")
+    test_element_list = ["N", "H", "H", "H"]
+    partial_hess, partial_geom, partial_element_list = output_partial_hess(test_hess, [1,2,3,4], test_element_list, test_coord)
+    p_partial_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(partial_hess, partial_element_list, partial_geom)
+    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(p_partial_hess)
+    print(partial_eigenvalue)
+    
+    mw_partial_hess = Calculationtools().project_out_hess_tr_and_rot(partial_hess, partial_element_list, partial_geom)
+    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(mw_partial_hess)
+    print(partial_eigenvalue)
+    

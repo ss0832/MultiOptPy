@@ -21,6 +21,7 @@ from void_point_potential import VoidPointPotential
 from switching_potential import WellPotential
 from gaussian_potential import GaussianPotential
 from spacer_model_potential import SpacerModelPotential
+from universal_potential import UniversalPotential
 
 class BiasPotentialCalculation:
     def __init__(self, Model_hess, FC_COUNT, FOLDER_DIRECTORY="./"):
@@ -67,7 +68,28 @@ class BiasPotentialCalculation:
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
         geom_num_list = self.ndarray2tensor(geom_num_list)
         #------------------------------------------------
-         
+        
+        
+        for i in range(len(force_data["universal_pot_const"])):
+            if force_data["universal_pot_const"][i] != 0.0:
+                UP = UniversalPotential(universal_pot_const=force_data["universal_pot_const"][i],
+                                        universal_pot_target=force_data["universal_pot_target"][i],
+                                            element_list=element_list,
+                                            directory=self.BPA_FOLDER_DIRECTORY)
+                
+              
+                B_e += UP.calc_energy(geom_num_list)
+                
+                tensor_BPA_grad = torch.func.jacfwd(UP.calc_energy)(geom_num_list)
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                tensor_BPA_hessian = torch.func.hessian(UP.calc_energy)(geom_num_list)
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                
+            else:
+                pass
+        
+        #----------------------------------------------
         if iter == 0 and len(force_data["spacer_model_potential_well_depth"]) > 0:
             self.smp_particle_coord_list = []
             for i in range(len(force_data["spacer_model_potential_well_depth"])):
@@ -143,6 +165,7 @@ class BiasPotentialCalculation:
             else:
                 pass
         
+        #------------------------------------------------
 
             
         #-----------------------------------------------

@@ -55,29 +55,32 @@ def ieipparser():
     parser.add_argument("INPUT", help='input folder')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
+    parser.add_argument("-ns", "--NSTEP",  type=int, default='999', help='iter. number')
+    
+    parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["AdaBelief"], help='optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method group) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE, conjugate_gradient_descent (quasi-Newton method group) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mi", "--microiter",  type=int, default=0, help='microiteration for relaxing reaction pathways')
     parser.add_argument("-beta", "--BETA",  type=float, default='1.0', help='force for optimization')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
-    parser.add_argument("-es", "--excited_state", type=int, nargs=2, default=[0, 0],
+    parser.add_argument("-es", "--excited_state", type=int, nargs="*", default=[0, 0],
                         help='calculate excited state (default: [0(initial state), 0(final state)]) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
-
+    parser.add_argument("-mf", "--model_function_mode", help="use model function to optimization", type=str, default='None',)
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
-    parser.add_argument("-elec", "--electronic_charge", type=int, nargs=2, default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
-    parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs=2, default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
+    parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
+    parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     
     
-    args = parser.parse_args()
+    args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
-    args.opt_method = ""    
+     
     args.opt_fragment = []
     args.oniom_method = []
     return args
@@ -127,8 +130,6 @@ def parser_for_biasforce(parser):
     parser.add_argument("-rp", "--repulsive_potential", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpv2", "--repulsive_potential_v2", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpg", "--repulsive_potential_gaussian", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε_LJ[(σ/r)^(12) - 2 * (σ/r)^(6)] - ε_gau * exp(-((r-σ_gau)/b)^2)) (ex.) [[LJ_well_depth (kJ/mol)] [LJ_dist (ang.)] [Gaussian_well_depth (kJ/mol)] [Gaussian_dist (ang.)] [Gaussian_range (ang.)] [Fragm.1 (1,2)] [Fragm.2 (3-5,8)] ...]')
-    
-    
     parser.add_argument("-cp", "--cone_potential", nargs="*",  type=str, default=[], help='Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
     
     
@@ -139,7 +140,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-ka", "--keep_angle", nargs="*",  type=str, default=[], help='keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] ')
     parser.add_argument("-kav2", "--keep_angle_v2", nargs="*",  type=str, default=[], help='keep angle_v2 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] ...] ')
     parser.add_argument("-lpka", "--lone_pair_keep_angle", nargs="*",  type=str, default=[], help='lone pair keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [lone_pair_1 (center,atom1,atom2,atom3)] [lone_pair_2 (center,atom1,atom2,atom3)] ...] ')
-    
+    parser.add_argument("-up", "--universal_potential", nargs="*",  type=str, default=[], help="Potential to gather specified atoms to a single point (ex.) [[potential (kJ/mol)] [target atoms (1,2)] ...]")
     
     parser.add_argument("-ddka", "--atom_distance_dependent_keep_angle", nargs="*",  type=str, default=[], help='atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] ')
     
@@ -163,11 +164,13 @@ def parser_for_biasforce(parser):
 def nebparser():
     parser = argparse.ArgumentParser()
     parser.add_argument("INPUT", help='input folder')
+    
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
+    parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
-    parser.add_argument("-es", "--excited_state", type=int, default=0,
-                        help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
+    parser.add_argument("-es", "--excited_state", type=int, default=0, help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
+
     parser.add_argument("-ns", "--NSTEP",  type=int, default='10', help='iter. number')
     parser.add_argument("-om", "--OM", action='store_true', help='J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593 This improved NEB method is inspired by the Onsager-Machlup (OM) action.')
     parser.add_argument("-lup", "--LUP", action='store_true', help='J. Chem. Phys. 92, 1510–1511 (1990) doi:https://doi.org/10.1063/1.458112 locally updated planes (LUP) method')
@@ -181,6 +184,7 @@ def nebparser():
     parser.add_argument("-qnt", "--QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to quasi-Newton method')
     parser.add_argument("-gqnt", "--GLOBAL_QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to global-quasi-Newton method')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -251,6 +255,18 @@ def force_data_parser(args):
         return sub_list
     force_data = {}
     #---------------------
+    if len(args.universal_potential) % 2 != 0:
+        print("invaild input (-up)")
+        sys.exit(0)
+    force_data["universal_pot_const"] = []
+    force_data["universal_pot_target"] = []
+    for i in range(int(len(args.universal_potential)/2)):
+        force_data["universal_pot_const"].append(float(args.universal_potential[2*i]))
+        force_data["universal_pot_target"].append(num_parse(args.universal_potential[2*i+1]))
+        if len(force_data["universal_pot_target"][i]) < 2:
+            print("more than one atom for universal_pot_target! exit...")
+            sys.exit(0)
+    #---------------------
     if len(args.spacer_model_potential) % 5 != 0:
         print("invaild input (-smp)")
         sys.exit(0)
@@ -259,7 +275,7 @@ def force_data_parser(args):
     force_data["spacer_model_potential_well_depth"] = []
     force_data["spacer_model_potential_particle_number"] = [] #ang.
     force_data["spacer_model_potential_cavity_scaling"] = []
-    print(len(args.spacer_model_potential))
+    
     for i in range(int(len(args.spacer_model_potential)/5)):
         force_data["spacer_model_potential_well_depth"].append(float(args.spacer_model_potential[5*i]))
         force_data["spacer_model_potential_distance"].append(float(args.spacer_model_potential[5*i+1]))
@@ -269,7 +285,6 @@ def force_data_parser(args):
 
 
     #---------------------
-
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
         sys.exit(0)
@@ -796,20 +811,19 @@ class BiasPotInterface:
         self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = []#['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
-        
         self.cone_potential = []#['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
         
         self.keep_pot = []#['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
         self.keep_pot_v2 = []#['0.0', '1.0', '1','2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
         self.aniso_keep_pot_v2 = []#['0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0', '1.0', '1', '2']
         
-        
+        self.universal_potential = []
         self.anharmonic_keep_pot = []#['0.0', '1.0', '1.0', '1,2']#Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
         self.keep_angle = []#['0.0', '90', '1,2,3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.keep_angle_v2 = []#['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
         self.lone_pair_keep_angle = []#['0.0', '90', '1,2,3,4', '5,6,7,8']
-        
+
         
         self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.keep_out_of_plain_angle = []#['0.0', '90', '1,2,3,4']#keep out_of_plain angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [atom1,atom2,atom3,atom4] ...]
@@ -832,19 +846,20 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.functional = 'b3lyp'#functional(ex. b3lyp)
         self.sub_basisset = '' #sub_basisset (ex. I LanL2DZ)
         self.excited_state = [0, 0]
-        self.N_THREAD = 8 #threads
-        self.SET_MEMORY = '1GB' #use mem(ex. 1GB)
- 
-        self.usextb = "None"#use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB 
-        
+        self.N_THREAD = 8  # threads
+        self.SET_MEMORY = '1GB'  # use mem(ex. 1GB)
+
+        self.usextb = "None"  # use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB
+        self.model_function_mode = "None"
         self.pyscf = False
         self.electronic_charge = [0, 0]
-        self.spin_multiplicity = [1, 1]#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
-        
+        self.spin_multiplicity = [1, 1]  # 'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
+
         self.fix_atoms = []  
         self.geom_info = []
-        self.opt_method = ""
+        self.opt_method = ["AdaBelief"]
         self.opt_fragment = []
+        self.NSTEP = "999"
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -852,6 +867,7 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         super().__init__()
         self.INPUT = folder_name
         self.basisset = '6-31G(d)'
+        self.sub_basisset = ''
         self.functional = 'b3lyp'
         self.excited_state = 0
         self.NSTEP = "10"
@@ -875,7 +891,7 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.opt_fragment = []
         self.fixedges = 0
         self.gradient_fix_atoms = ""
-        
+        self.pyscf = False
         
         
         return

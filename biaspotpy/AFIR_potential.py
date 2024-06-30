@@ -15,6 +15,9 @@ class AFIRPotential:
         self.hartree2kcalmol = UVL.hartree2kcalmol 
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
+        self.R_0 = 3.8164/self.bohr2angstroms #ang.→bohr
+        self.EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
+        self.p = 6.0
         return
     def calc_energy(self, geom_num_list):
         """
@@ -29,22 +32,20 @@ class AFIRPotential:
             J. Comput. Chem., 2018, 39, 233
             WIREs Comput. Mol. Sci., 2021, 11, e1538
         """
-        R_0 = 3.8164/self.bohr2angstroms #ang.→bohr
-        EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
+
         if self.config["AFIR_gamma"] > 0.0 or self.config["AFIR_gamma"] < 0.0:
-            alpha = (self.config["AFIR_gamma"]/self.hartree2kjmol) / ((2 ** (-1/6) - (1 + math.sqrt(1 + (abs(self.config["AFIR_gamma"]/self.hartree2kjmol) / EPSIRON))) ** (-1/6))*R_0) #hartree/Bohr
+            alpha = (self.config["AFIR_gamma"]/self.hartree2kjmol) / ((2 ** (-1/6) - (1 + math.sqrt(1 + (abs(self.config["AFIR_gamma"]/self.hartree2kjmol) / self.EPSIRON))) ** (-1/6))*self.R_0) #hartree/Bohr
         else:
             alpha = 0.0
         A = 0.0
         B = 0.0
         
-        p = 6.0
 
         for i, j in itertools.product(self.config["AFIR_Fragm_1"], self.config["AFIR_Fragm_2"]):
             R_i = covalent_radii_lib(self.config["element_list"][i-1])
             R_j = covalent_radii_lib(self.config["element_list"][j-1])
             vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            omega = ((R_i + R_j) / vector) ** p #no unit
+            omega = ((R_i + R_j) / vector) ** self.p #no unit
             A += omega * vector
             B += omega
         

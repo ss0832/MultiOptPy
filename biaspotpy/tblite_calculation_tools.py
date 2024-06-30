@@ -149,7 +149,7 @@ class Calculation:
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
                     
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_number_list.tolist(), positions)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions)
                     self.Model_hess = exact_hess
                    
                                  

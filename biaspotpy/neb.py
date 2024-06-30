@@ -18,6 +18,12 @@ try:
 except:
     print("You can't use extended tight binding method.")
 
+try:
+    import pyscf
+    from pyscf import gto, scf, dft, tddft, tdscf
+    from pyscf.hessian import thermo
+except:
+    print("You can't use pyscf.")
 #reference about LUP method:J. Chem. Phys. 94, 751–760 (1991) https://doi.org/10.1063/1.460343
 
 color_list = ["g"] #use for matplotlib
@@ -49,6 +55,35 @@ class NEB:
     def __init__(self, args):
     
         self.basic_set_and_function = args.functional+"/"+args.basisset
+        self.FUNCTIONAL = args.functional
+        
+        if len(args.sub_basisset) % 2 != 0:
+            print("invaild input (-sub_bs)")
+            sys.exit(0)
+        
+        if args.pyscf:
+            self.SUB_BASIS_SET = {}
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET["default"] = str(args.basisset) # 
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET) #
+            else:
+                self.SUB_BASIS_SET = { "default" : args.basisset}
+            
+        else:#psi4
+            self.SUB_BASIS_SET = args.basisset # 
+            
+            
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET +="\nassign "+str(args.basisset)+"\n" # 
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET += "assign "+args.sub_basisset[2*j]+" "+args.sub_basisset[2*j+1]+"\n"
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET) #
+        
+              
         self.QUASI_NEWTOM_METHOD = args.QUASI_NEWTOM_METHOD
         self.GLOBAL_QUASI_NEWTOM_METHOD = args.GLOBAL_QUASI_NEWTOM_METHOD
         self.N_THREAD = args.N_THREAD
@@ -56,7 +91,7 @@ class NEB:
         self.NEB_NUM = args.NSTEP
         self.partition = args.partition
         #please input psi4 inputfile.
-
+        self.pyscf = args.pyscf
         self.spring_constant_k = 0.01
         self.bohr2angstroms = 0.52917721067
         self.hartree2kcalmol = 627.509
@@ -74,7 +109,7 @@ class NEB:
         self.lup = args.LUP
         self.dneb = args.DNEB
         self.nesb = args.NESB
-        
+        self.excited_state = args.excited_state
         self.usextb = args.usextb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
@@ -280,6 +315,118 @@ class NEB:
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
         return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+    
+    def pyscf_calculation(self, file_directory, optimize_num, pre_total_velocity, electric_charge_and_multiplicity):
+        #execute extended tight binding method calclation.
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        gradient_norm_list = []
+        delete_pre_total_velocity = []
+        num_list = []
+        finish_frag = False
+        
+        try:
+            os.mkdir(file_directory)
+        except:
+            pass
+        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        for num, input_file in enumerate(file_list):
+            try:
+            
+                print("\n",input_file,"\n")
+
+                with open(input_file, "r") as f:
+                    words = f.readlines()
+                input_data_for_display = []
+                for word in words[1:]:
+                    input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
+                input_data_for_display = np.array(input_data_for_display, dtype="float64")
+                
+                print("\n",input_file,"\n")
+                mol = pyscf.gto.M(atom = words[1:],
+                                  charge = int(electric_charge_and_multiplicity[0]),
+                                  spin = int(electric_charge_and_multiplicity[1])-1,
+                                  basis = self.SUB_BASIS_SET,
+                                  max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                                  verbose=4)
+                if self.excited_state  == 0:
+                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                            mf = mol.UHF().density_fit()
+                        else:
+                            mf = mol.RHF().density_fit()
+                    else:
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                            mf = mol.UKS().x2c().density_fit()
+                        else:
+                            mf = mol.RKS().density_fit()
+                        mf.xc = self.FUNCTIONAL
+                    g = mf.run().nuc_grad_method().kernel()
+                    e = float(vars(mf)["e_tot"])
+                else:
+                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                            mf = mol.UHF().density_fit().run()
+
+                        else:
+                            mf = mol.RHF().density_fit().run()
+
+                    else:
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                            mf = mol.UKS().x2c().density_fit().run()
+                            mf.xc = self.FUNCTIONAL
+
+                        else:
+                            mf = mol.RKS().density_fit().run()
+                            mf.xc = self.FUNCTIONAL
+                            
+
+                    ground_e = float(vars(mf)["e_tot"])
+                    mf = tdscf.TDA(mf)
+                    g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
+                    e = vars(mf)["e"][self.excited_state-1]
+                    e += ground_e
+
+                g = np.array(g, dtype = "float64")
+
+                print("\n")
+                energy_list.append(e)
+                gradient_list.append(g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))#RMS
+                geometry_num_list.append(input_data_for_display)
+                num_list.append(num)
+                
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+            
+        try:
+            self.sinple_plot(num_list, np.array(energy_list, dtype="float64")*self.hartree2kcalmol, file_directory, optimize_num)
+            print("energy graph plotted.")
+        except Exception as e:
+            print(e)
+            print("Can't plot energy graph.")
+
+        try:
+            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
+          
+            print("gradient graph plotted.")
+        except Exception as e:
+            print(e)
+            print("Can't plot gradient graph.")
+
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+
+        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+    
     
     def tblite_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity):
         #execute extended tight binding method calclation.
@@ -740,7 +887,10 @@ class NEB:
                 #------------------
                 #get energy and gradient
                 if self.args.usextb == "None":
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
+                    if self.pyscf:
+                        energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
+                    else:
+                        energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
                 else:
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
                 #--------------
@@ -861,7 +1011,10 @@ class NEB:
             #------------------
             #get energy and gradient
             if self.args.usextb == "None":
-                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
+                if self.pyscf:
+                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
+                else:
+                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
             else:
                 energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
@@ -929,7 +1082,10 @@ class NEB:
         print("\n\n\nNEB: final\n\n\n")
         self.xyz_file_make(file_directory) 
         if self.args.usextb == "None":
-            energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory, optimize_num, pre_total_velocity)
+            if self.pyscf:
+                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
+            else:
+                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
         else:
             energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             

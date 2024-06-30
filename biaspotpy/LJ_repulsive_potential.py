@@ -23,7 +23,7 @@ class LJRepulsivePotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         
         return
- 
+
 
     
     def calc_energy_scale(self, geom_num_list):#geom_num_list: torch.float32

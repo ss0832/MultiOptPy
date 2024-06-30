@@ -200,6 +200,8 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
 
             self.Model_hess = SP.Model_hess
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
             #---------------------------------------
             if iter == 0:
                 initial_geom_num_list = geom_num_list
@@ -215,6 +217,7 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
@@ -248,7 +251,12 @@ class Optimize:
                 tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
                
                 new_geometry = tmp_new_geometry * self.bohr2angstroms
-
+            ##------------
+            ## project out translation and rotation
+            ##------------
+            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+            new_geometry *= self.bohr2angstroms
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -410,9 +418,10 @@ class Optimize:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
-            
-            proj_model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-
+            self.Model_hess = SP.Model_hess
+           
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            #proj_model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             
             #---------------------------------------
             if iter == 0:
@@ -436,7 +445,6 @@ class Optimize:
                 if iter % self.FC_COUNT == 0:
                      optimizer_instances[i].set_hessian(self.Model_hess)
             
-          
             #----------------------------
             if len(force_data["opt_fragment"]) > 0:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
@@ -463,7 +471,13 @@ class Optimize:
                
                 new_geometry = tmp_new_geometry * self.bohr2angstroms
 
-
+            ##------------
+            ## project out translation and rotation
+            ##------------
+            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+            new_geometry *= self.bohr2angstroms
+            #-------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
@@ -614,6 +628,7 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
 
             self.Model_hess = SP.Model_hess
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
             #---------------------------------------
             if iter == 0:
                 initial_geom_num_list = geom_num_list
@@ -633,7 +648,8 @@ class Optimize:
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0:
-                     optimizer_instances[i].set_hessian(self.Model_hess)
+                    
+                    optimizer_instances[i].set_hessian(self.Model_hess)
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------------------------
@@ -662,8 +678,13 @@ class Optimize:
                
                 new_geometry = tmp_new_geometry * self.bohr2angstroms
 
-
-
+            ##------------
+            ## project out translation and rotation
+            ##------------
+            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+            new_geometry *= self.bohr2angstroms
+            #-------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
@@ -783,7 +804,8 @@ class Optimize:
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
                          unrestrict = self.unrestrict,
-                         software_type = self.args.othersoft)
+                         software_type = self.args.othersoft,
+                         excited_state = self.excited_state)
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -822,6 +844,7 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
 
             self.Model_hess = SP.Model_hess
+            
             #---------------------------------------
             if iter == 0:
                 initial_geom_num_list = geom_num_list
@@ -869,7 +892,12 @@ class Optimize:
                 tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
                
                 new_geometry = tmp_new_geometry * self.bohr2angstroms
-
+            ##------------
+            ## project out translation and rotation
+            ##------------
+            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+            new_geometry *= self.bohr2angstroms
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -1056,7 +1084,8 @@ class Optimize:
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = HL_Model_hess,
-                         unrestrict = self.unrestrict)
+                         unrestrict = self.unrestrict,
+                         excited_state = self.excited_state)
         #----------------------------------
         LLSP = LL_Calculation(START_FILE = self.START_FILE,
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
@@ -1068,7 +1097,8 @@ class Optimize:
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = LL_Model_hess,
                          unrestrict = self.unrestrict,
-                         software_type = calc_method)
+                         software_type = calc_method,
+                         excited_state = self.excited_state)
         
         #---------------------------------
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
@@ -1187,15 +1217,17 @@ class Optimize:
                         geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
                 geom_num_list /= self.bohr2angstroms
                 self.print_info(["AdaBelief"], real_LL_e, real_LL_B_e, real_LL_B_g, LL_move_vector, pre_real_LL_e, pre_real_LL_B_e)
-
+                bias_ene_shift = abs(pre_real_LL_B_e - real_LL_B_e)
+                if bias_ene_shift < 1e-5:#convergent criteria
+                    print("ENERGY SHIFT: ", bias_ene_shift)
+                    print("converged... (microiteration)")
+                    break
                 pre_real_LL_e = real_LL_e
                 pre_real_LL_B_e = real_LL_B_e
                 pre_real_LL_g = real_LL_g
                 pre_real_LL_B_g = real_LL_B_g
                 pre_real_LL_move_vector = LL_move_vector
-                if abs(pre_real_LL_B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((pre_real_LL_B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(LL_move_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((LL_move_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
-                    print("converged... (microiteration)")
-                    break
+                
             else:
                 print("complete microiteration.")
             #---------------------------------------
@@ -1258,7 +1290,12 @@ class Optimize:
             
             for l in range(len(high_layer_geom_num_list) - len(linker_atom_pair_num)):
                 geom_num_list[highlayer_2_real_label_connect_dict[l+1]-1] = copy.copy(high_layer_geom_num_list[l]/self.bohr2angstroms)#bohr
-            
+            ##------------
+            ## project out translation and rotation
+            ##------------    
+            geom_num_list -= Calculationtools().calc_center_of_mass(geom_num_list, element_list)
+            geom_num_list, _ = Calculationtools().kabsch_algorithm(geom_num_list, real_pre_geom)
+            #-----------
             high_layer_geom_num_list, high_layer_element_list = separate_high_layer_and_low_layer(geom_num_list, linker_atom_pair_num, high_layer_atom_num, element_list)
             #--------------------------
             #combine energy
@@ -1301,6 +1338,7 @@ class Optimize:
 
             
             #----------------------------
+            
             pre_model_LL_e = model_LL_e
             pre_model_LL_g = model_LL_g
             

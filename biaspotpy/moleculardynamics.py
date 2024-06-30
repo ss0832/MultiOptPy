@@ -326,13 +326,13 @@ class Thermostat:
         print("Ps_momentum :", self.Ps_momentum)
         print("time scaling :", self.scaling)
         print("Volume (m^3): ", self.volume * (UnitValueLib().bohr2m ** 3))
-        print("Pressure : ", self.pressure)#) * (1 / (3.39893 * 10 ** (-11))))
+        print("Pressure (kPa): ", self.pressure * (1 / (3.39893 * 10 ** (-11))))
 
         #--------------
         
         new_geometry = scaled_geom_num_list * abs(self.volume) ** (1/3)
         self.momentum_list = time_and_volume_scaling_momentum_list * (1/self.scaling) * abs(self.volume) ** (-1/3)
-       
+        new_geometry -= Calculationtools().calc_center_of_mass(new_geometry, self.element_list)
         return new_geometry
 
     

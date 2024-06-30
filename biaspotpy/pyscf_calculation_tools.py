@@ -123,7 +123,7 @@ class Calculation:
                     eigenvalues, _ = np.linalg.eigh(exact_hess)
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_list, input_data_for_display)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
 
                     self.Model_hess = exact_hess
 

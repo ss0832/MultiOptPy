@@ -2,7 +2,7 @@ import numpy as np
 import copy
 
 from parameter import UnitValueLib
-
+from calc_tools import Calculationtools
 
 
 from Optimizer.adabelief import Adabelief
@@ -132,15 +132,15 @@ class CalculateMoveVector:
                 optimizer_instances[i].linesearchflag = True
                 newton_tag.append(True)
             elif m == "RFO_BFGS" or m == "RFO_FSB" or m == "RFO_Bofill" or m == "RFO_MSP":
-                optimizer_instances.append(RationalFunctionOptimization(method=m))
+                optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
             elif m == "RFO2_BFGS" or m == "RFO2_FSB" or m == "RFO2_Bofill" or m == "RFO2_MSP":
-                optimizer_instances.append(RationalFunctionOptimization(method=m))
+                optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
             elif m == "mRFO_BFGS" or m == "mRFO_FSB" or m == "mRFO_Bofill" or m == "mRFO_MSP":
-                optimizer_instances.append(RationalFunctionOptimization(method=m))
+                optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.30
                 newton_tag.append(True)
             else:
@@ -175,12 +175,12 @@ class CalculateMoveVector:
         else:
             pass
                                    
-        return np.clip(trust_radii, 0.01, 1.0)
+        return np.clip(trust_radii, 0.001, 1.0)
 
 
     def diag_hess_and_display(self, optimizer_instance):
         #------------------------------------------------------------
-        # diagonize hessian matrix and display eigenvalues
+        # diagonilize hessian matrix and display eigenvalues
         #-----------------------------------------------------------
         hess_eigenvalue, _ = np.linalg.eig(optimizer_instance.hessian + optimizer_instance.bias_hessian)
         hess_eigenvalue = hess_eigenvalue.astype(np.float64)#not display imagnary values 
@@ -202,7 +202,7 @@ class CalculateMoveVector:
         else:
             self.trust_radii = self.update_trust_radii(self.trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector)
             if self.saddle_order > 0:
-                self.trust_radii = min(self.trust_radii, 0.01)
+                self.trust_radii = min(self.trust_radii, 0.1)
             
         #---------------------------------
         #calculate move vector
@@ -212,7 +212,7 @@ class CalculateMoveVector:
             
             
         #---------------------------------
-        # switich step update method
+        # switch step update method
         #---------------------------------
         if len(move_vector_list) > 1:
             if abs(np.sqrt(np.square(B_g).mean())) > self.MAX_RMS_FORCE_SWITCHING_THRESHOLD:
