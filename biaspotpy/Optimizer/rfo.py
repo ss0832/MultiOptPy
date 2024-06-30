@@ -9,6 +9,9 @@ RFO method
  Theor chim Acta (1992) 82: 189-205
 """
 
+
+
+
 class RationalFunctionOptimization:
     def __init__(self, **config):
         self.config = config
@@ -16,7 +19,7 @@ class RationalFunctionOptimization:
         self.Initialization = True
         self.DELTA = 0.5
         self.FC_COUNT = -1 #
-        self.saddle_order = 0 #
+        self.saddle_order = self.config["saddle_order"] #
         self.iter = 0 #
         self.beta = 0.5
         return
