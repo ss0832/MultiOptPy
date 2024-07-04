@@ -161,6 +161,7 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
                 SMP.save_spacer_xyz_for_visualization(geom_num_list, self.smp_particle_coord_list[i])
             else:
                 pass
@@ -326,6 +327,7 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(SKP.calc_energy)(geom_num_list)
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
             
@@ -345,6 +347,7 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(SKP.calc_energy_aniso_v2)(geom_num_list)
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
                
@@ -374,6 +377,7 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(SKP.calc_energy_v2)(geom_num_list)
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
                  
