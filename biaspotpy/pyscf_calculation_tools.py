@@ -47,8 +47,8 @@ class Calculation:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
-            #try:
-            if True:
+            try:
+            
                 pyscf.lib.num_threads(self.N_THREAD)
                 
                 with open(input_file, "r") as f:
@@ -127,11 +127,11 @@ class Calculation:
 
                     self.Model_hess = exact_hess
 
-            #except Exception as error:
-            #    print(error)
-            #    print("This molecule could not be optimized.")
-            #    finish_frag = True
-            #    return np.array([0]), np.array([0]), np.array([0]), finish_frag
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                finish_frag = True
+                return np.array([0]), np.array([0]), input_data_for_display, finish_frag
              
         self.energy = e
         self.gradient = g

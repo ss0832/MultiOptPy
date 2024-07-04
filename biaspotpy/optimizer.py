@@ -157,7 +157,7 @@ class CalculateMoveVector:
     
         if self.trust_radii_update == "trust":
             Sc = 2.0
-            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.Model_hess.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
+            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
             r = (B_e - pre_B_e) / Ce
             
             if r < 0.25:
@@ -175,7 +175,7 @@ class CalculateMoveVector:
         else:
             pass
                                    
-        return np.clip(trust_radii, 0.001, 1.0)
+        return np.clip(trust_radii, 0.01, 1.0)
 
 
     def diag_hess_and_display(self, optimizer_instance):
@@ -196,10 +196,12 @@ class CalculateMoveVector:
         #update trust radii
         #-------------------------------------------------------------
         if self.iter % self.FC_COUNT == 0 and self.FC_COUNT != -1:
-            self.trust_radii = 0.01
+            self.trust_radii = 0.1
         elif self.FC_COUNT == -1:
             self.trust_radii = 1.0
+        
         else:
+            #self.model_hess = optimizer_instances[0].hessian + optimizer_instances[0].bias_hessian
             self.trust_radii = self.update_trust_radii(self.trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector)
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
@@ -218,8 +220,8 @@ class CalculateMoveVector:
             if abs(np.sqrt(np.square(B_g).mean())) > self.MAX_RMS_FORCE_SWITCHING_THRESHOLD:
                 move_vector = copy.copy(move_vector_list[0])
                 print("Chosen method:", self.method[0])
-                if self.newton_tag[0]:
-                    self.diag_hess_and_display(optimizer_instances[0])
+                #if self.newton_tag[0]:
+                #    self.diag_hess_and_display(optimizer_instances[0])
             elif abs(np.sqrt(np.square(B_g).mean())) <= self.MAX_RMS_FORCE_SWITCHING_THRESHOLD and abs(np.sqrt(np.square(B_g).mean())) > self.MIN_RMS_FORCE_SWITCHING_THRESHOLD: 
                 x_i = abs(np.sqrt(np.square(B_g).mean()))
                 x_max = self.MAX_RMS_FORCE_SWITCHING_THRESHOLD
@@ -230,17 +232,17 @@ class CalculateMoveVector:
                 f_val = 1 / (1 + np.exp(-10.0 * (x_j - 0.5)))
                 move_vector = np.array(move_vector_list[0], dtype="float64") * f_val + np.array(move_vector_list[1], dtype="float64") * (1.0 - f_val)
                 print(f_val, x_j)
-                if self.newton_tag[0]:
-                    self.diag_hess_and_display(optimizer_instances[0])
+                #if self.newton_tag[0]:
+                #    self.diag_hess_and_display(optimizer_instances[0])
                     
-                if self.newton_tag[1]:
-                    self.diag_hess_and_display(optimizer_instances[1])
+                #if self.newton_tag[1]:
+                #    self.diag_hess_and_display(optimizer_instances[1])
             
             else:
                 move_vector = copy.copy(move_vector_list[1])
                 print("Chosen method:", self.method[1])
-                if self.newton_tag[1]:
-                    self.diag_hess_and_display(optimizer_instances[1])
+                #if self.newton_tag[1]:
+                #    self.diag_hess_and_display(optimizer_instances[1])
                  
         else:
             move_vector = copy.copy(move_vector_list[0])

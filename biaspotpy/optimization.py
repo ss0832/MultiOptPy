@@ -134,7 +134,6 @@ class Optimize:
         #------------------------------------
         if len(self.constraint_condition_list) > 0:
             class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
-         
         CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
@@ -200,7 +199,7 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
 
             self.Model_hess = SP.Model_hess
-            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
             
             #---------------------------------------
             if iter == 0:
@@ -217,6 +216,13 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            print("=== Eigenvalue (Before Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
+            print("=== Eigenvalue (After Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
+            
             
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
@@ -420,7 +426,7 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
             self.Model_hess = SP.Model_hess
            
-            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+
             #proj_model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             
             #---------------------------------------
@@ -439,11 +445,20 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            print("=== Eigenvalue (Before Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
+            print("=== Eigenvalue (After Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
+            
+            
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0:
                      optimizer_instances[i].set_hessian(self.Model_hess)
+                     
             
             #----------------------------
             if len(force_data["opt_fragment"]) > 0:
@@ -644,6 +659,14 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            print("=== Eigenvalue (Before Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
+            print("=== Eigenvalue (After Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
+            
+            
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
@@ -860,6 +883,14 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            
+            print("=== Eigenvalue (Before Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
+            print("=== Eigenvalue (After Adding Bias potential) ===")
+            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
+            
+            
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
