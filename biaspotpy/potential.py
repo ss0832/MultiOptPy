@@ -85,7 +85,7 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(UP.calc_energy)(geom_num_list)
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
-                
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
         
