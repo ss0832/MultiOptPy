@@ -19,6 +19,7 @@ from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from constraint_condition import shake_parser, SHAKE
+from pbc import apply_periodic_boundary_condition
 
 
 class Thermostat:
@@ -494,6 +495,14 @@ class MD:
             self.constraint_condition_list = shake_parser(args.constraint_condition)
         else:
             self.constraint_condition_list = []
+            
+        if len(args.periodic_boundary_condition) > 0:
+            if len(args.periodic_boundary_condition.split(",")) == 3:
+                self.pbc_box = np.array(args.periodic_boundary_condition.split(","), dtype="float64") / self.bohr2angstroms
+            else:
+                self.pbc_box = []
+        else:
+            self.pbc_box = []
         self.args = args
         return
     
@@ -531,7 +540,8 @@ class MD:
         
         #hamiltonian = B_e + tmp_value
         #print("hamiltonian :", hamiltonian)
-        
+        if len(self.pbc_box) > 0:
+            new_geometry = apply_periodic_boundary_condition(new_geometry, TM.element_list, self.pbc_box)
         return new_geometry
 
     def md_tblite(self):
