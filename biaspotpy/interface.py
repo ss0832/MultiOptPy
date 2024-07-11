@@ -598,8 +598,8 @@ def force_data_parser(args):
     
     #---------------------
     
-    if len(args.keep_dihedral_angle_v2) % 6 != 0:
-        print("invaild input (-kdav2)")
+    if len(args.keep_out_of_plain_angle_v2) % 6 != 0:
+        print("invaild input (-kopav2)")
         sys.exit(0)
         
     force_data["keep_out_of_plain_angle_v2_spring_const"] = []
@@ -620,7 +620,7 @@ def force_data_parser(args):
     #---------------------
     
     if len(args.keep_dihedral_angle_v2) % 6 != 0:
-        print("invaild input (-kopav2)")
+        print("invaild input (-kdav2)")
         sys.exit(0)
         
     force_data["keep_dihedral_angle_v2_spring_const"] = []
