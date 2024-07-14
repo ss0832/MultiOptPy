@@ -690,7 +690,6 @@ class Optimize:
                     
                     optimizer_instances[i].set_hessian(self.Model_hess)
             
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------------------------
             if len(force_data["opt_fragment"]) > 0:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
