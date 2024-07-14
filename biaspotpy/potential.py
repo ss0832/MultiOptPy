@@ -22,6 +22,8 @@ from switching_potential import WellPotential
 from gaussian_potential import GaussianPotential
 from spacer_model_potential import SpacerModelPotential
 from universal_potential import UniversalPotential
+from flux_potential import FluxPotential
+
 
 class BiasPotentialCalculation:
     def __init__(self, Model_hess, FC_COUNT, FOLDER_DIRECTORY="./"):
@@ -68,8 +70,23 @@ class BiasPotentialCalculation:
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
         geom_num_list = self.ndarray2tensor(geom_num_list)
         #------------------------------------------------
-        
-        
+        for i in range(len(force_data["flux_pot_const"])):
+            
+            FP = FluxPotential(flux_pot_const=force_data["flux_pot_const"][i], 
+                                            flux_pot_target=force_data["flux_pot_target"][i], 
+                                            flux_pot_order=force_data["flux_pot_order"][i],
+                                            flux_pot_direction=force_data["flux_pot_direction"][i],
+                                            element_list=element_list,
+                                            directory=self.BPA_FOLDER_DIRECTORY)
+            B_e += FP.calc_energy(geom_num_list)
+                
+            tensor_BPA_grad = torch.func.jacfwd(FP.calc_energy)(geom_num_list)
+            BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+            tensor_BPA_hessian = torch.func.hessian(FP.calc_energy)(geom_num_list)
+            tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+        #------------------------------------------------
         for i in range(len(force_data["universal_pot_const"])):
             if force_data["universal_pot_const"][i] != 0.0:
                 UP = UniversalPotential(universal_pot_const=force_data["universal_pot_const"][i],
@@ -161,13 +178,14 @@ class BiasPotentialCalculation:
 
                 tensor_BPA_hessian = torch.func.hessian(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
-                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
                 SMP.save_spacer_xyz_for_visualization(geom_num_list, self.smp_particle_coord_list[i])
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:
                 pass
         
         #------------------------------------------------
 
+      
             
         #-----------------------------------------------
         for i in range(len(force_data["repulsive_potential_v2_well_scale"])):
@@ -671,6 +689,49 @@ class BiasPotentialCalculation:
                     pass
         else:
             pass
+        #------------------ (2024/7/11)
+        if len(geom_num_list) > 3:
+            for i in range(len(force_data["keep_dihedral_angle_cos_potential_const"])):
+                if not 0.0 in force_data["keep_dihedral_angle_cos_potential_const"][i]:
+                    if len(force_data["keep_dihedral_angle_cos_potential_const"][i]) == 2 and iter != "":
+                        potential_const_tmp = self.gradually_change_param(force_data["keep_dihedral_angle_cos_spring_const"][i][0], force_data["keep_dihedral_angle_cos_spring_const"][i][1], iter)
+                        print(potential_const_tmp)
+                    else:
+                        potential_const_tmp = force_data["keep_dihedral_angle_cos_potential_const"][i][0]
+                        
+                    if len(force_data["keep_dihedral_angle_cos_angle_const"][i]) == 2 and iter != "":
+                        angle_const_tmp = self.gradually_change_param(force_data["keep_dihedral_angle_cos_angle_const"][i][0], force_data["keep_dihedral_angle_cos_angle_const"][i][1], iter)
+                        print(angle_const_tmp)
+                    else:
+                        angle_const_tmp = force_data["keep_dihedral_angle_cos_angle_const"][i][0]
+                    
+                    if len(force_data["keep_dihedral_angle_cos_angle"][i]) == 2 and iter != "":
+                        angle_tmp = self.gradually_change_param(force_data["keep_dihedral_angle_cos_angle"][i][0], force_data["keep_dihedral_angle_cos_angle"][i][1], iter)
+                        print(angle_tmp)
+                    else:
+                        angle_tmp = force_data["keep_dihedral_angle_cos_angle"][i][0]
+                    
+                        
+                    SKDAP = StructKeepDihedralAnglePotential(keep_dihedral_angle_cos_potential_const=potential_const_tmp, 
+                                                keep_dihedral_angle_cos_angle_const=angle_const_tmp,
+                                                keep_dihedral_angle_cos_fragm1=force_data["keep_dihedral_angle_cos_fragm1"][i], 
+                                                keep_dihedral_angle_cos_fragm2=force_data["keep_dihedral_angle_cos_fragm2"][i], 
+                                                keep_dihedral_angle_cos_fragm3=force_data["keep_dihedral_angle_cos_fragm3"][i], 
+                                                keep_dihedral_angle_cos_fragm4=force_data["keep_dihedral_angle_cos_fragm4"][i], 
+                                                keep_dihedral_angle_cos_angle=angle_tmp)
+                    
+                    B_e += SKDAP.calc_energy_cos(geom_num_list)
+                    
+                    tensor_BPA_grad = torch.func.jacfwd(SKDAP.calc_energy_cos)(geom_num_list)
+                    BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                    tensor_BPA_hessian = torch.func.hessian(SKDAP.calc_energy_cos)(geom_num_list)
+                    tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                    BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+                else:
+                    pass
+        else:
+            pass
         #------------------
         if len(geom_num_list) > 3:
             for i in range(len(force_data["keep_out_of_plain_angle_v2_spring_const"])):
@@ -738,17 +799,18 @@ class BiasPotentialCalculation:
                 else:
                     AFIR_gamma_tmp = force_data["AFIR_gamma"][i][0]
                 
-                AP = AFIRPotential(AFIR_gamma=AFIR_gamma_tmp, 
-                                            AFIR_Fragm_1=force_data["AFIR_Fragm_1"][i], 
-                                            AFIR_Fragm_2=force_data["AFIR_Fragm_2"][i],
-                                            element_list=element_list)
+                bias_pot_params = torch.tensor([AFIR_gamma_tmp], requires_grad=True, dtype=torch.float64) 
                 
-                B_e += AP.calc_energy(geom_num_list)
+                AP = AFIRPotential(AFIR_Fragm_1=force_data["AFIR_Fragm_1"][i], 
+                                    AFIR_Fragm_2=force_data["AFIR_Fragm_2"][i],
+                                    element_list=element_list)
                 
-                tensor_BPA_grad = torch.func.jacfwd(AP.calc_energy)(geom_num_list)
+                B_e += AP.calc_energy(geom_num_list, bias_pot_params)
+                
+                tensor_BPA_grad = torch.func.jacfwd(AP.calc_energy, argnums=0)(geom_num_list, bias_pot_params)
                 BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
-                
-                tensor_BPA_hessian = torch.func.hessian(AP.calc_energy)(geom_num_list)
+                print("dE_AFIR/dγ: ", torch.func.jacfwd(AP.calc_energy, argnums=1)(geom_num_list, bias_pot_params))
+                tensor_BPA_hessian = torch.func.hessian(AP.calc_energy, argnums=0)(geom_num_list, bias_pot_params)
                 tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
                 BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
             else:

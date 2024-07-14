@@ -209,7 +209,17 @@ class FileIO:
         print("\ngeometry collection is completed...\n")
         return
 
-    def xyz_file_save_for_IRC(self):
+    def xyz_file_save_for_IRC(self, element_list, geometry_list):
+        count = 0
+        for geometry in geometry_list:
+            with open(self.BPA_FOLDER_DIRECTORY+"IRC_path_collection.xyz","a") as w:
+                atom_num = len(geometry)
+                w.write(str(atom_num)+"\n")
+                w.write("Frame "+str(count)+"\n")
+                for i in range(len(geometry)):
+                    w.write(element_list[i]+" "+str(geometry[i][0])+" "+str(geometry[i][1])+" "+str(geometry[i][2])+"\n")
+            count += 1
+        print("\ngeometry collection for IRC is completed...\n")
         return
     
     

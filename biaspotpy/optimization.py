@@ -24,6 +24,7 @@ from calc_tools import CalculationStructInfo, Calculationtools
 from MO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
+from irc import IRC
 
 class Optimize:
     def __init__(self, args):
@@ -112,11 +113,14 @@ class Optimize:
         if self.NRO_analysis:
             if args.usextb == "None":
                 print("Currently, Natural Reaction Orbital analysis is only available for xTB method.")
-                sys.exit(1)
+                sys.exit(0)
         if len(args.constraint_condition) > 0:
             self.constraint_condition_list = shake_parser(args.constraint_condition)
         else:
             self.constraint_condition_list = []
+            
+        self.irc = args.intrinsic_reaction_coordinates
+        self.force_data = force_data_parser(self.args)
         return
 
 
@@ -129,6 +133,7 @@ class Optimize:
         finish_frag = False
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.element_list = element_list
         self.Model_hess = np.eye(len(element_list)*3)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
@@ -188,6 +193,7 @@ class Optimize:
         
         #---------------------------------
         for iter in range(self.NSTEP):
+            self.iter = iter
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -204,7 +210,7 @@ class Optimize:
             #---------------------------------------
             if iter == 0:
                 initial_geom_num_list = geom_num_list
-                pre_geom = initial_geom_num_list
+                pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                 
             else:
                 pass
@@ -260,9 +266,10 @@ class Optimize:
             ##------------
             ## project out translation and rotation
             ##------------
-            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
-            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
-            new_geometry *= self.bohr2angstroms
+            if len(force_data["fix_atoms"]) == 0:
+                new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+                new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+                new_geometry *= self.bohr2angstroms
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -352,6 +359,8 @@ class Optimize:
         
         #----------------------
         print("Complete...")
+        self.SP = SP
+        self.final_file_directory = file_directory
         return
 
 
@@ -365,6 +374,7 @@ class Optimize:
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        self.element_list = element_list
         #------------------------------------
         if len(self.constraint_condition_list) > 0:
             class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
@@ -416,6 +426,7 @@ class Optimize:
                 optimizer_instances[i].DELTA = self.DELTA
         #----------------------------------
         for iter in range(self.NSTEP):
+            self.iter = iter
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -431,7 +442,7 @@ class Optimize:
             
             #---------------------------------------
             if iter == 0:
-                initial_geom_num_list = geom_num_list
+                initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                 pre_geom = initial_geom_num_list
                 
             else:
@@ -489,9 +500,10 @@ class Optimize:
             ##------------
             ## project out translation and rotation
             ##------------
-            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
-            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
-            new_geometry *= self.bohr2angstroms
+            if len(force_data["fix_atoms"]) == 0:
+                new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+                new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+                new_geometry *= self.bohr2angstroms
             #-------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -570,6 +582,8 @@ class Optimize:
        
         #----------------------
         print("Complete...")
+        self.SP = SP
+        self.final_file_directory = file_directory
         return
     
     def optimize_using_pyscf(self):
@@ -580,6 +594,7 @@ class Optimize:
         finish_frag = False
         geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
         file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
+        self.element_list = element_list
         #------------------------------------
         if len(self.constraint_condition_list) > 0:
             class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
@@ -633,6 +648,7 @@ class Optimize:
                 optimizer_instances[i].DELTA = self.DELTA
         #----------------------------------
         for iter in range(self.NSTEP):
+            self.iter = iter
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -643,10 +659,10 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
 
             self.Model_hess = SP.Model_hess
-            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
+            
             #---------------------------------------
             if iter == 0:
-                initial_geom_num_list = geom_num_list
+                initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                 pre_geom = initial_geom_num_list
                 
             else:
@@ -704,9 +720,10 @@ class Optimize:
             ##------------
             ## project out translation and rotation
             ##------------
-            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
-            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
-            new_geometry *= self.bohr2angstroms
+            if len(force_data["fix_atoms"]) == 0:
+                new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+                new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+                new_geometry *= self.bohr2angstroms
             #-------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -779,6 +796,8 @@ class Optimize:
        
         #----------------------
         print("Complete...")
+        self.SP = SP
+        self.final_file_directory = file_directory
         return
     
     def optimize_using_ase(self):
@@ -795,6 +814,7 @@ class Optimize:
         finish_frag = False
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.element_list = element_list
         self.Model_hess = np.eye(len(element_list)*3)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
@@ -856,6 +876,7 @@ class Optimize:
             NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         #---------------------------------
         for iter in range(self.NSTEP):
+            self.iter = iter
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
 
             if exit_file_detect:
@@ -870,14 +891,14 @@ class Optimize:
             
             #---------------------------------------
             if iter == 0:
-                initial_geom_num_list = geom_num_list
+                initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                 pre_geom = initial_geom_num_list
                 
             else:
                 pass
 
 
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+            if finish_frag:#If QM calculation doesn't end, the process of this program is terminated. 
                 break   
             
             CalcBiaspot.Model_hess = self.Model_hess
@@ -926,9 +947,10 @@ class Optimize:
             ##------------
             ## project out translation and rotation
             ##------------
-            new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
-            new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
-            new_geometry *= self.bohr2angstroms
+            if len(force_data["fix_atoms"]) == 0:
+                new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
+                new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
+                new_geometry *= self.bohr2angstroms
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -1006,6 +1028,8 @@ class Optimize:
         
         #----------------------
         print("Complete...")
+        self.SP = SP
+        self.final_file_directory = file_directory
         return
     
     def optimize_oniom(self):
@@ -1034,6 +1058,7 @@ class Optimize:
         trust_radii = 0.01
         finish_frag = False
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.element_list = element_list
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         self.microiter_num += 10 * len(element_list)
         #-----------------------------------
@@ -1166,6 +1191,7 @@ class Optimize:
 
         #----------------------------------
         for iter in range(self.NSTEP):
+            self.iter = iter
             exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
             if exit_file_detect:
                 break
@@ -1421,6 +1447,7 @@ class Optimize:
        
         #----------------------
         print("Complete...")
+        self.final_file_directory = file_directory
         return
     
     def save_tmp_energy_profiles(self, iter, e, g, B_g):
@@ -1586,5 +1613,17 @@ class Optimize:
         #if self.ricci_curvature:
         #    CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
         #    CC.main()
+        if len(self.irc) > 0:
+            if self.args.usextb != "None":
+                xtb_method = self.args.usextb
+            else:
+                xtb_method = "None"
+            
+            if self.iter % self.FC_COUNT == 0:
+                hessian = self.Model_hess
+            else:
+                hessian = None
+            EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
+            EXEC_IRC.run()
         
         return

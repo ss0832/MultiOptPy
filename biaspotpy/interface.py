@@ -76,7 +76,7 @@ def ieipparser():
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     
     
-    args = parser.parse_args()#model_function_mode
+    args = parser.parse_args()
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
@@ -114,7 +114,8 @@ def optimizeparser():
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for (n-1)-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
-    parser.add_argument('-cmds','--cmds', help="apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
+    parser.add_argument('-cmds','--cmds', help="Apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
+    parser.add_argument('-irc','--intrinsic_reaction_coordinates', help="Calculate intrinsic reaction coordinates. (ex.) [[step_size], [max_step], [IRC_method]] (Recommended) [0.5 300 lqa]", nargs="*", type=str, default=[])    
     parser.add_argument('-rc','--ricci_curvature', help="calculate Ricci scalar of calculated approx. reaction path.", action='store_true')
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
@@ -130,9 +131,10 @@ def parser_for_biasforce(parser):
     parser.add_argument("-rp", "--repulsive_potential", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpv2", "--repulsive_potential_v2", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value(kJ/mol ang.)] ...]')
     parser.add_argument("-rpg", "--repulsive_potential_gaussian", nargs="*",  type=str, default=[], help='Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε_LJ[(σ/r)^(12) - 2 * (σ/r)^(6)] - ε_gau * exp(-((r-σ_gau)/b)^2)) (ex.) [[LJ_well_depth (kJ/mol)] [LJ_dist (ang.)] [Gaussian_well_depth (kJ/mol)] [Gaussian_dist (ang.)] [Gaussian_range (ang.)] [Fragm.1 (1,2)] [Fragm.2 (3-5,8)] ...]')
+    
     parser.add_argument("-cp", "--cone_potential", nargs="*",  type=str, default=[], help='Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
     
-    
+    parser.add_argument("-fp", "--flux_potential", nargs="*",  type=str, default=[], help='Add potential to make flow. ( k/p*(x-x_0)^p )(ex.) [[x,y,z (constant (a.u.))] [x,y,z (order)] [x,y,z coordinate (ang.)] [Fragm.(ex. 1,2,3-5)] ...]')
     parser.add_argument("-kp", "--keep_pot", nargs="*",  type=str, default=[], help='keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-kpv2", "--keep_pot_v2", nargs="*",  type=str, default=[], help='keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
     parser.add_argument("-anikpv2", "--aniso_keep_pot_v2", nargs="*",  type=str, default=[], help='aniso keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)(xx xy xz yx yy yz zx zy zz)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
@@ -148,6 +150,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-kda", "--keep_dihedral_angle", nargs="*",  type=str, default=[], help='keep dihedral angle 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...] ')
     parser.add_argument("-kopa", "--keep_out_of_plain_angle", nargs="*",  type=str, default=[], help='keep_out_of_plain_angle 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out of plain angle (degrees)] [atom1,atom2,atom3,atom4] ...] ')
     parser.add_argument("-kdav2", "--keep_dihedral_angle_v2", nargs="*",  type=str, default=[], help='keep dihedral angle_v2 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] [Fragm.4] ...] ')
+    parser.add_argument("-kdac", "--keep_dihedral_angle_cos", nargs="*",  type=str, default=[], help='keep dihedral angle_cos k*[1 + cos(n * φ - (φ0 + pi))] (0 ~ 180 deg.) (ex.) [[potential const.(a.u.)] [angle const. (unitless)] [keep dihedral angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] [Fragm.4] ...] ')
     parser.add_argument("-kopav2", "--keep_out_of_plain_angle_v2", nargs="*",  type=str, default=[], help='keep out_of_plain angle_v2 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] [Fragm.4] ...] ')
     parser.add_argument("-vpp", "--void_point_pot", nargs="*",  type=str, default=[], help='void point keep potential (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [void_point (x,y,z) (ang.)] [atoms(ex. 1,2,3-5)] [order p "(1/p)*k*(r - r0)^p"] ...] ')
    
@@ -230,7 +233,7 @@ def mdparser():
     parser.add_argument("-ct", "--change_temperature",  type=str, nargs="*", default=[], help='change temperature of thermostat (defalut) No change (ex.) [1000(time), 500(K) 5000(time), 1000(K)...]')
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
-    
+    parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.geom_info = ["0"]
@@ -254,6 +257,42 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    #---------------------
+    
+    
+    if len(args.flux_potential) % 4 != 0:
+        print("invaild input (-fp)")
+        sys.exit(0)
+    
+    force_data["flux_pot_const"] = []
+    force_data["flux_pot_order"] = []
+    force_data["flux_pot_direction"] = []
+    force_data["flux_pot_target"] = []
+    for i in range(int(len(args.flux_potential)/4)):
+        tmp = args.flux_potential[4*i].split(",")
+        if len(tmp) != 3:
+            print("invaild input (-fp)")
+            sys.exit(0)
+        sc_list = np.array([tmp[0], tmp[1], tmp[2]], dtype="float64")
+        force_data["flux_pot_const"].append(sc_list)
+        
+        tmp = args.flux_potential[4*i+1].split(",")
+        if len(tmp) != 3:
+            print("invaild input (-fp)")
+            sys.exit(0)
+        order_list = np.array([tmp[0], tmp[1], tmp[2]], dtype="float64")
+        force_data["flux_pot_order"].append(order_list)
+        
+        tmp = args.flux_potential[4*i+2].split(",")
+        if len(tmp) != 3:
+            print("invaild input (-fp)")
+            sys.exit(0)
+        direction = np.array([tmp[0], tmp[1], tmp[2]], dtype="float64")
+        force_data["flux_pot_direction"].append(direction)
+        
+        force_data["flux_pot_target"].append(num_parse(args.flux_potential[4*i+3]))
+        
+    
     #---------------------
     if len(args.universal_potential) % 2 != 0:
         print("invaild input (-up)")
@@ -301,7 +340,6 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_1"].append(num_parse(args.repulsive_potential[5*i+2]))
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
-    
 
         
     #---------------------
@@ -616,6 +654,7 @@ def force_data_parser(args):
         force_data["keep_out_of_plain_angle_v2_fragm2"].append(num_parse(args.keep_out_of_plain_angle_v2[6*i+3]))
         force_data["keep_out_of_plain_angle_v2_fragm3"].append(num_parse(args.keep_out_of_plain_angle_v2[6*i+4]))
         force_data["keep_out_of_plain_angle_v2_fragm4"].append(num_parse(args.keep_out_of_plain_angle_v2[6*i+5]))
+
         
     #---------------------
     
@@ -638,6 +677,29 @@ def force_data_parser(args):
         force_data["keep_dihedral_angle_v2_fragm3"].append(num_parse(args.keep_dihedral_angle_v2[6*i+4]))
         force_data["keep_dihedral_angle_v2_fragm4"].append(num_parse(args.keep_dihedral_angle_v2[6*i+5]))
         
+    #---------------------
+    
+    if len(args.keep_dihedral_angle_cos) % 7 != 0:
+        print("invaild input (-kdac)")
+        sys.exit(0)
+        
+    force_data["keep_dihedral_angle_cos_potential_const"] = []
+    force_data["keep_dihedral_angle_cos_angle_const"] = []
+    force_data["keep_dihedral_angle_cos_angle"] = []
+    force_data["keep_dihedral_angle_cos_fragm1"] = []
+    force_data["keep_dihedral_angle_cos_fragm2"] = []
+    force_data["keep_dihedral_angle_cos_fragm3"] = []
+    force_data["keep_dihedral_angle_cos_fragm4"] = []
+    
+    for i in range(int(len(args.keep_dihedral_angle_cos)/7)):
+        force_data["keep_dihedral_angle_cos_potential_const"].append(list(map(float, args.keep_dihedral_angle_cos[7*i].split(","))))#au
+        force_data["keep_dihedral_angle_cos_angle_const"].append(list(map(float, args.keep_dihedral_angle_cos[7*i+1].split(","))))#degrees
+        force_data["keep_dihedral_angle_cos_angle"].append(list(map(float, args.keep_dihedral_angle_cos[7*i+2].split(","))))#degrees
+        force_data["keep_dihedral_angle_cos_fragm1"].append(num_parse(args.keep_dihedral_angle_cos[7*i+3]))
+        force_data["keep_dihedral_angle_cos_fragm2"].append(num_parse(args.keep_dihedral_angle_cos[7*i+4]))
+        force_data["keep_dihedral_angle_cos_fragm3"].append(num_parse(args.keep_dihedral_angle_cos[7*i+5]))
+        force_data["keep_dihedral_angle_cos_fragm4"].append(num_parse(args.keep_dihedral_angle_cos[7*i+6]))
+    
     
     #---------------------
     if len(args.well_pot) % 4 != 0:
@@ -824,10 +886,11 @@ class BiasPotInterface:
         self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
         self.lone_pair_keep_angle = []#['0.0', '90', '1,2,3,4', '5,6,7,8']
 
-        
+        self.flux_potential = []#['0.0', '1.0', '1,2,3,4']#flux potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2,atom3,atom4] ...]
         self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.keep_out_of_plain_angle = []#['0.0', '90', '1,2,3,4']#keep out_of_plain angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.keep_dihedral_angle_v2 = []#['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
+        self.keep_dihedral_angle_cos = []
         self.keep_out_of_plain_angle_v2 = []#['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.void_point_pot = []#['0.0', '1.0', '0.0,0.0,0.0', '1',"2.0"]#void point keep potential (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [void_point (x,y,z) (ang.)] [atoms(ex. 1,2,3-5)] [order p "(1/p)*k*(r - r0)^p"] ...]
 
@@ -926,6 +989,15 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.constraint_condition = []
         self.othersoft = "None"
         self.NRO_analysis = False
+        self.intrinsic_reaction_coordinate = []
         self.oniom_method = []
         return
  
+ 
+class MDInterface(BiasPotInterface):
+    def __init__(self, input_file=""):
+        # UNDER CONSTRACTION
+        super().__init__()
+        self.INPUT = input_file
+        self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
+        return

@@ -100,7 +100,7 @@ class Calculation:
                 lumo_alpha = wfn.nalpha()
                 lumo_beta = wfn.nbeta()
 
-                MO_levels =np.array(wfn.epsilon_a_subset("AO","ALL")).tolist()#MO energy levels
+                MO_levels = np.array(wfn.epsilon_a_subset("AO","ALL")).tolist()#MO energy levels
                 with open(self.BPA_FOLDER_DIRECTORY+"MO_levels.csv" ,"a") as f:
                     f.write(",".join(list(map(str,MO_levels))+[str(lumo_alpha),str(lumo_beta)])+"\n")
                 with open(self.BPA_FOLDER_DIRECTORY+"dipole.csv" ,"a") as f:

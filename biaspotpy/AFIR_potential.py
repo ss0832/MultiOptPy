@@ -19,12 +19,13 @@ class AFIRPotential:
         self.EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
         self.p = 6.0
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params):
         """
-        # required variables: self.config["AFIR_gamma"], 
+        # required variables: 
                              self.config["AFIR_Fragm_1"], 
                              self.config["AFIR_Fragm_2"],
                              self.config["element_list"]
+                             bias_pot_params[0] : AFIR_gamma
         """
         """
         ###  Reference  ###
@@ -33,8 +34,8 @@ class AFIRPotential:
             WIREs Comput. Mol. Sci., 2021, 11, e1538
         """
 
-        if self.config["AFIR_gamma"] > 0.0 or self.config["AFIR_gamma"] < 0.0:
-            alpha = (self.config["AFIR_gamma"]/self.hartree2kjmol) / ((2 ** (-1/6) - (1 + math.sqrt(1 + (abs(self.config["AFIR_gamma"]/self.hartree2kjmol) / self.EPSIRON))) ** (-1/6))*self.R_0) #hartree/Bohr
+        if bias_pot_params[0] > 0.0 or bias_pot_params[0] < 0.0:
+            alpha = (bias_pot_params[0]/self.hartree2kjmol) / ((2 ** (-1/6) - (1 + math.sqrt(1 + (abs(bias_pot_params[0]/self.hartree2kjmol) / self.EPSIRON))) ** (-1/6))*self.R_0) #hartree/Bohr
         else:
             alpha = 0.0
         A = 0.0

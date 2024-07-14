@@ -703,8 +703,17 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
                 tmp_smf_grad_list = np.array(tmp_smf_grad_list)
                 
-            elif self.mf_mode == "avoided":
-                pass
+            elif self.mf_mode == "avoiding":
+                AMF = MF.AvoidingModelFunction()
+                mf_energy = AMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
+                mf_bias_energy = AMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
+                smf_grad_1, smf_grad_2 = AMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
+                
+                smf_bias_grad_1, smf_bias_grad_2 = AMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
+                tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
+                tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
+                tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
+                tmp_smf_grad_list = np.array(tmp_smf_grad_list)
             
             else:
                 print("No model function is selected.")

@@ -34,7 +34,7 @@ class Calculation:
         else:
             self.excited_state = 0
             
-    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method=""):
+    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity="", method="", geom_num_list=None):
         """execute QM calclation."""
         gradient_list = []
         energy_list = []
@@ -50,14 +50,16 @@ class Calculation:
             try:
             
                 pyscf.lib.num_threads(self.N_THREAD)
-                
-                with open(input_file, "r") as f:
-                    words = f.readlines()
-                input_data_for_display = []
-                for word in words[2:]:
-                    input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
-                input_data_for_display = np.array(input_data_for_display, dtype="float64")
-                
+                if geom_num_list is None:
+                    with open(input_file, "r") as f:
+                        words = f.readlines()
+                    input_data_for_display = []
+                    for word in words[2:]:
+                        input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
+                    input_data_for_display = np.array(input_data_for_display, dtype="float64")
+                else:
+                    input_data_for_display = geom_num_list/self.bohr2angstroms
+                    
                 print("\n",input_file,"\n")
                 mol = pyscf.gto.M(atom = input_file,
                                   charge = self.electronic_charge,

@@ -102,7 +102,7 @@ class Calculation:
                             positions.append(word.split()[1:4])
                 else:
                     positions = geom_num_list        
-                
+            
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 max_scf_iteration = len(element_number_list) * 50 + 1000 
                 if int(electric_charge_and_multiplicity[1]) > 1:

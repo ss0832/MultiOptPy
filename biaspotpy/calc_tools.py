@@ -140,10 +140,11 @@ class Calculationtools:
         elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
         
         for i in range(len(elem_mass)):
+           
             center_of_mass += geomerty[i] * elem_mass[i]
         
         center_of_mass /= np.sum(elem_mass)
-        
+       
         return center_of_mass
     
     def coord2massweightedcoord(self, geomerty, element_list):
@@ -453,7 +454,11 @@ class Calculationtools:
         #vector_1 -> vector_2's direction
         return R_12
 
-
+    def calc_multi_dim_vec_angle(self, vec_1, vec_2):
+        
+        angle = np.arccos(np.sum(vec_1 * vec_2) / (np.linalg.norm(vec_1) * np.linalg.norm(vec_2)) + 1e-8)
+        
+        return angle
 
 def torch_calc_angle_from_vec(vector1, vector2):
     magnitude1 = torch.linalg.norm(vector1)
