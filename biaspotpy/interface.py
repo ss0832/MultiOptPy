@@ -50,8 +50,13 @@ GFN-xTB(tblite)
 J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
 """
 
-def ieipparser():
+
+def init_parser():
     parser = argparse.ArgumentParser()
+    return parser
+
+
+def ieipparser(parser):
     parser.add_argument("INPUT", help='input folder')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -76,7 +81,7 @@ def ieipparser():
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     
     
-    args = parser.parse_args()
+    args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
@@ -87,9 +92,7 @@ def ieipparser():
 
 
 
-
-def optimizeparser():
-    parser = argparse.ArgumentParser()
+def optimizeparser(parser):
     parser.add_argument("INPUT", help='input xyz file name')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -164,8 +167,7 @@ def parser_for_biasforce(parser):
     return parser
 
 
-def nebparser():
-    parser = argparse.ArgumentParser()
+def nebparser(parser):
     parser.add_argument("INPUT", help='input folder')
     
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
@@ -202,8 +204,7 @@ def nebparser():
     return args
 
 
-def mdparser():
-    parser = argparse.ArgumentParser()
+def mdparser(parser):
     parser.add_argument("INPUT", help='input psi4 files')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -323,6 +324,7 @@ def force_data_parser(args):
         force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
 
 
+
     #---------------------
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
@@ -340,7 +342,8 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_1"].append(num_parse(args.repulsive_potential[5*i+2]))
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
-
+    
+  
         
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
