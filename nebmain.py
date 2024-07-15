@@ -3,6 +3,7 @@ sys.path.append('./biaspotpy')
 
 import biaspotpy
 
-args = biaspotpy.interface.nebparser()
+parser = biaspotpy.interface.init_parser()
+args = biaspotpy.interface.nebparser(parser)
 NEB = biaspotpy.neb.NEB(args)
 NEB.run()

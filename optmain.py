@@ -3,6 +3,7 @@ sys.path.append('./biaspotpy')
 
 import biaspotpy
 
-args = biaspotpy.interface.optimizeparser()
+parser = biaspotpy.interface.init_parser()
+args = biaspotpy.interface.optimizeparser(parser)
 bpa = biaspotpy.optimization.Optimize(args)
 bpa.run()

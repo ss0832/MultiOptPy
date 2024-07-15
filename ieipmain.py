@@ -3,6 +3,7 @@ sys.path.append('./biaspotpy')
 
 import biaspotpy
 
-args = biaspotpy.interface.ieipparser()
+parser = biaspotpy.interface.init_parser()
+args = biaspotpy.interface.ieipparser(parser)
 iEIP = biaspotpy.ieip.iEIP(args)
 iEIP.run()
