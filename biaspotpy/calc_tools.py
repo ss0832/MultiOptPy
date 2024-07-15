@@ -505,6 +505,23 @@ def output_partial_hess(hessian, atom_num_list, element_list, geometry):#hessian
     
     return partial_hess, partial_geom, partial_element_list
 
+def fragment_check(new_geometry, element_list):
+    atom_label_list = [i for i in range(len(new_geometry))]
+    fragm_atom_num_list = []
+    while len(atom_label_list) > 0:
+        tmp_fragm_list = Calculationtools().check_atom_connectivity(new_geometry, element_list, atom_label_list[0], covalent_radii_threshold_scale=1.2)
+        
+        for j in tmp_fragm_list:
+            atom_label_list.remove(j)
+        fragm_atom_num_list.append(tmp_fragm_list)
+    
+    print("\nfragment_list:", fragm_atom_num_list)
+    
+    return fragm_atom_num_list    
+
+
+
+
 if __name__ == "__main__":#test
     
     test_coord = np.array( [[0.075000142905,          0.075000142905,         -0.000000000000],

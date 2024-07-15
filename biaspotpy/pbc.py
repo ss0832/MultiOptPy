@@ -2,23 +2,8 @@ import numpy as np
 import itertools
 import copy
 
-from calc_tools import Calculationtools
+from calc_tools import Calculationtools, fragment_check
 
-
-def fragment_check(new_geometry, element_list):
-    atom_label_list = [i for i in range(len(new_geometry))]
-    fragm_atom_num_list = []
-    while len(atom_label_list) > 0:
-        tmp_fragm_list = Calculationtools().check_atom_connectivity(new_geometry, element_list, atom_label_list[0], covalent_radii_threshold_scale=1.2)
-        
-        for j in tmp_fragm_list:
-            atom_label_list.remove(j)
-        fragm_atom_num_list.append(tmp_fragm_list)
-    
-    print("\nfragm_list:", fragm_atom_num_list)
-    
-    return fragm_atom_num_list    
-    
 
 def apply_periodic_boundary_condition(geom_num_list, element_list, box, fragm_check=True):
     #geom_num_list: ndarray 3 × N, Bohr.
