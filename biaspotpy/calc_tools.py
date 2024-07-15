@@ -125,12 +125,12 @@ class Calculationtools:
     def __init__(self):
         return
     
-    def calc_center(self, geomerty, element_list):#geomerty:Bohr
+    def calc_center(self, geomerty, element_list=[]):#geomerty:Bohr
         center = np.array([0.0, 0.0, 0.0], dtype="float64")
-        for i in range(len(element_list)):
+        for i in range(len(geomerty)):
             
             center += geomerty[i] 
-        center /= float(len(element_list))
+        center /= float(len(geomerty))
         
         return center
             
@@ -264,6 +264,19 @@ class Calculationtools:
                 break
      
         return sorted(connected_atoms)
+    
+    def calc_fragm_distance_matrix(self, fragm_coord_list):
+        distance_matrix = np.zeros((len(fragm_coord_list), len(fragm_coord_list)))
+        for i in range(len(fragm_coord_list)):
+            for j in range(len(fragm_coord_list)):
+                if i < j:
+                    continue
+                dist = np.linalg.norm(self.calc_center(fragm_coord_list[i], []) - self.calc_center(fragm_coord_list[j], []))
+                distance_matrix[i][j] = dist
+                distance_matrix[j][i] = dist
+        
+        return distance_matrix
+    
     
     def calc_fragm_distance(self, geom_num_list, fragm_1_num, fragm_2_num):
         fragm_1_coord = np.array([0.0, 0.0, 0.0], dtype="float64")
@@ -519,7 +532,28 @@ def fragment_check(new_geometry, element_list):
     
     return fragm_atom_num_list    
 
-
+def rotate_molecule(geom, axis, angle):
+    #geom: ndarray, axis: str, angle: float (radian)
+    #axis: "x", "y", "z"
+    if axis == "x":
+        rot_matrix = np.array([[1.0, 0.0, 0.0],
+                               [0.0, np.cos(angle), -np.sin(angle)],
+                               [0.0, np.sin(angle), np.cos(angle)]], dtype="float64")
+    elif axis == "y":
+        rot_matrix = np.array([[np.cos(angle), 0.0, np.sin(angle)],
+                               [0.0, 1.0, 0.0],
+                               [-np.sin(angle), 0.0, np.cos(angle)]], dtype="float64")
+    elif axis == "z":
+        rot_matrix = np.array([[np.cos(angle), -np.sin(angle), 0.0],
+                               [np.sin(angle), np.cos(angle), 0.0],
+                               [0.0, 0.0, 1.0]], dtype="float64")
+    else:
+        print("Invalid axis.")
+        return
+    
+    new_geom = np.dot(geom, rot_matrix)
+    
+    return new_geom
 
 
 if __name__ == "__main__":#test
