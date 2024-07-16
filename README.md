@@ -57,6 +57,11 @@ python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
 (Default deterministic algorithm for MD is Nosé–Hoover thermostat.)
 
+For orientation search 
+```
+python orientation_search.py aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB 
+```
+
 ## Options
 (optmain.py)
 
