@@ -157,11 +157,11 @@ class CalculateMoveVector:
         self.newton_tag = newton_tag
         return optimizer_instances
         
-    def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector, tmp_hess):
+    def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector):
     
         if self.trust_radii_update == "trust":
             Sc = 2.0
-            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), tmp_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
+            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
             r = (B_e - pre_B_e) / Ce
             r_min = 0.75
             r_good = 0.8
