@@ -139,6 +139,10 @@ class CalculateMoveVector:
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
+            elif m == "RFO3_BFGS" or m == "RFO3_FSB" or m == "RFO3_Bofill" or m == "RFO3_MSP":
+                optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
+                optimizer_instances[i].DELTA = 0.50
+                newton_tag.append(True)
             elif m == "mRFO_BFGS" or m == "mRFO_FSB" or m == "mRFO_Bofill" or m == "mRFO_MSP":
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.30
@@ -153,20 +157,24 @@ class CalculateMoveVector:
         self.newton_tag = newton_tag
         return optimizer_instances
         
-    def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector):
+    def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector, tmp_hess):
     
         if self.trust_radii_update == "trust":
             Sc = 2.0
-            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), self.model_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
+            Ce = (np.dot(pre_B_g.reshape(1, len(self.geom_num_list)*3), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(self.geom_num_list)*3), tmp_hess), pre_move_vector.reshape(len(self.geom_num_list)*3, 1)))
             r = (B_e - pre_B_e) / Ce
+            r_min = 0.75
+            r_good = 0.8
+            if r <= r_min or r >= (2.0 - r_min):
+                trust_radii /= Sc
+                print("decrease trust radii")
             
-            if r < 0.25:
-                trust_radii /= 2*Sc
-            
-            elif r > 0.25 and (trust_radii - np.linalg.norm(pre_move_vector)) < 1e-3:
+            elif r >= r_good and r <= (2.0 -r_good):
                 trust_radii *= Sc ** 0.5
+                print("increase trust radii")
             else:
-                pass
+                print("keep trust radii")
+                
         elif self.trust_radii_update == "legacy":
             if pre_B_e >= B_e:
                 trust_radii *= 3.0
@@ -175,7 +183,7 @@ class CalculateMoveVector:
         else:
             pass
                                    
-        return np.clip(trust_radii, 0.01, 1.0)
+        return np.clip(trust_radii, 0.1, 1.0)
 
 
     def diag_hess_and_display(self, optimizer_instance):
@@ -199,9 +207,9 @@ class CalculateMoveVector:
             self.trust_radii = 0.1
         elif self.FC_COUNT == -1:
             self.trust_radii = 1.0
-        
         else:
             #self.model_hess = optimizer_instances[0].hessian + optimizer_instances[0].bias_hessian
+
             self.trust_radii = self.update_trust_radii(self.trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector)
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)

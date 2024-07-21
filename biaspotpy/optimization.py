@@ -38,10 +38,16 @@ class Optimize:
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
         self.NUM_LIST = [] #
 
-        self.MAX_FORCE_THRESHOLD = 0.0003 #0.0003
-        self.RMS_FORCE_THRESHOLD = 0.0002 #0.0002
-        self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 #0.0015 
-        self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #0.0010
+        if args.tight_convergence_criteria:
+            self.MAX_FORCE_THRESHOLD = 0.00012
+            self.RMS_FORCE_THRESHOLD = 0.00008
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.0006  
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.0003 
+        else:
+            self.MAX_FORCE_THRESHOLD = 0.0003 
+            self.RMS_FORCE_THRESHOLD = 0.0002 
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.0015  
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 
 
         self.microiter_num = 100
         self.args = args #
