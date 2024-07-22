@@ -484,7 +484,9 @@ def torch_calc_angle_from_vec(vector1, vector2):
 def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
     v2 = torch.linalg.cross(vector2, vector3)
-    cos_theta = (torch.sum(v1*v2)) / (torch.sum(v1**2) * torch.sum(v2**2))**0.5
+    norm_v1 = torch.linalg.norm(v1)
+    norm_v2 = torch.linalg.norm(v2)
+    cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
     return angle
 

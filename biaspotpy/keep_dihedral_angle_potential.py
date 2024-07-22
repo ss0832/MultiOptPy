@@ -117,6 +117,6 @@ class StructKeepDihedralAnglePotential:
         a3 = fragm_4_center - fragm_3_center
 
         angle = torch_calc_dihedral_angle_from_vec(a1, a2, a3)
-        energy = potential_const * (1.0 + torch.cos(angle_const * angle - (torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_cos_angle"])) - torch.pi)))
+        energy = 0.5 * potential_const * (1.0 -1* torch.cos(angle_const * angle - (torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_cos_angle"])))))
               
         return energy #hartree
