@@ -10,6 +10,36 @@ import itertools
 
 bohr2ang = 0.529177210903
 
+def calc_boltzmann_distribution(energy_list, temperature=298.15):
+    """
+    Calculate the Boltzmann distribution.
+    """
+    energy_list = np.array(energy_list)
+    energy_list = energy_list - min(energy_list)
+    energy_list = energy_list * 627.509
+    boltzmann_distribution = np.exp(-energy_list / (0.0019872041 * temperature))
+    boltzmann_distribution = boltzmann_distribution / np.sum(boltzmann_distribution)
+    
+    return boltzmann_distribution
+
+def get_index_from_distribution(probabilities):
+    if not abs(sum(probabilities) - 1.0) < 1e-8:
+        raise ValueError("the sum of probabilities is not 1.0")
+    
+    cumulative_distribution = []
+    cumulative_sum = 0
+    for p in probabilities:
+        cumulative_sum += p
+        cumulative_distribution.append(cumulative_sum)
+    
+    rand = random.random()
+    
+    for i, threshold in enumerate(cumulative_distribution):
+        if rand < threshold:
+            return i
+
+
+
 def calc_distance_matrix(geom_num_list):
     natoms = len(geom_num_list)
     combination_natoms = int(natoms * (natoms - 1) / 2)
@@ -157,6 +187,10 @@ def is_identical(conformer, energy, energy_list, folder_name, init_INPUT,ene_thr
     print("This conformer is not identical to the existing conformer. Register this conformer.")
     return False
 
+def switch_conformer(energy_list, temperature=298.15):
+    boltzmann_distribution = calc_boltzmann_distribution(energy_list, temperature)
+    idx = get_index_from_distribution(boltzmann_distribution)
+    return idx
 
 if __name__ == '__main__':
     parser = biaspotpy.interface.init_parser()
@@ -223,7 +257,7 @@ if __name__ == '__main__':
             break
         
         print("Sampling conformation: ", i)
-        args.INPUT = init_INPUT
+        
         
         atom_pair = atom_pair_list[i]
         
@@ -278,9 +312,25 @@ if __name__ == '__main__':
                 print("The number of lowest energy conformers is not updated. Exit....")
                 reason = "The number of lowest energy conformers is not updated. Exit...."
                 break
+            with open(folder_name+"/no_update_count.log", "a") as f:
+                f.write(str(i)+" "+str(no_update_count)+"\n")
             
         else: 
             print("The number of conformers is less than the number of rank.")
+        
+        # Switch conformer
+        if len(energy_list) > 1:
+            if i % 5 == 0:
+                idx = switch_conformer(energy_list, temperature=2981.5)
+            else:
+                idx = switch_conformer(energy_list)
+            no_ext_init_INPUT = os.path.splitext(init_INPUT)[0]
+            args.INPUT = folder_name + "/" + no_ext_init_INPUT + "_EQ" + str(idx) + ".xyz"
+            print("Switch conformer: EQ"+str(idx))
+            with open(folder_name+"/switch_conformer.log", 'a') as f:
+                f.write("Trial "+str(i)+": Switch conformer: EQ"+str(idx)+"\n")
+        else:
+            args.INPUT = init_INPUT
         
         ##########
     else:
