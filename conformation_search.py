@@ -139,7 +139,7 @@ def read_energy_file(file_name):
     
     energy_list = []
     
-    for i in range(1, len(data)):
+    for i in range(len(data)):
         splitted_data = data[i].split()
         
         energy_list.append(float(splitted_data[0]))
