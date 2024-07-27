@@ -194,7 +194,7 @@ if __name__ == '__main__':
     no_update_count = 0
     EQ_num = len(energy_list)
     count = 0
-    
+    reason = ""
     if len(energy_list) == 0:
         print("initial conformer.")
         bpa = biaspotpy.optimization.Optimize(args)
@@ -214,10 +214,12 @@ if __name__ == '__main__':
     for i in range(args.max_samples):
         if os.path.exists(folder_name+"/end.txt"):
             print("The stop signal is detected. Exit....")
+            reason = "The stop signal is detected. Exit...."
             break
         
         if len(atom_pair_list) < i:
             print("All possible atom pairs are searched. Exit....")
+            reason = "All possible atom pairs are searched. Exit...."
             break
         
         print("Sampling conformation: ", i)
@@ -274,14 +276,19 @@ if __name__ == '__main__':
             
             if no_update_count > args.number_of_lowest:
                 print("The number of lowest energy conformers is not updated. Exit....")
+                reason = "The number of lowest energy conformers is not updated. Exit...."
                 break
             
         else: 
             print("The number of conformers is less than the number of rank.")
         
         ##########
+    else:
+        print("Max samples are reached. Exit....")
+        reason = "Max samples are reached. Exit...."
     energy_list_suumary_file_path = folder_name+"/EQ_summary.log"
     with open(energy_list_suumary_file_path, "w") as f:
+        f.write("Summary\n"+"Reason of Termination: "+reason+"\n")
         print("conformer of lowest energy: ", min(energy_list))
         f.write("conformer of lowest energy: "+str(min(energy_list))+"\n")
         print("structure of lowest energy: ", "EQ"+str(energy_list.index(min(energy_list))))
