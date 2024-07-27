@@ -143,7 +143,7 @@ def is_identical(conformer, energy, energy_list, folder_name, init_INPUT,ene_thr
         print("Energy is not identical. Register this conformer.")
         return False
 
-    for i in ene_identical_list:
+    for i in range(len(energy_list)):
         conformer_file_name = folder_name+"/"+no_ext_init_INPUT+"_EQ"+str(i)+".xyz"
         conformer_geom_num_list, conformer_element_list = read_xyz(conformer_file_name)
         
@@ -225,7 +225,7 @@ if __name__ == '__main__':
         
         atom_pair = atom_pair_list[i]
         
-        args.manual_AFIR = init_AFIR_CONFIG + [str(args.base_force), str(atom_pair[0]), str(atom_pair[1])]
+        args.manual_AFIR = init_AFIR_CONFIG + [str(args.base_force), str(atom_pair[0]+1), str(atom_pair[1]+1)]
         
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
