@@ -280,12 +280,18 @@ if __name__ == '__main__':
             print("The number of conformers is less than the number of rank.")
         
         ##########
-    
-    print("conformer of lowest energy: ", min(energy_list))
-    print("structure of lowest energy: ", "EQ"+energy_list.index(min(energy_list)))
-    print("conformer of highest energy: ", max(energy_list))
-    print("structure of lowest energy: ", "EQ"+energy_list.index(max(energy_list)))
-    
+    energy_list_suumary_file_path = folder_name+"/EQ_summary.log"
+    with open(energy_list_suumary_file_path, "w") as f:
+        print("conformer of lowest energy: ", min(energy_list))
+        f.write("conformer of lowest energy: "+str(min(energy_list))+"\n")
+        print("structure of lowest energy: ", "EQ"+str(energy_list.index(min(energy_list))))
+        f.write("structure of lowest energy: "+"EQ"+str(energy_list.index(min(energy_list)))+"\n")
+        print("conformer of highest energy: ", max(energy_list))
+        f.write("conformer of highest energy: "+str(max(energy_list))+"\n")
+        print("structure of highest energy: ", "EQ"+str(energy_list.index(max(energy_list))))
+        f.write("structure of highest energy: "+"EQ"+str(energy_list.index(max(energy_list)))+"\n")
+        
+
     print("Conformation search is finished.")
     
     
