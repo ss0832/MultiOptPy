@@ -226,7 +226,7 @@ if __name__ == '__main__':
     # prepare for the first calculation
     prev_rank_list = None
     no_update_count = 0
-    EQ_num = len(energy_list)
+    EQ_num = len(energy_list)-1
     count = 0
     reason = ""
     if len(energy_list) == 0:
