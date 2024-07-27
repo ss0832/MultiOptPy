@@ -141,6 +141,7 @@ class Optimize:
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         self.element_list = element_list
         self.Model_hess = np.eye(len(element_list)*3)
+        
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         #------------------------------------
         if len(self.constraint_condition_list) > 0:
@@ -236,11 +237,16 @@ class Optimize:
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
             
             
+            
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
+                #if iter == 0 and self.FC_COUNT == -1:
+                #    self.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+                #    optimizer_instances[i].set_hessian(self.Model_hess)
+                
                 if iter % self.FC_COUNT == 0:
-                     optimizer_instances[i].set_hessian(self.Model_hess)
+                    optimizer_instances[i].set_hessian(self.Model_hess)
                      
             
             #----------------------------
@@ -367,6 +373,9 @@ class Optimize:
         print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list#Bohr
+        self.final_energy = e #Hartree
+        self.final_bias_energy = B_e #Hartree
         return
 
 
@@ -590,6 +599,9 @@ class Optimize:
         print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list#Bohr
+        self.final_energy = e #Hartree
+        self.final_bias_energy = B_e #Hartree
         return
     
     def optimize_using_pyscf(self):
@@ -803,6 +815,9 @@ class Optimize:
         print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list#Bohr
+        self.final_energy = e #Hartree
+        self.final_bias_energy = B_e #Hartree
         return
     
     def optimize_using_ase(self):
@@ -1035,6 +1050,9 @@ class Optimize:
         print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list#Bohr
+        self.final_energy = e #Hartree
+        self.final_bias_energy = B_e #Hartree
         return
     
     def optimize_oniom(self):
@@ -1449,10 +1467,13 @@ class Optimize:
         
         
         self.save_energy_profiles(real_orthogonal_bias_grad_list, real_orthogonal_grad_list, real_grad_list)
-       
+        
         #----------------------
         print("Complete...")
         self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list#Bohr
+        self.final_energy = real_e #Hartree
+        self.final_bias_energy = real_B_e #Hartree
         return
     
     def save_tmp_energy_profiles(self, iter, e, g, B_g):

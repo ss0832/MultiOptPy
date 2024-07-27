@@ -473,6 +473,30 @@ class Calculationtools:
         
         return angle
 
+def calc_normalized_distance_list(geom_num_list, element_list, tgt_atoms=None):
+    if tgt_atoms is not None:
+        atom_list = [i for i in tgt_atoms]
+    else:
+        atom_list = [i for i in range(len(geom_num_list))]
+    
+    norm_distance_list = []
+    
+    for i, j in itertools.combinations(atom_list, 2):#(0, 1) (0, 2) ... (natoms-2, natoms-1)
+        elem_i = element_list[i]
+        elem_j = element_list[j]
+        covalent_length = covalent_radii_lib(elem_i) + covalent_radii_lib(elem_j)
+        norm_distance = np.linalg.norm(geom_num_list[i] - geom_num_list[j]) / covalent_length
+        norm_distance_list.append(norm_distance)
+    norm_distance_list = np.array(norm_distance_list)
+    return norm_distance_list
+
+def return_pair_idx(i, j):
+    ii = max(i, j) + 1
+    jj = min(i, j) + 1
+    pair_idx = int(ii * (ii - 1) / 2 - (ii - jj)) -1
+    return pair_idx
+
+
 def torch_calc_angle_from_vec(vector1, vector2):
     magnitude1 = torch.linalg.norm(vector1)
     magnitude2 = torch.linalg.norm(vector2)
@@ -484,8 +508,8 @@ def torch_calc_angle_from_vec(vector1, vector2):
 def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
     v2 = torch.linalg.cross(vector2, vector3)
-    norm_v1 = torch.linalg.norm(v1)
-    norm_v2 = torch.linalg.norm(v2)
+    norm_v1 = torch.linalg.norm(v1) + 1e-15
+    norm_v2 = torch.linalg.norm(v2) + 1e-15
     cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
     return angle
