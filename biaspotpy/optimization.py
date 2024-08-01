@@ -127,9 +127,32 @@ class Optimize:
             
         self.irc = args.intrinsic_reaction_coordinates
         self.force_data = force_data_parser(self.args)
+        
+        self.final_file_directory = None
+        self.final_geometry = None#Bohr
+        self.final_energy = None #Hartree
+        self.final_bias_energy = None #Hartree
+        
         return
 
-
+    def check_converge_criteria(self, B_g, displacement_vector):
+        max_force = abs(B_g.max())
+        max_force_threshold = self.MAX_FORCE_THRESHOLD
+        rms_force = abs(np.sqrt((B_g**2).mean()))
+        rms_force_threshold = self.RMS_FORCE_THRESHOLD
+        
+        
+        delta_max_force_threshold = max(0.0, max_force_threshold -1 * max_force)
+        delta_rms_force_threshold = max(0.0, rms_force_threshold -1 * rms_force)
+        
+        max_displacement = abs(displacement_vector.max())
+        max_displacement_threshold = max(self.MAX_DISPLACEMENT_THRESHOLD, self.MAX_DISPLACEMENT_THRESHOLD + delta_max_force_threshold)
+        rms_displacement = abs(np.sqrt((displacement_vector**2).mean()))
+        rms_displacement_threshold = max(self.RMS_DISPLACEMENT_THRESHOLD, self.RMS_DISPLACEMENT_THRESHOLD + delta_rms_force_threshold)
+        
+        if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
+            return True, max_displacement_threshold, rms_displacement_threshold
+        return False, max_displacement_threshold, rms_displacement_threshold
     
     def optimize_using_tblite(self):
         from tblite_calculation_tools import Calculation
@@ -137,6 +160,10 @@ class Optimize:
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
         finish_frag = False
+        
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         self.element_list = element_list
@@ -292,7 +319,10 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
+            
+            
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             grad_list.append(np.sqrt((g**2).mean()))
@@ -310,7 +340,7 @@ class Optimize:
             if self.NRO_analysis:
                 NRO.run(SP, geom_num_list, move_vector)
             #------------------------
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            if converge_flag:#convergent criteria
                 break
             #-------------------------
             
@@ -386,7 +416,9 @@ class Optimize:
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
         finish_frag = False
-        
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         self.element_list = element_list
@@ -528,7 +560,9 @@ class Optimize:
             self.geom_info_extract(force_data, file_directory, B_g, g)   
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
+            
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             grad_list.append(np.sqrt((g**2).mean()))
@@ -541,7 +575,8 @@ class Optimize:
                 RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
                 orthogonal_grad_list.append(RMS_ortho_g)
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                
+            if converge_flag:#convergent criteria
                 break
             #-------------------------
             
@@ -610,6 +645,9 @@ class Optimize:
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
         finish_frag = False
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
         geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
         file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
         self.element_list = element_list
@@ -751,7 +789,9 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
+            
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             grad_list.append(np.sqrt((g**2).mean()))
             bias_grad_list.append(np.sqrt((B_g**2).mean()))
@@ -763,7 +803,8 @@ class Optimize:
                 RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
                 orthogonal_bias_grad_list.append(RMS_ortho_B_g)
                 orthogonal_grad_list.append(RMS_ortho_g)
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+                
+            if converge_flag:#convergent criteria
                 break
             #-------------------------
             print("\ngeometry:")
@@ -832,7 +873,9 @@ class Optimize:
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
         finish_frag = False
-        
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         self.element_list = element_list
         self.Model_hess = np.eye(len(element_list)*3)
@@ -981,7 +1024,9 @@ class Optimize:
             
             #----------------------------
             displacement_vector = geom_num_list - pre_geom
-            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
+            
+            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             grad_list.append(np.sqrt((g**2).mean()))
@@ -999,7 +1044,7 @@ class Optimize:
             if self.NRO_analysis:
                 NRO.run(SP, geom_num_list, move_vector)
             #------------------------
-            if abs(B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            if converge_flag:#convergent criteria
                 break
             #-------------------------
             
@@ -1064,7 +1109,9 @@ class Optimize:
         link_atom_num = force_data["oniom_method"][1]
         method = calc_method
         high_layer_atom_num = force_data["oniom_method"][0]
-        
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
         if calc_method == "GFN2-xTB" or calc_method == "GFN1-xTB" or calc_method == "IPEA1-xTB":
             from tblite_calculation_tools import Calculation as LL_Calculation
         else:
@@ -1398,13 +1445,15 @@ class Optimize:
             self.geom_info_extract(force_data, file_directory, real_B_g, real_g)   
             #----------------------------
             displacement_vector = geom_num_list - real_pre_geom
-            self.print_info(force_data["opt_method"], real_e, real_B_e, real_B_g, displacement_vector, pre_real_e, pre_real_B_e)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(real_B_g, displacement_vector)
+            
+            self.print_info(force_data["opt_method"], real_e, real_B_e, real_B_g, displacement_vector, pre_real_e, pre_real_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             real_grad_list.append(np.sqrt((real_g**2).mean()))
             real_bias_grad_list.append(np.sqrt((real_B_g**2).mean()))
-
-            if abs(real_B_g.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((real_B_g**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(displacement_vector.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((displacement_vector**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            
+            if converge_flag:#convergent criteria
                 break
             #-------------------------
             
@@ -1575,7 +1624,7 @@ class Optimize:
         return DC_exit_flag
     
     
-    def print_info(self, optmethod, e, B_e, B_g, displacement_vector, pre_e, pre_B_e):
+    def print_info(self, optmethod, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
         print("caluculation results (unit a.u.):")
         print("OPT method            : {} ".format(optmethod))
         print("                         Value                         Threshold ")
@@ -1583,8 +1632,8 @@ class Optimize:
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
         print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
         print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g**2).mean())), self.RMS_FORCE_THRESHOLD))
-        print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
-        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector**2).mean())), self.RMS_DISPLACEMENT_THRESHOLD))
+        print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), max_displacement_threshold))
+        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector**2).mean())), rms_displacement_threshold))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
