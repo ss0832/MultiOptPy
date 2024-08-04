@@ -29,6 +29,7 @@ from Optimizer.purtubation import Perturbation
 from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.rfo import RationalFunctionOptimization 
 from Optimizer.newton import Newton 
+from Optimizer.rmspropgrave import RMSpropGrave
 
 
 class CalculateMoveVector:
@@ -106,6 +107,9 @@ class CalculateMoveVector:
                 newton_tag.append(False)
             elif m == "NAdam":    
                 optimizer_instances.append(NAdam())
+                newton_tag.append(False)
+            elif m == "RMSpropGrave":    
+                optimizer_instances.append(RMSpropGrave())
                 newton_tag.append(False)
             elif m == "FIRE":
                 optimizer_instances.append(FIRE())
