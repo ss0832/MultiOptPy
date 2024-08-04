@@ -35,13 +35,13 @@ class StructKeepPotential:
                              self.config["keep_pot_v2_fragm2"],
                              
         """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, requires_grad=True)
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
         for i in self.config["keep_pot_v2_fragm1"]:
             fragm_1_center = fragm_1_center + geom_num_list[i-1]
         
         fragm_1_center = fragm_1_center / len(self.config["keep_pot_v2_fragm1"])
         
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, requires_grad=True)
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
         for i in self.config["keep_pot_v2_fragm2"]:
             fragm_2_center = fragm_2_center + geom_num_list[i-1]
         
@@ -60,13 +60,13 @@ class StructKeepPotential:
                                 self.config["aniso_keep_pot_v2_fragm2"]
                              
         """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, requires_grad=True)
+        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
         for i in self.config["aniso_keep_pot_v2_fragm1"]:
             fragm_1_center = fragm_1_center + geom_num_list[i-1]
         
         fragm_1_center = fragm_1_center / len(self.config["aniso_keep_pot_v2_fragm1"])
         
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, requires_grad=True)
+        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
         for i in self.config["aniso_keep_pot_v2_fragm2"]:
             fragm_2_center = fragm_2_center + geom_num_list[i-1]
         

@@ -410,7 +410,7 @@ class Calculationtools:
         
 
     def gen_n_dinensional_rot_matrix(self, vector_1, vector_2):
-        #Zhelezov NRMG algorithm (doi:10.5923/j.ajcam.20170702.04)
+        #Zhelezov NRMG algorithm (doi:10.5923/j.ajcam.20170702.04) This implementation may be not correct.
         dimension_1 = len(vector_1)
         dimension_2 = len(vector_2)
         assert dimension_1 == dimension_2
@@ -498,8 +498,8 @@ def return_pair_idx(i, j):
 
 
 def torch_calc_angle_from_vec(vector1, vector2):
-    magnitude1 = torch.linalg.norm(vector1)
-    magnitude2 = torch.linalg.norm(vector2)
+    magnitude1 = torch.linalg.norm(vector1) + 1e-15
+    magnitude2 = torch.linalg.norm(vector2) + 1e-15
     dot_product = torch.matmul(vector1, vector2)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     theta = torch.arccos(cos_theta)
@@ -517,8 +517,8 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
 
 def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
-    magnitude1 = torch.linalg.norm(v1)
-    magnitude2 = torch.linalg.norm(vector3)
+    magnitude1 = torch.linalg.norm(v1) + 1e-15 
+    magnitude2 = torch.linalg.norm(vector3) + 1e-15
     dot_product = torch.matmul(v1, vector3)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     angle = torch.arccos(cos_theta)
@@ -578,8 +578,115 @@ def rotate_molecule(geom, axis, angle):
         return
     
     new_geom = np.dot(geom, rot_matrix)
-    
     return new_geom
+
+def calc_partial_center(geometry, atom_num_list):
+    partial_center = np.array([0.0, 0.0, 0.0], dtype="float64")
+    
+    for i in atom_num_list:
+        partial_center += geometry[i-1]
+    partial_center /= len(atom_num_list)
+    
+    return partial_center
+
+def torch_calc_partial_center(geometry, atom_num_list):
+    partial_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
+    for i in atom_num_list:
+        partial_center = partial_center + geometry[i-1]
+    partial_center /= len(atom_num_list)
+    return partial_center
+
+def project_optional_vector_for_grad(gradient, vector):#gradient:ndarray (3*natoms, 1), vector:ndarray (3*natoms, 1)
+    gradient_proj = gradient -1 * np.dot(vector.T, gradient) / (np.linalg.norm(vector) + 1e-8) ** 2 * vector
+    return gradient_proj #gradient_proj:ndarray (3*natoms, 1)
+
+def project_optional_vector_for_hess(hessian, vector):#hessian:ndarray (3*natoms, 3*natoms), vector:ndarray (3*natoms, 1)
+    hess_length = len(vector)
+    identity_matrix = np.eye(hess_length)
+    LL = np.dot(vector, vector.T)
+    E_LL = identity_matrix - LL
+    hessian_proj = np.dot(np.dot(E_LL, hessian), E_LL)
+    return hessian_proj #hessian:ndarray (3*natoms, 3*natoms)
+
+def project_fragm_pair_vector_for_grad(gradient, geom_num_list, fragm_1, fragm_2):
+    natom = len(geom_num_list)
+    fragm_1_center = calc_partial_center(geom_num_list, fragm_1)
+    fragm_2_center = calc_partial_center(geom_num_list, fragm_2)
+    fragm_vec = fragm_2_center - fragm_1_center
+    fragm_vec_x = np.array([fragm_vec[0], 0.0, 0.0], dtype="float64")
+    fragm_vec_y = np.array([0.0, fragm_vec[1], 0.0], dtype="float64")
+    fragm_vec_z = np.array([0.0, 0.0, fragm_vec[2]], dtype="float64")
+    
+    tmp_fragm_vec_x = np.array([], dtype="float64")
+    tmp_fragm_vec_y = np.array([], dtype="float64")
+    tmp_fragm_vec_z = np.array([], dtype="float64")
+    for i in range(len(geom_num_list)):
+        if i + 1 in fragm_1:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, -1 * fragm_vec_x, axis=0)
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, -1 * fragm_vec_y, axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, -1 * fragm_vec_z, axis=0)
+        elif i + 1 in fragm_2:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, fragm_vec_x, axis=0)
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, fragm_vec_y, axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, fragm_vec_z, axis=0)
+        
+        else:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0) 
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
+    
+    tmp_fragm_vec_x = tmp_fragm_vec_x.reshape(3*natom, 1)
+    tmp_fragm_vec_y = tmp_fragm_vec_y.reshape(3*natom, 1)
+    tmp_fragm_vec_z = tmp_fragm_vec_z.reshape(3*natom, 1)
+    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x) + 1e-8)
+    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y) + 1e-8)
+    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z) + 1e-8)
+    tmp_gradient = gradient.reshape(3*natom, 1)
+    
+    gradient_proj = project_optional_vector_for_grad(tmp_gradient, tmp_fragm_vec_x)
+    gradient_proj = project_optional_vector_for_grad(gradient_proj, tmp_fragm_vec_y)
+    gradient_proj = project_optional_vector_for_grad(gradient_proj, tmp_fragm_vec_z)
+    gradient_proj = gradient_proj.reshape(natom, 3)
+    return gradient_proj # ndarray (natoms, 3)
+
+def project_fragm_pair_vector_for_hess(hessian, geom_num_list, fragm_1, fragm_2):
+    natom = len(geom_num_list)
+    fragm_1_center = calc_partial_center(geom_num_list, fragm_1)
+    fragm_2_center = calc_partial_center(geom_num_list, fragm_2)
+    fragm_vec = fragm_2_center - fragm_1_center
+    fragm_vec_x = np.array([fragm_vec[0], 0.0, 0.0], dtype="float64")
+    fragm_vec_y = np.array([0.0, fragm_vec[1], 0.0], dtype="float64")
+    fragm_vec_z = np.array([0.0, 0.0, fragm_vec[2]], dtype="float64")
+    tmp_fragm_vec = np.array([], dtype="float64")
+    tmp_fragm_vec_x = np.array([], dtype="float64")
+    tmp_fragm_vec_y = np.array([], dtype="float64")
+    tmp_fragm_vec_z = np.array([], dtype="float64")
+    for i in range(len(geom_num_list)):
+        if i + 1 in fragm_1:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, -1 * fragm_vec_x, axis=0)
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, -1 * fragm_vec_y, axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, -1 * fragm_vec_z, axis=0)
+        elif i + 1 in fragm_2:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, fragm_vec_x, axis=0)
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, fragm_vec_y, axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, fragm_vec_z, axis=0)
+        
+        else:
+            tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0) 
+            tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
+            tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
+    
+    tmp_fragm_vec_x = tmp_fragm_vec_x.reshape(3*natom, 1)
+    tmp_fragm_vec_y = tmp_fragm_vec_y.reshape(3*natom, 1)
+    tmp_fragm_vec_z = tmp_fragm_vec_z.reshape(3*natom, 1)
+    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x) + 1e-8)
+    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y) + 1e-8)
+    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z) + 1e-8)
+    
+    hessian_proj = project_optional_vector_for_hess(hessian, tmp_fragm_vec_x)
+    hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_vec_y)
+    hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_vec_z)
+    return hessian_proj # ndarray (3*natoms, 3*natoms)
 
 
 if __name__ == "__main__":#test

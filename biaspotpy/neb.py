@@ -32,7 +32,7 @@ from interface import force_data_parser
 
 from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
-from calc_tools import Calculationtools 
+from calc_tools import Calculationtools, project_optional_vector_for_grad, project_optional_vector_for_hess
 
 
 
@@ -664,6 +664,37 @@ class NEB:
     
     def FSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, hessian, biased_energy_list, pre_biased_energy_list):
         print("Quasi-Newton method")
+        
+        #project tangent vector from gradient and hessian 
+        for i in range(1, len(geom_num_list)-1):
+            tangent_vec = (geom_num_list[i+1] - geom_num_list[i-1]) / (np.linalg.norm(geom_num_list[i+1] - geom_num_list[i-1]))
+            tangent_vec_x = np.array([], dtype="float64")
+            tangent_vec_y = np.array([], dtype="float64")
+            tangent_vec_z = np.array([], dtype="float64")
+            
+            for j in range(len(geom_num_list[i])):
+                tangent_vec_x = np.append(tangent_vec_x, np.array([tangent_vec[j][0], 0.0, 0.0], dtype="float"), axis=0)
+                tangent_vec_y = np.append(tangent_vec_y, np.array([0.0, tangent_vec[j][1], 0.0], dtype="float"), axis=0)
+                tangent_vec_z = np.append(tangent_vec_z, np.array([0.0, 0.0, tangent_vec[j][2]], dtype="float"), axis=0)
+            tangent_vec_x = tangent_vec_x.reshape(len(geom_num_list[i])*3, 1)
+            tangent_vec_y = tangent_vec_y.reshape(len(geom_num_list[i])*3, 1)
+            tangent_vec_z = tangent_vec_z.reshape(len(geom_num_list[i])*3, 1)
+            
+            tmp_g = g[i].reshape(len(geom_num_list[i])*3, 1)
+            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_x) 
+            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_y) 
+            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_z)
+            
+            g[i] = copy.copy(tmp_g.reshape(len(geom_num_list[i]), 3))
+            
+            tmp_hessian = hessian[i]
+            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_x)
+            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_y)
+            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_z)
+            hessian[i] = copy.copy(tmp_hessian)
+             
+
+        
         total_delta = []
         for i in range(len(geom_num_list)):
 
@@ -682,22 +713,27 @@ class NEB:
             lambda_for_calc = float(RFO_eigenvalue[0])
             print("# NODE",i," LAMBDA: ", lambda_for_calc)
           
-            if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
+            #if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
                 
-                delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
             
-            else:
+            #else:
                 
-                print("#NODE", i," linesearching...")
-                alpha = np.abs(np.dot(g[i].reshape(1, len(geom_num_list[i])*3), displacement) / (np.dot(displacement.T, displacement) + 1e-8))
-                cos = np.sum(displacement.reshape(len(geom_num_list[i]), 3) * g[i]) / (np.linalg.norm(displacement) * np.linalg.norm(g[i]) + 1e-8)
-                print("cos = ", cos)
-                print("alpha =", alpha)
-                delta = -1 * (abs(cos) * alpha) * displacement.reshape(len(geom_num_list[i]), 3)
+            #    print("#NODE", i," linesearching...")
+            #    alpha = np.abs(np.dot(g[i].reshape(1, len(geom_num_list[i])*3), displacement) / (np.dot(displacement.T, displacement) + 1e-8))
+            #    cos = np.sum(displacement.reshape(len(geom_num_list[i]), 3) * g[i]) / (np.linalg.norm(displacement) * np.linalg.norm(g[i]) + 1e-8)
+            #    print("cos = ", cos)
+            #    print("alpha =", alpha)
+            #    delta = -1 * (abs(cos) * alpha) * displacement.reshape(len(geom_num_list[i]), 3)
             
             total_delta.append(delta)
         #---------------------
-        move_vector = [total_delta[0]]
+        move_vector = []
+        start_edge = np.linalg.norm(total_delta[0])
+        start_tr = min(0.1, start_edge)
+        move_vector.append(total_delta[0]/np.linalg.norm(total_delta[0]) * start_tr)
+        
+ 
         trust_radii_1_list = []
         trust_radii_2_list = []
         
@@ -720,8 +756,9 @@ class NEB:
                     move_vector_delta = min(0.05, np.linalg.norm(move_vector))
                     move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
             else:
-                print("zero move vec (Projected velocity-verlet algorithm)")
-                move_vector.append(total_delta[i] * 0.0)  
+                pass
+                print("nearly zero move vec (Projected velocity-verlet algorithm)")
+                move_vector.append(total_delta[i]/np.linalg.norm(total_delta[i]) * 0.001)  
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
@@ -729,7 +766,9 @@ class NEB:
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_2.csv", "a") as f:
             f.write(",".join(trust_radii_2_list)+"\n")
         
-        move_vector.append(total_delta[-1])
+        end_edge = np.linalg.norm(total_delta[-1])
+        end_tr = min(0.1, end_edge)
+        move_vector.append(total_delta[-1]/np.linalg.norm(total_delta[-1]) * end_tr)
         #--------------------
         
         new_geometory = (geom_num_list + move_vector)*self.bohr2angstroms

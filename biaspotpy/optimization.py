@@ -20,7 +20,7 @@ from cmds_analysis import CMDSPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools
+from calc_tools import CalculationStructInfo, Calculationtools, project_fragm_pair_vector_for_grad, project_fragm_pair_vector_for_hess
 from MO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
@@ -223,8 +223,6 @@ class Optimize:
         if self.NRO_analysis:
             NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         
-        
-        
         #---------------------------------
         for iter in range(self.NSTEP):
             self.iter = iter
@@ -257,13 +255,36 @@ class Optimize:
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             
+            #----------
+            # project out optional vectors
+            if len(force_data["project_out_fragm_pair"]) > 0:
+                print("project out optional vectors")
+                for fragm_pair in force_data["project_out_fragm_pair"]:
+                    fragm_1 = fragm_pair[0]
+                    fragm_2 = fragm_pair[1]
+                    print("Project out: \n")
+                    print("Fragment 1: ", fragm_1)
+                    print("Fragment 2: ", fragm_2)
+                    
+                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+                    
+                    #if iter % self.FC_COUNT == 0:
+                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                    if np.all(BPA_hessian != 0.0):
+                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+                    
+                    print("Project out: Done\n")
+            
+            #----------
+            
             print("=== Eigenvalue (Before Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
             
             print("=== Eigenvalue (After Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
             
-            
+
             
             for i in range(len(optimizer_instances)):
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
@@ -503,7 +524,28 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            #----------
+            # project out optional vectors
+            if len(force_data["project_out_fragm_pair"]) > 0:
+                print("project out optional vectors")
+                for fragm_pair in force_data["project_out_fragm_pair"]:
+                    fragm_1 = fragm_pair[0]
+                    fragm_2 = fragm_pair[1]
+                    print("Project out: \n")
+                    print("Fragment 1: ", fragm_1)
+                    print("Fragment 2: ", fragm_2)
+                    
+                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+                    
+                    #if iter % self.FC_COUNT == 0:
+                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                    if np.all(BPA_hessian != 0.0):
+                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+                    
+                    print("Project out: Done\n")
             
+            #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
             
@@ -731,7 +773,28 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            #----------
+            # project out optional vectors
+            if len(force_data["project_out_fragm_pair"]) > 0:
+                print("project out optional vectors")
+                for fragm_pair in force_data["project_out_fragm_pair"]:
+                    fragm_1 = fragm_pair[0]
+                    fragm_2 = fragm_pair[1]
+                    print("Project out: \n")
+                    print("Fragment 1: ", fragm_1)
+                    print("Fragment 2: ", fragm_2)
+                    
+                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+                    
+                    #if iter % self.FC_COUNT == 0:
+                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                    if np.all(BPA_hessian != 0.0):
+                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+                    
+                    print("Project out: Done\n")
             
+            #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
             
@@ -967,7 +1030,28 @@ class Optimize:
             CalcBiaspot.Model_hess = self.Model_hess
             
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            #----------
+            # project out optional vectors
+            if len(force_data["project_out_fragm_pair"]) > 0:
+                print("project out optional vectors")
+                for fragm_pair in force_data["project_out_fragm_pair"]:
+                    fragm_1 = fragm_pair[0]
+                    fragm_2 = fragm_pair[1]
+                    print("Project out: \n")
+                    print("Fragment 1: ", fragm_1)
+                    print("Fragment 2: ", fragm_2)
+                    
+                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+                    
+                    #if iter % self.FC_COUNT == 0:
+                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                    if np.all(BPA_hessian != 0.0):
+                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+                    
+                    print("Project out: Done\n")
             
+            #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
             

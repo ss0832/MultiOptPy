@@ -79,7 +79,8 @@ def ieipparser(parser):
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
-    
+    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+
     
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
@@ -124,8 +125,9 @@ def optimizeparser(parser):
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-nro", "--NRO_analysis",  help="apply Natural Reaction Orbial analysis. (ref. Phys. Chem. Chem. Phys. 24, 3532 (2022))", action='store_true')
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
-    
-    
+    parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
+    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+
     args = parser.parse_args()
     return args
 
@@ -156,7 +158,8 @@ def parser_for_biasforce(parser):
     parser.add_argument("-kdac", "--keep_dihedral_angle_cos", nargs="*",  type=str, default=[], help='keep dihedral angle_cos k*[1 + cos(n * φ - (φ0 + pi))] (0 ~ 180 deg.) (ex.) [[potential const.(a.u.)] [angle const. (unitless)] [keep dihedral angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] [Fragm.4] ...] ')
     parser.add_argument("-kopav2", "--keep_out_of_plain_angle_v2", nargs="*",  type=str, default=[], help='keep out_of_plain angle_v2 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] [Fragm.4] ...] ')
     parser.add_argument("-vpp", "--void_point_pot", nargs="*",  type=str, default=[], help='void point keep potential (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [void_point (x,y,z) (ang.)] [atoms(ex. 1,2,3-5)] [order p "(1/p)*k*(r - r0)^p"] ...] ')
-   
+    
+    parser.add_argument("-brp", "--bond_range_potential", nargs="*",  type=str, default=[], help='Add potential to confine atom distance. (ex.) [[upper const.(a.u.)] [lower const.(a.u.)] [upper distance (ang.)] [lower distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
     parser.add_argument("-wp", "--well_pot", nargs="*", type=str, default=[], help="Add potential to limit atom distance. (ex.) [[wall energy (kJ/mol)] [fragm.1] [fragm.2] [a,b,c,d (a<b<c<d) (ang.)] ...]")
     parser.add_argument("-wwp", "--wall_well_pot", nargs="*", type=str, default=[], help="Add potential to limit atoms movement. (like sandwich) (ex.) [[wall energy (kJ/mol)] [direction (x,y,z)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (1,2,3-5)] ...]")
     parser.add_argument("-vpwp", "--void_point_well_pot", nargs="*", type=str, default=[], help="Add potential to limit atom movement. (like sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (1,2,3-5)] ...]")
@@ -194,6 +197,8 @@ def nebparser(parser):
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default=[], help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
+    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 
@@ -235,6 +240,8 @@ def mdparser(parser):
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
+    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.geom_info = ["0"]
@@ -258,6 +265,38 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    
+    #---------------------
+    force_data["value_range_upper_const"] = []
+    force_data["value_range_lower_const"] = []
+    force_data["value_range_upper_distance"] = []
+    force_data["value_range_lower_distance"] = []
+    force_data["value_range_fragm_1"] = []
+    force_data["value_range_fragm_2"] = []
+
+    if len(args.bond_range_potential) % 6 != 0: 
+        print("invaild input (-brp)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.bond_range_potential)/6)):
+        force_data["value_range_upper_const"].append(float(args.bond_range_potential[6*i]))
+        force_data["value_range_lower_const"].append(float(args.bond_range_potential[6*i+1]))
+        force_data["value_range_upper_distance"].append(float(args.bond_range_potential[6*i+2]))
+        force_data["value_range_lower_distance"].append(float(args.bond_range_potential[6*i+3]))
+        force_data["value_range_fragm_1"].append(num_parse(args.bond_range_potential[6*i+4]))
+        force_data["value_range_fragm_2"].append(num_parse(args.bond_range_potential[6*i+5]))
+    
+    
+    #---------------------
+    force_data["project_out_fragm_pair"] = []
+
+    if len(args.project_out) % 2 != 0:
+        print("invaild input (-proj)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.project_out)/2)):
+        force_data["project_out_fragm_pair"].append([num_parse(args.project_out[2*i]), num_parse(args.project_out[2*i+1])])
+    
     #---------------------
     
     
@@ -323,8 +362,7 @@ def force_data_parser(args):
         force_data["spacer_model_potential_particle_number"].append(int(args.spacer_model_potential[5*i+3]))
         force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
 
-
-
+   
     #---------------------
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
@@ -343,8 +381,7 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
     
-  
-        
+
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
@@ -876,6 +913,7 @@ class BiasPotInterface:
         self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = []#['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
+        self.ovoid_repulsive_potential = []#['0.0,0.0,0.0,0.0,0.0,0.0','1.0,1.0,1.0,1.0,1.0,1.0','0.0','6', '1,2', '1-2']#'Add LJ repulsive_potential (ovoid) (ex.) [[well_value_list (x1,x2,y1,y2,z1,z2) (kJ/mol)] [dist_list (x1,x2,y1,y2,z1,z2) (ang.)] [length (ang.)] [order] [LJ center atom (1,2)] [target atoms (3-5,8)] ...]')
         self.cone_potential = []#['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
         
         self.keep_pot = []#['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
@@ -888,7 +926,8 @@ class BiasPotInterface:
         self.keep_angle_v2 = []#['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
         self.lone_pair_keep_angle = []#['0.0', '90', '1,2,3,4', '5,6,7,8']
-
+        self.keep_arch = []#['0.0', '90', '2.5', '1,2,3,4']
+        self.keep_arch_v2 = []
         self.flux_potential = []#['0.0', '1.0', '1,2,3,4']#flux potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2,atom3,atom4] ...]
         self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.keep_out_of_plain_angle = []#['0.0', '90', '1,2,3,4']#keep out_of_plain angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [atom1,atom2,atom3,atom4] ...]
@@ -897,6 +936,7 @@ class BiasPotInterface:
         self.keep_out_of_plain_angle_v2 = []#['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.void_point_pot = []#['0.0', '1.0', '0.0,0.0,0.0', '1',"2.0"]#void point keep potential (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [void_point (x,y,z) (ang.)] [atoms(ex. 1,2,3-5)] [order p "(1/p)*k*(r - r0)^p"] ...]
 
+        self.bond_range_potential = []
         self.well_pot = []#['0.0','1','2','0.5,0.6,1.5,1.6']
         self.wall_well_pot = []#['0.0','x','0.5,0.6,1.5,1.6', '1']#Add potential to limit atoms movement. (sandwich) (ex.) [[wall energy (kJ/mol)] [direction (x,y,z)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
         self.void_point_well_pot = []#['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6', '1']#"Add potential to limit atom movement. (sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
@@ -926,6 +966,7 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.opt_method = ["AdaBelief"]
         self.opt_fragment = []
         self.NSTEP = "999"
+        self.project_out = []
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -958,7 +999,7 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.fixedges = 0
         self.gradient_fix_atoms = ""
         self.pyscf = False
-        
+        self.project_out = []
         
         return
     
@@ -994,6 +1035,8 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.NRO_analysis = False
         self.intrinsic_reaction_coordinate = []
         self.oniom_method = []
+        self.tight_convergence_criteria = False
+        self.project_out = []
         return
  
  
@@ -1003,4 +1046,6 @@ class MDInterface(BiasPotInterface):
         super().__init__()
         self.INPUT = input_file
         self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
+        
+        self.project_out = []
         return

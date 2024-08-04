@@ -20,9 +20,11 @@ from keep_outofplain_angle_potential import StructKeepOutofPlainAnglePotential
 from void_point_potential import VoidPointPotential
 from switching_potential import WellPotential
 from gaussian_potential import GaussianPotential
+
 from spacer_model_potential import SpacerModelPotential
 from universal_potential import UniversalPotential
 from flux_potential import FluxPotential
+from value_range_potential import ValueRangePotential
 
 
 class BiasPotentialCalculation:
@@ -69,6 +71,31 @@ class BiasPotentialCalculation:
         BPA_grad_list = g*0.0
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
         geom_num_list = self.ndarray2tensor(geom_num_list)
+        #------------------------------------------------
+        
+        for i in range(len(force_data["value_range_upper_const"])):
+            if force_data["value_range_upper_const"][i] != 0.0:
+                VRP = ValueRangePotential(value_range_upper_const=force_data["value_range_upper_const"][i], 
+                                            value_range_lower_const=force_data["value_range_lower_const"][i], 
+                                            value_range_upper_distance=force_data["value_range_upper_distance"][i],
+                                            value_range_lower_distance=force_data["value_range_lower_distance"][i],
+                                            value_range_fragm_1=force_data["value_range_fragm_1"][i],
+                                            value_range_fragm_2=force_data["value_range_fragm_2"][i],
+                                            element_list=element_list,
+                                            directory=self.BPA_FOLDER_DIRECTORY)
+
+                B_e += VRP.calc_energy4bond(geom_num_list)
+                
+                tensor_BPA_grad = torch.func.jacfwd(VRP.calc_energy4bond)(geom_num_list)
+                BPA_grad_list += self.tensor2ndarray(tensor_BPA_grad)
+
+                tensor_BPA_hessian = torch.func.hessian(VRP.calc_energy4bond)(geom_num_list)
+                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+                BPA_hessian += self.tensor2ndarray(tensor_BPA_hessian)
+            else:
+                pass
+        
+        
         #------------------------------------------------
         for i in range(len(force_data["flux_pot_const"])):
             
@@ -185,8 +212,7 @@ class BiasPotentialCalculation:
         
         #------------------------------------------------
 
-      
-            
+        
         #-----------------------------------------------
         for i in range(len(force_data["repulsive_potential_v2_well_scale"])):
             if force_data["repulsive_potential_v2_well_scale"][i] != 0.0:
