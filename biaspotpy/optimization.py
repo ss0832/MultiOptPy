@@ -271,7 +271,7 @@ class Optimize:
                     
                     #if iter % self.FC_COUNT == 0:
                     self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.all(BPA_hessian != 0.0):
+                    if np.any(BPA_hessian != 0.0):
                         BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
                     
                     print("Project out: Done\n")
@@ -540,7 +540,7 @@ class Optimize:
                     
                     #if iter % self.FC_COUNT == 0:
                     self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.all(BPA_hessian != 0.0):
+                    if np.any(BPA_hessian != 0.0):
                         BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
                     
                     print("Project out: Done\n")
@@ -789,7 +789,7 @@ class Optimize:
                     
                     #if iter % self.FC_COUNT == 0:
                     self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.all(BPA_hessian != 0.0):
+                    if np.any(BPA_hessian != 0.0):
                         BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
                     
                     print("Project out: Done\n")
@@ -1046,7 +1046,7 @@ class Optimize:
                     
                     #if iter % self.FC_COUNT == 0:
                     self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.all(BPA_hessian != 0.0):
+                    if np.any(BPA_hessian != 0.0):
                         BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
                     
                     print("Project out: Done\n")
