@@ -612,7 +612,7 @@ def project_fragm_pair_vector_for_grad(gradient, geom_num_list, fragm_1, fragm_2
     natom = len(geom_num_list)
     fragm_1_center = calc_partial_center(geom_num_list, fragm_1)
     fragm_2_center = calc_partial_center(geom_num_list, fragm_2)
-    fragm_vec = fragm_2_center - fragm_1_center
+    fragm_vec = fragm_2_center - fragm_1_center / (np.linalg.norm(fragm_2_center - fragm_1_center))
     fragm_vec_x = np.array([fragm_vec[0], 0.0, 0.0], dtype="float64")
     fragm_vec_y = np.array([0.0, fragm_vec[1], 0.0], dtype="float64")
     fragm_vec_z = np.array([0.0, 0.0, fragm_vec[2]], dtype="float64")
@@ -638,9 +638,9 @@ def project_fragm_pair_vector_for_grad(gradient, geom_num_list, fragm_1, fragm_2
     tmp_fragm_vec_x = tmp_fragm_vec_x.reshape(3*natom, 1)
     tmp_fragm_vec_y = tmp_fragm_vec_y.reshape(3*natom, 1)
     tmp_fragm_vec_z = tmp_fragm_vec_z.reshape(3*natom, 1)
-    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x) + 1e-8)
-    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y) + 1e-8)
-    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z) + 1e-8)
+    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x))
+    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y))
+    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z))
     tmp_gradient = gradient.reshape(3*natom, 1)
     
     gradient_proj = project_optional_vector_for_grad(tmp_gradient, tmp_fragm_vec_x)
@@ -653,39 +653,69 @@ def project_fragm_pair_vector_for_hess(hessian, geom_num_list, fragm_1, fragm_2)
     natom = len(geom_num_list)
     fragm_1_center = calc_partial_center(geom_num_list, fragm_1)
     fragm_2_center = calc_partial_center(geom_num_list, fragm_2)
-    fragm_vec = fragm_2_center - fragm_1_center
-    fragm_vec_x = np.array([fragm_vec[0], 0.0, 0.0], dtype="float64")
-    fragm_vec_y = np.array([0.0, fragm_vec[1], 0.0], dtype="float64")
-    fragm_vec_z = np.array([0.0, 0.0, fragm_vec[2]], dtype="float64")
-    tmp_fragm_vec = np.array([], dtype="float64")
+    fragm_vec = fragm_2_center - fragm_1_center / (np.linalg.norm(fragm_2_center - fragm_1_center))
+
+    fragm_vec_x = np.array([1.0, 0.0, 0.0], dtype="float64")
+    fragm_vec_y = np.array([0.0, 1.0, 0.0], dtype="float64")
+    fragm_vec_z = np.array([0.0, 0.0, 1.0], dtype="float64")
+
+    fragm_rot_vec_x = np.array([0.0, fragm_vec[2], -1*fragm_vec[1]], dtype="float64") #np.cross(fragm_vec, np.array([1.0, 0.0, 0.0], dtype="float64"))
+    fragm_rot_vec_y = np.array([-1*fragm_vec[2], 0.0, -fragm_vec[0]], dtype="float64") #np.cross(fragm_vec, np.array([1.0, 0.0, 0.0], dtype="float64"))
+    fragm_rot_vec_z = np.array([fragm_vec[1], -1*fragm_vec[0], 0.0], dtype="float64") #np.cross(fragm_vec, np.array([1.0, 0.0, 0.0], dtype="float64"))
+    
     tmp_fragm_vec_x = np.array([], dtype="float64")
     tmp_fragm_vec_y = np.array([], dtype="float64")
     tmp_fragm_vec_z = np.array([], dtype="float64")
+    tmp_fragm_rot_vec_x = np.array([], dtype="float64")
+    tmp_fragm_rot_vec_y = np.array([], dtype="float64")
+    tmp_fragm_rot_vec_z = np.array([], dtype="float64")
+    
+    
     for i in range(len(geom_num_list)):
         if i + 1 in fragm_1:
             tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, -1 * fragm_vec_x, axis=0)
             tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, -1 * fragm_vec_y, axis=0)
             tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, -1 * fragm_vec_z, axis=0)
+            tmp_fragm_rot_vec_x = np.append(tmp_fragm_rot_vec_x, fragm_rot_vec_x, axis=0)
+            tmp_fragm_rot_vec_y = np.append(tmp_fragm_rot_vec_y, fragm_rot_vec_y, axis=0)
+            tmp_fragm_rot_vec_z = np.append(tmp_fragm_rot_vec_z, fragm_rot_vec_z, axis=0)
+
         elif i + 1 in fragm_2:
             tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, fragm_vec_x, axis=0)
             tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, fragm_vec_y, axis=0)
             tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, fragm_vec_z, axis=0)
+            tmp_fragm_rot_vec_x = np.append(tmp_fragm_rot_vec_x, fragm_rot_vec_x, axis=0)
+            tmp_fragm_rot_vec_y = np.append(tmp_fragm_rot_vec_y, fragm_rot_vec_y, axis=0)
+            tmp_fragm_rot_vec_z = np.append(tmp_fragm_rot_vec_z, fragm_rot_vec_z, axis=0)
         
         else:
             tmp_fragm_vec_x = np.append(tmp_fragm_vec_x, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0) 
             tmp_fragm_vec_y = np.append(tmp_fragm_vec_y, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
             tmp_fragm_vec_z = np.append(tmp_fragm_vec_z, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
-    
+            tmp_fragm_rot_vec_x = np.append(tmp_fragm_rot_vec_x, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0) 
+            tmp_fragm_rot_vec_y = np.append(tmp_fragm_rot_vec_y, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)
+            tmp_fragm_rot_vec_z = np.append(tmp_fragm_rot_vec_z, np.array([0.0, 0.0, 0.0], dtype="float64"), axis=0)    
+            
     tmp_fragm_vec_x = tmp_fragm_vec_x.reshape(3*natom, 1)
     tmp_fragm_vec_y = tmp_fragm_vec_y.reshape(3*natom, 1)
     tmp_fragm_vec_z = tmp_fragm_vec_z.reshape(3*natom, 1)
-    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x) + 1e-8)
-    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y) + 1e-8)
-    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z) + 1e-8)
+    tmp_fragm_rot_vec_x = tmp_fragm_rot_vec_x.reshape(3*natom, 1)
+    tmp_fragm_rot_vec_y = tmp_fragm_rot_vec_y.reshape(3*natom, 1)
+    tmp_fragm_rot_vec_z = tmp_fragm_rot_vec_z.reshape(3*natom, 1)
+    tmp_fragm_vec_x = tmp_fragm_vec_x / (np.linalg.norm(tmp_fragm_vec_x))# + 1e-10)
+    tmp_fragm_vec_y = tmp_fragm_vec_y / (np.linalg.norm(tmp_fragm_vec_y))# + 1e-10)
+    tmp_fragm_vec_z = tmp_fragm_vec_z / (np.linalg.norm(tmp_fragm_vec_z))# + 1e-10)
+    tmp_fragm_rot_vec_x = tmp_fragm_rot_vec_x / (np.linalg.norm(tmp_fragm_rot_vec_x))# + 1e-10)
+    tmp_fragm_rot_vec_y = tmp_fragm_rot_vec_y / (np.linalg.norm(tmp_fragm_rot_vec_y))# + 1e-10)
+    tmp_fragm_rot_vec_z = tmp_fragm_rot_vec_z / (np.linalg.norm(tmp_fragm_rot_vec_z))# + 1e-10)
     
     hessian_proj = project_optional_vector_for_hess(hessian, tmp_fragm_vec_x)
     hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_vec_y)
     hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_vec_z)
+    hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_rot_vec_x)
+    hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_rot_vec_y)
+    hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_rot_vec_z)
+    
     return hessian_proj # ndarray (3*natoms, 3*natoms)
 
 
