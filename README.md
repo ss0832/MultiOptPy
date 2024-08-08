@@ -256,5 +256,5 @@ GNU Affero General Public License v3.0
 
 ## Contact
 
-highlighty876@gmail.com
+highlighty876[at]gmail.com
 
