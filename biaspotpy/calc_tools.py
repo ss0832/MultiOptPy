@@ -408,7 +408,6 @@ class Calculationtools:
         
         return transformed_geom_num_list
         
-
     def gen_n_dinensional_rot_matrix(self, vector_1, vector_2):
         #Zhelezov NRMG algorithm (doi:10.5923/j.ajcam.20170702.04) This implementation may be not correct.
         dimension_1 = len(vector_1)
@@ -496,7 +495,6 @@ def return_pair_idx(i, j):
     pair_idx = int(ii * (ii - 1) / 2 - (ii - jj)) -1
     return pair_idx
 
-
 def torch_calc_angle_from_vec(vector1, vector2):
     magnitude1 = torch.linalg.norm(vector1) + 1e-15
     magnitude2 = torch.linalg.norm(vector2) + 1e-15
@@ -514,7 +512,6 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     angle = torch.arccos(cos_theta)
     return angle
 
-
 def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
     magnitude1 = torch.linalg.norm(v1) + 1e-15 
@@ -523,8 +520,6 @@ def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     cos_theta = dot_product / (magnitude1 * magnitude2)
     angle = torch.arccos(cos_theta)
     return angle
-
-
 
 def output_partial_hess(hessian, atom_num_list, element_list, geometry):#hessian: ndarray 3N*3N, atom_num_list: list
     partial_hess = np.zeros((3*len(atom_num_list), 3*len(atom_num_list)))
@@ -717,6 +712,20 @@ def project_fragm_pair_vector_for_hess(hessian, geom_num_list, fragm_1, fragm_2)
     hessian_proj = project_optional_vector_for_hess(hessian_proj, tmp_fragm_rot_vec_z)
     
     return hessian_proj # ndarray (3*natoms, 3*natoms)
+
+
+def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
+    bond_matrix = np.zeros((len(geom_num_list), len(geom_num_list)))
+    
+    for i in range(len(element_list)):
+        for j in range(i+1, len(element_list)):
+            r = np.linalg.norm(geom_num_list[i], geom_num_list[j])
+            r_cov = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+            if r < threshold * r_cov:
+                bond_matrix[i][j] = 1
+                bond_matrix[j][i] = 1
+    
+    return bond_matrix
 
 
 if __name__ == "__main__":#test
