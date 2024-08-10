@@ -50,6 +50,10 @@ class CalculateMoveVector:
         self.element_list = element_list
         self.trust_radii_update = "legacy"
     
+    
+    
+    
+    
     def initialization(self, method):
         optimizer_instances = []
         newton_tag = []
@@ -57,36 +61,47 @@ class CalculateMoveVector:
         lars_instances = []
         for i, m in enumerate(method):
             # group of steepest descent
-            if m == "AdaBelief":
+            if "AdaBelief".lower() in m.lower():
                 optimizer_instances.append(Adabelief())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "LookaheadAdaBelief":
-                optimizer_instances.append(Adabelief())
-                newton_tag.append(False)
-                lookahead_instances.append(LookAhead())
-                lars_instances.append(None)    
-            elif m == "LookaheadAdaBelieflars":
-                optimizer_instances.append(Adabelief())
-                newton_tag.append(False)
-                lookahead_instances.append(LookAhead())
-                lars_instances.append(LARS())   
-            elif m == "AdaBelieflars":
-                optimizer_instances.append(Adabelief())
-                newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(LARS())
-            elif m == "FastAdaBelief":
+                
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)
+            
+            elif "FastAdaBelief".lower() in m.lower():      
                 optimizer_instances.append(FastAdabelief())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "RADAM":
+                
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)
+            
+            elif "Radam".lower() in m.lower():
                 optimizer_instances.append(RADAM())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)
+                
             elif m == "Ranger":
                 optimizer_instances.append(RADAM())
                 newton_tag.append(False)
@@ -97,112 +112,266 @@ class CalculateMoveVector:
                 newton_tag.append(False)
                 lookahead_instances.append(LookAhead())
                 lars_instances.append(LARS())
-            elif m == "Adamod":
+                
+            elif "Adamod".lower() in m.lower():
                 optimizer_instances.append(Adamod())       
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)           
-            elif m == "YOGI":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)
+                
+                        
+            elif "YOGI".lower() in m.lower():
                 optimizer_instances.append(YOGI())      
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)       
-            elif m == "SADAM":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                
+            elif "SADAM".lower() in m.lower():
                 optimizer_instances.append(SAdam()) 
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
-            elif m == "QHADAM":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                
+                
+                
+            elif "QHADAM".lower() in m.lower():
                 optimizer_instances.append(QHAdam())
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
-            elif m == "SAMSGrad":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                
+                
+                
+            elif "SAMSGrad".lower() in m.lower():
                 optimizer_instances.append(SAMSGrad())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "Adam":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                
+            elif m.lower() == "adam" :
                 optimizer_instances.append(Adam()) 
                 newton_tag.append(False)
                 lookahead_instances.append(None)
+                lars_instances.append(None)    
+                
+            elif m.lower() == "adamlars" :
+                optimizer_instances.append(Adam()) 
+                newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(LARS())
+            
+            elif m.lower() == "adamlookahead" :
+                optimizer_instances.append(Adam()) 
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
                 lars_instances.append(None)
-            elif m == "Adadelta":
+            
+            elif m.lower() == "adamlookaheadlars" :
+                optimizer_instances.append(Adam()) 
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(LARS())           
+                
+                
+            elif "Adadelta".lower() in m.lower():
                 optimizer_instances.append(Adadelta())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "AdamW":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                
+                
+            elif "AdamW".lower() in m.lower():
                 optimizer_instances.append(AdamW())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "AdaDiff":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "AdaDiff".lower() in m.lower():
                 optimizer_instances.append(AdaDiff())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "Adafactor":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "Adafactor".lower() in m.lower():
                 optimizer_instances.append(Adafactor())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "Adabound":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "Adabound".lower() in m.lower():
                 optimizer_instances.append(AdaBound())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "EVE":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "EVE".lower() in m.lower():
                 optimizer_instances.append(EVE())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "Prodigy":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "Prodigy".lower() in m.lower():
                 optimizer_instances.append(Prodigy())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "AdaMax":
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "AdaMax".lower() in m.lower():
                 optimizer_instances.append(AdaMax())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "NAdam":    
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "NAdam".lower() in m.lower():    
                 optimizer_instances.append(NAdam())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "RMSpropGrave":    
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "RMSpropGrave".lower() in m.lower():  
                 optimizer_instances.append(RMSpropGrave())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "FIRE":
-                optimizer_instances.append(FIRE())
-                newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-            elif m == "LookaheadFIRE":
-                optimizer_instances.append(FIRE())
-                newton_tag.append(False)
-                lookahead_instances.append(LookAhead())
-                lars_instances.append(None)
-            elif m == "FIRELARS":# FIRE + LARS (This implementation may be better than FIRE)
-                optimizer_instances.append(FIRE())
-                newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(LARS())
-            elif m == "LookaheadFIRELARS":# Lookahead + FIRE + LARS (This implementation may be not better than FIRE)
-                optimizer_instances.append(FIRE())
-                newton_tag.append(False)
-                lookahead_instances.append(LookAhead())
-                lars_instances.append(LARS())
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
                 
-            elif m == "Adaderivative":
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+            elif "FIRE".lower() in m.lower():
+                optimizer_instances.append(FIRE())
+                newton_tag.append(False)
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():# FIRE + LARS (This implementation may be better than FIRE)
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)
+                # Lookahead + FIRE + LARS (This implementation may be not better than FIRE)
+                    
+                
+            elif "Adaderivative".lower() in m.lower():
                 optimizer_instances.append(Adaderivative())
                 newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
+                if "lookahead" in m.lower():
+                    lookahead_instances.append(LookAhead())
+                else:
+                    lookahead_instances.append(None)
+                
+                if "lars" in m.lower():
+                    lars_instances.append(LARS())
+                else:
+                    lars_instances.append(None)    
+                    
+                
             elif m == "CG" or m == "CG_PR" or m == "CG_FR" or m == "CG_HS" or m == "CG_DY":
                 optimizer_instances.append(ConjgateGradient(method=m))
                 newton_tag.append(False)
