@@ -30,7 +30,8 @@ from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.rfo import RationalFunctionOptimization 
 from Optimizer.newton import Newton 
 from Optimizer.rmspropgrave import RMSpropGrave
-
+from Optimizer.lookahead import LookAhead
+from Optimizer.lars import LARS
 
 class CalculateMoveVector:
     def __init__(self, DELTA, trust_radii, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0):
@@ -52,113 +53,218 @@ class CalculateMoveVector:
     def initialization(self, method):
         optimizer_instances = []
         newton_tag = []
+        lookahead_instances = []
+        lars_instances = []
         for i, m in enumerate(method):
             # group of steepest descent
             if m == "AdaBelief":
                 optimizer_instances.append(Adabelief())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
+            elif m == "LookaheadAdaBelief":
+                optimizer_instances.append(Adabelief())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(None)    
+            elif m == "LookaheadAdaBelieflars":
+                optimizer_instances.append(Adabelief())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(LARS())   
+            elif m == "AdaBelieflars":
+                optimizer_instances.append(Adabelief())
+                newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(LARS())
             elif m == "FastAdaBelief":
                 optimizer_instances.append(FastAdabelief())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "RADAM":
                 optimizer_instances.append(RADAM())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
+            elif m == "Ranger":
+                optimizer_instances.append(RADAM())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(None)
+            elif m == "Rangerlars":
+                optimizer_instances.append(RADAM())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(LARS())
             elif m == "Adamod":
                 optimizer_instances.append(Adamod())       
-                newton_tag.append(False)                   
+                newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)           
             elif m == "YOGI":
                 optimizer_instances.append(YOGI())      
-                newton_tag.append(False)            
+                newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)       
             elif m == "SADAM":
                 optimizer_instances.append(SAdam()) 
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "QHADAM":
                 optimizer_instances.append(QHAdam())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "SAMSGrad":
                 optimizer_instances.append(SAMSGrad())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "Adam":
                 optimizer_instances.append(Adam()) 
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "Adadelta":
                 optimizer_instances.append(Adadelta())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "AdamW":
                 optimizer_instances.append(AdamW())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "AdaDiff":
                 optimizer_instances.append(AdaDiff())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "Adafactor":
                 optimizer_instances.append(Adafactor())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "Adabound":
                 optimizer_instances.append(AdaBound())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "EVE":
                 optimizer_instances.append(EVE())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "Prodigy":
                 optimizer_instances.append(Prodigy())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "AdaMax":
                 optimizer_instances.append(AdaMax())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "NAdam":    
                 optimizer_instances.append(NAdam())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "RMSpropGrave":    
                 optimizer_instances.append(RMSpropGrave())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "FIRE":
                 optimizer_instances.append(FIRE())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
+            elif m == "LookaheadFIRE":
+                optimizer_instances.append(FIRE())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(None)
+            elif m == "FIRELARS":# FIRE + LARS (This implementation may be better than FIRE)
+                optimizer_instances.append(FIRE())
+                newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(LARS())
+            elif m == "LookaheadFIRELARS":# Lookahead + FIRE + LARS (This implementation may be not better than FIRE)
+                optimizer_instances.append(FIRE())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead())
+                lars_instances.append(LARS())
+                
             elif m == "Adaderivative":
                 optimizer_instances.append(Adaderivative())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "CG" or m == "CG_PR" or m == "CG_FR" or m == "CG_HS" or m == "CG_DY":
                 optimizer_instances.append(ConjgateGradient(method=m))
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             # group of quasi-Newton method
                
             elif m == "BFGS" or m == "FSB" or m == "Bofill" or m == "MSP":
                 optimizer_instances.append(Newton(method=m))
                 optimizer_instances[i].DELTA = 0.10
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "mBFGS" or m == "mFSB" or m == "mBofill" or m == "mMSP":
                 optimizer_instances.append(Newton(method=m))
                 optimizer_instances[i].DELTA = 0.10
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "BFGS_LS" or m == "FSB_LS" or m == "Bofill_LS" or m == "MSP_LS":
                 optimizer_instances.append(Newton(method=m))
                 optimizer_instances[i].DELTA = 0.5
                 optimizer_instances[i].linesearchflag = True
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "RFO_BFGS" or m == "RFO_FSB" or m == "RFO_Bofill" or m == "RFO_MSP":
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "RFO2_BFGS" or m == "RFO2_FSB" or m == "RFO2_Bofill" or m == "RFO2_MSP":
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "RFO3_BFGS" or m == "RFO3_FSB" or m == "RFO3_Bofill" or m == "RFO3_MSP":
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.50
                 newton_tag.append(True)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
             elif m == "mRFO_BFGS" or m == "mRFO_FSB" or m == "mRFO_Bofill" or m == "mRFO_MSP":
                 optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                 optimizer_instances[i].DELTA = 0.30
                 newton_tag.append(True)
-            else:
-                
+                lookahead_instances.append(None)
+                lars_instances.append(None)
+            else:      
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
                 optimizer_instances.append(Adabelief())
                 newton_tag.append(False)
+                lookahead_instances.append(None)
+                lars_instances.append(None)
                 
         self.method = method
         self.newton_tag = newton_tag
+        self.lookahead_instances = lookahead_instances
+        self.lars_instances = lars_instances
+        
         return optimizer_instances
         
     def update_trust_radii(self, trust_radii, B_e, pre_B_e, pre_B_g, pre_move_vector):
@@ -204,6 +310,7 @@ class CalculateMoveVector:
         self.iter = iter
         self.geom_num_list = geom_num_list
         move_vector_list = []
+
         #-------------------------------------------------------------
         #update trust radii
         #-------------------------------------------------------------
@@ -222,9 +329,19 @@ class CalculateMoveVector:
         #calculate move vector
         #---------------------------------
         for i in range(len(optimizer_instances)):
-            move_vector_list.append(optimizer_instances[i].run(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g))
+            tmp_move_vector = optimizer_instances[i].run(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
+            tmp_move_vector = np.array(tmp_move_vector, dtype="float64")
+            if self.lars_instances[i] is not None:
+                trust_delta = self.lars_instances[i].run(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, tmp_move_vector)
+                
+                tmp_move_vector = tmp_move_vector * trust_delta
+                
+            if self.lookahead_instances[i] is not None:
+                tmp_move_vector = self.lookahead_instances[i].run(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, tmp_move_vector)
             
+            move_vector_list.append(tmp_move_vector)
             
+        
         #---------------------------------
         # switch step update method
         #---------------------------------
@@ -260,6 +377,7 @@ class CalculateMoveVector:
             move_vector = copy.copy(move_vector_list[0])
             if self.newton_tag[0]:
                 self.diag_hess_and_display(optimizer_instances[0])
+                
         # add perturbation (toy function)
         P = Perturbation(temperature=self.temperature)
         perturbation = P.boltzmann_dist_perturb(move_vector)
