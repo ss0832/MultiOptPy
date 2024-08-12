@@ -36,7 +36,7 @@ python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
 ```
 For SADDLE calculation
 ```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RFO3_FSB -order 1 -fc 5
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RFO3_Bofill -order 1 -fc 5
 ```
 
 For NEB method
