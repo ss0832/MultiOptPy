@@ -80,6 +80,9 @@ def ieipparser(parser):
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
+    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
+    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
 
     
     args = parser.parse_args()#model_function_mode
@@ -127,7 +130,10 @@ def optimizeparser(parser):
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
     parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
-
+    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
+    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
+    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
+    parser.add_argument('-modelhess','--use_model_hessian', help="use Swart's model hessian.", action='store_true')
     args = parser.parse_args()
     return args
 
@@ -198,6 +204,9 @@ def nebparser(parser):
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default=[], help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
+    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
+    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -241,6 +250,9 @@ def mdparser(parser):
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
     parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
+    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
+    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
+    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -298,8 +310,36 @@ def force_data_parser(args):
         force_data["project_out_fragm_pair"].append([num_parse(args.project_out[2*i]), num_parse(args.project_out[2*i+1])])
     
     #---------------------
+    force_data["project_out_bend_fragms"] = []
+
+    if len(args.bend_project_out) % 3 != 0:
+        print("invaild input (-bproj)")
+        sys.exit(0)
     
+    for i in range(int(len(args.bend_project_out)/3)):
+        force_data["project_out_bend_fragms"].append([num_parse(args.bend_project_out[3*i]), num_parse(args.bend_project_out[3*i+1]), num_parse(args.bend_project_out[3*i+2])])
     
+    #---------------------
+    force_data["project_out_torsion_fragms"] = []
+
+    if len(args.torsion_project_out) % 4 != 0:
+        print("invaild input (-tproj)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.torsion_project_out)/4)):
+        force_data["project_out_torsion_fragms"].append([num_parse(args.torsion_project_out[4*i]), num_parse(args.torsion_project_out[4*i+1]), num_parse(args.torsion_project_out[4*i+2]), num_parse(args.torsion_project_out[4*i+3])])
+    
+    #---------------------
+    force_data["project_out_outofplain_fragms"] = []
+
+    if len(args.outofplain_project_out) % 4 != 0:
+        print("invaild input (-oproj)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.outofplain_project_out)/4)):
+        force_data["project_out_outofplain_fragms"].append([num_parse(args.outofplain_project_out[4*i]), num_parse(args.outofplain_project_out[4*i+1]), num_parse(args.outofplain_project_out[4*i+2]), num_parse(args.outofplain_project_out[4*i+3])])
+    
+    #-----------------------
     if len(args.flux_potential) % 4 != 0:
         print("invaild input (-fp)")
         sys.exit(0)
@@ -362,8 +402,7 @@ def force_data_parser(args):
         force_data["spacer_model_potential_particle_number"].append(int(args.spacer_model_potential[5*i+3]))
         force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
 
-   
-    #---------------------
+ 
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
         sys.exit(0)
@@ -381,7 +420,7 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
     
-
+   
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
@@ -913,7 +952,6 @@ class BiasPotInterface:
         self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = []#['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
-        self.ovoid_repulsive_potential = []#['0.0,0.0,0.0,0.0,0.0,0.0','1.0,1.0,1.0,1.0,1.0,1.0','0.0','6', '1,2', '1-2']#'Add LJ repulsive_potential (ovoid) (ex.) [[well_value_list (x1,x2,y1,y2,z1,z2) (kJ/mol)] [dist_list (x1,x2,y1,y2,z1,z2) (ang.)] [length (ang.)] [order] [LJ center atom (1,2)] [target atoms (3-5,8)] ...]')
         self.cone_potential = []#['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
         
         self.keep_pot = []#['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
@@ -926,8 +964,7 @@ class BiasPotInterface:
         self.keep_angle_v2 = []#['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
         self.lone_pair_keep_angle = []#['0.0', '90', '1,2,3,4', '5,6,7,8']
-        self.keep_arch = []#['0.0', '90', '2.5', '1,2,3,4']
-        self.keep_arch_v2 = []
+
         self.flux_potential = []#['0.0', '1.0', '1,2,3,4']#flux potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2,atom3,atom4] ...]
         self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
         self.keep_out_of_plain_angle = []#['0.0', '90', '1,2,3,4']#keep out_of_plain angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [atom1,atom2,atom3,atom4] ...]
@@ -967,6 +1004,9 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.opt_fragment = []
         self.NSTEP = "999"
         self.project_out = []
+        self.bend_project_out = []
+        self.torsion_project_out = []
+        self.outofplain_project_out = []
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -1000,11 +1040,11 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.gradient_fix_atoms = ""
         self.pyscf = False
         self.project_out = []
-        
+        self.bend_project_out = []
+        self.torsion_project_out = []
+        self.outofplain_project_out = []
         return
     
-
-
 class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable code.
     def __init__(self, input_file=""):
         super().__init__()
@@ -1037,6 +1077,10 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.oniom_method = []
         self.tight_convergence_criteria = False
         self.project_out = []
+        self.bend_project_out = []
+        self.torsion_project_out = []
+        self.outofplain_project_out = [] 
+        self.use_model_hessian = False
         return
  
  
@@ -1048,4 +1092,7 @@ class MDInterface(BiasPotInterface):
         self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
         
         self.project_out = []
+        self.bend_project_out = []
+        self.torsion_project_out = []
+        self.outofplain_project_out = []
         return

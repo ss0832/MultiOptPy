@@ -20,7 +20,7 @@ from cmds_analysis import CMDSPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools, project_fragm_pair_vector_for_grad, project_fragm_pair_vector_for_hess
+from calc_tools import CalculationStructInfo, Calculationtools, project_fragm_pair_vector_for_grad, project_fragm_pair_vector_for_hess, project_fragm_bend_vector_for_grad, project_fragm_torsion_vector_for_grad, project_fragm_outofplain_vector_for_grad
 from MO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
@@ -135,6 +135,9 @@ class Optimize:
         
         return
 
+
+
+
     def check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
         max_force_threshold = self.MAX_FORCE_THRESHOLD
@@ -153,6 +156,75 @@ class Optimize:
         if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
             return True, max_displacement_threshold, rms_displacement_threshold
         return False, max_displacement_threshold, rms_displacement_threshold
+    
+    def project_out_optional_vectors(self, B_g, g, BPA_hessian, geom_num_list, force_data):
+        # project out optional vectors
+        if len(force_data["project_out_fragm_pair"]) > 0:
+            print("project out optional vectors")
+            for fragm_pair in force_data["project_out_fragm_pair"]:
+                fragm_1 = fragm_pair[0]
+                fragm_2 = fragm_pair[1]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                
+                # stretch
+                B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+            print("Project out: Done\n")
+        
+        if len(force_data["project_out_bend_fragms"]) > 0:
+            print("project out optional bending vectors")
+            for fragms in force_data["project_out_bend_fragms"]:    
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                
+                # bend
+                B_g = copy.copy(project_fragm_bend_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_3, fragm_2))
+                g = copy.copy(project_fragm_bend_vector_for_grad(g, geom_num_list, fragm_1, fragm_3, fragm_2))
+            print("Project out: Done\n")
+        if len(force_data["project_out_torsion_fragms"]) > 0:
+            print("project out optional torsion vectors")
+            for fragms in force_data["project_out_torsion_fragms"]:
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                fragm_4 = fragms[3]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                print("Fragment 4: ", fragm_4)
+                # torsion
+                B_g = copy.copy(project_fragm_torsion_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                g = copy.copy(project_fragm_torsion_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+            print("Project out: Done\n")
+        if len(force_data["project_out_outofplain_fragms"]) > 0:
+            print("project out optional out of plain vectors")
+            for fragms in force_data["project_out_outofplain_fragms"]:
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                fragm_4 = fragms[3]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                print("Fragment 4: ", fragm_4)    
+                # out of plain
+                B_g = copy.copy(project_fragm_outofplain_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                g = copy.copy(project_fragm_outofplain_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                
+                self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                if np.any(BPA_hessian != 0.0):
+                    BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+            print("Project out: Done\n")    
+        return B_g, g, BPA_hessian
     
     def optimize_using_tblite(self):
         from tblite_calculation_tools import Calculation
@@ -235,8 +307,9 @@ class Optimize:
             
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
-
-            self.Model_hess = SP.Model_hess
+            if iter == 0 and self.args.use_model_hessian:
+                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+            self.Model_hess = copy.copy(SP.Model_hess)
             
             
             #---------------------------------------
@@ -256,25 +329,7 @@ class Optimize:
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             
             #----------
-            # project out optional vectors
-            if len(force_data["project_out_fragm_pair"]) > 0:
-                print("project out optional vectors")
-                for fragm_pair in force_data["project_out_fragm_pair"]:
-                    fragm_1 = fragm_pair[0]
-                    fragm_2 = fragm_pair[1]
-                    print("Project out: \n")
-                    print("Fragment 1: ", fragm_1)
-                    print("Fragment 2: ", fragm_2)
-                    
-                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-                    
-                    #if iter % self.FC_COUNT == 0:
-                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.any(BPA_hessian != 0.0):
-                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-                    
-                    print("Project out: Done\n")
+            B_g, g, BPA_hessian = self.project_out_optional_vectors(B_g, g, BPA_hessian, geom_num_list, force_data)
             
             #----------
             
@@ -503,6 +558,8 @@ class Optimize:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
+            if iter == 0 and self.args.use_model_hessian:
+                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = SP.Model_hess
            
 
@@ -526,24 +583,8 @@ class Optimize:
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------
             # project out optional vectors
-            if len(force_data["project_out_fragm_pair"]) > 0:
-                print("project out optional vectors")
-                for fragm_pair in force_data["project_out_fragm_pair"]:
-                    fragm_1 = fragm_pair[0]
-                    fragm_2 = fragm_pair[1]
-                    print("Project out: \n")
-                    print("Fragment 1: ", fragm_1)
-                    print("Fragment 2: ", fragm_2)
-                    
-                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-                    
-                    #if iter % self.FC_COUNT == 0:
-                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.any(BPA_hessian != 0.0):
-                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-                    
-                    print("Project out: Done\n")
+            B_g, g, BPA_hessian = self.project_out_optional_vectors(B_g, g, BPA_hessian, geom_num_list, force_data)
+
             
             #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
@@ -755,7 +796,8 @@ class Optimize:
             #---------------------------------------
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
-
+            if iter == 0 and self.args.use_model_hessian:
+                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = SP.Model_hess
             
             #---------------------------------------
@@ -775,24 +817,8 @@ class Optimize:
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------
             # project out optional vectors
-            if len(force_data["project_out_fragm_pair"]) > 0:
-                print("project out optional vectors")
-                for fragm_pair in force_data["project_out_fragm_pair"]:
-                    fragm_1 = fragm_pair[0]
-                    fragm_2 = fragm_pair[1]
-                    print("Project out: \n")
-                    print("Fragment 1: ", fragm_1)
-                    print("Fragment 2: ", fragm_2)
-                    
-                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-                    
-                    #if iter % self.FC_COUNT == 0:
-                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.any(BPA_hessian != 0.0):
-                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-                    
-                    print("Project out: Done\n")
+            B_g, g, BPA_hessian = self.project_out_optional_vectors(B_g, g, BPA_hessian, geom_num_list, force_data)
+
             
             #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
@@ -1012,7 +1038,8 @@ class Optimize:
             
             SP.Model_hess = self.Model_hess
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
-
+            if iter == 0 and self.args.use_model_hessian:
+                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = SP.Model_hess
             
             #---------------------------------------
@@ -1032,24 +1059,8 @@ class Optimize:
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             #----------
             # project out optional vectors
-            if len(force_data["project_out_fragm_pair"]) > 0:
-                print("project out optional vectors")
-                for fragm_pair in force_data["project_out_fragm_pair"]:
-                    fragm_1 = fragm_pair[0]
-                    fragm_2 = fragm_pair[1]
-                    print("Project out: \n")
-                    print("Fragment 1: ", fragm_1)
-                    print("Fragment 2: ", fragm_2)
-                    
-                    B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                    g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-                    
-                    #if iter % self.FC_COUNT == 0:
-                    self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                    if np.any(BPA_hessian != 0.0):
-                        BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-                    
-                    print("Project out: Done\n")
+            B_g, g, BPA_hessian = self.project_out_optional_vectors(B_g, g, BPA_hessian, geom_num_list, force_data)
+
             
             #----------
             print("=== Eigenvalue (Before Adding Bias potential) ===")
