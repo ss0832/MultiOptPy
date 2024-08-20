@@ -104,10 +104,14 @@ class Optimize:
         #-----------------------------
         if args.othersoft != "None":
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time())+"/"
-        elif args.usextb == "None":
+
+        elif args.usextb == "None" and args.usedxtb == "None":
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
         else:
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time())+"/"
+            if args.usedxtb != "None":
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usedxtb+"_"+str(time.time())+"/"
+            else:
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time())+"/"
         
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
         
@@ -227,7 +231,12 @@ class Optimize:
         return B_g, g, BPA_hessian
     
     def optimize_using_tblite(self):
-        from tblite_calculation_tools import Calculation
+        if self.args.usedxtb != "None":
+            from dxtb_calculation_tools import Calculation
+            xtb_method = self.args.usedxtb
+        else:
+            from tblite_calculation_tools import Calculation
+            xtb_method = self.args.usextb
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         trust_radii = 0.01
         force_data = force_data_parser(self.args)
@@ -293,7 +302,7 @@ class Optimize:
             
         #----------------------------------
         if self.NRO_analysis:
-            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=force_data["xtb"], element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
+            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=xtb_method, element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         
         #---------------------------------
         for iter in range(self.NSTEP):
@@ -305,8 +314,8 @@ class Optimize:
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             
-            SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
+            SP.Model_hess = copy.copy(self.Model_hess)
+            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
             if iter == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = copy.copy(SP.Model_hess)
@@ -556,11 +565,11 @@ class Optimize:
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
-            SP.Model_hess = self.Model_hess
+            SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
             if iter == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-            self.Model_hess = SP.Model_hess
+            self.Model_hess = copy.copy(SP.Model_hess)
            
 
             #proj_model_hess = ApproxHessian().main(geom_num_list, element_list, g)
@@ -794,11 +803,11 @@ class Optimize:
                 break
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
-            SP.Model_hess = self.Model_hess
+            SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
             if iter == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-            self.Model_hess = SP.Model_hess
+            self.Model_hess = copy.copy(SP.Model_hess)
             
             #---------------------------------------
             if iter == 0:
@@ -1036,11 +1045,11 @@ class Optimize:
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             
-            SP.Model_hess = self.Model_hess
+            SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, force_data["xtb"])
             if iter == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-            self.Model_hess = SP.Model_hess
+            self.Model_hess = copy.copy(SP.Model_hess)
             
             #---------------------------------------
             if iter == 0:
@@ -1770,7 +1779,7 @@ class Optimize:
         # QM (and others) calculation
         elif self.args.pyscf:
             self.optimize_using_pyscf()
-        elif self.args.usextb != "None":
+        elif self.args.usextb != "None" or self.args.usedxtb != "None":
             self.optimize_using_tblite()
         elif self.args.othersoft != "None":
             self.optimize_using_ase()

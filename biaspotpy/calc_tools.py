@@ -130,7 +130,7 @@ class Calculationtools:
         for i in range(len(geomerty)):
             
             center += geomerty[i] 
-        center /= float(len(geomerty))
+        center /= len(geomerty)
         
         return center
             
@@ -160,7 +160,7 @@ class Calculationtools:
     def project_out_hess_tr_and_rot(self, hessian, element_list, geomerty):#covert coordination to mass-weighted coordination
         natoms = len(element_list)
         
-        geomerty -= self.calc_center_of_mass(geomerty, element_list)
+        geomerty = geomerty - self.calc_center_of_mass(geomerty, element_list)
         
         elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
         
@@ -198,7 +198,9 @@ class Calculationtools:
 
         mw_hess_proj = np.dot(np.dot(P.T, mw_hessian), P)
 
-        eigenvalues, eigenvectors = np.linalg.eigh(mw_hess_proj)
+        eigenvalues, eigenvectors = np.linalg.eig(mw_hess_proj)
+        eigenvalues = eigenvalues.astype(np.float64)
+        eigenvalues = np.sort(eigenvalues)
         idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
         print("=== hessian projected out transition and rotation (mass-weighted coordination) ===")
         print("eigenvalues: ", eigenvalues[idx_eigenvalues])
@@ -207,7 +209,7 @@ class Calculationtools:
     def project_out_hess_tr_and_rot_for_coord(self, hessian, element_list, geomerty):#do not consider atomic mass
         natoms = len(element_list)
        
-        geomerty -= self.calc_center(geomerty, element_list)
+        geomerty = geomerty - self.calc_center(geomerty, element_list)
         
     
         tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
@@ -234,7 +236,9 @@ class Calculationtools:
 
         hess_proj = np.dot(np.dot(P.T, hessian), P)
 
-        eigenvalues, eigenvectors = np.linalg.eigh(hess_proj)
+        eigenvalues, eigenvectors = np.linalg.eig(hess_proj)
+        eigenvalues = eigenvalues.astype(np.float64)
+        eigenvalues = np.sort(eigenvalues)
         idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
         print("=== hessian projected out transition and rotation (normal coordination) ===")
         print("eigenvalues: ", eigenvalues[idx_eigenvalues])
@@ -1268,6 +1272,19 @@ def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
     return bond_matrix
 
 
+def calc_local_fc_from_pBmat(cart_hess, pBmat):
+    #hessian projected out transion and rotation is needed.
+    inv_cart_hess = np.linalg.inv(cart_hess)
+    inv_local_fc = np.dot(pBmat, np.dot(inv_cart_hess, pBmat.T))
+    inv_non_diagonal_upper_fc = np.triu(inv_local_fc) - np.diag(np.diag(inv_local_fc))
+    inv_non_diagonal_lower_fc = np.tril(inv_local_fc) - np.diag(np.diag(inv_local_fc))
+    non_diagonal_ufc = 1 / inv_non_diagonal_upper_fc
+    non_diagonal_lfc = 1 / inv_non_diagonal_lower_fc
+    local_fc = np.diag(1/inv_local_fc)
+    return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
+
+
+
 if __name__ == "__main__":#test
     
     test_coord = np.array( [[0.075000142905,          0.075000142905,         -0.000000000000],
@@ -1287,7 +1304,7 @@ if __name__ == "__main__":#test
                           [-0.231063629, -0.318614598, 0.000000000,0.015357046,0.013434326,0.000000000,-0.031644928,-0.014778964,0.000000000,0.247351511, 0.319959236, -0.000000000],
                           [-0.000000000, 0.000000000,  0.005649274,-0.000000000, -0.000000000,-0.001881913,0.000000000, 0.000000000,-0.001881913,-0.000000000, -0.000000000,-0.001885447]], dtype="float64")
     test_element_list = ["N", "H", "H", "H"]
-    partial_hess, partial_geom, partial_element_list = output_partial_hess(test_hess, [1,2,3,4], test_element_list, test_coord)
+    partial_hess, partial_geom, partial_element_list = output_partial_hess(test_hess, [1,2], test_element_list, test_coord)
     p_partial_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(partial_hess, partial_element_list, partial_geom)
     partial_eigenvalue, partial_eigenvector = np.linalg.eigh(p_partial_hess)
     print(partial_eigenvalue)
@@ -1295,4 +1312,25 @@ if __name__ == "__main__":#test
     mw_partial_hess = Calculationtools().project_out_hess_tr_and_rot(partial_hess, partial_element_list, partial_geom)
     partial_eigenvalue, partial_eigenvector = np.linalg.eigh(mw_partial_hess)
     print(partial_eigenvalue)
+
+    from redundant_coordinations import partial_bend_B_matrix, partial_stretch_B_matirx, partial_torsion_B_matrix
+
+    bond_pBmat = partial_stretch_B_matirx(test_coord, 1, 2)
+    bend_pBmat = partial_bend_B_matrix(test_coord, 2, 1, 3)
+    torsion_pBmat = partial_torsion_B_matrix(test_coord, 2, 1, 3, 4)
+    print(bond_pBmat, bend_pBmat, torsion_pBmat)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bend_pBmat)
+    print(lfc, undfc, lndfc)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bond_pBmat)
+    print(lfc, undfc, lndfc)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc)
+        
+
+
+
+
+
+
+
     

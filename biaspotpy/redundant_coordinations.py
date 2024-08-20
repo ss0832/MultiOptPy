@@ -11,7 +11,7 @@ class RedundantInternalCoordinates:
         
         return
         
-    def B_matrix(self, coord):#cartecian coord (atom num × 3)
+    def B_matrix(self, coord):#cartecian coord (atom num × 3)#only constract distance B matrix 
         
         idx_list = [i for i in range(len(coord))]#1-2, 1-3, ..., (N-2)-N, (N-1)-N
         internal_coord_idx = list(itertools.combinations(idx_list, 2))
@@ -143,6 +143,183 @@ class RedundantInternalCoordinates:
        
         cart_hessian = np.dot(np.dot(b_mat.T, RIChess), b_mat) + K_mat
         return cart_hessian
+
+
+def stack_B_matrix():
+    return
+
+def partial_stretch_B_matirx(coord, atom_label_1, atom_label_2):#coord:Bohr
+    partial_B = []
+    natom = len(coord)
+    atom_label_1 -= 1
+    atom_label_2 -= 1
+    norm = np.linalg.norm(coord[atom_label_1] - coord[atom_label_2])
+    dr_dxi = (coord[atom_label_1][0] - coord[atom_label_2][0]) / norm  
+    dr_dyi = (coord[atom_label_1][1] - coord[atom_label_2][1]) / norm  
+    dr_dzi = (coord[atom_label_1][2] - coord[atom_label_2][2]) / norm  
+            
+    dr_dxj = -1*(coord[atom_label_1][0] - coord[atom_label_2][0]) / norm  
+    dr_dyj = -1*(coord[atom_label_1][1] - coord[atom_label_2][1]) / norm  
+    dr_dzj = -1*(coord[atom_label_1][2] - coord[atom_label_2][2]) / norm  
+    
+    for n in range(natom):
+        if n == atom_label_1:
+            partial_B.extend([dr_dxi, dr_dyi, dr_dzi])
+        elif n == atom_label_2:
+            partial_B.extend([dr_dxj, dr_dyj, dr_dzj])
+        else:
+            partial_B.extend([0.0, 0.0, 0.0])
+    
+    partial_B = np.array([partial_B], dtype="float64")
+    return partial_B # Bohr/Bohr
+
+def partial_bend_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3):#coord:Bohr
+    partial_B = []
+    i = atom_label_1 - 1
+    j = atom_label_2 - 1
+    k = atom_label_3 - 1 
+    natom = len(coord)
+
+    vec_ij = coord[i] - coord[j]
+    vec_kj = coord[k] - coord[j]
+    norm_vec_ij = np.linalg.norm(vec_ij)
+    norm_vec_kj = np.linalg.norm(vec_kj)
+
+    dot_prod = np.dot(vec_ij, vec_kj) / (norm_vec_ij * norm_vec_kj)
+    if dot_prod < -1:
+        dot_prod = -1
+    elif dot_prod > 1:
+        dot_prod = 1
+
+    theta = np.arccos(dot_prod)
+
+    if abs(theta) > np.pi - 1e-6:
+        d_theta_dx = [(np.pi - theta) / (2 * norm_vec_ij ** 2) * vec_ij,
+                      (1 / norm_vec_ij - 1 / norm_vec_kj) * (np.pi - theta) / (2 * norm_vec_ij) * vec_ij,
+                      (np.pi -theta) / (2 * norm_vec_kj ** 2) * vec_kj]
+    else:
+        d_theta_dx = [1 / np.tan(theta) * vec_ij / norm_vec_ij ** 2 
+                      - vec_kj / (norm_vec_ij * norm_vec_kj * np.sin(theta)),
+                      (vec_ij + vec_kj) / (norm_vec_ij * norm_vec_kj * np.sin(theta))
+                        - 1 / np.tan(theta) * (vec_ij / norm_vec_ij ** 2 + vec_kj / norm_vec_kj ** 2),
+                        1 / np.tan(theta) * vec_kj / norm_vec_kj ** 2 - vec_ij / (norm_vec_ij * norm_vec_kj * np.sin(theta))]
+    dr_dxi = d_theta_dx[0][0]
+    dr_dyi = d_theta_dx[0][1]
+    dr_dzi = d_theta_dx[0][2]
+
+    dr_dxj = d_theta_dx[1][0]
+    dr_dyj = d_theta_dx[1][1]
+    dr_dzj = d_theta_dx[1][2]
+
+    dr_dxk = d_theta_dx[2][0]
+    dr_dyk = d_theta_dx[2][1]
+    dr_dzk = d_theta_dx[2][2]
+    
+    for n in range(natom):
+        if n == i:
+            partial_B.extend([dr_dxi, dr_dyi, dr_dzi])
+        elif n == j:
+            partial_B.extend([dr_dxj, dr_dyj, dr_dzj])
+        elif n == k:
+            partial_B.extend([dr_dxk, dr_dyk, dr_dzk])
+        else:
+            partial_B.extend([0.0, 0.0, 0.0])
+    
+    partial_B = np.array([partial_B], dtype="float64")
+    return partial_B # radian/Bohr
+
+
+def partial_torsion_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4):
+    partial_B = []
+    natom = len(coord)
+    i = atom_label_1 - 1
+    j = atom_label_2 - 1
+    k = atom_label_3 - 1
+    l = atom_label_4 - 1
+
+    vec_ij = coord[i] - coord[j]
+    vec_lk = coord[l] - coord[k]
+    vec_kj = coord[k] - coord[j]
+
+    norm_vec_kj = np.linalg.norm(vec_kj)
+    unit_vec_kj = vec_kj / norm_vec_kj
+
+    a_1 = vec_ij - np.dot(vec_ij, unit_vec_kj) * unit_vec_kj
+    a_2 = vec_lk - np.dot(vec_lk, unit_vec_kj) * unit_vec_kj
+
+    norm_a_1 = np.linalg.norm(a_1)
+    norm_a_2 = np.linalg.norm(a_2)
+
+    sgn = np.sign(np.linalg.det(np.array([vec_lk, vec_ij, vec_kj])))
+    sgn = sgn or 1
+    dot_prod = np.dot(a_1, a_2) / (norm_a_1 * norm_a_2)
+    if dot_prod < -1:
+        dot_prod = -1
+    elif dot_prod > 1:
+        dot_prod = 1
+    phi = np.arccos(dot_prod) * sgn
+    
+    if abs(phi) > np.pi - 1e-6:
+        G = np.cross(vec_kj, a_1)
+        norm_G = np.linalg.norm(G)
+        unit_G = G / norm_G
+        A = np.dot(vec_ij, unit_vec_kj) / norm_vec_kj
+        B = np.dot(vec_lk, unit_vec_kj) / norm_vec_kj 
+
+        d_phi_dx = [unit_G / norm_a_1,
+                    - ((1 - A) / norm_a_1 - B / norm_a_2) * unit_G,
+                    - ((1 + B) / norm_a_2 + A / norm_a_1) * unit_G,
+                    unit_G / norm_a_2]
+    elif abs(phi) < 1e-6:
+        G = np.cross(vec_kj, a_1)
+        norm_G = np.linalg.norm(G)
+        unit_G = G / norm_G
+        A = np.dot(vec_ij, unit_vec_kj) / norm_vec_kj
+        B = np.dot(vec_lk, unit_vec_kj) / norm_vec_kj 
+
+        d_phi_dx = [unit_G / norm_a_1,
+                    - ((1 - A) / norm_a_1 - B / norm_a_2) * unit_G,
+                    - ((1 + B) / norm_a_2 + A / norm_a_1) * unit_G,
+                    -1 * unit_G / norm_a_2]
+    else:
+        A = np.dot(vec_ij, unit_vec_kj) / norm_vec_kj
+        B = np.dot(vec_lk, unit_vec_kj) / norm_vec_kj 
+        d_phi_dx = [1/ np.tan(phi) * a_1 / norm_a_1 ** 2 - a_2 / (norm_a_1 * norm_a_2 * np.sin(phi)),
+                    ((1 - A) * a_2 - B * a_1) / (norm_a_1 * norm_a_2 * np.sin(phi)) - 1 / np.tan(phi) * ((1 - A) * a_1 / norm_a_1 ** 2 - B * a_2 / norm_a_2 ** 2),
+                    ((1 + B) * a_1 + A * a_2) / (norm_a_1 * norm_a_2 * np.sin(phi)) - 1 / np.tan(phi) * ((1 + B) * a_2 / norm_a_2 ** 2 + A * a_1 / norm_a_1 ** 2),
+                    1 / np.tan(phi) * a_2 / norm_a_2 ** 2 - a_1 / (norm_a_1 * norm_a_2 * np.sin(phi))]
+    
+    dr_dxi = d_phi_dx[0][0]
+    dr_dyi = d_phi_dx[0][1]
+    dr_dzi = d_phi_dx[0][2]
+
+    dr_dxj = d_phi_dx[1][0]
+    dr_dyj = d_phi_dx[1][1]
+    dr_dzj = d_phi_dx[1][2]
+
+    dr_dxk = d_phi_dx[2][0]
+    dr_dyk = d_phi_dx[2][1]
+    dr_dzk = d_phi_dx[2][2]
+
+    dr_dxl = d_phi_dx[3][0]
+    dr_dyl = d_phi_dx[3][1]
+    dr_dzl = d_phi_dx[3][2]
+
+
+    for n in range(natom):
+        if n == i:
+            partial_B.extend([dr_dxi, dr_dyi, dr_dzi])
+        elif n == j:
+            partial_B.extend([dr_dxj, dr_dyj, dr_dzj])
+        elif n == k:
+            partial_B.extend([dr_dxk, dr_dyk, dr_dzk])
+        elif n == l:
+            partial_B.extend([dr_dxl, dr_dyl, dr_dzl])
+        else:
+            partial_B.extend([0.0, 0.0, 0.0])
+    
+    partial_B = np.array([partial_B], dtype="float64")
+    return partial_B # radian/Bohr
 
 
 class TorchDerivatives:
