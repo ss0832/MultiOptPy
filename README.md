@@ -21,6 +21,7 @@ This program reproduces AFIR method in python for learning purposes.
 Optional
  
  - tblite (If you use extended tight binding (xTB) method, this module is required.)
+ - dxtb (same as above)
  - ASE 
    
 ## References
