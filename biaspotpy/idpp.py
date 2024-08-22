@@ -34,8 +34,8 @@ def calc_idpp_gradient(geometry, distance):
         idx = return_pair_idx(i, j)
         d_distance = distance[idx]
         distance_ij = np.linalg.norm(geometry[i] - geometry[j])
-        gradient[i] += 2 * (1 / d_distance) ** 4 * (d_distance - distance_ij) * (geometry[i] - geometry[j])
-        gradient[j] += 2 * (1 / d_distance) ** 4 * (d_distance - distance_ij) * (geometry[j] - geometry[i])
+        gradient[i] += -2 * (1 / d_distance) ** 4 * (d_distance - distance_ij) * (geometry[i] - geometry[j])
+        gradient[j] += -2 * (1 / d_distance) ** 4 * (d_distance - distance_ij) * (geometry[j] - geometry[i])
     gradient = np.array(gradient)
     return gradient
 
