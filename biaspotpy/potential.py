@@ -178,7 +178,7 @@ class BiasPotentialCalculation:
             if len(tmp_bias_pot_params) > 0:
                 results = torch.func.jacfwd(self.bias_pot_obj_list[j].calc_energy, argnums=1)(geom_num_list, tmp_bias_pot_params)
                 results = tensor2ndarray(results)
-                print("dE_bias_pot/d_param: ", results)
+                print(self.bias_pot_obj_id_list[j],":dE_bias_pot/d_param: ", results)
                 save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.bias_pot_obj_id_list[j])
             
             save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.bias_pot_obj_id_list[j])
