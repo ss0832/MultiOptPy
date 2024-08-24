@@ -4,6 +4,23 @@ import os
 import numpy as np
 
 from scipy.signal import argrelextrema
+from calc_tools import calc_RMS
+
+
+def save_bias_pot_info(file_path, energy, gradient, bias_pot_id):
+    max_grad = np.max(np.abs(gradient))
+    rms_grad = calc_RMS(gradient)
+    save_path = file_path+"bias_pot_info_"+str(bias_pot_id)+".log"
+    
+    if not os.path.exists(save_path):
+        with open(save_path, "w") as f:
+            f.write("Energy, MaxGrad, RMSGrad\n")
+            
+    with open(save_path, "a") as f:
+        f.write(str(energy)+","+str(max_grad)+","+str(rms_grad)+"\n")
+    return
+
+
 
 def read_software_path(file_path="./"):
     with open(file_path+"software_path.conf", "r") as f:

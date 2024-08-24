@@ -18,7 +18,7 @@ class ValueRangePotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
 
-    def calc_energy4bond(self, geom_num_list):
+    def calc_energy(self, geom_num_list):
         # ref.:https://doi.org/10.1063/5.0197592 (bond range potential)
         """
         # required variables: self.config["value_range_upper_const"]

@@ -1284,6 +1284,9 @@ def calc_local_fc_from_pBmat(cart_hess, pBmat):
     return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
 
 
+def calc_RMS(data):
+    return np.sqrt(np.mean(data ** 2))
+
 
 if __name__ == "__main__":#test
     
