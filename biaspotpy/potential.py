@@ -88,7 +88,7 @@ class BiasPotentialCalculation:
             bias_pot_obj_list.append(FP)
             bias_pot_obj_id_list.append("flux_pot_"+str(i))
             
-            B_e += FP.calc_energy(geom_num_list)
+          
         
         for i in range(len(force_data["value_range_upper_const"])):
             if force_data["value_range_upper_const"][i] != 0.0:
