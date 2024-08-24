@@ -21,7 +21,7 @@ class StructAnharmonicKeepPotential:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["anharmonic_keep_pot_spring_const"],
                               self.config["anharmonic_keep_pot_potential_well_depth"]

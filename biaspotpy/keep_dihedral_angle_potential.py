@@ -15,20 +15,23 @@ class StructKeepDihedralAnglePotential:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["keep_dihedral_angle_spring_const"],
                               self.config["keep_dihedral_angle_atom_pairs"]
                               self.config["keep_dihedral_angle_angle"]
-                        
+        bias_pot_params[0] : keep_dihedral_angle_spring_const
+        bias_pot_params[1] : keep_dihedral_angle_angle
         """
         a1 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][1]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][0]-1]
         a2 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][1]-1]
         a3 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][3]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1]
 
         angle = torch_calc_dihedral_angle_from_vec(a1, a2, a3)
-    
-        energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
+        if len(bias_pot_params) == 0:
+            energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
+        else:
+            energy = 0.5 * bias_pot_params[0] * (angle - torch.deg2rad(bias_pot_params[1])) ** 2
       
         return energy #hartree    
 
@@ -41,7 +44,7 @@ class StructKeepDihedralAnglePotentialv2:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["keep_dihedral_angle_v2_spring_const"], 
                              self.config["keep_dihedral_angle_v2_angle"], 
@@ -49,7 +52,8 @@ class StructKeepDihedralAnglePotentialv2:
                              self.config["keep_dihedral_angle_v2_fragm2"],
                              self.config["keep_dihedral_angle_v2_fragm3"],
                              self.config["keep_dihedral_angle_v2_fragm4"],
-                             
+        bias_pot_params[0] : keep_dihedral_angle_v2_spring_const
+        bias_pot_params[1] : keep_dihedral_angle_v2_angle                  
         """
         fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
         for i in self.config["keep_dihedral_angle_v2_fragm1"]:
@@ -80,8 +84,10 @@ class StructKeepDihedralAnglePotentialv2:
         a3 = fragm_4_center - fragm_3_center
 
         angle = torch_calc_dihedral_angle_from_vec(a1, a2, a3)
-
-        energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
+        if len(bias_pot_params) == 0:
+            energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
+        else:
+            energy = 0.5 * bias_pot_params[0] * (angle - torch.deg2rad(bias_pot_params[1])) ** 2
         return energy #hartree
     
 class StructKeepDihedralAnglePotentialCos:
@@ -92,7 +98,7 @@ class StructKeepDihedralAnglePotentialCos:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["keep_dihedral_angle_cos_potential_const"],
                              self.config["keep_dihedral_angle_cos_angle_const"], 

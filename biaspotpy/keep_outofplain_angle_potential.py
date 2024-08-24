@@ -15,11 +15,13 @@ class StructKeepOutofPlainAnglePotential:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["keep_out_of_plain_angle_spring_const"],
                               self.config["keep_out_of_plain_angle_atom_pairs"]
                               self.config["keep_out_of_plain_angle_angle"]
+        bias_pot_params[0] : keep_out_of_plain_angle_spring_const
+        bias_pot_params[1] : keep_out_of_plain_angle_angle 
                         
         """
         a1 = geom_num_list[self.config["keep_out_of_plain_angle_atom_pairs"][1]-1] - geom_num_list[self.config["keep_out_of_plain_angle_atom_pairs"][0]-1]
@@ -27,8 +29,10 @@ class StructKeepOutofPlainAnglePotential:
         a3 = geom_num_list[self.config["keep_out_of_plain_angle_atom_pairs"][3]-1] - geom_num_list[self.config["keep_out_of_plain_angle_atom_pairs"][0]-1]
 
         angle = torch_calc_outofplain_angle_from_vec(a1, a2, a3)
-        energy = 0.5 * self.config["keep_out_of_plain_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_out_of_plain_angle_angle"]))) ** 2
-        
+        if len(bias_pot_params) == 0:
+            energy = 0.5 * self.config["keep_out_of_plain_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_out_of_plain_angle_angle"]))) ** 2
+        else:
+            energy = 0.5 * bias_pot_params[0] * (angle - torch.deg2rad(bias_pot_params[1])) ** 2
         return energy #hartree 
        
 class StructKeepOutofPlainAnglePotentialv2:
@@ -40,7 +44,7 @@ class StructKeepOutofPlainAnglePotentialv2:
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
     
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["keep_out_of_plain_angle_v2_spring_const"], 
                              self.config["keep_out_of_plain_angle_v2_angle"], 
@@ -79,7 +83,9 @@ class StructKeepOutofPlainAnglePotentialv2:
         a3 = fragm_4_center - fragm_1_center
         
         angle = torch_calc_outofplain_angle_from_vec(a1, a2, a3)
-
-        energy = 0.5 * self.config["keep_out_of_plain_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_out_of_plain_angle_v2_angle"]))) ** 2
+        if len(bias_pot_params) == 0:
+            energy = 0.5 * self.config["keep_out_of_plain_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_out_of_plain_angle_v2_angle"]))) ** 2
+        else:
+            energy = 0.5 * bias_pot_params[0] * (angle - torch.deg2rad(bias_pot_params[1])) ** 2
         return energy #hartree
 

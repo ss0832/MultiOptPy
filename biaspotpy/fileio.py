@@ -20,7 +20,15 @@ def save_bias_pot_info(file_path, energy, gradient, bias_pot_id):
         f.write(str(energy)+","+str(max_grad)+","+str(rms_grad)+"\n")
     return
 
-
+def save_bias_param_grad_info(file_path, gradient, bias_pot_id):
+    save_path = file_path+"bias_param_grad_info_"+str(bias_pot_id)+".log"
+    
+    if not os.path.exists(save_path):
+        with open(save_path, "w") as f:
+            f.write("Gradient\n")
+    with open(save_path, "a") as f:
+        f.write(str(gradient)+"\n")
+    return
 
 def read_software_path(file_path="./"):
     with open(file_path+"software_path.conf", "r") as f:

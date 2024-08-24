@@ -20,7 +20,7 @@ class WellPotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
     
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["well_pot_wall_energy"]
                               self.config["well_pot_fragm_1"]
@@ -85,7 +85,7 @@ class WellPotentialWall:
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
     
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["wall_well_pot_wall_energy"]
                               self.config["wall_well_pot_direction"] 
@@ -152,7 +152,7 @@ class WellPotentialVP:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["void_point_well_pot_wall_energy"]
                               self.config["void_point_well_pot_coordinate"] 
@@ -213,7 +213,7 @@ class WellPotentialAround:
         self.bohr2angstroms = UVL.bohr2angstroms 
         self.hartree2kjmol = UVL.hartree2kjmol 
         return 
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["around_well_pot_wall_energy"]
                               self.config["around_well_pot_center"] 

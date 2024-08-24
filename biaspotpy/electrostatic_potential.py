@@ -6,7 +6,7 @@ import itertools
 import numpy as np
 import torch
 
-class ElectroStaticPotential:
+class ElectroStaticPotentialFragment:
     def __init__(self, pot_type="UFF", **kwarg):
         if pot_type == "UFF":
             self.effective_charge_lib = UFF_effective_charge_lib #function
@@ -21,7 +21,7 @@ class ElectroStaticPotential:
         
         return
     
-    def calc_energy_type_fragm(self, geom_num_list): #For QM/MM interaction
+    def calc_energy(self, geom_num_list, bias_pot_params=[]): #For QM/MM interaction
         epsilon = 1.0
         """
         # required variables:self.config["es_charge_scale"], 
@@ -39,7 +39,21 @@ class ElectroStaticPotential:
             
         return energy
     
-    def calc_energy_type_atom_pair(self, geom_num_list):
+class ElectroStaticPotentialAtomPair:
+    def __init__(self, pot_type="UFF", **kwarg):
+        if pot_type == "UFF":
+            self.effective_charge_lib = UFF_effective_charge_lib #function
+        else:
+            raise "Please input MM potential type."
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         epsilon = 1.0
         """
         # required variables:self.config["es_charge_scale"], 
