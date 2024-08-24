@@ -403,7 +403,26 @@ def force_data_parser(args):
         force_data["spacer_model_potential_particle_number"].append(int(args.spacer_model_potential[5*i+3]))
         force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
 
-
+  
+    #---------------------
+    if len(args.repulsive_potential) % 5 != 0:
+        print("invaild input (-rp)")
+        sys.exit(0)
+    
+    force_data["repulsive_potential_well_scale"] = []
+    force_data["repulsive_potential_dist_scale"] = []
+    force_data["repulsive_potential_Fragm_1"] = []
+    force_data["repulsive_potential_Fragm_2"] = []
+    force_data["repulsive_potential_unit"] = []
+    
+    for i in range(int(len(args.repulsive_potential)/5)):
+        force_data["repulsive_potential_well_scale"].append(float(args.repulsive_potential[5*i]))
+        force_data["repulsive_potential_dist_scale"].append(float(args.repulsive_potential[5*i+1]))
+        force_data["repulsive_potential_Fragm_1"].append(num_parse(args.repulsive_potential[5*i+2]))
+        force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
+        force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
+    
+ 
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
