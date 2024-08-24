@@ -8,7 +8,9 @@ import numpy as np
 import torch
 
 
-class LJRepulsivePotential:
+    
+    
+class LJRepulsivePotentialScale:
     def __init__(self, mm_pot_type="UFF", **kwarg):
         if mm_pot_type == "UFF":
             self.VDW_distance_lib = UFF_VDW_distance_lib #function
@@ -23,10 +25,7 @@ class LJRepulsivePotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         
         return
-
-
-    
-    def calc_energy_scale(self, geom_num_list):#geom_num_list: torch.float32
+    def calc_energy(self, geom_num_list):#geom_num_list: torch.float32
         """
         # required variables: self.config["repulsive_potential_well_scale"], 
                              self.config["repulsive_potential_dist_scale"], 
@@ -43,8 +42,23 @@ class LJRepulsivePotential:
             energy += UFF_VDW_well_depth * ( -2 * ( UFF_VDW_distance / vector ) ** 6 + ( UFF_VDW_distance / vector ) ** 12)
             
         return energy
-    
-    def calc_energy_value(self, geom_num_list):#geom_num_list: torch.float32
+
+class LJRepulsivePotentialValue:
+    def __init__(self, mm_pot_type="UFF", **kwarg):
+        if mm_pot_type == "UFF":
+            self.VDW_distance_lib = UFF_VDW_distance_lib #function
+            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
+        else:
+            raise "No MM potential type"
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
+    def calc_energy(self, geom_num_list):#geom_num_list: torch.float32
         """
         # required variables: self.config["repulsive_potential_well_value"], 
                              self.config["repulsive_potential_dist_value"], 
@@ -61,8 +75,24 @@ class LJRepulsivePotential:
             energy += UFF_VDW_well_depth * ( -2 * ( UFF_VDW_distance / vector ) ** 6 + ( UFF_VDW_distance / vector ) ** 12)
             
         return
-    
-    def calc_energy_scale_v2(self, geom_num_list):
+
+
+class LJRepulsivePotentialv2Scale:
+    def __init__(self, mm_pot_type="UFF", **kwarg):
+        if mm_pot_type == "UFF":
+            self.VDW_distance_lib = UFF_VDW_distance_lib #function
+            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
+        else:
+            raise "No MM potential type"
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["repulsive_potential_v2_well_scale"], 
                              self.config["repulsive_potential_v2_dist_scale"], 
@@ -86,7 +116,24 @@ class LJRepulsivePotential:
             energy += UFF_VDW_well_depth * ( abs(self.config["repulsive_potential_v2_const_rep"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_rep"] -1 * abs(self.config["repulsive_potential_v2_const_attr"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_attr"])
             
         return energy
-    def calc_energy_value_v2(self, geom_num_list):
+    
+    
+class LJRepulsivePotentialv2Value:
+    def __init__(self, mm_pot_type="UFF", **kwarg):
+        if mm_pot_type == "UFF":
+            self.VDW_distance_lib = UFF_VDW_distance_lib #function
+            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
+        else:
+            raise "No MM potential type"
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
+    def calc_energy(self, geom_num_list):
 
         """
         # required variables: self.config["repulsive_potential_v2_well_value"], 
@@ -112,8 +159,24 @@ class LJRepulsivePotential:
             energy += UFF_VDW_well_depth * ( abs(self.config["repulsive_potential_v2_const_rep"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_rep"] -1 * abs(self.config["repulsive_potential_v2_const_attr"]) * ( UFF_VDW_distance / vector ) ** self.config["repulsive_potential_v2_order_attr"])
             
         return energy
+    
+class LJRepulsivePotentialGaussian:
+    def __init__(self, mm_pot_type="UFF", **kwarg):
+        if mm_pot_type == "UFF":
+            self.VDW_distance_lib = UFF_VDW_distance_lib #function
+            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
+        else:
+            raise "No MM potential type"
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
     #calc_energy_gau
-    def calc_energy_gau(self, geom_num_list):
+    def calc_energy(self, geom_num_list):
 
         """
         # required variables: self.config["repulsive_potential_gaussian_LJ_well_depth"], 
@@ -138,8 +201,22 @@ class LJRepulsivePotential:
        
         return energy
 
-    
-    def calc_cone_potential_energy(self, geom_num_list):
+class LJRepulsivePotentialCone:
+    def __init__(self, mm_pot_type="UFF", **kwarg):
+        if mm_pot_type == "UFF":
+            self.VDW_distance_lib = UFF_VDW_distance_lib #function
+            self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
+        else:
+            raise "No MM potential type"
+        self.config = kwarg
+        
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        
+        return
+    def calc_energy(self, geom_num_list):
 
         a_value = 1.0
         """

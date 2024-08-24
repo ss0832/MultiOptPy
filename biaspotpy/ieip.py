@@ -135,8 +135,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
             energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
             
-            BPC_1 = BiasPotentialCalculation(SP1.Model_hess, SP1.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
-            BPC_2 = BiasPotentialCalculation(SP2.Model_hess, SP2.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_1 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
@@ -257,8 +257,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 ini_geom_1 = geom_num_list_1
                 ini_geom_2 = geom_num_list_2
             
-            BPC_1 = BiasPotentialCalculation(SP1.Model_hess, SP1.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
-            BPC_2 = BiasPotentialCalculation(SP2.Model_hess, SP2.FC_COUNT, self.iEIP_FOLDER_DIRECTORY)
+            BPC_1 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
+            BPC_2 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             
             _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
             _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
@@ -676,7 +676,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 
             BPC_LIST = []
             for j in range(len(SP_list)):
-                BPC_LIST.append(BiasPotentialCalculation(SP_list[j].Model_hess, SP_list[j].FC_COUNT, self.iEIP_FOLDER_DIRECTORY))
+                BPC_LIST.append(BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY))
 
             tmp_bias_energy_list = []
             tmp_bias_gradient_list = []

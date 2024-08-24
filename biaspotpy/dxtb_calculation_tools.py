@@ -36,10 +36,7 @@ class Calculation:
     
     def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):
         """execute extended tight binding method calclation."""
-        gradient_list = []
-        energy_list = []
-        geometry_num_list = []
-        geometry_optimized_num_list = []
+
         finish_frag = False
         
         if type(element_number_list[0]) is str:
@@ -79,17 +76,17 @@ class Calculation:
                 torch_positions = torch.tensor(positions, requires_grad=True, dtype=torch.float32)
                 
                 max_scf_iteration = len(element_number_list) * 50 + 1000
+                settings = {"maxiter": max_scf_iteration}
+                
+                
                 if method == "GFN1-xTB":
-                    calc = dxtb.calculators.GFN1Calculator(torch_element_number_list)
+                    calc = dxtb.calculators.GFN1Calculator(torch_element_number_list, opts=settings)
                 elif method == "GFN2-xTB":
-                    calc = dxtb.calculators.GFN2Calculator(torch_element_number_list)
+                    calc = dxtb.calculators.GFN2Calculator(torch_element_number_list, opts=settings)
                 else:
                     print("method error")
                     raise
 
-                #calc.set("max-iter", max_scf_iteration)           
-                #calc.set("verbosity", 0)
-                #calc.set("save-integrals", 1)
                 if int(electric_charge_and_multiplicity[1]) > 1:
 
                     pos = torch_positions.clone().requires_grad_(True)
@@ -139,9 +136,6 @@ class Calculation:
                     return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
                     self.Model_hess = copy.copy(return_exact_hess)
                    
-                                 
-                
-                
 
 
             except Exception as error:
@@ -157,15 +151,10 @@ class Calculation:
         self.coordinate = positions
         
         return return_e, return_g, positions, finish_frag
-    """
-    def single_point_no_directory(self, positions, element_number_list, electric_charge_and_multiplicity, method):#positions:Bohr
-        #execute extended tight binding method calclation.
-        gradient_list = []
-        energy_list = []
-        geometry_num_list = []
-        geometry_optimized_num_list = []
+    
+    def ir(self, geom_num_list, element_number_list, electric_charge_and_multiplicity, method):
         finish_frag = False
-        
+        torch_positions = torch.tensor(geom_num_list, requires_grad=True, dtype=torch.float32)
         if type(element_number_list[0]) is str:
             tmp = copy.copy(element_number_list)
             element_number_list = []
@@ -173,40 +162,29 @@ class Calculation:
             for elem in tmp:    
                 element_number_list.append(element_number(elem))
             element_number_list = np.array(element_number_list)
-        
-        
-        try:
-            
-            positions = np.array(positions, dtype="float64") 
-            max_scf_iteration = len(element_number_list) * 50 + 1000 
-            if int(electric_charge_and_multiplicity[1]) > 1:
-                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
-            else:
-                calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
-            
-            calc.set("max-iter", max_scf_iteration)           
-            calc.set("verbosity", 0)
-            calc.set("save-integrals", 1)
-            
-            res = calc.singlepoint()
-            
-            e = float(res.get("energy"))  #hartree
-            g = res.get("gradient") #hartree/Bohr
-            self.orbital_coefficients = res.get("orbital-coefficients")
-            self.overlap_matrix = res.get("overlap-matrix")
-            self.density_matrix = res.get("density-matrix")
-            self.orbital_energies = copy.deepcopy(res.get("orbital-energies"))                      
-            print("\n")
+        torch_element_number_list = torch.tensor(element_number_list)           
+        max_scf_iteration = len(element_number_list) * 50 + 1000
+        ef = dxtb.components.field.new_efield(torch.tensor([0.0, 0.0, 0.0], requires_grad=True))
+        settings = {"maxiter": max_scf_iteration}
+        if method == "GFN1-xTB":
+            calc = dxtb.calculators.GFN1Calculator(torch_element_number_list, opts=settings, interaction=[ef])
+        elif method == "GFN2-xTB":
+            calc = dxtb.calculators.GFN2Calculator(torch_element_number_list, opts=settings, interaction=[ef])
+        else:
+            print("method error")
+            raise
 
-        except Exception as error:
-            print(error)
-            print("This molecule could not be optimized.")
-            finish_frag = True
-            return np.array([0]), np.array([0]), finish_frag 
-            
-        self.energy = e
-        self.gradient = g
+        if int(electric_charge_and_multiplicity[1]) > 1:
+            pos = torch_positions.clone().requires_grad_(True)
+            res = calc.ir(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
+            au_int = res.ints
+        else:
+            pos = torch_positions.clone().requires_grad_(True)
+            res = calc.ir(pos, chrg=int(electric_charge_and_multiplicity[0]))
+            au_int = res.ints
+        res.use_common_units()
+        common_freqs = res.freqs.cpu().detach().numpy().copy()
+        au_int = au_int.cpu().detach().numpy().copy()
+        return common_freqs, au_int
         
-        return e, g, finish_frag
-
-        """
+  

@@ -74,8 +74,18 @@ class WellPotential:
             raise "well pot error"
         #print(energy)
         return energy
-        
-    def calc_energy_wall(self, geom_num_list):
+
+
+class WellPotentialWall:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["wall_well_pot_wall_energy"]
                               self.config["wall_well_pot_direction"] 
@@ -133,8 +143,16 @@ class WellPotential:
  
         #print(energy)
         return energy
-        
-    def calc_energy_vp(self, geom_num_list):
+    
+class WellPotentialVP:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["void_point_well_pot_wall_energy"]
                               self.config["void_point_well_pot_coordinate"] 
@@ -185,8 +203,17 @@ class WellPotential:
  
         #print(energy)
         return energy
-        
-    def calc_energy_around(self, geom_num_list):
+    
+    
+class WellPotentialAround:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return 
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["around_well_pot_wall_energy"]
                               self.config["around_well_pot_center"] 

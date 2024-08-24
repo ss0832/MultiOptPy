@@ -403,7 +403,48 @@ def force_data_parser(args):
         force_data["spacer_model_potential_particle_number"].append(int(args.spacer_model_potential[5*i+3]))
         force_data["spacer_model_potential_target"].append(num_parse(args.spacer_model_potential[5*i+4]))
 
- 
+    #---------------------
+    if len(args.keep_arch_v2) % 5 != 0:
+        print("invaild input (-karchv2)")
+        sys.exit(0)
+    
+    force_data["keep_arch_v2_dist_spring_const"] = []
+    force_data["keep_arch_v2_angle_spring_const"] = []
+    force_data["keep_arch_v2_radius"] = []
+    force_data["keep_arch_v2_angle"] = []
+    force_data["keep_arch_v2_atoms"] = []
+
+
+    for i in range(int(len(args.keep_arch_v2)/5)):
+        force_data["keep_arch_v2_dist_spring_const"].append(float(args.keep_arch_v2[5*i]))
+        force_data["keep_arch_v2_angle_spring_const"].append(float(args.keep_arch_v2[5*i+1]))
+        force_data["keep_arch_v2_radius"].append(float(args.keep_arch_v2[5*i+2]))
+        force_data["keep_arch_v2_angle"].append(float(args.keep_arch_v2[5*i+3]))
+        force_data["keep_arch_v2_atoms"].append(num_parse(args.keep_arch_v2[5*i+4]))
+
+    #---------------------
+    if len(args.keep_arch) % 7 != 0:
+        print("invaild input (-karch)")
+        sys.exit(0)
+    
+    force_data["keep_arch_dist_spring_const"] = []
+    force_data["keep_arch_angle_spring_const"] = []
+    force_data["keep_arch_angle_tangent_spring_const"] = []
+    force_data["keep_arch_radius"] = []
+    force_data["keep_arch_angle"] = []
+    force_data["keep_arch_tangent_angle"] = []
+    force_data["keep_arch_atoms"] = []
+
+    for i in range(int(len(args.keep_arch)/7)):
+        force_data["keep_arch_dist_spring_const"].append(float(args.keep_arch[7*i]))
+        force_data["keep_arch_angle_spring_const"].append(float(args.keep_arch[7*i+1]))
+        force_data["keep_arch_angle_tangent_spring_const"].append(float(args.keep_arch[7*i+2]))
+        force_data["keep_arch_radius"].append(float(args.keep_arch[7*i+3]))
+        force_data["keep_arch_angle"].append(float(args.keep_arch[7*i+4]))
+        force_data["keep_arch_tangent_angle"].append(float(args.keep_arch[7*i+5]))
+        force_data["keep_arch_atoms"].append(num_parse(args.keep_arch[7*i+6]))
+
+    #---------------------
     if len(args.repulsive_potential) % 5 != 0:
         print("invaild input (-rp)")
         sys.exit(0)
@@ -421,7 +462,31 @@ def force_data_parser(args):
         force_data["repulsive_potential_Fragm_2"].append(num_parse(args.repulsive_potential[5*i+3]))
         force_data["repulsive_potential_unit"].append(str(args.repulsive_potential[5*i+4]))
     
-   
+    #---------------------
+    
+    if len(args.ovoid_repulsive_potential) % 6 != 0:
+        print("invaild input (-orp)")
+        sys.exit(0)
+        
+    force_data["ovoid_repulsive_potential_well_value_list"] = []
+    force_data["ovoid_repulsive_potential_dist_value_list"] = []
+    force_data["ovoid_repulsive_potential_length"] = []
+    force_data["ovoid_repulsive_potential_order"] = []
+    force_data["ovoid_repulsive_potential_center"] = []
+    force_data["ovoid_repulsive_potential_target"] = []
+    force_data["ovoid_repulsive_potential_theta_list"] = []#unit: rad.
+    for i in range(int(len(args.ovoid_repulsive_potential)/6)):
+        force_data["ovoid_repulsive_potential_well_value_list"].append(list(map(float, args.ovoid_repulsive_potential[6*i+0].split(","))))
+        force_data["ovoid_repulsive_potential_dist_value_list"].append(list(map(float, args.ovoid_repulsive_potential[6*i+1].split(","))))
+        force_data["ovoid_repulsive_potential_length"].append(float(args.ovoid_repulsive_potential[6*i+2]))
+        force_data["ovoid_repulsive_potential_order"].append(float(args.ovoid_repulsive_potential[6*i+3]))
+        force_data["ovoid_repulsive_potential_center"].append(num_parse(args.ovoid_repulsive_potential[6*i+4]))
+        force_data["ovoid_repulsive_potential_target"].append(num_parse(args.ovoid_repulsive_potential[6*i+5]))
+        force_data["ovoid_repulsive_potential_theta_list"].append(random.random())
+        if len(force_data["ovoid_repulsive_potential_center"][i]) != 2:
+            print("invaild input (-orp center)")
+            sys.exit(0)  
+        
     #---------------------
     if len(args.repulsive_potential_v2) % 10 != 0:
         print("invaild input (-rpv2)")
@@ -994,6 +1059,7 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.SET_MEMORY = '1GB'  # use mem(ex. 1GB)
 
         self.usextb = "None"  # use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB
+        self.usedxtb = "None"
         self.model_function_mode = "None"
         self.pyscf = False
         self.electronic_charge = [0, 0]

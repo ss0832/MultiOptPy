@@ -27,7 +27,15 @@ class StructKeepPotential:
         energy = 0.5 * self.config["keep_pot_spring_const"] * (vector - self.config["keep_pot_distance"]/self.bohr2angstroms) ** 2
         return energy #hartree
     
-    def calc_energy_v2(self, geom_num_list):
+class StructKeepPotentialv2:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["keep_pot_v2_spring_const"], 
                              self.config["keep_pot_v2_distance"], 
@@ -52,7 +60,15 @@ class StructKeepPotential:
         
         return energy #hartree
     
-    def calc_energy_aniso_v2(self, geom_num_list):
+class StructKeepPotentialAniso:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables:   self.config["aniso_keep_pot_v2_spring_const_mat"]
                                 self.config["aniso_keep_pot_v2_dist"] 

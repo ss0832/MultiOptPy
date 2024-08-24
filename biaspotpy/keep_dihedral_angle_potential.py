@@ -31,8 +31,17 @@ class StructKeepDihedralAnglePotential:
         energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
       
         return energy #hartree    
-    
-    def calc_energy_v2(self, geom_num_list):
+
+
+class StructKeepDihedralAnglePotentialv2:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["keep_dihedral_angle_v2_spring_const"], 
                              self.config["keep_dihedral_angle_v2_angle"], 
@@ -75,7 +84,15 @@ class StructKeepDihedralAnglePotential:
         energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
         return energy #hartree
     
-    def calc_energy_cos(self, geom_num_list):
+class StructKeepDihedralAnglePotentialCos:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["keep_dihedral_angle_cos_potential_const"],
                              self.config["keep_dihedral_angle_cos_angle_const"], 

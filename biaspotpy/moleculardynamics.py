@@ -459,11 +459,11 @@ class MD:
         if len(args.sub_basisset) % 2 != 0:
             print("invaild input (-sub_bs)")
             sys.exit(0)
-        
+        self.electronic_charge = args.electronic_charge
+        self.spin_multiplicity = args.spin_multiplicity
+        self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
         if args.pyscf:
-            self.electronic_charge = args.electronic_charge
-            self.spin_multiplicity = args.spin_multiplicity
-            self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
+
             self.SUB_BASIS_SET = {}
             if len(args.sub_basisset) > 0:
                 self.SUB_BASIS_SET["default"] = str(self.BASIS_SET) # 
@@ -475,8 +475,6 @@ class MD:
                 self.SUB_BASIS_SET = { "default" : self.BASIS_SET}
         else:#psi4
             self.SUB_BASIS_SET = "" # 
-            self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
-            
             if len(args.sub_basisset) > 0:
                 self.SUB_BASIS_SET +="\nassign "+str(self.BASIS_SET)+"\n" # 
                 for j in range(int(len(args.sub_basisset)/2)):
@@ -504,6 +502,14 @@ class MD:
         else:
             self.pbc_box = []
         self.args = args
+        
+        if args.othersoft != "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time())+"/"
+
+        elif args.usextb == "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
+        else:
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time())+"/"
         return
     
 
@@ -544,15 +550,31 @@ class MD:
             new_geometry = apply_periodic_boundary_condition(new_geometry, TM.element_list, self.pbc_box)
         return new_geometry
 
-    def md_tblite(self):
-        from tblite_calculation_tools import Calculation
-        
+    def md(self):
+        xtb_method = None
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
+        if self.args.pyscf:
+            from pyscf_calculation_tools import Calculation
+        elif self.args.othersoft != "None":
+            from ase_calculation_tools import Calculation
+            print("Use", self.args.othersoft)
+            with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
+                f.write(self.args.othersoft+"\n")
+                f.write(self.BASIS_SET+"\n")
+                f.write(self.FUNCTIONAL+"\n")
+        else:
+            if self.args.usextb != "None":
+                from tblite_calculation_tools import Calculation
+                xtb_method = self.args.usextb
+            else:
+                from psi4_calculation_tools import Calculation
+                
         self.NUM_LIST = []
         self.ENERGY_LIST_FOR_PLOTTING = []
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
-        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.args.usextb+"_"+str(time.time())+"/"
-        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
+       
+
         temperature_list = []
         force_data = force_data_parser(self.args)
         finish_frag = False
@@ -565,7 +587,7 @@ class MD:
         
         self.Model_hess = np.eye(len(element_list*3))
          
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
+        CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -584,12 +606,19 @@ class MD:
         #-----------------------------------
         SP = Calculation(START_FILE = self.START_FILE,
                          N_THREAD = self.N_THREAD,
+                         BASIS_SET = self.BASIS_SET,
                          SET_MEMORY = self.SET_MEMORY ,
                          FUNCTIONAL = self.FUNCTIONAL,
                          FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
                          Model_hess = self.Model_hess,
-                         unrestrict = self.unrestrict)
+                         unrestrict = self.unrestrict,
+                         SUB_BASIS_SET = self.SUB_BASIS_SET,
+                         software_type = self.args.othersoft,
+                         spin_multiplicity = self.spin_multiplicity,
+                         electronic_charge = self.electronic_charge,
+                         excited_state = self.excited_state
+                         )
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
         #-----------------------------------
         element_number_list = []
@@ -689,9 +718,12 @@ class MD:
             pre_B_g = B_g#Hartree/Bohr
             pre_g = g
             pre_geom = geom_num_list#Bohr
-            
-            geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            if self.args.pyscf:
+                geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry*self.bohr2angstroms, element_list)
+                file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
+            else:
+                geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
+                file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
             #----------------------------
 
             #----------------------------
@@ -726,521 +758,6 @@ class MD:
         print("Complete...")
         return
 
-    def md_psi4(self):
-        from psi4_calculation_tools import Calculation
-        
-        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
-        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
-        self.NUM_LIST = []
-        self.ENERGY_LIST_FOR_PLOTTING = []
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
-        force_data = force_data_parser(self.args)
-        finish_frag = False
-        
-        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
-        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
-        #------------------------------------
-        self.momentum_list = np.zeros((len(element_list), 3))
-        initial_geom_num_list = np.zeros((len(element_list), 3))
-        
-        self.Model_hess = np.eye(len(element_list*3))
-         
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
-        #-----------------------------------
-        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(vars(self.args)))
-        pre_B_e = 0.0
-        pre_e = 0.0
-        pre_B_g = []
-        pre_g = []
-        for i in range(len(element_list)):
-            pre_B_g.append(np.array([0,0,0], dtype="float64"))
-       
-        pre_move_vector = pre_B_g
-        pre_g = pre_B_g
-        #-------------------------------------
-        finish_frag = False
-        exit_flag = False
-        #-----------------------------------
-        SP = Calculation(START_FILE = self.START_FILE,
-                         SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         BASIS_SET = self.BASIS_SET,
-                         N_THREAD = self.N_THREAD,
-                         SET_MEMORY = self.SET_MEMORY ,
-                         FUNCTIONAL = self.FUNCTIONAL,
-                         FC_COUNT = self.FC_COUNT,
-                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess,
-                         unrestrict = self.unrestrict,
-                         software_type = self.args.othersoft,
-                         excited_state = self.excited_state)
-        #----------------------------------
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
-        cos_list = [[] for i in range(len(force_data["geom_info"]))]
-        grad_list = []
-        ct_count = 0
-        
-        #----------------------------------
-        for iter in range(self.NSTEP):
-            
-            if ct_count < len(self.change_temperature):
-                if int(self.change_temperature[ct_count]) == iter:
-                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
-                    ct_count += 2
-                    
-            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
-
-            if exit_file_detect:
-                break
-            print("\n# ITR. "+str(iter)+"\n")
-            #---------------------------------------
-            SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity)
-            self.Model_hess = SP.Model_hess
-            if finish_frag:
-                break
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-                         
-            #---------------------------------------
-            if iter == 0:
-                TM.init_purtubation(geom_num_list, B_e, B_g)
-                initial_geom_num_list = geom_num_list
-                pre_geom = initial_geom_num_list    
-            else:
-                pass
-            
-
-            #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-
-            #----------------------------
-
-            #----------------------------
-            
-            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
-        
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
-            
-
-            self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
-            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
-            self.NUM_LIST.append(int(iter))
-            
-            #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)    
-            #----------------------------
-
-            
-            grad_list.append(np.sqrt((g**2).mean()))
-           
-            #-------------------------
-            
-            if len(force_data["fix_atoms"]) > 0:
-                for j in force_data["fix_atoms"]:
-                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
-            
-            #------------------------            
-
-            #----------------------------
-            pre_B_e = B_e#Hartree
-            pre_e = e
-            pre_B_g = B_g#Hartree/Bohr
-            pre_g = g
-            pre_geom = geom_num_list#Bohr
-            
-            geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
-        #plot graph
-        G = Graph(self.BPA_FOLDER_DIRECTORY)
-        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
-        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
-        if len(force_data["geom_info"]) > 1:
-            for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
-        
-        #
-        FIO.xyz_file_make()
-        
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
-        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
-        
-        
-        
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
-        
-       
-        #----------------------
-        print("Complete...")
-        return
-    
-    
-    def md_ase(self):
-        from ase_calculation_tools import Calculation
-
-        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time())+"/"
-        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
-        print("Use", self.args.othersoft)
-        with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
-            f.write(self.args.othersoft+"\n")
-            f.write(self.BASIS_SET+"\n")
-            f.write(self.FUNCTIONAL+"\n")
-        
-
-        self.NUM_LIST = []
-        self.ENERGY_LIST_FOR_PLOTTING = []
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
-        force_data = force_data_parser(self.args)
-        finish_frag = False
-        
-        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
-        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
-        #------------------------------------
-        self.momentum_list = np.zeros((len(element_list), 3))
-        initial_geom_num_list = np.zeros((len(element_list), 3))
-        
-        self.Model_hess = np.eye(len(element_list*3))
-         
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
-        #-----------------------------------
-        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(vars(self.args)))
-        pre_B_e = 0.0
-        pre_e = 0.0
-        pre_B_g = []
-        pre_g = []
-        for i in range(len(element_list)):
-            pre_B_g.append(np.array([0,0,0], dtype="float64"))
-       
-        pre_move_vector = pre_B_g
-        pre_g = pre_B_g
-        #-------------------------------------
-        finish_frag = False
-        exit_flag = False
-        #-----------------------------------
-        SP = Calculation(START_FILE = self.START_FILE,
-                         SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         BASIS_SET = self.BASIS_SET,
-                         N_THREAD = self.N_THREAD,
-                         SET_MEMORY = self.SET_MEMORY ,
-                         FUNCTIONAL = self.FUNCTIONAL,
-                         FC_COUNT = self.FC_COUNT,
-                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess,
-                         unrestrict = self.unrestrict,
-                         software_type = self.args.othersoft)
-        #----------------------------------
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
-        cos_list = [[] for i in range(len(force_data["geom_info"]))]
-        grad_list = []
-        ct_count = 0
-        
-        #----------------------------------
-        for iter in range(self.NSTEP):
-            
-            if ct_count < len(self.change_temperature):
-                if int(self.change_temperature[ct_count]) == iter:
-                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
-                    ct_count += 2
-                    
-            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
-
-            if exit_file_detect:
-                break
-            print("\n# STEP. "+str(iter)+" ("+str(TM.delta_timescale * iter * self.time_atom_unit * 10 ** 15)+" fs)\n")
-            
-            #---------------------------------------
-            SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity, method="")
-            self.Model_hess = SP.Model_hess
-            if finish_frag:
-                break
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-                         
-            #---------------------------------------
-            if iter == 0:
-                TM.init_purtubation(geom_num_list, B_e, B_g)
-                initial_geom_num_list = geom_num_list
-                pre_geom = initial_geom_num_list    
-            else:
-                pass
-            
-
-            #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-
-            #----------------------------
-
-            #----------------------------
-            
-            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
-        
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
-            
-
-            self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
-            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
-            self.NUM_LIST.append(int(iter))
-            
-            #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)    
-            #----------------------------
-
-            
-            grad_list.append(np.sqrt((g**2).mean()))
-           
-            #-------------------------
-            
-            if len(force_data["fix_atoms"]) > 0:
-                for j in force_data["fix_atoms"]:
-                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
-            
-            #------------------------            
-
-            #----------------------------
-            pre_B_e = B_e#Hartree
-            pre_e = e
-            pre_B_g = B_g#Hartree/Bohr
-            pre_g = g
-            pre_geom = geom_num_list#Bohr
-            
-            geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
-        #plot graph
-        G = Graph(self.BPA_FOLDER_DIRECTORY)
-        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
-        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
-        if len(force_data["geom_info"]) > 1:
-            for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
-        
-        #
-        FIO.xyz_file_make()
-        
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
-        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
-        
-        
-        
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
-        
-       
-        #----------------------
-        print("Complete...")
-        return
-    
-    def md_pyscf(self):
-        from pyscf_calculation_tools import Calculation
-        
-        self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
-        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
-        self.NUM_LIST = []
-        self.ENERGY_LIST_FOR_PLOTTING = []
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
-        force_data = force_data_parser(self.args)
-        finish_frag = False
-        
-        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
-        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
-        #------------------------------------
-        self.momentum_list = np.zeros((len(element_list), 3))
-        initial_geom_num_list = np.zeros((len(element_list), 3))
-       
-        self.Model_hess = np.eye(len(element_list*3))
-         
-        CalcBiaspot = BiasPotentialCalculation(self.Model_hess, self.FC_COUNT, self.BPA_FOLDER_DIRECTORY)
-        #-----------------------------------
-        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(vars(self.args)))
-        pre_B_e = 0.0
-        pre_e = 0.0
-        pre_B_g = []
-        pre_g = []
-        for i in range(len(element_list)):
-            pre_B_g.append(np.array([0,0,0], dtype="float64"))
-       
-        pre_move_vector = pre_B_g
-        pre_g = pre_B_g
-        #-------------------------------------
-        finish_frag = False
-        exit_flag = False
-        #-----------------------------------
-        SP = Calculation(START_FILE = self.START_FILE,
-                         SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         BASIS_SET = self.BASIS_SET,
-                         N_THREAD = self.N_THREAD,
-                         SET_MEMORY = self.SET_MEMORY ,
-                         FUNCTIONAL = self.FUNCTIONAL,
-                         FC_COUNT = self.FC_COUNT,
-                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess,
-                         spin_multiplicity = self.spin_multiplicity,
-                         electronic_charge = self.electronic_charge,
-                         unrestrict = self.unrestrict,
-                         excited_state = self.excited_state)
-        #----------------------------------
-        TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
-        cos_list = [[] for i in range(len(force_data["geom_info"]))]
-        grad_list = []
-        ct_count = 0
-        
-        #----------------------------------
-        for iter in range(self.NSTEP):
-            if ct_count < len(self.change_temperature):
-                if int(self.change_temperature[ct_count]) == iter:
-                    TM.initial_temperature = float(self.change_temperature[ct_count+1])
-                    ct_count += 2
-                    
-            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
-
-            if exit_file_detect:
-                break
-            print("\n# ITR. "+str(iter)+"\n")
-            #---------------------------------------
-            SP.Model_hess = self.Model_hess
-            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_list, iter)
-
-            self.Model_hess = SP.Model_hess
-
-            if finish_frag:
-                break
-            _, B_e, B_g, _ = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
-                 
-            #---------------------------------------
-            if iter == 0:
-                TM.init_purtubation(geom_num_list, B_e, B_g)
-                initial_geom_num_list = geom_num_list
-                pre_geom = initial_geom_num_list    
-            else:
-                pass
-
-            #-------------------energy profile 
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                    f.write("energy [hartree] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"energy_profile.csv","a") as f:
-                f.write(str(e)+"\n")
-            #-------------------gradient profile
-            if iter == 0:
-                with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                    f.write("gradient (RMS) [hartree/Bohr] \n")
-            with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-                f.write(str(np.sqrt((g**2).mean()))+"\n")
-            #-------------------
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
-                break   
-            
-
-            #----------------------------
-
-            #----------------------------
-            
-            new_geometry = self.exec_md(TM, geom_num_list, pre_geom, B_g, B_e, pre_B_g, iter)
-          
-            if iter % 10 != 0:
-                shutil.rmtree(file_directory)
-            
-
-            self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
-            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
-            self.NUM_LIST.append(int(iter))
-            
-            #--------------------geometry info
-            self.geom_info_extract(force_data, file_directory, B_g, g)    
-            #----------------------------
-
-            
-            grad_list.append(np.sqrt((g**2).mean()))
-           
-            #-------------------------
-            
-            if len(force_data["fix_atoms"]) > 0:
-                for j in force_data["fix_atoms"]:
-                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
-            
-            #------------------------            
-
-            #----------------------------
-            pre_B_e = B_e#Hartree
-            pre_e = e
-            pre_B_g = B_g#Hartree/Bohr
-            pre_g = g
-            pre_geom = geom_num_list#Bohr
-            
-            geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry*self.bohr2angstroms, element_list)
-            file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
-        #plot graph
-        G = Graph(self.BPA_FOLDER_DIRECTORY)
-        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
-        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
-        if len(force_data["geom_info"]) > 1:
-            for num, i in enumerate(force_data["geom_info"]):
-                self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
-        
-        #
-        FIO.xyz_file_make_for_pyscf()
-        
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
-        FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
-        
-        
-        
-        
-        with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
-            for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
-                f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
-        
-       
-        #----------------------
-        print("Complete...")
-        return
     
 
     def geom_info_extract(self, force_data, file_directory, B_g, g):
@@ -1263,15 +780,8 @@ class MD:
     def run(self):
         
         for i in range(self.num_of_trajectory):
-            print("trajectory :", i)
-            if self.args.pyscf:
-                self.md_pyscf()
-            elif self.args.usextb != "None":
-                self.md_tblite()
-            elif self.args.othersoft != "None":
-                self.md_ase()
-            else:
-                self.md_psi4()
+            self.md()
+
     
         print("All complete...")
         

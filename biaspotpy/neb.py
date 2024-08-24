@@ -33,7 +33,7 @@ from interface import force_data_parser
 from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
 from calc_tools import Calculationtools, project_optional_vector_for_grad, project_optional_vector_for_hess
-
+from idpp import optimize_initial_guess
 
 
 def extremum_list_index(energy_list):
@@ -862,6 +862,9 @@ class NEB:
             new_geometory = copy.copy(new_geometory[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
            
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+            
+            
+            
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
             geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(file_directory, part_num)
             new_geometory = []
@@ -874,6 +877,9 @@ class NEB:
            
             
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+            
+            
+            
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
             pre_total_velocity = [[[]]]
             force_data = force_data_parser(self.args)
@@ -881,7 +887,7 @@ class NEB:
             dt = 0.5
             n_reset = 0
             a = self.FIRE_a_start
-            dummy_hess = np.eye(len(element_list)*3)
+
             #prepare for quasi-Newton method
             if self.QUASI_NEWTOM_METHOD:
                 hessian_list = np.array([np.eye(len(element_list*3)) for i in range(len(geometry_list))], dtype="float64")
@@ -940,7 +946,7 @@ class NEB:
                 biased_energy_list = []
                 biased_gradient_list = []
                 for i in range(len(energy_list)):
-                    _, B_e, B_g, _ = BiasPotentialCalculation(dummy_hess, -1, self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
+                    _, B_e, B_g, _ = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
                     biased_energy_list.append(B_e)
                     biased_gradient_list.append(B_g)
                 biased_energy_list = np.array(biased_energy_list ,dtype="float64")
@@ -997,6 +1003,27 @@ class NEB:
     def run(self):
         
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
+        """
+        # IDPP method
+        tmp_geometry_list = []
+        for geom in geometry_list:
+            tmp_list = []
+            for g in geom[1:]:
+                tmp_list.append(g[1:4])
+            tmp_geometry_list.append(tmp_list)
+        tmp_geometry_list = np.array(tmp_geometry_list, dtype="float64")
+        tmp_geometry_list = optimize_initial_guess(tmp_geometry_list)
+        
+        tmp_tmp_geometry_list = []
+        for geom in tmp_geometry_list:
+            tmp_list = [electric_charge_and_multiplicity]
+            for g in range(len(geom)):
+                tmp_list.append([element_list[g]]+geom[g].tolist())
+            tmp_tmp_geometry_list.append(tmp_list)
+        
+        geometry_list = copy.copy(tmp_tmp_geometry_list)
+        """
+        
         self.element_list = element_list
         file_directory = self.make_psi4_input_file(geometry_list,0)
         pre_total_velocity = [[[]]]
@@ -1005,7 +1032,6 @@ class NEB:
         dt = 0.5
         n_reset = 0
         a = self.FIRE_a_start
-        dummy_hess = np.eye(len(element_list*3))
         if self.args.usextb == "None":
             pass
         else:
@@ -1063,7 +1089,7 @@ class NEB:
             biased_energy_list = []
             biased_gradient_list = []
             for i in range(len(energy_list)):
-                _, B_e, B_g, _ = BiasPotentialCalculation(dummy_hess, -1, self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
+                _, B_e, B_g, _ = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
                 biased_energy_list.append(B_e)
                 biased_gradient_list.append(B_g)
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")

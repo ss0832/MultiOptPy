@@ -30,8 +30,18 @@ class StructKeepAnglePotential:
         theta = torch_calc_angle_from_vec(vector1, vector2)
         energy = 0.5 * self.config["keep_angle_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_angle"]))) ** 2
         return energy #hartree
-       
-    def calc_energy_v2(self, geom_num_list):
+
+
+
+class StructKeepAnglePotentialv2:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["keep_angle_v2_spring_const"], 
                              self.config["keep_angle_v2_angle"], 
@@ -63,8 +73,18 @@ class StructKeepAnglePotential:
         theta = torch_calc_angle_from_vec(vector1, vector2)
         energy = 0.5 * self.config["keep_angle_v2_spring_const"] * (theta - torch.deg2rad(torch.tensor(self.config["keep_angle_v2_angle"]))) ** 2
         return energy #hartree
-        
-    def calc_atom_dist_dependent_energy(self, geom_num_list):
+
+
+class StructKeepAnglePotentialAtomDistDependent:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["aDD_keep_angle_spring_const"] 
                               self.config["aDD_keep_angle_min_angle"] 
@@ -83,19 +103,29 @@ class StructKeepAnglePotential:
         base_dist = self.config["aDD_keep_angle_base_dist"] / self.bohr2angstroms
         eq_angle = min_angle + ((max_angle - min_angle)/(1 + torch.exp(-(ref_dist - base_dist))))
         
-        self.config["keep_angle_angle"] = eq_angle
         
+        KAP = StructKeepAnglePotential(keep_angle_angle=eq_angle, keep_angle_spring_const=self.config["aDD_keep_angle_spring_const"], keep_angle_atom_pairs=[self.config["aDD_keep_angle_atoms"][0], self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]])
+        energy += KAP.calc_energy(geom_num_list)
         
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][0] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]]
-        energy += self.calc_energy(geom_num_list)
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][2] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]]
-        energy += self.calc_energy(geom_num_list)
-        self.config["keep_angle_atom_pairs"] = [self.config["aDD_keep_angle_atoms"][0] , self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][2]]
-        energy += self.calc_energy(geom_num_list)
+        KAP = StructKeepAnglePotential(keep_angle_angle=eq_angle, keep_angle_spring_const=self.config["aDD_keep_angle_spring_const"], keep_angle_atom_pairs=[self.config["aDD_keep_angle_atoms"][2], self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][1]])
+        energy += KAP.calc_energy(geom_num_list)
+        
+        KAP = StructKeepAnglePotential(keep_angle_angle=eq_angle, keep_angle_spring_const=self.config["aDD_keep_angle_spring_const"], keep_angle_atom_pairs=[self.config["aDD_keep_angle_atoms"][0], self.config["aDD_keep_angle_center_atom"], self.config["aDD_keep_angle_atoms"][2]])
+        energy += KAP.calc_energy(geom_num_list)
     
         return energy
     
-    def calc_lone_pair_angle_energy(self, geom_num_list):
+    
+class StructKeepAnglePotentialLonePairAngle:
+    def __init__(self, **kwarg):
+        self.config = kwarg
+        UVL = UnitValueLib()
+        self.hartree2kcalmol = UVL.hartree2kcalmol 
+        self.bohr2angstroms = UVL.bohr2angstroms 
+        self.hartree2kjmol = UVL.hartree2kjmol 
+        return
+    
+    def calc_energy(self, geom_num_list):
         """
         # required variables: self.config["lone_pair_keep_angle_spring_const"] 
                               self.config["lone_pair_keep_angle_angle"] 
