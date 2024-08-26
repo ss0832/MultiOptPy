@@ -86,9 +86,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.basic_set_and_function = args.functional+"/"+args.basisset
         
         if args.usextb == "None":
-            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time())+"/"
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
-            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time())+"/"
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
         self.args = args
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
         self.BETA = args.BETA

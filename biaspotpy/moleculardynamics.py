@@ -504,12 +504,12 @@ class MD:
         self.args = args
         
         if args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time())+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
 
         elif args.usextb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
         else:
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time())+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time()).replace(".","_")+"/"
         return
     
 
@@ -737,7 +737,10 @@ class MD:
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
         
         #
-        FIO.xyz_file_make()
+        if self.args.pyscf:
+            FIO.xyz_file_make_for_pyscf()
+        else:
+            FIO.xyz_file_make()
         
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")

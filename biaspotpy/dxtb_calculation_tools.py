@@ -94,12 +94,14 @@ class Calculation:
                     calc.reset()
                     pos = torch_positions.clone().requires_grad_(True)
                     g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1])) #hartree/Bohr
+                    calc.reset()
                 else:
                     pos = torch_positions.clone().requires_grad_(True)
                     e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0])) # hartree
                     calc.reset()
                     pos = torch_positions.clone().requires_grad_(True)
                     g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0])) #hartree/Bohr
+                    calc.reset()
                 
                 #print("Orbital_energies :", self.orbital_energies)    
                 #print("Orbital_occupations :", self.orbital_occupations)    
@@ -120,7 +122,7 @@ class Calculation:
 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     """exact numerical hessian"""
-                    calc.reset()
+                    
                     pos = torch_positions.clone().requires_grad_(True)
                     if int(electric_charge_and_multiplicity[1]) > 1:
                         exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
@@ -135,6 +137,7 @@ class Calculation:
                     
                     return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
                     self.Model_hess = copy.copy(return_exact_hess)
+                    calc.reset()
                    
 
 

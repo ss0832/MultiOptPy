@@ -101,15 +101,15 @@ class Optimize:
             
         #-----------------------------
         if args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time())+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time()).replace(".","_")+"/"
 
         elif args.usextb == "None" and args.usedxtb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time())+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
         else:
             if args.usedxtb != "None":
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usedxtb+"_"+str(time.time())+"/"
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
             else:
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time())+"/"
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time()).replace(".","_")+"/"
         
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
         
@@ -503,7 +503,10 @@ class Optimize:
                 G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
         
         #
-        FIO.xyz_file_make()
+        if self.args.pyscf:
+            FIO.xyz_file_make_for_pyscf()
+        else:
+            FIO.xyz_file_make()
         
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")

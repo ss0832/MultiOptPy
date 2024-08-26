@@ -114,9 +114,9 @@ class NEB:
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
         if args.usextb == "None":
-            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time())+"/"
+            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
-            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time())+"/"
+            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
         self.args = args
         os.mkdir(self.NEB_FOLDER_DIRECTORY)
         self.ANEB_num = args.ANEB_num

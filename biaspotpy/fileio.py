@@ -183,10 +183,11 @@ class FileIO:
         else:    
             file_list = sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.BPA_FOLDER_DIRECTORY+"samples_*_"+name+"_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz")) 
         #print(file_list,"\n")
+        step_num = len(file_list)
         for m, file in enumerate(file_list):
             #print(file,m)
             with open(file,"r") as f:
-                sample = f.readlines()
+                sample = f.read().splitlines()
                 with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w:
                     atom_num = len(sample)-2
                     w.write(str(atom_num)+"\n")
@@ -194,7 +195,21 @@ class FileIO:
                 
                 for i in sample[2:]:
                     with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w2:
-                        w2.write(i)
+                        if "\n" == i or "" == i:
+                            continue
+                        w2.write(i+"\n")
+                
+                if m == step_num - 1:
+                    
+                    with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","a") as w2:
+                        w2.write(str(atom_num)+"\n")
+                        w2.write("OptimizedStructure\n")
+                        for i in sample[2:]:
+                            
+                            if "\n" == i or "" == i:
+                                continue
+                            w2.write(i+"\n")
+                
         print("\ngeometry collection is completed...\n")
         return
         
@@ -209,7 +224,7 @@ class FileIO:
         for m, file in enumerate(file_list[1:], 1):
             #print(file,m)
             with open(file,"r") as f:
-                sample = f.readlines()
+                sample = f.read().splitlines()
             with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w:
                 atom_num = len(sample)-1
                 w.write(str(atom_num)+"\n")
@@ -218,19 +233,19 @@ class FileIO:
             
             for i in sample[1:]:
                 with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_collection.xyz","a") as w2:
-                    if "\n" == i:
+                    if "\n" == i or "" == i:
                         continue
-                    w2.write(i)
+                    w2.write(i+"\n")
                     
             if m == step_num - 1:
                 with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","w") as w3:
                     w3.write(str(atom_num)+"\n")
                     w3.write("OptimizedStructure\n")
                     for i in sample[1:]:
-                        if "\n" == i:
+                        if "\n" == i or "" == i:
                             continue
                         
-                        w3.write(i)
+                        w3.write(i+"\n")
         print("\ngeometry collection is completed...\n")
         return
 
