@@ -46,6 +46,7 @@ class FileIO:
     def __init__(self, folder_dir, file):
         self.BPA_FOLDER_DIRECTORY = folder_dir
         self.START_FILE = file
+        self.is_save_gjf_file = True
         return
     
     
@@ -174,7 +175,24 @@ class FileIO:
                         w.write(" ")
                     w.write("\n")
         return file_directory
+    
+    
+    def save_gjf_file(self, geometry_list):
+        with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+".gjf","w") as f:
+            f.write("%mem=4GB\n")
+            f.write("%nprocshared=4\n")
+            f.write("#p B3LYP/6-31G* opt freq\n")
+            f.write("\n")
+            f.write("Title Card Required\n")
+            f.write("\n")
+            f.write("0 1\n")# This line is required for fixing the charge and multiplicity.
+            for geometry in geometry_list:
+                f.write(geometry)
+                f.write("\n")
+            f.write("\n\n\n")
         
+        return 
+    
     def xyz_file_make_for_pyscf(self, name=""):
         """optimized path is saved."""
         print("\ngeometry collection processing...\n")
@@ -200,6 +218,9 @@ class FileIO:
                         w2.write(i+"\n")
                 
                 if m == step_num - 1:
+                    if self.is_save_gjf_file:
+                        self.save_gjf_file(sample[2:])
+                    
                     
                     with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","a") as w2:
                         w2.write(str(atom_num)+"\n")
@@ -238,6 +259,9 @@ class FileIO:
                     w2.write(i+"\n")
                     
             if m == step_num - 1:
+                if self.is_save_gjf_file:
+                    self.save_gjf_file(sample[1:])
+                
                 with open(self.BPA_FOLDER_DIRECTORY+os.path.basename(self.START_FILE)[:-4]+"_optimized.xyz","w") as w3:
                     w3.write(str(atom_num)+"\n")
                     w3.write("OptimizedStructure\n")
