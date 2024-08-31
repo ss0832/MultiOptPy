@@ -225,38 +225,54 @@ class Optimize:
             print("Project out: Done\n")    
         return B_g, g, BPA_hessian
     
-    def optimize(self):
+    def import_calculation_module(self):
         xtb_method = None
         if self.args.pyscf:
             from pyscf_calculation_tools import Calculation
-        elif self.args.othersoft != "None":
+          
+        elif self.args.othersoft and self.args.othersoft != "None":
             from ase_calculation_tools import Calculation
+            
             print("Use", self.args.othersoft)
-            with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
-                f.write(self.args.othersoft+"\n")
-                f.write(self.BASIS_SET+"\n")
-                f.write(self.FUNCTIONAL+"\n")
+            with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
+                f.write(self.args.othersoft + "\n")
+                f.write(self.BASIS_SET + "\n")
+                f.write(self.FUNCTIONAL + "\n")
         else:
-            if self.args.usedxtb != "None":
+            if self.args.usedxtb and self.args.usedxtb != "None":
                 from dxtb_calculation_tools import Calculation
+              
                 xtb_method = self.args.usedxtb
-            elif self.args.usextb != "None":
+            elif self.args.usextb and self.args.usextb != "None":
                 from tblite_calculation_tools import Calculation
+               
                 xtb_method = self.args.usextb
             else:
                 from psi4_calculation_tools import Calculation
-            
-        
-        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        G = Graph(self.BPA_FOLDER_DIRECTORY)
-        trust_radii = 0.01
-        force_data = force_data_parser(self.args)
-        finish_frag = False
-        
-        geom_num_list = None#Bohr
-        e = None #Hartree
-        B_e = None #Hartree
-        
+               
+
+        return Calculation, xtb_method
+    
+    def setup_calculation(self, Calculation):
+        SP = Calculation(
+            START_FILE=self.START_FILE,
+            N_THREAD=self.N_THREAD,
+            SET_MEMORY=self.SET_MEMORY,
+            FUNCTIONAL=self.FUNCTIONAL,
+            FC_COUNT=self.FC_COUNT,
+            BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
+            Model_hess=self.Model_hess,
+            software_type=self.args.othersoft,
+            unrestrict=self.unrestrict,
+            SUB_BASIS_SET=self.SUB_BASIS_SET,
+            BASIS_SET=self.BASIS_SET,
+            spin_multiplicity=self.spin_multiplicity,
+            electronic_charge=self.electronic_charge,
+            excited_state=self.excited_state
+        )
+        return SP
+
+    def write_input_files(self, FIO):
         if self.args.pyscf:
             geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
             file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
@@ -265,8 +281,22 @@ class Optimize:
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         self.element_list = element_list
-        self.Model_hess = np.eye(len(element_list)*3)
+        self.Model_hess = np.eye(len(element_list) * 3)
+        return file_directory, electric_charge_and_multiplicity, element_list
+
+    def optimize(self):
+        Calculation, xtb_method = self.import_calculation_module()
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        G = Graph(self.BPA_FOLDER_DIRECTORY)
+      
+        force_data = force_data_parser(self.args)
+        finish_frag = False
         
+        geom_num_list = None#Bohr
+        e = None #Hartree
+        B_e = None #Hartree
+        
+        file_directory, electric_charge_and_multiplicity, element_list = self.write_input_files(FIO)
         #------------------------------------
         if len(self.constraint_condition_list) > 0:
             class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
@@ -286,20 +316,7 @@ class Optimize:
         #-------------------------------------
         finish_frag = False
         #-----------------------------------
-        SP = Calculation(START_FILE = self.START_FILE,
-                         N_THREAD = self.N_THREAD,
-                         SET_MEMORY = self.SET_MEMORY ,
-                         FUNCTIONAL = self.FUNCTIONAL,
-                         FC_COUNT = self.FC_COUNT,
-                         BPA_FOLDER_DIRECTORY = self.BPA_FOLDER_DIRECTORY,
-                         Model_hess = self.Model_hess,
-                         software_type = self.args.othersoft,
-                         unrestrict = self.unrestrict,
-                         SUB_BASIS_SET = self.SUB_BASIS_SET,
-                         BASIS_SET = self.BASIS_SET,
-                         spin_multiplicity = self.spin_multiplicity,
-                         electronic_charge = self.electronic_charge,
-                         excited_state = self.excited_state)
+        SP = self.setup_calculation(Calculation)
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -325,7 +342,8 @@ class Optimize:
         #----------------------------------
         if self.NRO_analysis:
             NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=xtb_method, element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
-        
+        else:
+            NRO = None
         #---------------------------------
         for iter in range(self.NSTEP):
             self.iter = iter
@@ -487,6 +505,12 @@ class Optimize:
             #----------------------------
         #plot graph
         
+        self.save_results(FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
+        
+        return
+
+
+    def save_results(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
@@ -494,35 +518,29 @@ class Optimize:
         G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
         if self.NRO_analysis:
             NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        
-        #G.single_plot(self.NUM_LIST[1:], orthogonal_bias_grad_list, file_directory, "", axis_name_2="orthogonal bias gradient (RMS) [a.u.]", name="orthogonal_bias_gradient")
-        #G.single_plot(self.NUM_LIST[1:], orthogonal_grad_list, file_directory, "", axis_name_2="orthogonal gradient (RMS) [a.u.]", name="orthogonal_gradient")
-        
+
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
-        
-        #
+
         if self.args.pyscf:
             FIO.xyz_file_make_for_pyscf()
         else:
             FIO.xyz_file_make()
-        
+
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
-        
+
         self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
-        
-        
-        #----------------------
+
         print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
-        self.final_geometry = geom_num_list#Bohr
-        self.final_energy = e #Hartree
-        self.final_bias_energy = B_e #Hartree
-        return
+        self.final_geometry = geom_num_list  # Bohr
+        self.final_energy = e  # Hartree
+        self.final_bias_energy = B_e  # Hartree
+
 
     def optimize_oniom(self):
         #high layer: psi4

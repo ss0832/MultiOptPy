@@ -207,8 +207,12 @@ class CalculateMoveVector:
                     if self.newton_tag[i]:
                         model_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
                         break
-            
-            self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii, self.trust_radii_update)
+                else:
+                    model_hess = None
+            if model_hess is None:
+                pass
+            else:
+                self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii, self.trust_radii_update)
             
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
