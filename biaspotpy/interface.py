@@ -439,17 +439,15 @@ def force_data_parser(args):
             sys.exit(0)
         
         for i in range(0, len(data), num_items):
-            print(data[i:i + num_items])
+            
             for j, key in enumerate(structure):
-                print(key)
-                print(structure[key])
+                
                 
                 if type(structure[key]) is list:
                     tmp_list = []
                     
                     for k in range(len(structure[key])):
-                        print(k)
-                        print(structure[key][k])
+                    
                         if structure[key][k].__code__ ==  num_parse.__code__:  # If we expect a num_parse operation
                             tmp_list.append(num_parse(data[i + j + k]))    
         
