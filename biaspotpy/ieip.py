@@ -163,7 +163,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             total_force_1 = perp_force_1 + paral_force_1
             total_force_2 = perp_force_2 + paral_force_2
             
-            #cg method
+            #conjugate gradient method
             if i > 0:
                 alpha_1 = np.dot(total_force_1.reshape(1, len(total_force_1)*3), (d_1).reshape(len(total_force_1)*3, 1)) / np.dot(d_1.reshape(1, len(total_force_1)*3), d_1.reshape(len(total_force_1)*3, 1))
                 total_disp_1 = alpha_1 * d_1
@@ -667,7 +667,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     PREV_B_e_LIST.append(0.0)
                     PREV_e_LIST.append(0.0)
                    
-                    CMV_LIST.append(CalculateMoveVector("x", trust_radii, element_list_list[j], 0, SP_list[j].FC_COUNT, 0))
+                    CMV_LIST.append(CalculateMoveVector("x", element_list_list[j], 0, SP_list[j].FC_COUNT, 0))
                     OPTIMIZER_INSTANCE_LIST.append(CMV_LIST[j].initialization(self.force_data["opt_method"]))
                     #OPTIMIZER_INSTANCE_LIST[j].set_hessian(SP_list[j].Model_hess)
                     
@@ -722,7 +722,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             tmp_move_vector_list = []
             tmp_new_geometry_list = []
             for j in range(len(SP_list)):
-                tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances, trust_radii = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
+                tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
                 tmp_move_vector_list.append(tmp_move_vector)
                 tmp_new_geometry_list.append(tmp_new_geometry)
                 OPTIMIZER_INSTANCE_LIST[j] = tmp_optimizer_instances

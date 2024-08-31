@@ -52,3 +52,5 @@ class Graph:
         plt.close()
          
         return
+
+

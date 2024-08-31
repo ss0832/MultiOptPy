@@ -314,7 +314,7 @@ class Optimize:
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
         
-        CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         for i in range(len(optimizer_instances)):
@@ -407,7 +407,7 @@ class Optimize:
                 g = class_GradientSHAKE.run_grad(pre_geom, g) 
             
             
-            new_geometry, move_vector, optimizer_instances, trust_radii = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
             if len(self.constraint_condition_list) > 0 and iter > 0:
                 tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
                
@@ -432,7 +432,7 @@ class Optimize:
             converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
             
             
-            self.print_info(force_data["opt_method"], e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
+            self.print_info(e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             grad_list.append(np.sqrt((g**2).mean()))
@@ -549,7 +549,6 @@ class Optimize:
             f.write(self.FUNCTIONAL+"\n")  
             
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
-        trust_radii = 0.01
         finish_frag = False
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         self.element_list = element_list
@@ -670,7 +669,7 @@ class Optimize:
         real_orthogonal_bias_grad_list = []
         real_orthogonal_grad_list = []
         
-        HL_CMV = CalculateMoveVector(self.DELTA, trust_radii, high_layer_element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
         
         
         HL_optimizer_instances = HL_CMV.initialization(force_data["opt_method"])
@@ -711,7 +710,7 @@ class Optimize:
             #-------------------------
             #microiteration
             #E(lowlayer_real(lowlayer_model is fixed))
-            LL_CMV = CalculateMoveVector(self.DELTA, trust_radii, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            LL_CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
             LL_optimizer_instances = LL_CMV.initialization(["AdaBelief"])
             LL_Model_hess = np.eye(len(element_list)*3)
             print("microiteration...")
@@ -753,7 +752,7 @@ class Optimize:
                     real_LL_g = class_GradientSHAKE.run_grad(real_pre_geom, real_LL_g) 
                 
                 
-                geom_num_list, LL_move_vector, LL_optimizer_instances, trust_radii = LL_CMV.calc_move_vector(microiter, geom_num_list, real_LL_B_g, pre_real_LL_B_g, real_pre_geom, real_LL_B_e, pre_real_LL_B_e, pre_real_LL_move_vector, real_initial_geom_num_list, real_LL_g, pre_real_LL_g, LL_optimizer_instances)
+                geom_num_list, LL_move_vector, LL_optimizer_instances = LL_CMV.calc_move_vector(microiter, geom_num_list, real_LL_B_g, pre_real_LL_B_g, real_pre_geom, real_LL_B_e, pre_real_LL_B_e, pre_real_LL_move_vector, real_initial_geom_num_list, real_LL_g, pre_real_LL_g, LL_optimizer_instances)
                 
                 if len(self.constraint_condition_list) > 0 and microiter > 0:
                     tmp_new_geometry = class_GradientSHAKE.run_coord(real_pre_geom, geom_num_list/self.bohr2angstroms, element_list)                 
@@ -767,7 +766,7 @@ class Optimize:
                     for j in force_data["fix_atoms"]:
                         geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
                 geom_num_list /= self.bohr2angstroms
-                self.print_info(["AdaBelief"], real_LL_e, real_LL_B_e, real_LL_B_g, LL_move_vector, pre_real_LL_e, pre_real_LL_B_e)
+                self.print_info(real_LL_e, real_LL_B_e, real_LL_B_g, LL_move_vector, pre_real_LL_e, pre_real_LL_B_e)
                 bias_ene_shift = abs(pre_real_LL_B_e - real_LL_B_e)
                 if bias_ene_shift < 1e-5:#convergent criteria
                     print("ENERGY SHIFT: ", bias_ene_shift)
@@ -832,7 +831,7 @@ class Optimize:
                 model_HL_B_g[value-1] += tmp_model_HL_B_g[key-1]  
             
             pre_high_layer_geom_num_list = high_layer_geom_num_list
-            high_layer_geom_num_list, move_vector, HL_optimizer_instances, trust_radii = HL_CMV.calc_move_vector(iter, high_layer_geom_num_list, model_HL_B_g, pre_model_HL_B_g, pre_high_layer_geom_num_list, model_HL_B_e, pre_model_HL_B_e, pre_model_HL_move_vector, high_layer_pre_geom, model_HL_g, pre_model_HL_g, HL_optimizer_instances)
+            high_layer_geom_num_list, move_vector, HL_optimizer_instances = HL_CMV.calc_move_vector(iter, high_layer_geom_num_list, model_HL_B_g, pre_model_HL_B_g, pre_high_layer_geom_num_list, model_HL_B_e, pre_model_HL_B_e, pre_model_HL_move_vector, high_layer_pre_geom, model_HL_g, pre_model_HL_g, HL_optimizer_instances)
             if len(self.constraint_condition_list) > 0 and iter > 0:
                 tmp_new_geometry = class_GradientSHAKE.run_coord(high_layer_pre_geom, high_layer_geom_num_list/self.bohr2angstroms, element_list) 
                 high_layer_geom_num_list = tmp_new_geometry * self.bohr2angstroms#bohr -> ang.
@@ -871,7 +870,7 @@ class Optimize:
             displacement_vector = geom_num_list - real_pre_geom
             converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(real_B_g, displacement_vector)
             
-            self.print_info(force_data["opt_method"], real_e, real_B_e, real_B_g, displacement_vector, pre_real_e, pre_real_B_e, max_displacement_threshold, rms_displacement_threshold)
+            self.print_info(real_e, real_B_e, real_B_g, displacement_vector, pre_real_e, pre_real_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
             real_grad_list.append(np.sqrt((real_g**2).mean()))
@@ -1048,9 +1047,8 @@ class Optimize:
         return DC_exit_flag
     
     
-    def print_info(self, optmethod, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
+    def print_info(self, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
         print("caluculation results (unit a.u.):")
-        print("OPT method            : {} ".format(optmethod))
         print("                         Value                         Threshold ")
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
