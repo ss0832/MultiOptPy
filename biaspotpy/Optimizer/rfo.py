@@ -92,6 +92,7 @@ class RationalFunctionOptimization:
     
     
     def normal_v2(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("RFOv2")
         if self.Initialization:
             self.Initialization = False
             return -1*self.DELTA*B_g
@@ -100,10 +101,10 @@ class RationalFunctionOptimization:
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
         DELTA_for_QNM = self.DELTA
         
-        delta_hess = self.hessian_update(displacement, delta_grad)
         
         
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
@@ -139,6 +140,7 @@ class RationalFunctionOptimization:
         return move_vector#Bohr.
         
     def normal_v3(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("RFOv3")
         #ref.:Culot, P., Dive, G., Nguyen, V.H. et al. A quasi-Newton algorithm for first-order saddle-point location. Theoret. Chim. Acta 82, 189–205 (1992). https://doi.org/10.1007/BF01113492
         if self.Initialization:
             self.Initialization = False
@@ -148,10 +150,10 @@ class RationalFunctionOptimization:
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
         DELTA_for_QNM = self.DELTA
         
-        delta_hess = self.hessian_update(displacement, delta_grad)
-        delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list)
-        
+
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
+            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list)
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
@@ -187,7 +189,7 @@ class RationalFunctionOptimization:
         return move_vector#Bohr.
     
     def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
-       
+        print("RFOv1")
         if self.Initialization:
             self.Initialization = False
             return -1*self.DELTA*B_g
@@ -197,9 +199,11 @@ class RationalFunctionOptimization:
         DELTA_for_QNM = self.DELTA
         
 
-        delta_hess = self.hessian_update(displacement, delta_grad)
+        
         
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
+            #delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list)
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
@@ -287,11 +291,11 @@ class RationalFunctionOptimization:
         return move_vector#Bohr.   
 
     def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
-        if "mRFO" in self.config["method"]:
+        if "mrfo" in self.config["method"].lower():
             move_vector = self.moment(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
-        elif "RFO2" in self.config["method"]:
+        elif "rfo2" in self.config["method"].lower():
             move_vector = self.normal_v2(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
-        elif "RFO3" in self.config["method"]:
+        elif "rfo3" in self.config["method"].lower():
             move_vector = self.normal_v3(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         else:
             move_vector = self.normal(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
