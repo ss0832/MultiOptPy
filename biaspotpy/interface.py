@@ -1,7 +1,7 @@
 import argparse
 import sys
 import random
-
+import inspect
 import numpy as np
 
 
@@ -134,7 +134,7 @@ def optimizeparser(parser):
     parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
     parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
     parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
-    parser.add_argument('-modelhess','--use_model_hessian', help="use Swart's model hessian.", action='store_true')
+    parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     args = parser.parse_args()
     return args
 
@@ -447,13 +447,13 @@ def force_data_parser(args):
                     tmp_list = []
                     
                     for k in range(len(structure[key])):
-                    
-                        if structure[key][k].__code__ ==  num_parse.__code__:  # If we expect a num_parse operation
-                            tmp_list.append(num_parse(data[i + j + k]))    
+                        if not inspect.isclass(structure[key][k]):
+                            if structure[key][k].__code__ ==  num_parse.__code__:  # If we expect a num_parse operation
+                                tmp_list.append(num_parse(data[i + j + k]))    
         
-                        elif isinstance(structure[key][k], type(list(map(float, [0])))):  # If we expect a list of floats
+                            elif isinstance(structure[key][k], type(list(map(float, [0])))):  # If we expect a list of floats
                             
-                            tmp_list.append(list(map(float, data[i + j + k].split(","))))
+                                tmp_list.append(list(map(float, data[i + j + k].split(","))))
                         
                         else:  # Otherwise, just cast to the type expected (float, int, etc.)
                             tmp_list.append(structure[key][k](data[i + j + k]))
@@ -461,12 +461,11 @@ def force_data_parser(args):
                     parsed_data[key].append(tmp_list)
                 
                 else:
-                    if structure[key].__code__ ==  num_parse.__code__:  # If we expect a num_parse operation
-                        parsed_data[key].append(num_parse(data[i + j]))    
-    
-                    elif isinstance(structure[key], type(list(map(float, [0])))):  # If we expect a list of floats
-                        
-                        parsed_data[key].append(list(map(float, data[i + j].split(","))))
+                    if not inspect.isclass(structure[key]):
+                        if structure[key].__code__ ==  num_parse.__code__:  # If we expect a num_parse operation
+                            parsed_data[key].append(num_parse(data[i + j]))    
+                        elif isinstance(structure[key], type(list(map(float, [0])))):  # If we expect a list of floats
+                            parsed_data[key].append(list(map(float, data[i + j].split(","))))
                     
                     else:  # Otherwise, just cast to the type expected (float, int, etc.)
                         parsed_data[key].append(structure[key](data[i + j]))

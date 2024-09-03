@@ -1673,7 +1673,7 @@ class ApproxHessian:
     def __init__(self):
         return
     
-    def main(self, coord, element_list, cart_gradient, approx_hess_type="Swart"):
+    def main(self, coord, element_list, cart_gradient, approx_hess_type="Lindh2007"):
         #coord: Bohr
         if approx_hess_type == "Lindh":
             LAH = LindhApproxHessian(coord, element_list, cart_gradient)
