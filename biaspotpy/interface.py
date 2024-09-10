@@ -1,15 +1,7 @@
 import argparse
 import sys
-import random
-import inspect
 import numpy as np
 
-
-try:
-    import psi4
-    
-except:
-    pass
 
 """
     BiasPotPy
@@ -46,7 +38,7 @@ Recent developments in the PySCF program package, Qiming Sun, Xing Zhang, Samrag
 
 GFN2-xTB(tblite)
 J. Chem. Theory Comput. 2019, 15, 3, 1652–1671 
-GFN-xTB(tblite)
+GFN1-xTB(tblite, dxtb)
 J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
 """
 
@@ -135,6 +127,7 @@ def optimizeparser(parser):
     parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
     parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
+    parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     args = parser.parse_args()
     return args
 
@@ -401,7 +394,8 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.project_out = []
         self.bend_project_out = []
         self.torsion_project_out = []
-        self.outofplain_project_out = [] 
+        self.outofplain_project_out = []
+        self.shape_conditions = []
         self.use_model_hessian = False
         return
  

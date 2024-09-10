@@ -1,8 +1,8 @@
 
 import numpy as np
 
-from parameter import covalent_radii_lib
-
+from parameter import covalent_radii_lib, UnitValueLib
+from calc_tools import calc_bond_length_from_vec, calc_angle_from_vec, calc_dihedral_angle_from_vec
 
 class BondConnectivity:#Bohr
     def __init__(self):
@@ -133,6 +133,103 @@ class BondConnectivity:#Bohr
         
         return connectivity_table
     
+
+def judge_shape_condition(geom_num_list, shape_condition_list):
+    finish_flag = None
+    if geom_num_list is None:
+        return False
+    elif len(shape_condition_list) % 3 != 0:
+        print("Error: shape_condition_list")
+        return True
+
+
+    for idx in range(int(len(shape_condition_list)/3)):
+        label = shape_condition_list[3*idx+2].split(",")
+        atom_num = len(label)
+        if atom_num == 2:
+            bond_length = float(shape_condition_list[3*idx])
+            condition = str(shape_condition_list[3*idx+1]) #gt or lt
+            print("bond condition: ", label, condition, bond_length)
+            vec_1 = geom_num_list[int(label[0])-1]
+            vec_2 = geom_num_list[int(label[1])-1]
+            current_bond_length = calc_bond_length_from_vec(vec_1, vec_2) * UnitValueLib().bohr2angstroms
+            if condition == "gt":
+                if current_bond_length > bond_length:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            elif condition == "lt":
+                if current_bond_length < bond_length:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            else:
+                print("Error: shape_condition_list")
+                return True
+        
+        elif atom_num == 3:
+            angle = float(shape_condition_list[3*idx])
+            condition = str(shape_condition_list[3*idx+1]) #gt or lt
+            print("angle condition: ", label, condition, angle)
+            vec_1 = geom_num_list[int(label[0])-1] - geom_num_list[int(label[1])-1]
+            vec_2 = geom_num_list[int(label[2])-1] - geom_num_list[int(label[1])-1]
+            current_angle = np.rad2deg(calc_angle_from_vec(vec_1, vec_2))
+
+            if condition == "gt":
+                if current_angle > angle:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            elif condition == "lt":
+                if current_angle < angle:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            else:
+                print("Error: shape_condition_list")
+                return True
+        
+        elif atom_num == 4:
+            dihedral_angle = float(shape_condition_list[3*idx])
+            condition = str(shape_condition_list[3*idx+1])
+            print("dihedral angle condition: ", label, condition, dihedral_angle)
+            vec_1 = geom_num_list[int(label[0])-1] - geom_num_list[int(label[1])-1]
+            vec_2 = geom_num_list[int(label[1])-1] - geom_num_list[int(label[2])-1]
+            vec_3 = geom_num_list[int(label[2])-1] - geom_num_list[int(label[3])-1]
+
+            current_dihedral_angle = np.rad2deg(calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3))
+
+            if condition == "gt":
+                if current_dihedral_angle > dihedral_angle:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            elif condition == "lt":
+                if current_dihedral_angle < dihedral_angle:
+                    finish_flag = False
+                else:
+                    finish_flag = True
+                    break
+            else:
+                print("Error: shape_condition_list")
+                return True
+
+        else:
+            print("Error: shape_condition_list")
+            return True
+
+
+    print(finish_flag)
+    return finish_flag
+
+
+
+
 
 if __name__ == "__main__":#test
     BC = BondConnectivity()

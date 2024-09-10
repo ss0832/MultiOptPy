@@ -499,6 +499,10 @@ def return_pair_idx(i, j):
     pair_idx = int(ii * (ii - 1) / 2 - (ii - jj)) -1
     return pair_idx
 
+def calc_bond_length_from_vec(vector1, vector2):
+    distance = np.linalg.norm(vector1 - vector2)
+    return distance
+
 def torch_calc_angle_from_vec(vector1, vector2):
     magnitude1 = torch.linalg.norm(vector1) + 1e-15
     magnitude2 = torch.linalg.norm(vector2) + 1e-15
@@ -523,6 +527,8 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
     return angle
+
+
 
 def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = np.cross(vector1, vector2)

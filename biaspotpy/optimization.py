@@ -25,6 +25,7 @@ from MO_analysis import NROAnalysis
 from constraint_condition import GradientSHAKE, shake_parser
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 from irc import IRC
+from bond_connectivity import judge_shape_condition
 
 class Optimize:
     def __init__(self, args):
@@ -135,154 +136,10 @@ class Optimize:
         self.final_energy = None #Hartree
         self.final_bias_energy = None #Hartree
         self.othersoft = args.othersoft
+
+        self.shape_conditions = args.shape_conditions
         return
 
-    def check_converge_criteria(self, B_g, displacement_vector):
-        max_force = abs(B_g.max())
-        max_force_threshold = self.MAX_FORCE_THRESHOLD
-        rms_force = abs(np.sqrt((B_g**2).mean()))
-        rms_force_threshold = self.RMS_FORCE_THRESHOLD
-        
-        
-        delta_max_force_threshold = max(0.0, max_force_threshold -1 * max_force)
-        delta_rms_force_threshold = max(0.0, rms_force_threshold -1 * rms_force)
-        
-        max_displacement = abs(displacement_vector.max())
-        max_displacement_threshold = max(self.MAX_DISPLACEMENT_THRESHOLD, self.MAX_DISPLACEMENT_THRESHOLD + delta_max_force_threshold)
-        rms_displacement = abs(np.sqrt((displacement_vector**2).mean()))
-        rms_displacement_threshold = max(self.RMS_DISPLACEMENT_THRESHOLD, self.RMS_DISPLACEMENT_THRESHOLD + delta_rms_force_threshold)
-        
-        if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
-            return True, max_displacement_threshold, rms_displacement_threshold
-        return False, max_displacement_threshold, rms_displacement_threshold
-    
-    def project_out_optional_vectors(self, B_g, g, BPA_hessian, geom_num_list, force_data):
-        # project out optional vectors
-        if len(force_data["project_out_fragm_pair"]) > 0:
-            print("project out optional vectors")
-            for fragm_pair in force_data["project_out_fragm_pair"]:
-                fragm_1 = fragm_pair[0]
-                fragm_2 = fragm_pair[1]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                
-                # stretch
-                B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-            print("Project out: Done\n")
-        
-        if len(force_data["project_out_bend_fragms"]) > 0:
-            print("project out optional bending vectors")
-            for fragms in force_data["project_out_bend_fragms"]:    
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                
-                # bend
-                B_g = copy.copy(project_fragm_bend_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_3, fragm_2))
-                g = copy.copy(project_fragm_bend_vector_for_grad(g, geom_num_list, fragm_1, fragm_3, fragm_2))
-            print("Project out: Done\n")
-        if len(force_data["project_out_torsion_fragms"]) > 0:
-            print("project out optional torsion vectors")
-            for fragms in force_data["project_out_torsion_fragms"]:
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                fragm_4 = fragms[3]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                print("Fragment 4: ", fragm_4)
-                # torsion
-                B_g = copy.copy(project_fragm_torsion_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                g = copy.copy(project_fragm_torsion_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-            print("Project out: Done\n")
-        if len(force_data["project_out_outofplain_fragms"]) > 0:
-            print("project out optional out of plain vectors")
-            for fragms in force_data["project_out_outofplain_fragms"]:
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                fragm_4 = fragms[3]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                print("Fragment 4: ", fragm_4)    
-                # out of plain
-                B_g = copy.copy(project_fragm_outofplain_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                g = copy.copy(project_fragm_outofplain_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                
-                self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                if np.any(BPA_hessian != 0.0):
-                    BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-            print("Project out: Done\n")    
-        return B_g, g, BPA_hessian
-    
-    def import_calculation_module(self):
-        xtb_method = None
-        if self.args.pyscf:
-            from pyscf_calculation_tools import Calculation
-          
-        elif self.args.othersoft and self.args.othersoft != "None":
-            from ase_calculation_tools import Calculation
-            
-            print("Use", self.args.othersoft)
-            with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
-                f.write(self.args.othersoft + "\n")
-                f.write(self.BASIS_SET + "\n")
-                f.write(self.FUNCTIONAL + "\n")
-        else:
-            if self.args.usedxtb and self.args.usedxtb != "None":
-                from dxtb_calculation_tools import Calculation
-              
-                xtb_method = self.args.usedxtb
-            elif self.args.usextb and self.args.usextb != "None":
-                from tblite_calculation_tools import Calculation
-               
-                xtb_method = self.args.usextb
-            else:
-                from psi4_calculation_tools import Calculation
-               
-
-        return Calculation, xtb_method
-    
-    def setup_calculation(self, Calculation):
-        SP = Calculation(
-            START_FILE=self.START_FILE,
-            N_THREAD=self.N_THREAD,
-            SET_MEMORY=self.SET_MEMORY,
-            FUNCTIONAL=self.FUNCTIONAL,
-            FC_COUNT=self.FC_COUNT,
-            BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
-            Model_hess=self.Model_hess,
-            software_type=self.args.othersoft,
-            unrestrict=self.unrestrict,
-            SUB_BASIS_SET=self.SUB_BASIS_SET,
-            BASIS_SET=self.BASIS_SET,
-            spin_multiplicity=self.spin_multiplicity,
-            electronic_charge=self.electronic_charge,
-            excited_state=self.excited_state
-        )
-        return SP
-
-    def write_input_files(self, FIO):
-        if self.args.pyscf:
-            geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
-            file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
-            electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
-        else:
-            geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, 0)
-        self.element_list = element_list
-        self.Model_hess = np.eye(len(element_list) * 3)
-        return file_directory, electric_charge_and_multiplicity, element_list
 
     def optimize(self):
         Calculation, xtb_method = self.import_calculation_module()
@@ -345,17 +202,27 @@ class Optimize:
         else:
             NRO = None
         #---------------------------------
+        finish_frag = False
         for iter in range(self.NSTEP):
             self.iter = iter
-            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
-
-            if exit_file_detect:
+            finish_frag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+            if finish_frag:
                 break
+            #---------------------------------------
+            finish_frag = judge_shape_condition(geom_num_list, self.shape_conditions)
+            if finish_frag:
+                break
+            #---------------------------------------
+
             print("\n# ITR. "+str(iter)+"\n")
             #---------------------------------------
             
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
+
+            
+
+
             if iter == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = copy.copy(SP.Model_hess)
@@ -540,6 +407,155 @@ class Optimize:
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
+
+
+    def check_converge_criteria(self, B_g, displacement_vector):
+        max_force = abs(B_g.max())
+        max_force_threshold = self.MAX_FORCE_THRESHOLD
+        rms_force = abs(np.sqrt((B_g**2).mean()))
+        rms_force_threshold = self.RMS_FORCE_THRESHOLD
+        
+        
+        delta_max_force_threshold = max(0.0, max_force_threshold -1 * max_force)
+        delta_rms_force_threshold = max(0.0, rms_force_threshold -1 * rms_force)
+        
+        max_displacement = abs(displacement_vector.max())
+        max_displacement_threshold = max(self.MAX_DISPLACEMENT_THRESHOLD, self.MAX_DISPLACEMENT_THRESHOLD + delta_max_force_threshold)
+        rms_displacement = abs(np.sqrt((displacement_vector**2).mean()))
+        rms_displacement_threshold = max(self.RMS_DISPLACEMENT_THRESHOLD, self.RMS_DISPLACEMENT_THRESHOLD + delta_rms_force_threshold)
+        
+        if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
+            return True, max_displacement_threshold, rms_displacement_threshold
+        return False, max_displacement_threshold, rms_displacement_threshold
+    
+    def project_out_optional_vectors(self, B_g, g, BPA_hessian, geom_num_list, force_data):
+        # project out optional vectors
+        if len(force_data["project_out_fragm_pair"]) > 0:
+            print("project out optional vectors")
+            for fragm_pair in force_data["project_out_fragm_pair"]:
+                fragm_1 = fragm_pair[0]
+                fragm_2 = fragm_pair[1]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                
+                # stretch
+                B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
+                g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
+            print("Project out: Done\n")
+        
+        if len(force_data["project_out_bend_fragms"]) > 0:
+            print("project out optional bending vectors")
+            for fragms in force_data["project_out_bend_fragms"]:    
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                
+                # bend
+                B_g = copy.copy(project_fragm_bend_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_3, fragm_2))
+                g = copy.copy(project_fragm_bend_vector_for_grad(g, geom_num_list, fragm_1, fragm_3, fragm_2))
+            print("Project out: Done\n")
+        if len(force_data["project_out_torsion_fragms"]) > 0:
+            print("project out optional torsion vectors")
+            for fragms in force_data["project_out_torsion_fragms"]:
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                fragm_4 = fragms[3]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                print("Fragment 4: ", fragm_4)
+                # torsion
+                B_g = copy.copy(project_fragm_torsion_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                g = copy.copy(project_fragm_torsion_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+            print("Project out: Done\n")
+        if len(force_data["project_out_outofplain_fragms"]) > 0:
+            print("project out optional out of plain vectors")
+            for fragms in force_data["project_out_outofplain_fragms"]:
+                fragm_1 = fragms[0]
+                fragm_2 = fragms[1]
+                fragm_3 = fragms[2]
+                fragm_4 = fragms[3]
+                print("Project out: \n")
+                print("Fragment 1: ", fragm_1)
+                print("Fragment 2: ", fragm_2)
+                print("Fragment 3: ", fragm_3)
+                print("Fragment 4: ", fragm_4)    
+                # out of plain
+                B_g = copy.copy(project_fragm_outofplain_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                g = copy.copy(project_fragm_outofplain_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
+                
+                self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
+                if np.any(BPA_hessian != 0.0):
+                    BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
+            print("Project out: Done\n")    
+        return B_g, g, BPA_hessian
+    
+    def import_calculation_module(self):
+        xtb_method = None
+        if self.args.pyscf:
+            from pyscf_calculation_tools import Calculation
+          
+        elif self.args.othersoft and self.args.othersoft != "None":
+            from ase_calculation_tools import Calculation
+            
+            print("Use", self.args.othersoft)
+            with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
+                f.write(self.args.othersoft + "\n")
+                f.write(self.BASIS_SET + "\n")
+                f.write(self.FUNCTIONAL + "\n")
+        else:
+            if self.args.usedxtb and self.args.usedxtb != "None":
+                from dxtb_calculation_tools import Calculation
+              
+                xtb_method = self.args.usedxtb
+            elif self.args.usextb and self.args.usextb != "None":
+                from tblite_calculation_tools import Calculation
+               
+                xtb_method = self.args.usextb
+            else:
+                from psi4_calculation_tools import Calculation
+               
+
+        return Calculation, xtb_method
+    
+    def setup_calculation(self, Calculation):
+        SP = Calculation(
+            START_FILE=self.START_FILE,
+            N_THREAD=self.N_THREAD,
+            SET_MEMORY=self.SET_MEMORY,
+            FUNCTIONAL=self.FUNCTIONAL,
+            FC_COUNT=self.FC_COUNT,
+            BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
+            Model_hess=self.Model_hess,
+            software_type=self.args.othersoft,
+            unrestrict=self.unrestrict,
+            SUB_BASIS_SET=self.SUB_BASIS_SET,
+            BASIS_SET=self.BASIS_SET,
+            spin_multiplicity=self.spin_multiplicity,
+            electronic_charge=self.electronic_charge,
+            excited_state=self.excited_state
+        )
+        return SP
+
+    def write_input_files(self, FIO):
+        if self.args.pyscf:
+            geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
+            file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
+            electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
+        else:
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+            file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        self.element_list = element_list
+        self.Model_hess = np.eye(len(element_list) * 3)
+        return file_directory, electric_charge_and_multiplicity, element_list
+
 
 
     def optimize_oniom(self):
