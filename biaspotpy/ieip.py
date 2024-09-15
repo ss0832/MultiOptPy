@@ -610,6 +610,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     OPTIMIZER_INSTANCE_LIST.append(CMV_LIST[j].initialization(self.force_data["opt_method"]))
                     #OPTIMIZER_INSTANCE_LIST[j].set_hessian(SP_list[j].Model_hess)
                     
+                    
                 init_geom_list = tmp_geometry_list
                 PREV_GEOM_LIST = tmp_geometry_list
                 if self.mf_mode == "seam":
@@ -680,6 +681,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             tmp_move_vector_list = []
             tmp_new_geometry_list = []
             for j in range(len(SP_list)):
+                CMV_LIST[j].trust_radii = 0.5
                 tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
                 tmp_move_vector_list.append(tmp_move_vector)
                 tmp_new_geometry_list.append(tmp_new_geometry)

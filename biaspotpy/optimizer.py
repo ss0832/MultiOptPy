@@ -105,7 +105,7 @@ class CalculateMoveVector:
         self.MIN_MAX_FORCE_SWITCHING_THRESHOLD = 0.0010
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
-        self.trust_radii = 0.1
+        self.trust_radii = 1.0
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
@@ -199,7 +199,7 @@ class CalculateMoveVector:
                 self.trust_radii = min(self.trust_radii, 0.1)
   
         elif self.FC_COUNT == -1:
-            self.trust_radii = 1.0
+            pass
 
         else:
             if self.trust_radii_update == "trust":
