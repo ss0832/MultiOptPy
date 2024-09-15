@@ -643,23 +643,19 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 mf_energy = SMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
                 mf_bias_energy = SMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
                 smf_grad_1, smf_grad_2 = SMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
-                
                 smf_bias_grad_1, smf_bias_grad_2 = SMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
-                tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
-                tmp_smf_grad_list = np.array(tmp_smf_grad_list)
+
                 
             elif self.mf_mode == "avoiding":
                 mf_energy = AMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
                 mf_bias_energy = AMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
                 smf_grad_1, smf_grad_2 = AMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
-                
                 smf_bias_grad_1, smf_bias_grad_2 = AMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
-                tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
-                tmp_smf_grad_list = np.array(tmp_smf_grad_list)
+
 
             elif self.mf_mode == "bitss":
                 mf_energy = BITSS.calc_energy(tmp_energy_list[0], tmp_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_gradient_list[0], tmp_gradient_list[1], iter)
@@ -669,19 +665,19 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 bitss_grad_1, bitss_grad_2 = BITSS.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
                 
                 bitss_bias_grad_1, bitss_bias_grad_2 = BITSS.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
-
                 tmp_smf_bias_grad_list = [bitss_bias_grad_1, bitss_bias_grad_2]
                 tmp_smf_grad_list = [bitss_grad_1, bitss_grad_2]
-                tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
-                tmp_smf_grad_list = np.array(tmp_smf_grad_list)
+
             else:
                 print("No model function is selected.")
                 raise
             
+            tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
+            tmp_smf_grad_list = np.array(tmp_smf_grad_list)            
             tmp_move_vector_list = []
             tmp_new_geometry_list = []
             for j in range(len(SP_list)):
-                CMV_LIST[j].trust_radii = 0.5
+                CMV_LIST[j].trust_radii = 0.3
                 tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
                 tmp_move_vector_list.append(tmp_move_vector)
                 tmp_new_geometry_list.append(tmp_new_geometry)
@@ -742,9 +738,13 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             PREV_MF_e = mf_energy
             PREV_MF_B_e = mf_bias_energy
-            if abs(tmp_bias_gradient_list.max()) < self.MAX_FORCE_THRESHOLD and abs(np.sqrt((tmp_bias_gradient_list**2).mean())) < self.RMS_FORCE_THRESHOLD and  abs(tmp_move_vector_list.max()) < self.MAX_DISPLACEMENT_THRESHOLD and abs(np.sqrt((tmp_move_vector_list**2).mean())) < self.RMS_DISPLACEMENT_THRESHOLD:#convergent criteria
+            converge_check_flag, _, _ = self.check_converge_criteria(tmp_smf_bias_grad_list, tmp_move_vector_list)
+            if converge_check_flag:#convergent criteria
                 print("Converged!!!")
                 break
+
+
+
 
         NUM_LIST = [i for i in range(len(BIAS_MF_ENERGY_LIST))]
         MF_ENERGY_LIST = np.array(MF_ENERGY_LIST)
@@ -823,6 +823,21 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
+    
+    def check_converge_criteria(self, B_g, displacement_vector):
+        max_force = abs(B_g.max())
+        max_force_threshold = self.MAX_FORCE_THRESHOLD
+        rms_force = abs(np.sqrt((B_g**2).mean()))
+        rms_force_threshold = self.RMS_FORCE_THRESHOLD
+
+        max_displacement = abs(displacement_vector.max())
+        max_displacement_threshold = self.MAX_DISPLACEMENT_THRESHOLD
+        rms_displacement = abs(np.sqrt((displacement_vector**2).mean()))
+        rms_displacement_threshold = self.RMS_DISPLACEMENT_THRESHOLD
+        if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
+            return True, max_displacement_threshold, rms_displacement_threshold
+       
+        return False, max_displacement_threshold, rms_displacement_threshold
     
     def run(self):
         self.optimize()
