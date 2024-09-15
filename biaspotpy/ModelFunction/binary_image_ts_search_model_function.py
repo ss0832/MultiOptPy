@@ -5,7 +5,7 @@ import numpy as np
 
 class BITSSModelFunction:
     def __init__(self, geom_num_list_1, geom_num_list_2):
-        self.f = 0.4
+        self.f = 0.5
         self.alpha = 10.0
         self.beta = 0.1
         self.d = np.linalg.norm(geom_num_list_1 - geom_num_list_2)
@@ -14,7 +14,7 @@ class BITSSModelFunction:
         
     def calc_energy(self, energy_1, energy_2, geom_num_list_1, geom_num_list_2, gradient_1, gradient_2, iter):
         current_distance = np.linalg.norm(geom_num_list_1 - geom_num_list_2)
-        if iter % 100 == 0:
+        if iter % 500 == 0:
 
             self.E_B = abs(energy_1 - energy_2)
             self.kappa_e = self.alpha / (2.0 * self.E_B + 1e-10)
@@ -40,8 +40,8 @@ class BITSSModelFunction:
         current_vec = geom_num_list_1 - geom_num_list_2
         current_dist = np.linalg.norm(current_vec) + 1e-10
 
-        bitss_grad_1 = gradient_1 + 2.0 * self.kappa_e * (energy_1 - energy_2) * gradient_1 + current_vec * 2.0 * self.kappa_d * (current_dist - self.d) / current_dist
+        bitss_grad_1 = gradient_1 + gradient_2 + 2.0 * self.kappa_e * (energy_1 - energy_2) * (gradient_1 - gradient_2) + current_vec * 2.0 * self.kappa_d * (current_dist - self.d) / current_dist
 
-        bitss_grad_2 = gradient_2 - 2.0 * self.kappa_e * (energy_1 - energy_2) * gradient_2 - current_vec * 2.0 * self.kappa_d * (current_dist - self.d) / current_dist
+        bitss_grad_2 = gradient_1 + gradient_2 + 2.0 * self.kappa_e * (energy_1 - energy_2) * (gradient_1 - gradient_2) - current_vec * 2.0 * self.kappa_d * (current_dist - self.d) / current_dist
         
         return bitss_grad_1, bitss_grad_2
