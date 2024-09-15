@@ -558,6 +558,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         ENERGY_LIST_LIST = [[] for i in range(len(SP_list))]
         MF_ENERGY_LIST = []
 
+
+
+
+
         for iter in range(0, self.microiterlimit):
             if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
                 break
@@ -607,7 +611,15 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     #OPTIMIZER_INSTANCE_LIST[j].set_hessian(SP_list[j].Model_hess)
                     
                 init_geom_list = tmp_geometry_list
-                PREV_GEOM_LIST = tmp_geometry_list 
+                PREV_GEOM_LIST = tmp_geometry_list
+                if self.mf_mode == "seam":
+                    SMF = MF.SeamModelFunction()
+                    
+                elif self.mf_mode == "avoiding":
+                    AMF = MF.AvoidingModelFunction()
+
+                elif self.mf_mode == "bitss":
+                    BITSS = MF.BITSSModelFunction(tmp_geometry_list[0], tmp_geometry_list[1])
                 
             BPC_LIST = []
             for j in range(len(SP_list)):
@@ -627,7 +639,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             ##  model function
             ##-----
             if self.mf_mode == "seam":
-                SMF = MF.SeamModelFunction()
                 mf_energy = SMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
                 mf_bias_energy = SMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
                 smf_grad_1, smf_grad_2 = SMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
@@ -639,7 +650,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_smf_grad_list = np.array(tmp_smf_grad_list)
                 
             elif self.mf_mode == "avoiding":
-                AMF = MF.AvoidingModelFunction()
                 mf_energy = AMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
                 mf_bias_energy = AMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
                 smf_grad_1, smf_grad_2 = AMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
@@ -649,7 +659,20 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
                 tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
                 tmp_smf_grad_list = np.array(tmp_smf_grad_list)
-            
+
+            elif self.mf_mode == "bitss":
+                mf_energy = BITSS.calc_energy(tmp_energy_list[0], tmp_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_gradient_list[0], tmp_gradient_list[1], iter)
+
+                mf_bias_energy = BITSS.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1], iter)
+
+                bitss_grad_1, bitss_grad_2 = BITSS.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
+                
+                bitss_bias_grad_1, bitss_bias_grad_2 = BITSS.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
+
+                tmp_smf_bias_grad_list = [bitss_bias_grad_1, bitss_bias_grad_2]
+                tmp_smf_grad_list = [bitss_grad_1, bitss_grad_2]
+                tmp_smf_bias_grad_list = np.array(tmp_smf_bias_grad_list)
+                tmp_smf_grad_list = np.array(tmp_smf_grad_list)
             else:
                 print("No model function is selected.")
                 raise
@@ -685,8 +708,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     tmp_new_geometry_list_to_list[j].insert(0, electric_charge_and_multiplicity_list[j])
                 
                 for j in range(len(SP_list)):
-                    file_directory_list[j] = FIO_img_list[j].make_psi4_input_file([tmp_new_geometry_list[j]], iter+1)
-            
+                   
+                    file_directory_list[j] = FIO_img_list[j].make_psi4_input_file([tmp_new_geometry_list_to_list[j]], iter+1)
+                  
               
             PREV_GRAD_LIST = tmp_gradient_list
             PREV_BIAS_GRAD_LIST = tmp_bias_gradient_list
