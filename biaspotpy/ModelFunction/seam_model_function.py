@@ -13,6 +13,6 @@ class SeamModelFunction:
         return tot_energy
     
     def calc_grad(self, energy_1, energy_2, grad_1, grad_2):
-        smf_grad_1 = 0.5 * (grad_1) + 2 * (energy_1 - energy_2) * (grad_1) / (self.alpha)
-        smf_grad_2 = 0.5 * (grad_2) - 2 * (energy_1 - energy_2) * (grad_2) / (self.alpha)
+        smf_grad_1 = 0.5 * (grad_1) + 0.5 * (grad_2) + 2 * (energy_1 - energy_2) * (grad_1 - grad_2) / (self.alpha)
+        smf_grad_2 = 0.5 * (grad_1) + 0.5 * (grad_2) + 2 * (energy_1 - energy_2) * (grad_1 - grad_2) / (self.alpha)
         return smf_grad_1, smf_grad_2
