@@ -621,6 +621,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
 
                 elif self.mf_mode == "bitss":
                     BITSS = MF.BITSSModelFunction(tmp_geometry_list[0], tmp_geometry_list[1])
+                elif self.mf_mode == "conical":
+                    CMF = MF.ConicalModelFunction()
                 
             BPC_LIST = []
             for j in range(len(SP_list)):
@@ -667,6 +669,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 bitss_bias_grad_1, bitss_bias_grad_2 = BITSS.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_geometry_list[0], tmp_geometry_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [bitss_bias_grad_1, bitss_bias_grad_2]
                 tmp_smf_grad_list = [bitss_grad_1, bitss_grad_2]
+
+            elif self.mf_mode == "conical":
+                mf_energy = CMF.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
+                mf_bias_energy = CMF.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
+                smf_grad_1, smf_grad_2 = CMF.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
+                smf_bias_grad_1, smf_bias_grad_2 = CMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
+                tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
+                tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
 
             else:
                 print("No model function is selected.")
