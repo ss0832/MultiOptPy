@@ -39,11 +39,16 @@ class Optimize:
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
         self.NUM_LIST = [] #
 
-        if args.tight_convergence_criteria:
+        if args.tight_convergence_criteria and not args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.00012
             self.RMS_FORCE_THRESHOLD = 0.00008
             self.MAX_DISPLACEMENT_THRESHOLD = 0.0006  
-            self.RMS_DISPLACEMENT_THRESHOLD = 0.0003 
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.0003
+        elif not args.tight_convergence_criteria and args.loose_convergence_criteria:
+            self.MAX_FORCE_THRESHOLD = 0.0030 
+            self.RMS_FORCE_THRESHOLD = 0.0020 
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.0150  
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.0100 
         else:
             self.MAX_FORCE_THRESHOLD = 0.0003 
             self.RMS_FORCE_THRESHOLD = 0.0002 

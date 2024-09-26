@@ -122,6 +122,7 @@ def optimizeparser(parser):
     parser.add_argument("-nro", "--NRO_analysis",  help="apply Natural Reaction Orbial analysis. (ref. Phys. Chem. Chem. Phys. 24, 3532 (2022))", action='store_true')
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
+    parser.add_argument('-lcc','--loose_convergence_criteria', help="apply loose opt criteria.", action='store_true')
     parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
     parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
     parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
@@ -391,6 +392,7 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.intrinsic_reaction_coordinate = []
         self.oniom_method = []
         self.tight_convergence_criteria = False
+        self.loose_convergence_criteria = False
         self.project_out = []
         self.bend_project_out = []
         self.torsion_project_out = []
