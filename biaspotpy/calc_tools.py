@@ -629,7 +629,9 @@ def torch_calc_partial_center(geometry, atom_num_list):
     return partial_center
 
 def project_optional_vector_for_grad(gradient, vector):#gradient:ndarray (3*natoms, 1), vector:ndarray (3*natoms, 1)
-    gradient_proj = gradient -1 * np.dot(vector.T, gradient) / (np.linalg.norm(vector) + 1e-15) ** 2 * vector
+    unit_vec = vector / np.linalg.norm(vector)
+    P_matrix = np.eye((len(gradient))) -1 * np.dot(unit_vec, unit_vec.T)
+    gradient_proj = np.dot(P_matrix, gradient).reshape(len(vector), 1)
     return gradient_proj #gradient_proj:ndarray (3*natoms, 1)
 
 def project_optional_vector_for_hess(hessian, vector):#hessian:ndarray (3*natoms, 3*natoms), vector:ndarray (3*natoms, 1)
@@ -1263,6 +1265,14 @@ def project_fragm_outofplain_vector_for_grad(gradient, geom_num_list, fragm_1, f
     gradient_proj = gradient_proj.reshape(natom, 3)
     return gradient_proj # ndarray (natoms, 3)
 
+
+def change_atom_distance(geom_num_list, atom1, atom2, distance):
+    vec = geom_num_list[atom2 - 1] - geom_num_list[atom1 - 1]
+    norm_vec = np.linalg.norm(vec)
+    unit_vec = vec / norm_vec
+    geom_num_list[atom1 - 1] = geom_num_list[atom2 - 1] + distance * unit_vec
+    return geom_num_list
+    
 
 def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
     bond_matrix = np.zeros((len(geom_num_list), len(geom_num_list)))
