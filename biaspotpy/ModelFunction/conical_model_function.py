@@ -16,9 +16,6 @@ class ConicalModelFunction:
         return tot_energy
     
     def calc_grad(self, energy_1, energy_2, grad_1, grad_2):
-        if energy_2 > energy_1:
-            energy_2, energy_1 = energy_1, energy_2
-            grad_1, grad_2 = grad_1, grad_2
         delta_ene = abs(energy_1 - energy_2)
         mf_grad_1 = 0.5 * (grad_1) + 0.5 * (grad_2) + self.sigma * (delta_ene ** 2.0 + 2.0 * self.alpha * delta_ene) / (delta_ene + self.alpha) ** 2.0 * (grad_1 - grad_2)
         mf_grad_2 = 0.5 * (grad_1) + 0.5 * (grad_2) + self.sigma * (delta_ene ** 2.0 + 2.0 * self.alpha * delta_ene) / (delta_ene + self.alpha) ** 2.0 * (grad_1 - grad_2)

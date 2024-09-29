@@ -8,17 +8,11 @@ class AvoidingModelFunction:
         return
     
     def calc_energy(self, energy_1, energy_2):
-        if energy_2 > energy_1:
-            energy_1, energy_2 = energy_2, energy_1
-        
         U = self.alpha / 2.0 * np.exp(-1 * (energy_1 - energy_2) ** 2 / self.alpha)
         tot_energy = 0.5 * (energy_1 + energy_2) + 0.5 * np.sqrt((energy_1 - energy_2) ** 2 + 4.0 * U)
         return tot_energy
     
     def calc_grad(self, energy_1, energy_2, grad_1, grad_2):
-        if energy_2 > energy_1:
-            energy_1, energy_2 = energy_2, energy_1
-            grad_1, grad_2 = grad_2, grad_1
         b = np.exp(-1 * (energy_1 - energy_2) ** 2 / self.alpha)
         U = self.alpha / 2.0 * b
         a = np.sqrt((energy_1 - energy_2) ** 2 + 4.0 * U)
