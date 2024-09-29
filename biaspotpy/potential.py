@@ -169,7 +169,7 @@ class BiasPotentialCalculation:
             tmp_bias_pot_params = self.bias_pot_params_list[j]
             
             tmp_B_e = self.bias_pot_obj_list[j].calc_energy(geom_num_list, tmp_bias_pot_params)
-            tmp_tensor_BPA_grad = torch.func.jacfwd(self.bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_grad = torch.func.jacrev(self.bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
             tmp_tensor_BPA_grad = tensor2ndarray(tmp_tensor_BPA_grad)
             tmp_tensor_BPA_hessian = torch.func.hessian(self.bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
             tmp_tensor_BPA_hessian = torch.reshape(tmp_tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))

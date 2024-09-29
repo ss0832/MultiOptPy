@@ -54,6 +54,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.BASIS_SET = args.basisset # 
         self.FUNCTIONAL = args.functional # 
         self.usextb = args.usextb
+        self.usedxtb = args.usedxtb
         if len(args.sub_basisset) % 2 != 0:
             print("invaild input (-sub_bs)")
             sys.exit(0)
@@ -84,15 +85,23 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
 
         self.basic_set_and_function = args.functional+"/"+args.basisset
-        
-        if args.usextb == "None":
+        self.force_data = force_data_parser(args)
+        if args.usextb == "None" and args.usedxtb == "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
-            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
+            if args.usedxtb != "None":
+                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
+                self.force_data["xtb"] = self.usedxtb
+            
+            else:
+                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
+                self.force_data["xtb"] = self.usextb
+        
+        
         self.args = args
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
         self.BETA = args.BETA
-        self.force_data = force_data_parser(args)
+        
         self.spring_const = 1e-8
         self.microiter_num = args.microiter
         self.unrestrict = args.unrestrict
@@ -481,8 +490,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
     def optimize(self):
         if self.args.pyscf:
             from pyscf_calculation_tools import Calculation
-        elif self.args.usextb != "None":
+        elif self.args.usextb != "None" and self.args.usedxtb == "None":
             from tblite_calculation_tools import Calculation
+        elif self.args.usedxtb != "None" and self.args.usextb == "None":
+            from dxtb_calculation_tools import Calculation
         else:
             from psi4_calculation_tools import Calculation
 
@@ -545,7 +556,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         
         
     def model_function_optimization(self, file_directory_list, SP_list, element_list_list, electric_charge_and_multiplicity_list, FIO_img_list):
-       
+        
         G = Graph(self.iEIP_FOLDER_DIRECTORY)
         trust_radii = 1.0
         
@@ -608,7 +619,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                    
                     CMV_LIST.append(CalculateMoveVector("x", element_list_list[j], 0, SP_list[j].FC_COUNT, 0))
                     OPTIMIZER_INSTANCE_LIST.append(CMV_LIST[j].initialization(self.force_data["opt_method"]))
-                    #OPTIMIZER_INSTANCE_LIST[j].set_hessian(SP_list[j].Model_hess)
+                    for l in range(len(OPTIMIZER_INSTANCE_LIST[j])):
+                        OPTIMIZER_INSTANCE_LIST[j][l].set_hessian(np.eye((len(geom_num_list)*3)))
                     
                     
                 init_geom_list = tmp_geometry_list
@@ -623,15 +635,24 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     BITSS = MF.BITSSModelFunction(tmp_geometry_list[0], tmp_geometry_list[1])
                 elif self.mf_mode == "conical":
                     CMF = MF.ConicalModelFunction()
+                elif self.mf_mode == "mesx":
+                    MESX = MF.OptMESX()
+                else:
+                    print("Unexpected method. exit...")
+                    raise
                 
             BPC_LIST = []
             for j in range(len(SP_list)):
                 BPC_LIST.append(BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY))
-
+                
             tmp_bias_energy_list = []
             tmp_bias_gradient_list = []
             for j in range(len(SP_list)):
-                _, bias_energy, bias_gradient, _ = BPC_LIST[j].main(tmp_energy_list[j], tmp_gradient_list[j], tmp_geometry_list[j], element_list_list[j], self.force_data)
+                
+                _, bias_energy, bias_gradient, BPA_hessian = BPC_LIST[j].main(tmp_energy_list[j], tmp_gradient_list[j], tmp_geometry_list[j], element_list_list[j], self.force_data)
+                
+                for l in range(len(OPTIMIZER_INSTANCE_LIST[j])):
+                    OPTIMIZER_INSTANCE_LIST[j][l].set_bias_hessian(BPA_hessian)
                 tmp_bias_energy_list.append(bias_energy)
                 tmp_bias_gradient_list.append(bias_gradient)
  
@@ -678,6 +699,19 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
 
+            elif self.mf_mode == "mesx":
+                mf_energy = MESX.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
+                mf_bias_energy = MESX.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
+                gp_grad = MESX.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
+                gp_bias_grad = MESX.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
+                tmp_smf_bias_grad_list = [gp_bias_grad, gp_bias_grad]
+                tmp_smf_grad_list = [gp_grad, gp_grad]
+                
+                for l in range(len(OPTIMIZER_INSTANCE_LIST[0])):
+                    OPTIMIZER_INSTANCE_LIST[0][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
+                    OPTIMIZER_INSTANCE_LIST[1][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
+                    
+                
             else:
                 print("No model function is selected.")
                 raise
@@ -687,14 +721,24 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             tmp_move_vector_list = []
             tmp_new_geometry_list = []
             for j in range(len(SP_list)):
-                CMV_LIST[j].trust_radii = 0.3
+                CMV_LIST[j].trust_radii = 0.1
                 tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
                 tmp_move_vector_list.append(tmp_move_vector)
                 tmp_new_geometry_list.append(tmp_new_geometry)
                 OPTIMIZER_INSTANCE_LIST[j] = tmp_optimizer_instances
             
+            
+            if self.mf_mode == "mesx":
+                tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
+                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
+                
+                
+            
             tmp_move_vector_list = np.array(tmp_move_vector_list)
             tmp_new_geometry_list = np.array(tmp_new_geometry_list)
+
+   
+
 
             for j in range(len(SP_list)):
                 tmp_new_geometry_list[j] -= Calculationtools().calc_center_of_mass(tmp_new_geometry_list[j], element_list_list[j])

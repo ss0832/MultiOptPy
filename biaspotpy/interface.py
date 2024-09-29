@@ -67,6 +67,7 @@ def ieipparser(parser):
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')

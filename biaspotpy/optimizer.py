@@ -58,7 +58,7 @@ optimizer_mapping = {
 specific_cases = {
     "ranger": {"optimizer": RADAM, "lookahead": LookAhead(), "lars": None},
     "rangerlars": {"optimizer": RADAM, "lookahead": LookAhead(), "lars": LARS()},
-    "adam": {"optimizer": Adam, "lookahead": LookAhead(), "lars": LARS()},
+    "adam": {"optimizer": Adam, "lookahead": LookAhead(), "lars": None},
     "adamlars": {"optimizer": Adam, "lookahead": None, "lars": LARS()},
     "adamlookahead": {"optimizer": Adam, "lookahead": LookAhead(), "lars": None},
     "adamlookaheadlars": {"optimizer": Adam, "lookahead": LookAhead(), "lars": LARS()},
@@ -224,6 +224,7 @@ class CalculateMoveVector:
         #---------------------------------
         for i in range(len(optimizer_instances)):
             tmp_move_vector = optimizer_instances[i].run(self.geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
+           
             tmp_move_vector = np.array(tmp_move_vector, dtype="float64")
             if self.lars_instances[i] is not None:
                 trust_delta = self.lars_instances[i].run(self.geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, tmp_move_vector)
