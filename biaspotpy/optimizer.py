@@ -31,6 +31,7 @@ from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
 from Optimizer.trust_radius import update_trust_radii
+from Optimizer.gradientdescent import GradientDescent
 
 optimizer_mapping = {
     "adabelief": Adabelief,
@@ -53,6 +54,7 @@ optimizer_mapping = {
     "rmspropgrave": RMSpropGrave,
     "fire": FIRE,
     "adaderivative": Adaderivative,
+    "gradientdescent": GradientDescent,
 }
 
 specific_cases = {
