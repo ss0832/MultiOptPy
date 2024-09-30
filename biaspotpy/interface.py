@@ -168,7 +168,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-awp", "--around_well_pot", nargs="*", type=str, default=[], help="Add potential to limit atom movement. (like sphere around fragment) (ex.) [[wall energy (kJ/mol)] [center (1,2-4)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
     parser.add_argument("-smp", "--spacer_model_potential", nargs="*", type=str, default=[], help="Add potential based on Morse potential to reproduce solvent molecules around molecule. (ex.) [[solvent particle well depth (kJ/mol)] [solvent particle e.q. distance (ang.)] [scaling of cavity (2.0)] [number of particles] [target atoms (2,3-5)] ...]")
     parser.add_argument("-metad", "--metadynamics", nargs="*", type=str, default=[], help="apply meta-dynamics (use gaussian potential) (ex.) [[[bond] [potential height (kJ/mol)] [potential width (ang.)] [(atom1),(atom2)]] [[angle] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3)]] [[dihedral] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]] [[outofplain] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]]...] ")
-    
+    parser.add_argument("-lmefp", "--linear_mechano_force_pot", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4s)] ...]')
     return parser
 
 
@@ -263,6 +263,7 @@ def mdparser(parser):
 
 class BiasPotInterface:
     def __init__(self):
+        self.linear_mechano_force_pot = []#['0.0', '1.0', '1,2,3,4']#add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4s)] ...]
         self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
         self.repulsive_potential_v2 = []#['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
@@ -431,6 +432,21 @@ def force_data_parser(args):
         return sub_list
     force_data = {}
     
+    #---------------------
+    force_data["linear_mechano_force"] = []
+    force_data["linear_mechano_force_atoms_1"] = []
+    force_data["linear_mechano_force_atoms_2"] = []
+
+    if len(args.linear_mechano_force_pot) % 3 != 0:
+        print("invaild input (-lmefp)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.linear_mechano_force_pot)/3)):
+        force_data["linear_mechano_force"].append(float(args.linear_mechano_force_pot[3*i]))
+        force_data["linear_mechano_force_atoms_1"].append(num_parse(args.linear_mechano_force_pot[3*i+1]))
+        force_data["linear_mechano_force_atoms_2"].append(num_parse(args.linear_mechano_force_pot[3*i+2]))
+
+
     #---------------------
     force_data["value_range_upper_const"] = []
     force_data["value_range_lower_const"] = []

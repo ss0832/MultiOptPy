@@ -24,7 +24,7 @@ from spacer_model_potential import SpacerModelPotential
 from universal_potential import UniversalPotential
 from flux_potential import FluxPotential
 from value_range_potential import ValueRangePotential
-
+from mechano_force_potential import LinearMechanoForcePotential
 
 
 class BiasPotentialCalculation:
@@ -174,7 +174,6 @@ class BiasPotentialCalculation:
             tmp_tensor_BPA_hessian = torch.func.hessian(self.bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
             tmp_tensor_BPA_hessian = torch.reshape(tmp_tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
             tmp_tensor_BPA_hessian = tensor2ndarray(tmp_tensor_BPA_hessian)
-            
             if len(tmp_bias_pot_params) > 0:
                 results = torch.func.jacfwd(self.bias_pot_obj_list[j].calc_energy, argnums=1)(geom_num_list, tmp_bias_pot_params)
                 results = tensor2ndarray(results)
@@ -220,6 +219,21 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     bias_pot_obj_list = []
     bias_pot_obj_id_list = []
     bias_pot_params_list = []
+
+    for i in range(len(force_data["linear_mechano_force"])):
+        if force_data["linear_mechano_force"][i] != 0.0:
+            LMF = LinearMechanoForcePotential(linear_mechano_force=force_data["linear_mechano_force"][i], 
+                                        linear_mechano_force_atoms_1=force_data["linear_mechano_force_atoms_1"][i], 
+                                        linear_mechano_force_atoms_2=force_data["linear_mechano_force_atoms_2"][i],
+                                        element_list=element_list)
+            bias_pot_params = torch.tensor([force_data["linear_mechano_force"][i]], requires_grad=True, dtype=torch.float64) 
+            bias_pot_obj_list.append(LMF)
+            bias_pot_obj_id_list.append("linear_mechano_force_"+str(i))
+            bias_pot_params_list.append(bias_pot_params)
+            
+        else:
+            pass
+
 
     for i in range(len(force_data["AFIR_gamma"])):
         if not 0.0 in force_data["AFIR_gamma"][i]:
