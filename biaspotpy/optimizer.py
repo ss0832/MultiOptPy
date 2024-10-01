@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 
-from parameter import UnitValueLib
+from parameter import UnitValueLib, atomic_mass
 
 from Optimizer.adabelief import Adabelief
 from Optimizer.fastadabelief import FastAdabelief
@@ -31,7 +31,7 @@ from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
 from Optimizer.trust_radius import update_trust_radii
-from Optimizer.gradientdescent import GradientDescent
+from Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
 
 optimizer_mapping = {
     "adabelief": Adabelief,
@@ -54,6 +54,7 @@ optimizer_mapping = {
     "rmspropgrave": RMSpropGrave,
     "fire": FIRE,
     "adaderivative": Adaderivative,
+    "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
 }
 
@@ -132,6 +133,11 @@ class CalculateMoveVector:
                 for key, optimizer_class in optimizer_mapping.items():
                     if key in lower_m:
                         optimizer_instances.append(optimizer_class())
+                        if lower_m == "mwgradientdescent":
+                            optimizer_instances[i].element_list = self.element_list
+                            optimizer_instances[i].atomic_mass = atomic_mass
+                        
+                        
                         newton_tag.append(False)
                         lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                         lars_instances.append(LARS() if "lars" in lower_m else None)
