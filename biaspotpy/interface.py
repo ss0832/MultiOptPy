@@ -226,6 +226,7 @@ def mdparser(parser):
     parser.add_argument("-traj", "--TRAJECTORY",  type=int, default='1', help='number of trajectory to generate (default) 1')
    
     parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperature [unit. K] (default) 298.15 K')
+    parser.add_argument("-ts", "--timestep",  type=float, default=0.1, help='time step [unit. atom unit] (default) 0.1 a.u.')
     parser.add_argument("-press", "--pressure",  type=float, default='101.3', help='pressure [unit. kPa] (default) 1013 kPa')
     
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
@@ -415,6 +416,7 @@ class MDInterface(BiasPotInterface):
         self.bend_project_out = []
         self.torsion_project_out = []
         self.outofplain_project_out = []
+        self.timestep = 0.1
         return
 
 
