@@ -296,14 +296,7 @@ class MD:
             self.pbc_box = []
         self.args = args
         
-        if args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
 
-        elif args.usextb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
-        else:
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time()).replace(".","_")+"/"
-        
         return
     
 
@@ -341,6 +334,14 @@ class MD:
         return new_geometry
 
     def md(self):
+        if self.args.othersoft != "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
+
+        elif self.args.usextb == "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
+        else:
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.args.usextb+"_"+str(time.time()).replace(".","_")+"/"
+        
         xtb_method = None
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
