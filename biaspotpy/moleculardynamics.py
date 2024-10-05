@@ -303,7 +303,7 @@ class MD:
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
         else:
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_"+args.usextb+"_"+str(time.time()).replace(".","_")+"/"
-        self.tot_energy_list = []
+        
         return
     
 
@@ -363,7 +363,7 @@ class MD:
         self.NUM_LIST = []
         self.ENERGY_LIST_FOR_PLOTTING = []
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
-       
+        self.tot_energy_list = []
 
         temperature_list = []
         force_data = force_data_parser(self.args)
