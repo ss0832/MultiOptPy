@@ -16,7 +16,7 @@ class UniversalPotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         return
     
-    def calc_energy(self, geom_num_list):
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
         # required variables: self.config["universal_pot_const"], 
                              self.config["universal_pot_target"], 
