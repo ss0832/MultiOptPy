@@ -406,7 +406,7 @@ class MD:
                          excited_state = self.excited_state
                          )
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
-        TM.timestep = self.timestep
+        TM.delta_timescale = self.timestep
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -522,10 +522,12 @@ class MD:
             #----------------------------
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
-        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-        G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
-        G.single_plot(self.NUM_LIST, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_2="temperature [K]", name="temperature")
-        G.single_plot(self.NUM_LIST, self.tot_energy_list, file_directory, "", axis_name_2="total energy [a.u.]", name="tot_energy")
+        self.NUM_LIST = np.array(self.NUM_LIST, dtype=np.float64)
+        #TM.delta_timescale * iter * self.time_atom_unit * 10 ** 15
+        G.double_plot(self.NUM_LIST * TM.delta_timescale * self.time_atom_unit * 10 ** 15, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        G.single_plot(self.NUM_LIST * TM.delta_timescale * self.time_atom_unit * 10 ** 15, grad_list, file_directory, "", axis_name_1="STEP (fs)", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST * TM.delta_timescale * self.time_atom_unit * 10 ** 15, TM.Instantaneous_temperatures_list, file_directory, "", axis_name_1="STEP (fs)", axis_name_2="temperature [K]", name="temperature")
+        G.single_plot(self.NUM_LIST * TM.delta_timescale * self.time_atom_unit * 10 ** 15, self.tot_energy_list, file_directory, "", axis_name_1="STEP (fs)", axis_name_2="total energy [a.u.]", name="tot_energy")
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
@@ -544,7 +546,7 @@ class MD:
         
         
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
-            f.write("ITER.,energy[kcal/mol]\n")
+            f.write("STEP,energy[kcal/mol]\n")
             for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
                 f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
         
