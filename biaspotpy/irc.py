@@ -56,14 +56,14 @@ class LQA:#local quadratic approximation method
         print("local quadratic approximation method")
         geom_num_list = self.coords
         mw_hessian = self.init_hess
-        CalcBiaspot = BiasPotentialCalculation(mw_hessian, self.FC_count, self.directory)
+        CalcBiaspot = BiasPotentialCalculation(self.directory)
         for iter in range(1, self.max_step):
             print("# STEP: ", iter)
             exit_file_detect = os.path.exists(self.directory+"end.txt")
 
             if exit_file_detect:
                 break
-                  
+             
             e, g, geom_num_list, finish_frag = self.CE.single_point(self.final_directory, self.element_list, iter, self.electric_charge_and_multiplicity, self.xtb_method,  UnitValueLib().bohr2angstroms*geom_num_list)
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, self.element_list, self.force_data, g, iter, geom_num_list)
             
@@ -109,7 +109,9 @@ class LQA:#local quadratic approximation method
                 delta_hess = self.ModelHessianUpdate.FSB_hessian_update(mw_hessian, delta_x, delta_g)
                 mw_hessian += delta_hess
 
-                eigenvalues, eigenvectors = np.linalg.eigh(mw_hessian+mw_BPA_hessian)
+                eigenvalues, eigenvectors = np.linalg.eig(mw_hessian+mw_BPA_hessian)
+                eigenvalues = eigenvalues.astype(np.float64)
+                eigenvectors = eigenvectors.astype(np.float64)
                 small_eigvals = np.abs(eigenvalues) < 1e-8
                 eigenvalues = eigenvalues[~small_eigvals]
                 eigenvectors = eigenvectors[:,~small_eigvals]
@@ -213,7 +215,7 @@ class IRC:
             return 0, 0, 0, finish_frag
         self.hessian = self.QM_interface.Model_hess
         self.QM_interface.hessian_flag = False
-        CalcBiaspot = BiasPotentialCalculation(self.hessian, self.FC_count, self.final_directory)
+        CalcBiaspot = BiasPotentialCalculation(self.final_directory)
         _, init_B_e, init_B_g, BPA_hessian = CalcBiaspot.main(init_e, init_g, geom_num_list, self.element_list, self.force_data, init_g, iter, geom_num_list)#new_geometry:ang.
         self.hessian += BPA_hessian
         
