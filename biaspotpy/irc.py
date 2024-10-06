@@ -56,6 +56,7 @@ class LQA:#local quadratic approximation method
         print("local quadratic approximation method")
         geom_num_list = self.coords
         mw_hessian = self.init_hess
+        tmp_step_size = self.step_size
         CalcBiaspot = BiasPotentialCalculation(self.directory)
         for iter in range(1, self.max_step):
             print("# STEP: ", iter)
@@ -119,7 +120,7 @@ class LQA:#local quadratic approximation method
                 #for j in range(len(eigenvectors.T)):
                 #     eigenvectors[:, j] = eigenvectors[:, j] / np.linalg.norm(eigenvectors[:, j])
                 
-                dt = 1 / self.N_euler * self.step_size / np.linalg.norm(mw_B_g)
+                dt = 1 / self.N_euler * tmp_step_size / np.linalg.norm(mw_B_g)
 
                 mw_gradient_proj = np.dot(eigenvectors.T, mw_B_g.reshape(len(geom_num_list)*3, 1))
 
@@ -129,7 +130,7 @@ class LQA:#local quadratic approximation method
                 for j in range(self.N_euler):
                     dsdt = np.sqrt(np.sum(mw_gradient_proj**2 * np.exp(-2*eigenvalues*t)))
                     current_length += dsdt * dt
-                    if current_length > self.step_size:
+                    if current_length > tmp_step_size:
                         break
                     t += dt
                     
@@ -137,7 +138,7 @@ class LQA:#local quadratic approximation method
                 alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
                 A = np.dot(eigenvectors, np.dot(np.diag(alphas), eigenvectors.T))
                 step = np.dot(A, mw_B_g.reshape(len(geom_num_list)*3, 1))
-                trust_radius = max(min(np.linalg.norm(step), self.step_size), 0.0001)
+                trust_radius = max(min(np.linalg.norm(step), tmp_step_size), 1e-8)
                 
                 step = step / np.linalg.norm(step) * trust_radius
                 geom_num_list = geom_num_list + step.reshape(len(geom_num_list), 3)
@@ -148,7 +149,7 @@ class LQA:#local quadratic approximation method
                     break
                 
             else:
-                geom_num_list = geom_num_list - mw_B_g * self.step_size * 0.1 / np.linalg.norm(mw_B_g)
+                geom_num_list = geom_num_list - mw_B_g * tmp_step_size * 0.1 / np.linalg.norm(mw_B_g)
                 geom_num_list -= Calculationtools().calc_center_of_mass(geom_num_list, self.element_list)
             
             for i in range(len(geom_num_list)):
@@ -158,10 +159,16 @@ class LQA:#local quadratic approximation method
                 bend_angle = Calculationtools().calc_multi_dim_vec_angle(self.irc_mw_coords[-3]-self.irc_mw_coords[-2], self.irc_mw_coords[-1]-self.irc_mw_coords[-2])
                 self.path_bending_angle_list.append(np.degrees(bend_angle))
                 print("Path bending angle: ", np.degrees(bend_angle))
+                if prev_B_e < B_e:
+                    tmp_step_size *= 0.5
+
                 
             #display information
             print("Energy: ", e)
             print("Bias Energy: ", B_e)
+            print("RMS B. grad:", np.sqrt((B_g**2).mean()))
+            print("step_size:", tmp_step_size)
+            prev_B_e = B_e
         return
         
 
