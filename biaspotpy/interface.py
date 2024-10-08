@@ -111,6 +111,8 @@ def optimizeparser(parser):
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
+    #parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (ex.) water')
+
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
@@ -168,7 +170,8 @@ def parser_for_biasforce(parser):
     parser.add_argument("-awp", "--around_well_pot", nargs="*", type=str, default=[], help="Add potential to limit atom movement. (like sphere around fragment) (ex.) [[wall energy (kJ/mol)] [center (1,2-4)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
     parser.add_argument("-smp", "--spacer_model_potential", nargs="*", type=str, default=[], help="Add potential based on Morse potential to reproduce solvent molecules around molecule. (ex.) [[solvent particle well depth (kJ/mol)] [solvent particle e.q. distance (ang.)] [scaling of cavity (2.0)] [number of particles] [target atoms (2,3-5)] ...]")
     parser.add_argument("-metad", "--metadynamics", nargs="*", type=str, default=[], help="apply meta-dynamics (use gaussian potential) (ex.) [[[bond] [potential height (kJ/mol)] [potential width (ang.)] [(atom1),(atom2)]] [[angle] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3)]] [[dihedral] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]] [[outofplain] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]]...] ")
-    parser.add_argument("-lmefp", "--linear_mechano_force_pot", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4s)] ...]')
+    parser.add_argument("-lmefp", "--linear_mechano_force_pot", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4)] ...]')
+    parser.add_argument("-lmefpv2", "--linear_mechano_force_pot_v2", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atom(ex. 1)] [direction (xyz)] ...]')
     return parser
 
 
@@ -264,6 +267,7 @@ def mdparser(parser):
 
 class BiasPotInterface:
     def __init__(self):
+        self.linear_mechano_force_pot_v2 = []
         self.linear_mechano_force_pot = []#['0.0', '1.0', '1,2,3,4']#add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4s)] ...]
         self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
         self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
@@ -402,6 +406,7 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.outofplain_project_out = []
         self.shape_conditions = []
         self.use_model_hessian = False
+        self.cpcm_solv_model = None
         return
  
  
@@ -434,6 +439,21 @@ def force_data_parser(args):
         return sub_list
     force_data = {}
     
+    #---------------------
+    force_data["linear_mechano_force_v2"] = []
+    force_data["linear_mechano_force_atom_v2"] = []
+    
+
+    if len(args.linear_mechano_force_pot_v2) % 2 != 0:
+        print("invaild input (-lmefpv2)")
+        sys.exit(0)
+    
+    for i in range(int(len(args.linear_mechano_force_pot_v2)/2)):
+        force_data["linear_mechano_force_v2"].append(float(args.linear_mechano_force_pot_v2[2*i]))
+        force_data["linear_mechano_force_atom_v2"].append(num_parse(args.linear_mechano_force_pot_v2[2*i+1]))
+       
+
+   
     #---------------------
     force_data["linear_mechano_force"] = []
     force_data["linear_mechano_force_atoms_1"] = []

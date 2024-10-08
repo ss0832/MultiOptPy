@@ -143,6 +143,8 @@ class Optimize:
         self.othersoft = args.othersoft
 
         self.shape_conditions = args.shape_conditions
+
+        #self.cpcm_solv_model = args.cpcm_solv_model
         return
 
 
@@ -179,6 +181,7 @@ class Optimize:
         finish_frag = False
         #-----------------------------------
         SP = self.setup_calculation(Calculation)
+
         #-----------------------------------
         element_number_list = []
         for elem in element_list:
@@ -547,6 +550,7 @@ class Optimize:
             electronic_charge=self.electronic_charge,
             excited_state=self.excited_state
         )
+        #SP.cpcm_solv_model = self.cpcm_solv_model
         return SP
 
     def write_input_files(self, FIO):
