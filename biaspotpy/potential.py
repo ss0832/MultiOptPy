@@ -25,7 +25,7 @@ from universal_potential import UniversalPotential
 from flux_potential import FluxPotential
 from value_range_potential import ValueRangePotential
 from mechano_force_potential import LinearMechanoForcePotential, LinearMechanoForcePotentialv2
-from asym_elllipsoidal_potential import AsymmetricEllipsoidalLJPotential
+from asym_elllipsoidal_potential import AsymmetricEllipsoidalLJPotential, AsymmetricEllipsoidalLJPotentialv2
 
 class BiasPotentialCalculation:
     def __init__(self, FOLDER_DIRECTORY="./"):
@@ -65,84 +65,6 @@ class BiasPotentialCalculation:
         if iter == 0:
             self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = make_micro_iter_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
         
-        #----------------------------------------------
-        if iter == 0 and len(force_data["spacer_model_potential_well_depth"]) > 0:
-            self.smp_particle_coord_list = []
-            for i in range(len(force_data["spacer_model_potential_well_depth"])):
-                center = torch.mean(geom_num_list[np.array(force_data["spacer_model_potential_target"][i])-1], dim=0)
-                smp_particle_coord = torch.normal(mean=0, std=5, size=(force_data["spacer_model_potential_particle_number"][i], 3)) + center
-                self.smp_particle_coord_list.append(smp_particle_coord)
-                
-        for i in range(len(force_data["spacer_model_potential_well_depth"])):
-        
-            if force_data["spacer_model_potential_well_depth"][i] != 0.0:
-                SMP = SpacerModelPotential(spacer_model_potential_target=force_data["spacer_model_potential_target"][i],
-                                           spacer_model_potential_distance=force_data["spacer_model_potential_distance"][i],
-                                           spacer_model_potential_well_depth=force_data["spacer_model_potential_well_depth"][i],
-                                           spacer_model_potential_cavity_scaling=force_data["spacer_model_potential_cavity_scaling"][i],
-                                           element_list=element_list,
-                                           directory=self.BPA_FOLDER_DIRECTORY)
-                
-                self.microiteration_num = 100 * force_data["spacer_model_potential_particle_number"][i]
-                #---------------------- microiteration
-                print("processing microiteration...") 
-                for jter in range(self.microiteration_num):#TODO: improvement of convergence
-
-                    
-                    ene = SMP.calc_energy(geom_num_list, self.smp_particle_coord_list[i])
-                    particle_grad_list = torch.func.jacfwd(SMP.calc_energy, argnums=1)(geom_num_list, self.smp_particle_coord_list[i]).reshape(1, len(self.smp_particle_coord_list[i])*3)
-                    if jter % 50 ==  0:   
-                        particle_model_hess = torch.func.hessian(SMP.calc_energy, argnums=1)(geom_num_list, self.smp_particle_coord_list[i]).reshape(len(self.smp_particle_coord_list[i])*3, len(self.smp_particle_coord_list[i])*3)
-                    print("ITR. ", jter, " energy:", ene)
-                    
-                    if jter > 0:
-                        diff_grad = particle_grad_list - prev_particle_grad_list
-                        diff_coord = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) - prev_particle_list
-                        
-                        #BFGS method
-                        diff_hess = (torch.matmul(torch.t(diff_grad), diff_grad)) / (torch.matmul(diff_grad, torch.t(diff_grad))) -1 * (torch.matmul(particle_model_hess, torch.matmul(torch.t(diff_coord), torch.matmul(diff_coord, particle_model_hess)))/torch.matmul(diff_coord, torch.matmul(particle_model_hess, torch.t(diff_coord))))
-                       
-                        particle_model_hess = particle_model_hess + diff_hess
-                        move_vector = torch.linalg.solve(particle_model_hess, particle_grad_list.reshape(len(self.smp_particle_coord_list[i])*3, 1))
-                        prev_particle_list = copy.copy(self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3))
-                        new_particle_list = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) -1*self.miter_delta*particle_grad_list
-                        self.smp_particle_coord_list[i] = copy.copy(new_particle_list)
-                    else:
-                        prev_particle_list = copy.copy(self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3))
-                        new_particle_list = self.smp_particle_coord_list[i].reshape(1, len(self.smp_particle_coord_list[i])*3) -1*self.miter_delta*particle_grad_list
-                        self.smp_particle_coord_list[i] = copy.copy(new_particle_list)
-                    prev_ene = copy.copy(ene)   
-                    
-                    self.smp_particle_coord_list[i] = self.smp_particle_coord_list[i].reshape(force_data["spacer_model_potential_particle_number"][i], 3)
-                    prev_particle_grad_list = copy.copy(particle_grad_list)
-                    
-                    #print(self.smp_particle_coord_list[i], prev_particle_list)
-                    
-                    if torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list) < 1e-4:#converge criteria
-                        print("gradient: ",torch.sqrt(torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list)).item())
-                        print("Microiteration: ", jter)
-                        print("microiteration completed...")
-                        microitr_converged_flag = True
-                        break
-                    if jter % 5 == 0:
-                        print("gradient:", torch.sum(prev_particle_grad_list**2)/len(prev_particle_grad_list)) 
-                else:
-                    print("not converged... (microiteration)")    
-                    microitr_converged_flag = False
-                
-                B_e += SMP.calc_energy(geom_num_list, self.smp_particle_coord_list[i])
-                
-                tensor_BPA_grad = torch.func.jacfwd(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
-                BPA_grad_list += tensor2ndarray(tensor_BPA_grad)
-
-                tensor_BPA_hessian = torch.func.hessian(SMP.calc_energy, argnums=0)(geom_num_list, self.smp_particle_coord_list[i])
-                tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
-                SMP.save_spacer_xyz_for_visualization(geom_num_list, self.smp_particle_coord_list[i])
-                BPA_hessian += tensor2ndarray(tensor_BPA_hessian)
-            else:
-                pass
-        
-
 
         #------------------    
         if len(force_data["gaussian_potential_target"]) > 0:
@@ -165,11 +87,7 @@ class BiasPotentialCalculation:
             BPA_hessian += tensor2ndarray(tensor_BPA_hessian) 
             
             self.metaD_history_list = METAD.history_list
-        #------------------
-        
-        
-        
-        
+
         
         #-----------------
         # combine almost all the bias potentials
@@ -257,7 +175,7 @@ def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, 
     if len(force_data["asymmetric_ellipsoidal_repulsive_potential_eps"]) > 0:
         AERP = AsymmetricEllipsoidalLJPotential(asymmetric_ellipsoidal_repulsive_potential_eps=force_data["asymmetric_ellipsoidal_repulsive_potential_eps"], 
                                     asymmetric_ellipsoidal_repulsive_potential_sig=force_data["asymmetric_ellipsoidal_repulsive_potential_sig"], 
-                                    asymmetric_ellipsoidal_repulsive_potential_center=force_data["asymmetric_ellipsoidal_repulsive_potential_dist"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_dist=force_data["asymmetric_ellipsoidal_repulsive_potential_dist"], 
                                     asymmetric_ellipsoidal_repulsive_potential_atoms=force_data["asymmetric_ellipsoidal_repulsive_potential_atoms"],
                                     asymmetric_ellipsoidal_repulsive_potential_offtgt=force_data["asymmetric_ellipsoidal_repulsive_potential_offtgt"],
                                     element_list=element_list,
@@ -276,7 +194,45 @@ def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, 
         bias_pot_obj_id_list.append("asymmetric_ellipsoidal_repulsive_potential")
         bias_pot_params_list.append(bias_pot_params) 
         
+    if len(force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"]) > 0:
+        AERP2 = AsymmetricEllipsoidalLJPotentialv2(asymmetric_ellipsoidal_repulsive_potential_v2_eps=force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_v2_sig=force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_v2_dist=force_data["asymmetric_ellipsoidal_repulsive_potential_v2_dist"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_v2_atoms=force_data["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"],
+                                    asymmetric_ellipsoidal_repulsive_potential_v2_offtgt=force_data["asymmetric_ellipsoidal_repulsive_potential_v2_offtgt"],
+                                    element_list=element_list,
+                                    file_directory=file_directory)
         
+        bias_pot_params = []
+        
+        for j in range(len(force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])):
+            tmp_list = [force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"][j]] + force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"][j] + [force_data["asymmetric_ellipsoidal_repulsive_potential_v2_dist"][j]]
+            bias_pot_params.append(tmp_list)
+
+        
+        bias_pot_params = torch.tensor(bias_pot_params, requires_grad=True, dtype=torch.float64)
+
+        bias_pot_obj_list.append(AERP2)
+        bias_pot_obj_id_list.append("asymmetric_ellipsoidal_repulsive_potential_v2")
+        bias_pot_params_list.append(bias_pot_params) 
+    
+
+    for i in range(len(force_data["spacer_model_potential_well_depth"])):
+        
+        if force_data["spacer_model_potential_well_depth"][i] != 0.0:
+            SMP = SpacerModelPotential(spacer_model_potential_target=force_data["spacer_model_potential_target"][i],
+                                           spacer_model_potential_distance=force_data["spacer_model_potential_distance"][i],
+                                           spacer_model_potential_well_depth=force_data["spacer_model_potential_well_depth"][i],
+                                           spacer_model_potential_cavity_scaling=force_data["spacer_model_potential_cavity_scaling"][i],
+                                           spacer_model_potential_particle_number=force_data["spacer_model_potential_particle_number"][i],
+                                           element_list=element_list,
+                                           directory=file_directory)
+            bias_pot_params = []
+            bias_pot_obj_list.append(SMP)
+            bias_pot_obj_id_list.append("spacer_model_potential_"+str(i))
+            bias_pot_params_list.append(bias_pot_params) 
+
+
     return bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list
 
 

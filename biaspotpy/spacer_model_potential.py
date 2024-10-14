@@ -1,13 +1,17 @@
 
 from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
 from calc_tools import Calculationtools
+from Optimizer.fire import FIRE
+
 
 import numpy as np
 import torch
 import itertools  
 import math
-  
-      
+import random 
+import copy
+
+
 class SpacerModelPotential:
     def __init__(self, mm_pot_type="UFF", **kwarg):
         if mm_pot_type == "UFF":
@@ -25,21 +29,30 @@ class SpacerModelPotential:
         self.a = 1.0
         self.num2tgtatomlabel = {}
         for num, tgt_atom_num in enumerate(self.config["spacer_model_potential_target"]):
-            self.num2tgtatomlabel[num] = tgt_atom_num -1
+            self.num2tgtatomlabel[num] = tgt_atom_num - 1
 
+
+        self.particle_num_list = None
+
+        self.file_directory = self.config["directory"]
+        self.lj_repulsive_order = 12.0
+        self.lj_attractive_order = 6.0
+        
+        self.micro_iteration = 50 * self.config["spacer_model_potential_particle_number"]
+        self.rand_search_iteration = self.config["spacer_model_potential_particle_number"]
+        self.threshold = 1e-1
+        self.init = True
         return
-
-    def save_spacer_xyz_for_visualization(self, geom_num_list, particle_num_list):
-        with open(self.config["directory"]+"/tmp_smp.xyz", "a") as f:
-            f.write(str(len(geom_num_list)+len(particle_num_list))+"\n\n")
-            for i in range(len(self.config["element_list"])):
-                f.write(self.config["element_list"][i]+" "+str(geom_num_list[i][0].item()*self.bohr2angstroms)+" "+str(geom_num_list[i][1].item()*self.bohr2angstroms)+" "+str(geom_num_list[i][2].item()*self.bohr2angstroms)+"\n")
-            
-            for i in range(len(particle_num_list)):
-                f.write("He "+str(particle_num_list[i][0].item()*self.bohr2angstroms)+" "+str(particle_num_list[i][1].item()*self.bohr2angstroms)+" "+str(particle_num_list[i][2].item()*self.bohr2angstroms)+"\n")
-                
+    
+    def save_state(self):      
+        with open(self.file_directory + "/spacer.xyz", "a") as f:
+            f.write(str(len(self.tmp_geom_num_list_for_save)) + "\n")
+            f.write("spacer\n")
+            for i in range(len(self.tmp_geom_num_list_for_save)):
+                f.write(self.tmp_element_list_for_save[i] + " " + str(self.tmp_geom_num_list_for_save[i][0].item()) + " " + str(self.tmp_geom_num_list_for_save[i][1].item()) + " " + str(self.tmp_geom_num_list_for_save[i][2].item()) + "\n")
+        
         return
-
+    
 
     def morse_potential(self, distance, sigma, epsilon):
         ene = epsilon * (torch.exp(-2 * self.a * (distance - sigma)) -2 * torch.exp(-1 * self.a * (distance - sigma)))
@@ -52,16 +65,8 @@ class SpacerModelPotential:
         else:
             ene = 0.0 
         return ene
-
-    def calc_energy(self, geom_num_list, particle_num_list):
-        """
-        # required variables:self.config["spacer_model_potential_target"]
-                             self.config["spacer_model_potential_distance"]
-                             self.config["spacer_model_potential_well_depth"]
-                             self.config["spacer_model_potential_cavity_scaling"]
-                             self.config["element_list"]
-                             self.config["directory"]
-        """
+    
+    def calc_potential(self, geom_num_list, particle_num_list, bias_pot_params):
         energy = 0.0
         particle_sigma = self.config["spacer_model_potential_distance"] / self.bohr2angstroms
         particle_epsilon = self.config["spacer_model_potential_well_depth"] / self.hartree2kjmol
@@ -88,5 +93,83 @@ class SpacerModelPotential:
             atom_sigma = self.config["spacer_model_potential_cavity_scaling"] * self.VDW_distance_lib(self.config["element_list"][self.num2tgtatomlabel[min_idx]])
             energy = energy + self.barrier_potential(min_dist, atom_sigma)
 
+        self.tmp_geom_num_list_for_save = torch.cat([geom_num_list, particle_num_list], dim=0) * self.bohr2angstroms
+        self.tmp_element_list_for_save = self.config["element_list"] + ["Ar"] * len(particle_num_list)
+        
         return energy
+    
+    def rand_search(self, geom_num_list, bias_pot_params):
+        max_energy = 1e+10
+        print("rand_search")
+        for i in range(self.rand_search_iteration):
+            center = torch.mean(geom_num_list[np.array(self.config["spacer_model_potential_target"])-1], dim=0)
+            tmp_particle_num_list = torch.normal(mean=0, std=5, size=(self.config["spacer_model_potential_particle_number"], 3)) + center
+            energy = self.calc_potential(geom_num_list, tmp_particle_num_list, bias_pot_params)
+            if energy < max_energy:
+                max_energy = energy
+                self.particle_num_list = tmp_particle_num_list
+        print("rand_search done")
+        print("max_energy: ", max_energy.item())
+        return
+    
+    
+    def microiteration(self, geom_num_list, bias_pot_params):
+        nparticle = self.config["spacer_model_potential_particle_number"]
+        if self.init:
+            self.rand_search(geom_num_list, bias_pot_params)
+            self.init = False
+        
+        prev_particle_grad = torch.zeros_like(self.particle_num_list)
+        Opt = FIRE()
+        Opt.display_flag = False
+        
+        for j in range(self.micro_iteration):
 
+            
+            particle_grad = torch.func.jacrev(self.calc_potential, argnums=1)(geom_num_list, self.particle_num_list, bias_pot_params)
+            if torch.linalg.norm(particle_grad) < self.threshold:
+                print("Converged!")
+                print("M. itr: ", j)
+                break
+            if j == self.micro_iteration - 1:
+                print("Not converged!")
+                break
+            
+            tmp_particle_list = copy.copy(self.particle_num_list.clone().detach().numpy()).reshape(3*nparticle, 1)
+            tmp_particle_grad = copy.copy(particle_grad.clone().detach().numpy()).reshape(3*nparticle, 1)
+            tmp_prev_particle_grad = copy.copy(prev_particle_grad.clone().detach().numpy()).reshape(3*nparticle, 1)
+
+            move_vector = Opt.run(tmp_particle_list, tmp_particle_grad, tmp_prev_particle_grad, pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[])
+            move_vector = torch.tensor(move_vector, dtype=torch.float64).reshape(nparticle, 3)
+            self.particle_num_list = self.particle_num_list - 0.5 * move_vector
+            # update rot_angle_list
+            if j % 20 == 0:
+                print("M. itr: ", j)
+                print("energy: ", self.calc_potential(geom_num_list, self.particle_num_list, bias_pot_params).item())
+                print("particle_grad: ", np.linalg.norm(particle_grad.detach().numpy()))
+            
+
+            prev_particle_grad = particle_grad
+        
+        
+        energy = self.calc_potential(geom_num_list, self.particle_num_list, bias_pot_params)
+        print("energy: ", self.calc_potential(geom_num_list, self.particle_num_list, bias_pot_params).item())
+        return energy
+    
+    
+    def calc_energy(self, geom_num_list, bias_pot_params=[]):
+        """
+        # required variables:self.config["spacer_model_potential_target"]
+                             self.config["spacer_model_potential_distance"]
+                             self.config["spacer_model_potential_well_depth"]
+                             self.config["spacer_model_potential_cavity_scaling"]
+                             self.config["spacer_model_potential_particle_number"]
+                             self.config["element_list"]
+                             self.config["directory"]
+                             
+        """
+        energy = self.microiteration(geom_num_list, bias_pot_params)
+        
+        return energy
+    
+#[[solvent particle well depth (kJ/mol)] [solvent particle e.q. distance (ang.)] [scaling of cavity (2.0)] [number of particles] [target atoms (2,3-5)] ...]
