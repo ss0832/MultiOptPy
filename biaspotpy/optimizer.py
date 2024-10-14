@@ -21,7 +21,7 @@ from Optimizer.adamw import AdamW
 from Optimizer.adam import Adam
 from Optimizer.adafactor import Adafactor
 from Optimizer.prodigy import Prodigy
-from Optimizer.adabound import AdaBound
+#from Optimizer.adabound import AdaBound
 from Optimizer.adadelta import Adadelta
 from Optimizer.purtubation import Perturbation
 from Optimizer.conjugate_gradient import ConjgateGradient
@@ -46,7 +46,7 @@ optimizer_mapping = {
     "adamw": AdamW,
     "adadiff": AdaDiff,
     "adafactor": Adafactor,
-    "adabound": AdaBound,
+    #"adabound": AdaBound,
     "eve": EVE,
     "prodigy": Prodigy,
     "adamax": AdaMax,
@@ -159,14 +159,14 @@ class CalculateMoveVector:
                             optimizer_instances.append(Newton(method=m))
                         optimizer_instances[i].DELTA = settings["delta"]
                         if "linesearch" in settings:
-                            optimizer_instances[i].linesearchflag = settings["linesearch"]
+                            optimizer_instances[i].linesearchflag = True
                         newton_tag.append(True)
                         lookahead_instances.append(None)
                         lars_instances.append(None)
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
-                optimizer_instances.append(Adabelief())
+                optimizer_instances.append(FIRE())
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
@@ -195,6 +195,19 @@ class CalculateMoveVector:
 
   
     def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances):#geom_num_list:Bohr
+        natom = len(geom_num_list)
+        ###
+        #-------------------------------------------------------------
+        geom_num_list = geom_num_list.reshape(natom*3, 1)
+        B_g = B_g.reshape(natom*3, 1)
+        pre_B_g = pre_B_g.reshape(natom*3, 1)
+        pre_geom = pre_geom.reshape(natom*3, 1)
+        g = g.reshape(natom*3, 1)
+        pre_g = pre_g.reshape(natom*3, 1)
+        pre_move_vector = pre_move_vector.reshape(natom*3, 1)
+        initial_geom_num_list = initial_geom_num_list.reshape(natom*3, 1)
+        #-------------------------------------------------------------
+        ###
         self.iter = iter
         self.geom_num_list = geom_num_list
         move_vector_list = []
@@ -225,8 +238,6 @@ class CalculateMoveVector:
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
 
-        #if self.iter == 20:
-        #   raise ValueError("stop")
         #---------------------------------
         #calculate move vector
         #---------------------------------
@@ -268,12 +279,9 @@ class CalculateMoveVector:
             else:
                 move_vector = copy.copy(move_vector_list[1])
                 print("Chosen method:", self.method[1])
-
         else:
             move_vector = copy.copy(move_vector_list[0])
-            if self.newton_tag[0]:
-                self.diag_hess_and_display(optimizer_instances[0])
-                
+
         # add perturbation (toy function)
         P = Perturbation(temperature=self.temperature)
         perturbation = P.boltzmann_dist_perturb(move_vector)
@@ -289,9 +297,16 @@ class CalculateMoveVector:
         print("trust radii: ", self.trust_radii)
         print("step  radii: ", np.linalg.norm(move_vector))
 
-        new_geometry = (geom_num_list - move_vector) * self.unitval.bohr2angstroms 
+        new_geometry = (geom_num_list - move_vector) * self.unitval.bohr2angstroms #Bohr -> ang.
         #---------------------------------
         print("Optimizer instances: ", optimizer_instances)
+        ###
+        #-------------------------------------------------------------
+        new_geometry = new_geometry.reshape(natom, 3)
+        move_vector = move_vector.reshape(natom, 3)
+        #-------------------------------------------------------------
+        ###
+
         return new_geometry, np.array(move_vector, dtype="float64"), optimizer_instances
 
 

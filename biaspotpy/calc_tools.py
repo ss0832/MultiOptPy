@@ -1,5 +1,4 @@
 import itertools
-import math
 import numpy as np
 import copy
 
@@ -1302,6 +1301,61 @@ def calc_local_fc_from_pBmat(cart_hess, pBmat):
 
 def calc_RMS(data):
     return np.sqrt(np.mean(data ** 2))
+
+
+import torch
+
+def torch_rotate_around_axis(theta, axis='z'):
+    cos_theta = torch.cos(theta).reshape(1)
+    sin_theta = torch.sin(theta).reshape(1)
+    tensor_zero = torch.tensor([0.0], dtype=torch.float64, requires_grad=True)
+    tensor_one = torch.tensor([1.0], dtype=torch.float64, requires_grad=True)
+
+    if axis == 'x':
+       
+        R = torch.stack([torch.cat([tensor_one, tensor_zero, tensor_zero]),
+                          torch.cat([tensor_zero, cos_theta, -sin_theta]),
+                          torch.cat([tensor_zero, sin_theta, cos_theta])])
+    elif axis == 'y':
+       
+        R = torch.stack([torch.cat([cos_theta, tensor_zero, sin_theta]),
+                          torch.cat([tensor_zero, tensor_one, tensor_zero]),
+                          torch.cat([-sin_theta, tensor_zero, cos_theta])])
+    elif axis == 'z':
+       
+        R = torch.stack([torch.cat([cos_theta, -sin_theta, tensor_zero]),
+                          torch.cat([sin_theta, cos_theta, tensor_zero]),
+                          torch.cat([tensor_zero, tensor_zero, tensor_one])])
+    else:
+        raise ValueError
+
+    return R
+
+
+def torch_align_vector_with_z(v):
+    v = v / torch.linalg.norm(v) 
+    z = torch.tensor([0.0, 0.0, 1.0], dtype=v.dtype, requires_grad=True) 
+    tensor_zero = torch.tensor([0.0], dtype=v.dtype, requires_grad=True)
+    axis = torch.linalg.cross(v, z)
+    axis_len = torch.linalg.norm(axis)
+
+    cos_theta = torch.dot(v, z)
+    sin_theta = axis_len
+
+    axis = axis / axis_len 
+    axis = axis.reshape(3, 1)
+    K = torch.stack([
+        torch.cat([tensor_zero, -axis[2], axis[1]]),
+        torch.cat([axis[2], tensor_zero, -axis[0]]),
+        torch.cat([-axis[1], axis[0], tensor_zero])
+    ])
+
+    R = torch.eye(3, dtype=v.dtype, requires_grad=True) + sin_theta * K + (1 - cos_theta) * torch.matmul(K, K)
+
+    
+    
+    return R
+    
 
 
 if __name__ == "__main__":#test

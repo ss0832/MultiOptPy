@@ -173,8 +173,8 @@ class Optimize:
         pre_B_g = []
         pre_g = []
         for i in range(len(element_list)):
-            pre_B_g.append(np.array([0,0,0], dtype="float64"))
-       
+            pre_B_g.append([0,0,0])
+        pre_B_g = np.array(pre_B_g, dtype="float64")
         pre_move_vector = pre_B_g
         pre_g = pre_B_g
         #-------------------------------------
@@ -321,7 +321,10 @@ class Optimize:
             self.geom_info_extract(force_data, file_directory, B_g, g)   
             
             #----------------------------
-            displacement_vector = geom_num_list - pre_geom
+            if iter == 0:
+                displacement_vector = move_vector
+            else:
+                displacement_vector = geom_num_list - pre_geom
             converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
             
             

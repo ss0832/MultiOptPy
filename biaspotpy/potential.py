@@ -25,7 +25,7 @@ from universal_potential import UniversalPotential
 from flux_potential import FluxPotential
 from value_range_potential import ValueRangePotential
 from mechano_force_potential import LinearMechanoForcePotential, LinearMechanoForcePotentialv2
-
+from asym_elllipsoidal_potential import AsymmetricEllipsoidalLJPotential
 
 class BiasPotentialCalculation:
     def __init__(self, FOLDER_DIRECTORY="./"):
@@ -40,6 +40,9 @@ class BiasPotentialCalculation:
         self.BPA_FOLDER_DIRECTORY = FOLDER_DIRECTORY
         self.metaD_history_list = None
         self.miter_delta = 1.0
+        self.mi_bias_pot_obj_list = []
+        self.mi_bias_pot_obj_id_list = []
+        self.mi_bias_pot_params_list = []
     
 
     
@@ -59,6 +62,8 @@ class BiasPotentialCalculation:
         #------------------------------------------------
         #if iter == "" or iter == 0:
         self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = make_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
+        if iter == 0:
+            self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = make_micro_iter_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
         
         #----------------------------------------------
         if iter == 0 and len(force_data["spacer_model_potential_well_depth"]) > 0:
@@ -162,6 +167,10 @@ class BiasPotentialCalculation:
             self.metaD_history_list = METAD.history_list
         #------------------
         
+        
+        
+        
+        
         #-----------------
         # combine almost all the bias potentials
         #-----------------
@@ -186,7 +195,33 @@ class BiasPotentialCalculation:
             BPA_grad_list = BPA_grad_list + tmp_tensor_BPA_grad
             BPA_hessian = BPA_hessian + tmp_tensor_BPA_hessian
         
-        #-----------------
+        ###-----------------
+        # combine the bias potentials using microiteration
+        ###-----------------
+        for i in range(len(self.mi_bias_pot_obj_list)):
+            tmp_bias_pot_params = self.mi_bias_pot_params_list[i]
+            
+            tmp_B_e = self.mi_bias_pot_obj_list[i].calc_energy(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_grad = torch.func.jacrev(self.mi_bias_pot_obj_list[i].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_grad = tensor2ndarray(tmp_tensor_BPA_grad)
+            tmp_tensor_BPA_hessian = torch.func.hessian(self.mi_bias_pot_obj_list[i].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_hessian = torch.reshape(tmp_tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            tmp_tensor_BPA_hessian = tensor2ndarray(tmp_tensor_BPA_hessian)
+            if len(tmp_bias_pot_params) > 0:
+                results = torch.func.jacrev(self.mi_bias_pot_obj_list[i].calc_energy, argnums=1)(geom_num_list, tmp_bias_pot_params)
+                results = tensor2ndarray(results)
+                print(self.mi_bias_pot_obj_id_list[i],":dE_bias_pot/d_param: ", results)
+                save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.mi_bias_pot_obj_id_list[i])
+            
+            save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.mi_bias_pot_obj_id_list[i])
+           
+            B_e = B_e + tmp_B_e
+            BPA_grad_list = BPA_grad_list + tmp_tensor_BPA_grad
+            BPA_hessian = BPA_hessian + tmp_tensor_BPA_hessian
+            self.mi_bias_pot_obj_list[i].save_state()
+            
+        
+        
          
         B_g = g + BPA_grad_list
         B_e = B_e.item() + e
@@ -215,10 +250,41 @@ def gradually_change_param(param_1, param_2, iter):
     
     return parameter
 
+def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom_num_list, iter):
+    bias_pot_obj_list = []
+    bias_pot_obj_id_list = []
+    bias_pot_params_list = []
+    if len(force_data["asymmetric_ellipsoidal_repulsive_potential_eps"]) > 0:
+        AERP = AsymmetricEllipsoidalLJPotential(asymmetric_ellipsoidal_repulsive_potential_eps=force_data["asymmetric_ellipsoidal_repulsive_potential_eps"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_sig=force_data["asymmetric_ellipsoidal_repulsive_potential_sig"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_center=force_data["asymmetric_ellipsoidal_repulsive_potential_dist"], 
+                                    asymmetric_ellipsoidal_repulsive_potential_atoms=force_data["asymmetric_ellipsoidal_repulsive_potential_atoms"],
+                                    asymmetric_ellipsoidal_repulsive_potential_offtgt=force_data["asymmetric_ellipsoidal_repulsive_potential_offtgt"],
+                                    element_list=element_list,
+                                    file_directory=file_directory)
+        
+        bias_pot_params = []
+        
+        for j in range(len(force_data["asymmetric_ellipsoidal_repulsive_potential_eps"])):
+            tmp_list = [force_data["asymmetric_ellipsoidal_repulsive_potential_eps"][j]] + force_data["asymmetric_ellipsoidal_repulsive_potential_sig"][j] + [force_data["asymmetric_ellipsoidal_repulsive_potential_dist"][j]]
+            bias_pot_params.append(tmp_list)
+
+        
+        bias_pot_params = torch.tensor(bias_pot_params, requires_grad=True, dtype=torch.float64)
+
+        bias_pot_obj_list.append(AERP)
+        bias_pot_obj_id_list.append("asymmetric_ellipsoidal_repulsive_potential")
+        bias_pot_params_list.append(bias_pot_params) 
+        
+        
+    return bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list
+
+
 def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom_num_list, iter):
     bias_pot_obj_list = []
     bias_pot_obj_id_list = []
     bias_pot_params_list = []
+
 
     for i in range(len(force_data["linear_mechano_force"])):
         if force_data["linear_mechano_force"][i] != 0.0:

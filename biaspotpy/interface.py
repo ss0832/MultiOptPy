@@ -54,7 +54,7 @@ def ieipparser(parser):
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-ns", "--NSTEP",  type=int, default='999', help='iter. number')
     
-    parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["AdaBelief"], help='optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method group) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE, conjugate_gradient_descent (quasi-Newton method group) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
+    parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
@@ -107,7 +107,7 @@ def optimizeparser(parser):
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-md", "--md_like_perturbation",  type=str, default="0.0", help='add perturbation like molecule dynamics (ex.) [[temperature (unit. K)]]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
-    parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["AdaBelief"], help='optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method group) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE, conjugate_gradient_descent (quasi-Newton method group) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
+    parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
@@ -172,6 +172,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-metad", "--metadynamics", nargs="*", type=str, default=[], help="apply meta-dynamics (use gaussian potential) (ex.) [[[bond] [potential height (kJ/mol)] [potential width (ang.)] [(atom1),(atom2)]] [[angle] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3)]] [[dihedral] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]] [[outofplain] [potential height (kJ/mol)] [potential width (deg.)] [(atom1),(atom2),(atom3),(atom4)]]...] ")
     parser.add_argument("-lmefp", "--linear_mechano_force_pot", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4)] ...]')
     parser.add_argument("-lmefpv2", "--linear_mechano_force_pot_v2", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atom(ex. 1)] [direction (xyz)] ...]')
+    parser.add_argument("-aerp", "--asymmetric_ellipsoidal_repulsive_potential", nargs="*",  type=str, default=[], help='add asymmetric ellipsoidal repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]')
     return parser
 
 
@@ -299,6 +300,7 @@ class BiasPotInterface:
         self.void_point_well_pot = []#['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6', '1']#"Add potential to limit atom movement. (sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
         self.around_well_pot = []#['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
         self.spacer_model_potential = []#['0.0',"1.0",'1.0','5',"1,2"]
+        self.asymmetric_ellipsoidal_repulsive_potential = []#['0.0','1.0,1.0,1.0,1.0,1.0,1.0', '2.0', '1,2','3-5']#add ovoid repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]
         self.metadynamics = []
 
 class iEIPInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -438,6 +440,23 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    #---------------------
+    force_data["asymmetric_ellipsoidal_repulsive_potential_eps"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_sig"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_dist"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_atoms"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_offtgt"] = []
+
+    if len(args.asymmetric_ellipsoidal_repulsive_potential) % 5 != 0:
+        print("invaild input (-aerp) ")
+        sys.exit(0)
+    
+    for i in range(int(len(args.asymmetric_ellipsoidal_repulsive_potential)/5)):
+        force_data["asymmetric_ellipsoidal_repulsive_potential_eps"].append(float(args.asymmetric_ellipsoidal_repulsive_potential[5*i]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_sig"].append([float(x) for x in args.asymmetric_ellipsoidal_repulsive_potential[5*i+1].split(",")])
+        force_data["asymmetric_ellipsoidal_repulsive_potential_dist"].append(float(args.asymmetric_ellipsoidal_repulsive_potential[5*i+2]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_atoms"].append(num_parse(args.asymmetric_ellipsoidal_repulsive_potential[5*i+3]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_offtgt"].append(num_parse(args.asymmetric_ellipsoidal_repulsive_potential[5*i+4]))    
     
     #---------------------
     force_data["linear_mechano_force_v2"] = []
