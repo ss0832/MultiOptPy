@@ -35,7 +35,7 @@ class Adafactor:
         new_adam_u = self.adam_u*0.0
         new_adam_u_hat = self.adam_u*0.0
         for i in range(len(geom_num_list)):
-            new_adam_v[i] = copy.copy(beta*self.adam_v[i] + (1.0-beta)*((B_g[i])**2 + np.array([1,1,1]) * self.Epsilon_1))
+            new_adam_v[i] = copy.copy(beta*self.adam_v[i] + (1.0-beta)*((B_g[i])**2 + np.array([1]) * self.Epsilon_1))
             new_adam_u[i] = copy.copy(B_g[i]/np.sqrt(new_adam_v[i]))
             
                     

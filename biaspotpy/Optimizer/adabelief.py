@@ -6,10 +6,10 @@ class Adabelief:
         #AdaBelief
         #ref. arXiv:2010.07468v5
         self.adam_count = 1
-        self.DELTA = 0.06
+        self.DELTA = 0.03
         self.beta_m = 0.9
-        self.beta_v = 0.99
-        self.Epsilon = 1e-8
+        self.beta_v = 0.999
+        self.Epsilon = 1e-15
         self.Initialization = True
         self.config = config
         return

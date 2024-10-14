@@ -9,10 +9,10 @@ class AdaDiff:
         #AdaDiff
         #ref. https://iopscience.iop.org/article/10.1088/1742-6596/2010/1/012027/pdf  Dian Huang et al 2021 J. Phys.: Conf. Ser. 2010 012027
         self.adam_count = 1
-        self.DELTA = 0.06
+        self.DELTA = 0.03
         self.beta_m = 0.9
         self.beta_v = 0.999
-        self.Epsilon = 1e-8
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
         return

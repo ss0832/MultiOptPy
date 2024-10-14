@@ -16,9 +16,9 @@ class LineSearch:
         
 
     def linesearch(self):
-        self.prev_gradient = self.prev_gradient.reshape(len(self.prev_gradient)*3, 1)
-        self.gradient = self.prev_gradient.reshape(len(self.gradient)*3, 1)
-        self.prev_move_vector = self.prev_move_vector.reshape(len(self.prev_move_vector)*3, 1)
+        self.prev_gradient = self.prev_gradient.reshape(len(self.prev_gradient), 1)
+        self.gradient = self.prev_gradient.reshape(len(self.gradient), 1)
+        self.prev_move_vector = self.prev_move_vector.reshape(len(self.prev_move_vector), 1)
         
         #self.gradient = self.gradient/np.linalg.norm(self.gradient)
         #self.prev_move_vector = self.prev_move_vector/np.linalg.norm(self.prev_move_vector)

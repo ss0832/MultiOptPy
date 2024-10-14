@@ -44,6 +44,8 @@ class MassWeightedGradientDescent:
             self.elem_mass_list = []
             for elem in self.element_list:
                 self.elem_mass_list.append([self.atomic_mass(elem)])
+                self.elem_mass_list.append([self.atomic_mass(elem)])
+                self.elem_mass_list.append([self.atomic_mass(elem)])
             self.elem_mass_list = np.array(self.elem_mass_list, dtype="float64")
             self.Initialization = False
             

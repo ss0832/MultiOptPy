@@ -12,10 +12,10 @@ class EVE:
         self.beta_m = 0.9
         self.beta_v = 0.999
         self.beta_d = 0.999
-        self.DELTA = 0.06
+        self.DELTA = 0.03
         self.c = 10
         self.eve_d_tilde = 1.0
-        self.Epsilon = 1e-08
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
         

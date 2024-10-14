@@ -6,7 +6,7 @@ class SAdam:
     def __init__(self, **config):
         #arXiv:1908.00700v2
         self.adam_count = 1
-        self.DELTA = 1.0
+        self.DELTA = 10.0
         self.beta_m = 0.9
         self.beta_v = 0.999
         self.Epsilon = 1e-8

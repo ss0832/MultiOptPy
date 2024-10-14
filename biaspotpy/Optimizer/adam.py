@@ -10,7 +10,7 @@ class Adam:
         self.adam_count = 1
         self.beta_m = 0.9
         self.beta_v = 0.999
-        self.DELTA = 0.06
+        self.DELTA = 0.03
         self.Epsilon = 1e-08
         self.Initialization = True
         self.config = config

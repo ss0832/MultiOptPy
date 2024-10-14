@@ -7,11 +7,11 @@ class Prodigy:
         #Prodigy
         #arXiv:2306.06101v1
         self.adam_count = 1
-        self.d = 0.1 
+        self.d = 0.03
         self.beta_m = 0.9
         self.beta_v = 0.999
-        self.DELTA = 0.06
-        self.Epsilon = 1e-08
+        self.DELTA = 0.1
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
         return
@@ -37,7 +37,7 @@ class Prodigy:
             new_adam_v[i] = copy.copy(self.beta_v*self.adam_v[i] + (1.0-self.beta_v)*(B_g[i]*self.d)**2)
             new_adam_s[i] = np.sqrt(self.beta_v)*self.adam_s[i] + (1.0 - np.sqrt(self.beta_v))*self.DELTA*B_g[i]*self.d**2  
         
-        new_adam_r = np.sqrt(self.beta_v)*self.adam_r + (1.0 - np.sqrt(self.beta_v))*(np.dot(B_g.reshape(1,len(B_g)*3), (self.initial_geom_num_list - geom_num_list).reshape(len(B_g)*3,1)))*self.DELTA*self.d**2
+        new_adam_r = np.sqrt(self.beta_v)*self.adam_r + (1.0 - np.sqrt(self.beta_v))*(np.dot(B_g.reshape(1,len(B_g)), (self.initial_geom_num_list - geom_num_list).reshape(len(B_g),1)))*self.DELTA*self.d**2
         
         new_d = float(max((new_adam_r / np.linalg.norm(new_adam_s ,ord=1)), self.d))
         move_vector = []

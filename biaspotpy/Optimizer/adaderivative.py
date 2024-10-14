@@ -5,10 +5,10 @@ class Adaderivative:
     def __init__(self, **config):
         #Engineering Applications of Artificial Intelligence 2023, 119, 105755. https://doi.org/10.1016/j.engappai.2022.105755
         self.adam_count = 1
-        self.DELTA = 0.001
+        self.DELTA = 0.0001
         self.beta_m = 0.9
         self.beta_v = 0.999
-        self.Epsilon = 1e-8
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
         return

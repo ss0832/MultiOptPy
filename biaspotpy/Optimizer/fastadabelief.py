@@ -7,10 +7,10 @@ class FastAdabelief:
         #FastAdaBelief
         #ref: arXiv:2104.13790 https://doi.org/10.48550/arXiv.2104.13790    
         self.adam_count = 1
-        self.DELTA = 0.06
+        self.DELTA = 0.03
         self.beta_m = 0.9
-        self.beta_v = 0.99
-        self.Epsilon = 1e-8
+        self.beta_v = 0.999
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
         self.delta_for_v = 0.01

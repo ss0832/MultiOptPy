@@ -6,12 +6,12 @@ class RMSpropGrave:
     def __init__(self, **config):
         #arXiv:https://arxiv.org/abs/1308.0850v5
         self.RMSpropGrave_count = 1
-        self.DELTA = 1.0
+        self.DELTA = 0.75
         self.beta_m = 0.95
         self.beta_v = 0.95
-        self.Epsilon = 1e-8
-        self.eta = 0.001
-        self.nue = 0.8
+        self.Epsilon = 1e-10
+        self.eta = 0.0001
+        self.nue = 0.9
         self.Initialization = True
         self.config = config
         return

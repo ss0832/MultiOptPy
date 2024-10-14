@@ -15,13 +15,13 @@ class FIRE:
         self.dt_max = 0.8
         self.alpha_start = 0.1
         
-
+        self.display_flag = True
         self.config = config
         self.Initialization = True
         return
     
     def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
-        print("FIRE")
+        
         adam_count = self.adam_count
 
         if self.Initialization:
@@ -35,7 +35,7 @@ class FIRE:
         
         velocity = (1.0 - self.alpha) * self.pre_velocity + self.alpha * (np.linalg.norm(self.pre_velocity, ord=2)/np.linalg.norm(B_g, ord=2)) * B_g
         
-        if adam_count > 0 and np.dot(self.pre_velocity.reshape(1, len(geom_num_list)*3), B_g.reshape(len(geom_num_list)*3, 1)) > 0:
+        if adam_count > 0 and np.dot(self.pre_velocity.reshape(1, len(geom_num_list)), B_g.reshape(len(geom_num_list), 1)) > 0:
             if self.n_reset > self.N_acc:
                 self.dt = min(self.dt * self.f_inc, self.dt_max)
                 self.alpha = self.alpha * self.f_acc
@@ -50,7 +50,9 @@ class FIRE:
         
         move_vector = copy.copy(self.dt * velocity)
         
-        print("dt, alpha, n_reset :", self.dt, self.alpha, self.n_reset)
+        if self.display_flag:
+            print("FIRE")
+            print("dt, alpha, n_reset :", self.dt, self.alpha, self.n_reset)
         
         self.pre_velocity = velocity
         adam_count += 1

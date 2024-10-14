@@ -5,10 +5,10 @@ class QHAdam:
     def __init__(self, **config):
         #arXiv:1810.06801v4    
         self.adam_count = 1
-        self.DELTA = 0.06
+        self.DELTA = 0.1
         self.beta_m = 0.9
         self.beta_v = 0.999
-        self.Epsilon = 1e-8
+        self.Epsilon = 1e-12
         self.nu_m = 1.0
         self.nu_v = 1.0
         self.Initialization = True

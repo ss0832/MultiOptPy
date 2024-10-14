@@ -12,7 +12,7 @@ class AdamW:
         self.beta_v = 0.999
         self.DELTA = 0.06
         self.AdamW_lambda = 0.001
-        self.Epsilon = 1e-08
+        self.Epsilon = 1e-12
         self.Initialization = True
         self.config = config
     

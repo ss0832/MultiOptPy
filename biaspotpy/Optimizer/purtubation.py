@@ -11,6 +11,6 @@ class Perturbation:
     def boltzmann_dist_perturb(self, move_vector):#This function is just for fun. Thus, it is no scientific basis.
 
         temperature = self.temperature
-        perturbation = self.DELTA * np.sqrt(2.0 * self.damping_coefficient * self.Boltzmann_constant * temperature) * np.random.normal(loc=0.0, scale=1.0, size=3*len(move_vector)).reshape(len(move_vector), 3)
+        perturbation = self.DELTA * np.sqrt(2.0 * self.damping_coefficient * self.Boltzmann_constant * temperature) * np.random.normal(loc=0.0, scale=1.0, size=len(move_vector)).reshape(len(move_vector), 1)
 
         return perturbation

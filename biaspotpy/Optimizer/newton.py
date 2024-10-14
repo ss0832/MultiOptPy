@@ -49,8 +49,8 @@ class Newton:
             self.Initialization = False
             return -1*self.DELTA*B_g
         
-        delta_grad = (g - pre_g).reshape(len(geom_num_list)*3, 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
         
         
         delta_hess = self.hessian_update(displacement, delta_grad)
@@ -64,8 +64,8 @@ class Newton:
         DELTA_for_QNM = self.DELTA
         
         
-        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list), 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list), 1))
         
         if self.iter > 1 and self.linesearchflag:
             LS = LineSearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
@@ -78,7 +78,7 @@ class Newton:
 
 
         if self.iter > 0 and self.linesearchflag:
-            move_vector = new_move_vector.reshape(len(geom_num_list), 3)
+            move_vector = new_move_vector
             if optimal_step_flag or self.iter == 1:
                 self.prev_move_vector = move_vector    
                 
@@ -102,16 +102,16 @@ class Newton:
             self.momentum_grad = B_g - pre_B_g
 
         
-        delta_grad = (B_g - pre_B_g).reshape(len(geom_num_list)*3, 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list)*3, 1)
+        delta_grad = (B_g - pre_B_g).reshape(len(geom_num_list), 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
         
         
 
         new_momentum_disp = self.beta * self.momentum_disp + (1.0 - self.beta) * geom_num_list
         new_momentum_grad = self.beta * self.momentum_grad + (1.0 - self.beta) * B_g
         
-        delta_momentum_disp = (new_momentum_disp - self.momentum_disp).reshape(len(geom_num_list)*3, 1)
-        delta_momentum_grad = (new_momentum_grad - self.momentum_grad).reshape(len(geom_num_list)*3, 1)
+        delta_momentum_disp = (new_momentum_disp - self.momentum_disp).reshape(len(geom_num_list), 1)
+        delta_momentum_grad = (new_momentum_grad - self.momentum_grad).reshape(len(geom_num_list), 1)
         
 
         delta_hess = self.hessian_update(delta_momentum_disp, delta_momentum_grad)
@@ -125,8 +125,8 @@ class Newton:
         DELTA_for_QNM = self.DELTA
         
         
-        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list)*3, 1))).reshape(len(geom_num_list), 3)
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list)*3, 1)).reshape(len(geom_num_list), 3)
+        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list), 1))).reshape(len(geom_num_list), 3)
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list), 1))
 
         
         print("step size: ",DELTA_for_QNM,"\n")
