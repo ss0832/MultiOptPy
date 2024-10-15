@@ -112,24 +112,24 @@ class AsymmetricEllipsoidalLJPotential:
                 tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom])
 
                 if x > 0:
-                    x_sig = torch.sqrt(asym_elip_sig_xp * tgt_atom_sig)
+                    x_sig = torch.sqrt(2 * asym_elip_sig_xp * tgt_atom_sig)
                     x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    x_sig = torch.sqrt(asym_elip_sig_xm * tgt_atom_sig)
+                    x_sig = torch.sqrt(2 * asym_elip_sig_xm * tgt_atom_sig)
                     x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 if y > 0:
-                    y_sig = torch.sqrt(asym_elip_sig_yp * tgt_atom_sig)
+                    y_sig = torch.sqrt(2 * asym_elip_sig_yp * tgt_atom_sig)
                     y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    y_sig = torch.sqrt(asym_elip_sig_ym * tgt_atom_sig)
+                    y_sig = torch.sqrt(2 * asym_elip_sig_ym * tgt_atom_sig)
                     y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 if z > 0:
-                    z_sig = torch.sqrt(asym_elip_sig_zp * tgt_atom_sig)
+                    z_sig = torch.sqrt(2 * asym_elip_sig_zp * tgt_atom_sig)
                     z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    z_sig = torch.sqrt(asym_elip_sig_zm * tgt_atom_sig)
+                    z_sig = torch.sqrt(2 * asym_elip_sig_zm * tgt_atom_sig)
                     z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
@@ -224,24 +224,24 @@ class AsymmetricEllipsoidalLJPotential:
                     z_j = pos_j[2]
                     
                     if x_j > 0:
-                        x_i_sig = asym_elip_sig_xp_i
+                        x_i_sig = 2 * asym_elip_sig_xp_i
                         x_i_eps = asym_elip_eps_i
                     else:
-                        x_i_sig = asym_elip_sig_xm_i
+                        x_i_sig = 2 * asym_elip_sig_xm_i
                         x_i_eps = asym_elip_eps_i
                     
                     if y_j > 0:
-                        y_i_sig = asym_elip_sig_yp_i
+                        y_i_sig = 2 * asym_elip_sig_yp_i
                         y_i_eps = asym_elip_eps_i
                     else:
-                        y_i_sig = asym_elip_sig_ym_i
+                        y_i_sig = 2 * asym_elip_sig_ym_i
                         y_i_eps = asym_elip_eps_i
                     
                     if z_j > 0:
-                        z_i_sig = asym_elip_sig_zp_i
+                        z_i_sig = 2 * asym_elip_sig_zp_i
                         z_i_eps = asym_elip_eps_i
                     else:
-                        z_i_sig = asym_elip_sig_zm_i
+                        z_i_sig = 2 * asym_elip_sig_zm_i
                         z_i_eps = asym_elip_eps_i
                 
                     r_ell_i = torch.sqrt((x_j / x_i_sig) ** 2 + (y_j / y_i_sig) ** 2 + (z_j / z_i_sig) ** 2)
@@ -258,24 +258,24 @@ class AsymmetricEllipsoidalLJPotential:
                     z_i = pos_i[2]
                     
                     if x_i > 0:
-                        x_j_sig = asym_elip_sig_xp_j
+                        x_j_sig = 2 * asym_elip_sig_xp_j
                         x_j_eps = asym_elip_eps_j
                     else:
-                        x_j_sig = asym_elip_sig_xm_j
+                        x_j_sig = 2 * asym_elip_sig_xm_j
                         x_j_eps = asym_elip_eps_j
                     
                     if y_i > 0:
-                        y_j_sig = asym_elip_sig_yp_j
+                        y_j_sig = 2 * asym_elip_sig_yp_j
                         y_j_eps = asym_elip_eps_j
                     else:
-                        y_j_sig = asym_elip_sig_ym_j
+                        y_j_sig = 2 * asym_elip_sig_ym_j
                         y_j_eps = asym_elip_eps_j
                     
                     if z_i > 0:
-                        z_j_sig = asym_elip_sig_zp_j
+                        z_j_sig = 2 * asym_elip_sig_zp_j
                         z_j_eps = asym_elip_eps_j
                     else:
-                        z_j_sig = asym_elip_sig_zm_j
+                        z_j_sig = 2 * asym_elip_sig_zm_j
                         z_j_eps = asym_elip_eps_j
                         
                     r_ell_j = torch.sqrt((x_i / x_j_sig) ** 2 + (y_i / y_j_sig) ** 2 + (z_i / z_j_sig) ** 2)
