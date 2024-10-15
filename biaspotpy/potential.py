@@ -1,10 +1,7 @@
 
 from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
 from fileio import save_bias_pot_info, save_bias_param_grad_info
 
-import itertools
-import math
 import numpy as np
 import copy
 import random
@@ -43,6 +40,8 @@ class BiasPotentialCalculation:
         self.mi_bias_pot_obj_list = []
         self.mi_bias_pot_obj_id_list = []
         self.mi_bias_pot_params_list = []
+        self.bias_pot_params_grad_list = None
+        self.bias_pot_params_grad_name_list = None
     
 
     
@@ -88,6 +87,9 @@ class BiasPotentialCalculation:
             
             self.metaD_history_list = METAD.history_list
 
+        tmp_bias_pot_params_grad_list = []
+        tmp_bias_pot_params_grad_name_list = []
+        
         
         #-----------------
         # combine almost all the bias potentials
@@ -106,6 +108,8 @@ class BiasPotentialCalculation:
                 results = tensor2ndarray(results)
                 print(self.bias_pot_obj_id_list[j],":dE_bias_pot/d_param: ", results)
                 save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.bias_pot_obj_id_list[j])
+                tmp_bias_pot_params_grad_list.append(results)
+                tmp_bias_pot_params_grad_name_list.append(self.bias_pot_obj_id_list[j])
             
             save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.bias_pot_obj_id_list[j])
            
@@ -130,6 +134,8 @@ class BiasPotentialCalculation:
                 results = tensor2ndarray(results)
                 print(self.mi_bias_pot_obj_id_list[i],":dE_bias_pot/d_param: ", results)
                 save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.mi_bias_pot_obj_id_list[i])
+                tmp_bias_pot_params_grad_list.append(results)
+                tmp_bias_pot_params_grad_name_list.append(self.bias_pot_obj_id_list[j])
             
             save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.mi_bias_pot_obj_id_list[i])
            
@@ -146,6 +152,9 @@ class BiasPotentialCalculation:
         #new_geometry:ang. 
         #B_e:hartree
 
+        self.bias_pot_params_grad_list = tmp_bias_pot_params_grad_list
+        self.bias_pot_params_grad_name_list = tmp_bias_pot_params_grad_name_list
+        
         return BPA_grad_list, B_e, B_g, BPA_hessian
     
 def ndarray2tensor(ndarray):

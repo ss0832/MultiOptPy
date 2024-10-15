@@ -90,7 +90,7 @@ def ieipparser(parser):
 
 
 def optimizeparser(parser):
-    parser.add_argument("INPUT", help='input xyz file name')
+    parser.add_argument("INPUT", help='input xyz file name', nargs="*")
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
@@ -133,6 +133,9 @@ def optimizeparser(parser):
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     args = parser.parse_args()
+    if len(args.INPUT) < 2:
+        args.INPUT = args.INPUT[0]
+
     return args
 
 def parser_for_biasforce(parser):
@@ -173,6 +176,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-lmefp", "--linear_mechano_force_pot", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4)] ...]')
     parser.add_argument("-lmefpv2", "--linear_mechano_force_pot_v2", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atom(ex. 1)] [direction (xyz)] ...]')
     parser.add_argument("-aerp", "--asymmetric_ellipsoidal_repulsive_potential", nargs="*",  type=str, default=[], help='add asymmetric ellipsoidal repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]')
+    parser.add_argument("-aerpv2", "--asymmetric_ellipsoidal_repulsive_potential_v2", nargs="*",  type=str, default=[], help='add asymmetric ellipsoidal repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]')
     return parser
 
 
@@ -301,6 +305,7 @@ class BiasPotInterface:
         self.around_well_pot = []#['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
         self.spacer_model_potential = []#['0.0',"1.0",'1.0','5',"1,2"]
         self.asymmetric_ellipsoidal_repulsive_potential = []#['0.0','1.0,1.0,1.0,1.0,1.0,1.0', '2.0', '1,2','3-5']#add ovoid repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]
+        self.asymmetric_ellipsoidal_repulsive_potential_v2 = []#['0.0','1.0,1.0,1.0,1.0,1.0,1.0', '2.0', '1,2','3-5']#add ovoid repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]
         self.metadynamics = []
 
 class iEIPInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -440,6 +445,25 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+
+    #---------------------
+    force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_v2_dist"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"] = []
+    force_data["asymmetric_ellipsoidal_repulsive_potential_v2_offtgt"] = []
+
+    if len(args.asymmetric_ellipsoidal_repulsive_potential_v2) % 5 != 0:
+        print("invaild input (-aerpv2) ")
+        sys.exit(0)
+    
+    for i in range(int(len(args.asymmetric_ellipsoidal_repulsive_potential_v2)/5)):
+        force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"].append(float(args.asymmetric_ellipsoidal_repulsive_potential_v2[5*i]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"].append([float(x) for x in args.asymmetric_ellipsoidal_repulsive_potential_v2[5*i+1].split(",")])
+        force_data["asymmetric_ellipsoidal_repulsive_potential_v2_dist"].append(float(args.asymmetric_ellipsoidal_repulsive_potential_v2[5*i+2]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"].append(num_parse(args.asymmetric_ellipsoidal_repulsive_potential_v2[5*i+3]))
+        force_data["asymmetric_ellipsoidal_repulsive_potential_v2_offtgt"].append(num_parse(args.asymmetric_ellipsoidal_repulsive_potential_v2[5*i+4]))    
+    
     #---------------------
     force_data["asymmetric_ellipsoidal_repulsive_potential_eps"] = []
     force_data["asymmetric_ellipsoidal_repulsive_potential_sig"] = []

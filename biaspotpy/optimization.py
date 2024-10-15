@@ -35,10 +35,6 @@ class Optimize:
         self.bohr2angstroms = UVL.bohr2angstroms #
         self.hartree2kjmol = UVL.hartree2kjmol #
  
-        self.ENERGY_LIST_FOR_PLOTTING = [] #
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
-        self.NUM_LIST = [] #
-
         if args.tight_convergence_criteria and not args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.00012
             self.RMS_FORCE_THRESHOLD = 0.00008
@@ -74,7 +70,7 @@ class Optimize:
 
         self.N_THREAD = args.N_THREAD #
         self.SET_MEMORY = args.SET_MEMORY #
-        self.START_FILE = args.INPUT #
+        
         self.NSTEP = args.NSTEP #
         #-----------------------------
         self.BASIS_SET = args.basisset # 
@@ -106,19 +102,8 @@ class Optimize:
                 print(self.SUB_BASIS_SET) #
             
         #-----------------------------
-        if args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time()).replace(".","_")+"/"
 
-        elif args.usextb == "None" and args.usedxtb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
-        else:
-            if args.usedxtb != "None":
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
-            else:
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+args.usextb+"_"+str(time.time()).replace(".","_")+"/"
-        
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
-        
+        #-----------------------------
         self.Model_hess = None #
         self.Opt_params = None #
         self.DC_check_dist = 30.0#ang.
@@ -143,16 +128,35 @@ class Optimize:
         self.othersoft = args.othersoft
 
         self.shape_conditions = args.shape_conditions
-
+        self.bias_pot_params_grad_list = None
+        self.bias_pot_params_grad_name_list = None
         #self.cpcm_solv_model = args.cpcm_solv_model
         return
 
+    def make_init_directory(self, file):
+        self.START_FILE = file #
+        if self.args.othersoft != "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time()).replace(".","_")+"/"
+
+        elif self.args.usextb == "None" and self.args.usedxtb == "None":
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
+        else:
+            if self.args.usedxtb != "None":
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.args.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
+            else:
+                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.args.usextb+"_"+str(time.time()).replace(".","_")+"/"
+        
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
+        
+        return
 
     def optimize(self):
         Calculation, xtb_method = self.import_calculation_module()
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         G = Graph(self.BPA_FOLDER_DIRECTORY)
-      
+        self.ENERGY_LIST_FOR_PLOTTING = [] #
+        self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
+        self.NUM_LIST = [] #
         force_data = force_data_parser(self.args)
         finish_frag = False
         
@@ -384,6 +388,8 @@ class Optimize:
         #plot graph
         
         self.save_results(FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
+        self.bias_pot_params_grad_list = CalcBiaspot.bias_pot_params_grad_list
+        self.bias_pot_params_grad_name_list = CalcBiaspot.bias_pot_params_grad_name_list
         
         return
 
@@ -1137,29 +1143,40 @@ class Optimize:
         return calced_gradient
     
     def run(self):
-        #For ONIOM method
-        if len(self.args.oniom_method) > 0:
-            self.optimize_oniom()
+        if type(self.args.INPUT) is str:
+            START_FILE_LIST = [self.args.INPUT]
         else:
-            self.optimize()
-    
-        if self.CMDS:
-            CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
-            CMDPA.main()
-        #if self.ricci_curvature:
-        #    CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
-        #    CC.main()
-        if len(self.irc) > 0:
-            if self.args.usextb != "None":
-                xtb_method = self.args.usextb
+            START_FILE_LIST = self.args.INPUT #
+
+        for file in START_FILE_LIST:
+            print("********************************")
+            print(file)
+            print("********************************")
+            self.make_init_directory(file)
+            #For ONIOM method
+            if len(self.args.oniom_method) > 0:
+                self.optimize_oniom()
             else:
-                xtb_method = "None"
-            
-            if self.iter % self.FC_COUNT == 0:
-                hessian = self.Model_hess
-            else:
-                hessian = None
-            EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
-            EXEC_IRC.run()
+                self.optimize()
         
+            if self.CMDS:
+                CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+                CMDPA.main()
+            #if self.ricci_curvature:
+            #    CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
+            #    CC.main()
+            if len(self.irc) > 0:
+                if self.args.usextb != "None":
+                    xtb_method = self.args.usextb
+                else:
+                    xtb_method = "None"
+                
+                if self.iter % self.FC_COUNT == 0:
+                    hessian = self.Model_hess
+                else:
+                    hessian = None
+                EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
+                EXEC_IRC.run()
+            print(f"Optimization of {file} is completed.")
+            
         return
