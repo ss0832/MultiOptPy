@@ -112,24 +112,24 @@ class AsymmetricEllipsoidalLJPotential:
                 tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom])
 
                 if x > 0:
-                    x_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_xp * tgt_atom_sig)
+                    x_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xp * tgt_atom_sig)
                     x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    x_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_xm * tgt_atom_sig)
+                    x_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xm * tgt_atom_sig)
                     x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 if y > 0:
-                    y_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_yp * tgt_atom_sig)
+                    y_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_yp * tgt_atom_sig)
                     y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    y_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_ym * tgt_atom_sig)
+                    y_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_ym * tgt_atom_sig)
                     y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 if z > 0:
-                    z_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_zp * tgt_atom_sig)
+                    z_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zp * tgt_atom_sig)
                     z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 else:
-                    z_sig = torch.sqrt(2 ** (8 / 6) * asym_elip_sig_zm * tgt_atom_sig)
+                    z_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zm * tgt_atom_sig)
                     z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
                 
                 r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
