@@ -35,7 +35,7 @@ class AsymmetricEllipsoidalLJPotential:
         return
     
     def save_state(self):      
-        with open(self.file_directory + "/asym_ellipsoid.xyz", "a") as f:
+        with open(self.file_directory + "/asym_ellipsoid_v1.xyz", "a") as f:
             f.write(str(len(self.tmp_geom_num_list_for_save)) + "\n")
             f.write("AsymmetricEllipsoid\n")
             for i in range(len(self.tmp_geom_num_list_for_save)):
@@ -146,7 +146,7 @@ class AsymmetricEllipsoidalLJPotential:
           
             
         
-        # interaction between asymmetric ellipsoid and  asymmetric ellipsoid
+        # interaction between asymmetric ellipsoid and asymmetric ellipsoid
         if len(bias_pot_params) > 1:
             for pot_i in range(len(bias_pot_params)):
                 for pot_j in range(pot_i+1, len(bias_pot_params)):
@@ -377,7 +377,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
         return
     
     def save_state(self):      
-        with open(self.file_directory + "/asym_ellipsoid.xyz", "a") as f:
+        with open(self.file_directory + "/asym_ellipsoid_v2.xyz", "a") as f:
             f.write(str(len(self.tmp_geom_num_list_for_save)) + "\n")
             f.write("AsymmetricEllipsoid\n")
             for i in range(len(self.tmp_geom_num_list_for_save)):
