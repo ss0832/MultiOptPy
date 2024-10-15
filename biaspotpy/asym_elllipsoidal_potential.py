@@ -458,26 +458,26 @@ class AsymmetricEllipsoidalLJPotentialv2:
                 z = tgt_atom_pos[2]
                 
                 tgt_atom_eps = UFF_VDW_well_depth_lib(self.element_list[tgt_atom])
-                #tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom])
+                tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom]) / 2
 
                 if x > 0:
-                    x_sig = asym_elip_sig_xp * 2 ** (7 / 6)
+                    x_sig = (asym_elip_sig_xp + tgt_atom_sig) * 2 ** (7 / 6)
                     x_eps = asym_elip_eps 
                 else:
-                    x_sig = asym_elip_sig_xm * 2 ** (7 / 6) 
+                    x_sig = (asym_elip_sig_xm + tgt_atom_sig) * 2 ** (7 / 6) 
                     x_eps = asym_elip_eps 
                 
                 if y > 0:
-                    y_sig = asym_elip_sig_yp * 2 ** (7 / 6) 
+                    y_sig = (asym_elip_sig_yp + tgt_atom_sig) * 2 ** (7 / 6) 
                     y_eps = asym_elip_eps 
                 else:
-                    y_sig = asym_elip_sig_ym * 2 ** (7 / 6) 
+                    y_sig = (asym_elip_sig_ym + tgt_atom_sig) * 2 ** (7 / 6) 
                     y_eps = asym_elip_eps
                 if z > 0:
-                    z_sig = asym_elip_sig_zp * 2 ** (7 / 6)
+                    z_sig = (asym_elip_sig_zp + tgt_atom_sig) * 2 ** (7 / 6)
                     z_eps = asym_elip_eps
                 else:
-                    z_sig = asym_elip_sig_zm * 2 ** (7 / 6) 
+                    z_sig = (asym_elip_sig_zm + tgt_atom_sig) * 2 ** (7 / 6) 
                     z_eps = asym_elip_eps
                 
                 r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
