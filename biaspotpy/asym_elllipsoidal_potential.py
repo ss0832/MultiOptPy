@@ -32,6 +32,9 @@ class AsymmetricEllipsoidalLJPotential:
         self.rand_search_iteration = 2500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
         self.threshold = 1e-7
         self.init = True
+
+        self.energy_analysis_dict = None
+        self.energy_save_flag = False
         return
     
     def save_state(self):      
@@ -43,6 +46,12 @@ class AsymmetricEllipsoidalLJPotential:
         
         return
     
+    def save_part_ene(self):
+        with open(self.file_directory + "/asym_ellipsoid_p_ene.txt", "a") as f:
+            f.write(str(self.energy_analysis_dict)+"\n")
+        
+        return
+
     def calc_potential(self, geom_num_list, rot_angle_list, bias_pot_params):
         energy = 0.0
         """
@@ -127,7 +136,11 @@ class AsymmetricEllipsoidalLJPotential:
                 r_ell_norm = torch.linalg.norm(r_ell)
                 lj_eps = 1 / torch.sqrt((x / r_ell_norm / x_eps) ** 2 + (y / r_ell_norm / y_eps) ** 2 + (z / r_ell_norm / z_eps) ** 2 )
                 eps = torch.sqrt(lj_eps * tgt_atom_eps) 
-                energy = energy + eps * (((1/r_ell) ** self.lj_repulsive_order) -2 * ((1/r_ell) ** self.lj_attractive_order)) 
+                tmp_ene = eps * (((1/r_ell) ** self.lj_repulsive_order) -2 * ((1/r_ell) ** self.lj_attractive_order)) 
+                if self.energy_save_flag:
+                    self.energy_analysis_dict["ell_"+str(pot_i)+"_atom"+str(tgt_atom+1)] = tmp_ene.item()
+
+                energy = energy + tmp_ene
             
             
             #--------------
@@ -331,8 +344,11 @@ class AsymmetricEllipsoidalLJPotential:
 
             prev_rot_grad = rot_grad
         
-        
+        self.energy_analysis_dict = {}
+        self.energy_save_flag = True
         energy = self.calc_potential(geom_num_list, self.rot_angle_list, bias_pot_params)
+        self.energy_save_flag = False
+        self.save_part_ene()
         return energy
     
     
