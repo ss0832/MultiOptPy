@@ -22,7 +22,7 @@ class AsymmetricEllipsoidalLJPotential:
         self.rot_angle_list = []
         for i in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])):
             self.rot_angle_list.append(random.uniform(0, 2*math.pi))
-        
+        self.nangle = len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
         self.rot_angle_list = torch.tensor([self.rot_angle_list], dtype=torch.float64, requires_grad=True)
         
         self.lj_repulsive_order = 12.0
@@ -368,7 +368,25 @@ class AsymmetricEllipsoidalLJPotential:
         """
         energy = self.microiteration(geom_num_list, bias_pot_params)
         return energy
+    
+    def calc_pot_for_eff_hess(self, coord_and_ell_angle, bias_pot_params):
+        geom_num_list = coord_and_ell_angle[:len(self.element_list)*3].reshape(-1, 3)
+        rot_angle_list = coord_and_ell_angle[len(self.element_list)*3:].reshape(1, self.nangle)
+        energy = self.calc_potential(geom_num_list, rot_angle_list, bias_pot_params)
+        return energy
 
+
+    def calc_eff_hessian(self, geom_num_list, bias_pot_params):# effective hessian
+        transformed_geom_num_list = geom_num_list.reshape(-1, 1)
+        transformed_angle_list = self.rot_angle_list.reshape(-1, 1)
+        coord_and_ell_angle = torch.cat((transformed_geom_num_list, transformed_angle_list), dim=0)
+        combined_hess = torch.func.hessian(self.calc_pot_for_eff_hess, argnums=0)(coord_and_ell_angle, bias_pot_params).reshape(len(self.element_list)*3+self.nangle, len(self.element_list)*3+self.nangle)
+        coupling_hess_1 = combined_hess[:len(self.element_list)*3, len(self.element_list)*3:]
+        coupling_hess_2 = combined_hess[len(self.element_list)*3:, :len(self.element_list)*3]
+        angle_hess = combined_hess[len(self.element_list)*3:, len(self.element_list)*3:]
+        eff_hess = -1 * torch.matmul(torch.matmul(coupling_hess_1, torch.linalg.inv(angle_hess)), coupling_hess_2)
+        return eff_hess
+    
 
 class AsymmetricEllipsoidalLJPotentialv2:
     def __init__(self, **kwarg):
@@ -383,7 +401,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
         self.rot_angle_list = []
         for i in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])):
             self.rot_angle_list.append(random.uniform(0, 2*math.pi))
-        
+        self.nangle = len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
         self.rot_angle_list = torch.tensor([self.rot_angle_list], dtype=torch.float64, requires_grad=True)
         
         self.lj_repulsive_order = 12.0
@@ -712,5 +730,20 @@ class AsymmetricEllipsoidalLJPotentialv2:
         energy = self.microiteration(geom_num_list, bias_pot_params)
         return energy
 
+    def calc_pot_for_eff_hess(self, coord_and_ell_angle, bias_pot_params):
+        geom_num_list = coord_and_ell_angle[:len(self.element_list)*3].reshape(-1, 3)
+        rot_angle_list = coord_and_ell_angle[len(self.element_list)*3:].reshape(1, self.nangle)
+        energy = self.calc_potential(geom_num_list, rot_angle_list, bias_pot_params)
+        return energy
 
 
+    def calc_eff_hessian(self, geom_num_list, bias_pot_params):# effective hessian
+        transformed_geom_num_list = geom_num_list.reshape(-1, 1)
+        transformed_angle_list = self.rot_angle_list.reshape(-1, 1)
+        coord_and_ell_angle = torch.cat((transformed_geom_num_list, transformed_angle_list), dim=0)
+        combined_hess = torch.func.hessian(self.calc_pot_for_eff_hess, argnums=0)(coord_and_ell_angle, bias_pot_params).reshape(len(self.element_list)*3+self.nangle, len(self.element_list)*3+self.nangle)
+        coupling_hess_1 = combined_hess[:len(self.element_list)*3, len(self.element_list)*3:]
+        coupling_hess_2 = combined_hess[len(self.element_list)*3:, :len(self.element_list)*3]
+        angle_hess = combined_hess[len(self.element_list)*3:, len(self.element_list)*3:]
+        eff_hess = -1 * torch.matmul(torch.matmul(coupling_hess_1, torch.linalg.inv(angle_hess)), coupling_hess_2)
+        return eff_hess

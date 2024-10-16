@@ -31,7 +31,8 @@ class SpacerModelPotential:
         for num, tgt_atom_num in enumerate(self.config["spacer_model_potential_target"]):
             self.num2tgtatomlabel[num] = tgt_atom_num - 1
 
-
+        self.nparticle = self.config["spacer_model_potential_particle_number"]
+        self.element_list = self.config["element_list"]
         self.particle_num_list = None
 
         self.file_directory = self.config["directory"]
@@ -171,5 +172,24 @@ class SpacerModelPotential:
         energy = self.microiteration(geom_num_list, bias_pot_params)
         
         return energy
+    
+    def calc_pot_for_eff_hess(self, coord_and_ell_angle, bias_pot_params):
+        geom_num_list = coord_and_ell_angle[:len(self.element_list)*3].reshape(-1, 3)
+        particle_num_list = coord_and_ell_angle[len(self.element_list)*3:].reshape(1, self.nparticle)
+        energy = self.calc_potential(geom_num_list, particle_num_list, bias_pot_params)
+        return energy
+
+
+    def calc_eff_hessian(self, geom_num_list, bias_pot_params):
+        transformed_geom_num_list = geom_num_list.reshape(-1, 1)
+        transformed_particle_num_list = self.particle_num_list.reshape(-1, 1)
+        coord_and_particle = torch.cat((transformed_geom_num_list, transformed_particle_num_list), dim=0)
+        combined_hess = torch.func.hessian(self.calc_pot_for_eff_hess, argnums=0)(coord_and_particle, bias_pot_params).reshape(len(self.element_list)*3+self.nparticle, len(self.element_list)*3+self.nparticle)
+        coupling_hess_1 = combined_hess[:len(self.element_list)*3, len(self.element_list)*3:]
+        coupling_hess_2 = combined_hess[len(self.element_list)*3:, :len(self.element_list)*3]
+        angle_hess = combined_hess[len(self.element_list)*3:, len(self.element_list)*3:]
+        eff_hess = -1 * torch.matmul(torch.matmul(coupling_hess_1, torch.linalg.inv(angle_hess)), coupling_hess_2)
+        return eff_hess
+
     
 #[[solvent particle well depth (kJ/mol)] [solvent particle e.q. distance (ang.)] [scaling of cavity (2.0)] [number of particles] [target atoms (2,3-5)] ...]
