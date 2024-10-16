@@ -142,6 +142,7 @@ class BiasPotentialCalculation:
             B_e = B_e + tmp_B_e
             BPA_grad_list = BPA_grad_list + tmp_tensor_BPA_grad
             BPA_hessian = BPA_hessian + tmp_tensor_BPA_hessian
+            # calculate effective hessian (ref.: https://doi.org/10.1021/ct9003383)
             eff_hess = self.mi_bias_pot_obj_list[i].calc_eff_hessian(geom_num_list, tmp_bias_pot_params)
             eff_hess = tensor2ndarray(eff_hess)
             BPA_hessian = BPA_hessian + eff_hess
