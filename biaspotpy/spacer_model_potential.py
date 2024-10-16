@@ -175,7 +175,7 @@ class SpacerModelPotential:
     
     def calc_pot_for_eff_hess(self, coord_and_ell_angle, bias_pot_params):
         geom_num_list = coord_and_ell_angle[:len(self.element_list)*3].reshape(-1, 3)
-        particle_num_list = coord_and_ell_angle[len(self.element_list)*3:].reshape(1, self.nparticle)
+        particle_num_list = coord_and_ell_angle[len(self.element_list)*3:].reshape(self.nparticle, 3)
         energy = self.calc_potential(geom_num_list, particle_num_list, bias_pot_params)
         return energy
 
@@ -184,7 +184,7 @@ class SpacerModelPotential:
         transformed_geom_num_list = geom_num_list.reshape(-1, 1)
         transformed_particle_num_list = self.particle_num_list.reshape(-1, 1)
         coord_and_particle = torch.cat((transformed_geom_num_list, transformed_particle_num_list), dim=0)
-        combined_hess = torch.func.hessian(self.calc_pot_for_eff_hess, argnums=0)(coord_and_particle, bias_pot_params).reshape(len(self.element_list)*3+self.nparticle, len(self.element_list)*3+self.nparticle)
+        combined_hess = torch.func.hessian(self.calc_pot_for_eff_hess, argnums=0)(coord_and_particle, bias_pot_params).reshape(len(self.element_list)*3+self.nparticle*3, len(self.element_list)*3+self.nparticle*3)
         coupling_hess_1 = combined_hess[:len(self.element_list)*3, len(self.element_list)*3:]
         coupling_hess_2 = combined_hess[len(self.element_list)*3:, :len(self.element_list)*3]
         angle_hess = combined_hess[len(self.element_list)*3:, len(self.element_list)*3:]
