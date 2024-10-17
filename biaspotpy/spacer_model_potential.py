@@ -55,6 +55,11 @@ class SpacerModelPotential:
         return
     
 
+    def lennard_johns_potential(self, distance, sigma, epsilon):
+        ene = epsilon * ((sigma/distance) ** self.lj_repulsive_order -2 * (sigma/distance) ** self.lj_attractive_order)
+        return ene
+
+
     def morse_potential(self, distance, sigma, epsilon):
         ene = epsilon * (torch.exp(-2 * self.a * (distance - sigma)) -2 * torch.exp(-1 * self.a * (distance - sigma)))
         return ene
@@ -75,15 +80,17 @@ class SpacerModelPotential:
         for i, j in itertools.product(range(len(self.config["spacer_model_potential_target"])), range(len(particle_num_list))):
             atom_sigma = self.VDW_distance_lib(self.config["element_list"][self.config["spacer_model_potential_target"][i]-1])
             atom_epsilon = self.VDW_well_depth_lib(self.config["element_list"][self.config["spacer_model_potential_target"][i]-1])
-            sigma = math.sqrt(particle_sigma * atom_sigma)
+            sigma = particle_sigma + atom_sigma
             epsilon = math.sqrt(particle_epsilon * atom_epsilon)
             distance = torch.linalg.norm(geom_num_list[self.config["spacer_model_potential_target"][i]-1] - particle_num_list[j])
-            energy = energy + self.morse_potential(distance, sigma, epsilon)
+            #energy = energy + self.morse_potential(distance, sigma, epsilon)
+            energy = energy + self.lennard_johns_potential(distance, sigma, epsilon)
             
         #particle-particle interactions
         for i, j in itertools.combinations(range(len(particle_num_list)), 2):
             distance = torch.linalg.norm(particle_num_list[i] - particle_num_list[j]) 
-            energy = energy + self.morse_potential(distance, particle_sigma, particle_epsilon)
+            #energy = energy + self.morse_potential(distance, particle_sigma, particle_epsilon)
+            energy = energy + self.lennard_johns_potential(distance, sigma, epsilon)
 
         #avoid scattering particle to outside of cavity
         for i in range(len(particle_num_list)):
