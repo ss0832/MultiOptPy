@@ -39,9 +39,9 @@ class SpacerModelPotential:
         self.lj_repulsive_order = 12.0
         self.lj_attractive_order = 6.0
         
-        self.micro_iteration = 50 * self.config["spacer_model_potential_particle_number"]
-        self.rand_search_iteration = self.config["spacer_model_potential_particle_number"]
-        self.threshold = 1e-1
+        self.micro_iteration = 5000 * self.config["spacer_model_potential_particle_number"]
+        self.rand_search_iteration = 100 * self.config["spacer_model_potential_particle_number"]
+        self.threshold = 1e-2
         self.init = True
         return
     
@@ -66,8 +66,8 @@ class SpacerModelPotential:
 
     def barrier_potential(self, distance, sigma):
         normalized_distance = distance / sigma
-        if normalized_distance >= 0.9:
-            ene = 100.0 * 10 ** 2 * (normalized_distance - 0.9) ** 2
+        if normalized_distance >= 0.8:
+            ene = 100.0 * 10 ** 2 * (normalized_distance - 0.8) ** 2
         else:
             ene = 0.0 
         return ene
@@ -77,20 +77,24 @@ class SpacerModelPotential:
         particle_sigma = self.config["spacer_model_potential_distance"] / self.bohr2angstroms
         particle_epsilon = self.config["spacer_model_potential_well_depth"] / self.hartree2kjmol
         #atom-particle interactions
-        for i, j in itertools.product(range(len(self.config["spacer_model_potential_target"])), range(len(particle_num_list))):
-            atom_sigma = self.VDW_distance_lib(self.config["element_list"][self.config["spacer_model_potential_target"][i]-1])
-            atom_epsilon = self.VDW_well_depth_lib(self.config["element_list"][self.config["spacer_model_potential_target"][i]-1])
-            sigma = particle_sigma + atom_sigma
-            epsilon = math.sqrt(particle_epsilon * atom_epsilon)
-            distance = torch.linalg.norm(geom_num_list[self.config["spacer_model_potential_target"][i]-1] - particle_num_list[j])
-            #energy = energy + self.morse_potential(distance, sigma, epsilon)
-            energy = energy + self.lennard_johns_potential(distance, sigma, epsilon)
-            
+        spacer_indices = torch.tensor(self.config["spacer_model_potential_target"]) - 1
+        geom_particles = geom_num_list[spacer_indices]  # shape: (M, 3), M = len(spacer_model_potential_target)
+        atom_sigmas = torch.tensor([self.VDW_distance_lib(self.config["element_list"][idx]) for idx in spacer_indices])
+        atom_epsilons = torch.tensor([self.VDW_well_depth_lib(self.config["element_list"][idx]) for idx in spacer_indices])
+        sigma = particle_sigma + atom_sigmas.unsqueeze(1)  # shape: (M, 1) + (1, N) -> (M, N)
+        epsilon = torch.sqrt(particle_epsilon * atom_epsilons.unsqueeze(1))  # shape: (M, 1)
+        diffs = geom_particles.unsqueeze(1) - particle_num_list.unsqueeze(0)  # shape: (M, N, 3)
+        distances = torch.linalg.norm(diffs, dim=-1)  # shape: (M, N)
+        pairwise_energies = self.lennard_johns_potential(distances, sigma, epsilon)
+        energy = energy + pairwise_energies.sum()
+
         #particle-particle interactions
-        for i, j in itertools.combinations(range(len(particle_num_list)), 2):
-            distance = torch.linalg.norm(particle_num_list[i] - particle_num_list[j]) 
-            #energy = energy + self.morse_potential(distance, particle_sigma, particle_epsilon)
-            energy = energy + self.lennard_johns_potential(distance, sigma, epsilon)
+        diffs = particle_num_list.unsqueeze(1) - particle_num_list.unsqueeze(0)  # shape: (N, N, 3)
+        distances = torch.linalg.norm(diffs, dim=-1)  # shape: (N, N), diagonal is 0 (self distance)
+        i, j = torch.triu_indices(distances.shape[0], distances.shape[1], offset=1)
+        pairwise_distances = distances[i, j]  
+        pairwise_energies = self.lennard_johns_potential(pairwise_distances, 2 * particle_sigma, particle_epsilon)
+        energy = energy + pairwise_energies.sum()
 
         #avoid scattering particle to outside of cavity
         for i in range(len(particle_num_list)):
@@ -151,7 +155,7 @@ class SpacerModelPotential:
             move_vector = torch.tensor(move_vector, dtype=torch.float64).reshape(nparticle, 3)
             self.particle_num_list = self.particle_num_list - 0.5 * move_vector
             # update rot_angle_list
-            if j % 20 == 0:
+            if j % 100 == 0:
                 print("M. itr: ", j)
                 print("energy: ", self.calc_potential(geom_num_list, self.particle_num_list, bias_pot_params).item())
                 print("particle_grad: ", np.linalg.norm(particle_grad.detach().numpy()))

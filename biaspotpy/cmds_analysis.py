@@ -84,7 +84,7 @@ class CMDSPathAnalysis:
     def main(self):
         print("processing CMDS analysis to aprrox. reaction path ...")
         file_list = sorted(glob.glob(self.directory+"samples_*_[0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz"))  
-        
+        file_list = file_list[1:]
         idx_list = itertools.combinations([i for i in range(len(file_list))], 2)
         struct_num = len(file_list)
         D_matrix = np.zeros((struct_num, struct_num))
