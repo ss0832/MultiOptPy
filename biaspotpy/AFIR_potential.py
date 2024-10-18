@@ -41,14 +41,19 @@ class AFIRPotential:
         A = 0.0
         B = 0.0
         
+        i_indices = torch.tensor(self.config["AFIR_Fragm_1"]) - 1  # 0-based index
+        j_indices = torch.tensor(self.config["AFIR_Fragm_2"]) - 1  # 0-based index
 
-        for i, j in itertools.product(self.config["AFIR_Fragm_1"], self.config["AFIR_Fragm_2"]):
-            R_i = covalent_radii_lib(self.config["element_list"][i-1])
-            R_j = covalent_radii_lib(self.config["element_list"][j-1])
-            vector = torch.linalg.norm(geom_num_list[i-1] - geom_num_list[j-1], ord=2) #bohr
-            omega = ((R_i + R_j) / vector) ** self.p #no unit
-            A += omega * vector
-            B += omega
+        R_i = torch.tensor([covalent_radii_lib(self.config["element_list"][i.item()]) for i in i_indices])  # shape: (M,)
+        R_j = torch.tensor([covalent_radii_lib(self.config["element_list"][j.item()]) for j in j_indices])  # shape: (M,)
+
+        geom_diff = geom_num_list[i_indices].unsqueeze(1) - geom_num_list[j_indices].unsqueeze(0)  # shape: (M, N, 3)
+        vector = torch.linalg.norm(geom_diff, dim=2)  # shape: (M, N)
+
+        omega = ((R_i.unsqueeze(1) + R_j.unsqueeze(0)) / vector) ** self.p  # shape: (M, N)
+
+        A = (omega * vector).sum() 
+        B = omega.sum()  
         
         energy = alpha*(A/B)#A/B:Bohr
         return energy #hartree
