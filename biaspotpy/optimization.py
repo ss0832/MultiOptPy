@@ -17,6 +17,7 @@ from parameter import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
+from pca_analysis import PCAPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
@@ -57,6 +58,7 @@ class Optimize:
         #---------------------------
         self.temperature = float(args.md_like_perturbation)
         self.CMDS = args.cmds 
+        self.PCA = args.pca
         self.ricci_curvature = args.ricci_curvature
         #---------------------------
         if len(args.opt_method) > 2:
@@ -105,6 +107,7 @@ class Optimize:
 
         #-----------------------------
         self.Model_hess = None #
+        self.mFC_COUNT = args.calc_model_hess
         self.Opt_params = None #
         self.DC_check_dist = 30.0#ang.
         self.unrestrict = args.unrestrict
@@ -200,7 +203,7 @@ class Optimize:
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
         
-        CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature, self.args.use_model_hessian)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         for i in range(len(optimizer_instances)):
@@ -232,10 +235,8 @@ class Optimize:
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
 
-            
 
-
-            if iter == 0 and self.args.use_model_hessian:
+            if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = copy.copy(SP.Model_hess)
             
@@ -1162,9 +1163,10 @@ class Optimize:
             if self.CMDS:
                 CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
                 CMDPA.main()
-            #if self.ricci_curvature:
-            #    CC = CalculationCurvature(self.BPA_FOLDER_DIRECTORY)
-            #    CC.main()
+            if self.PCA:
+                PCAPA = PCAPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+                PCAPA.main()
+            
             if len(self.irc) > 0:
                 if self.args.usextb != "None":
                     xtb_method = self.args.usextb

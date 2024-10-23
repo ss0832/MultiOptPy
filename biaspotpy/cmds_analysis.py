@@ -60,8 +60,8 @@ class CMDSPathAnalysis:
     
     
     def cmds_visualization(self, result_list, energy_list, name=""):
-        plt.xlabel("PCo1 (ang. / amu^0.5)")#("LTEP $\mathsf{(cm^{–1})}$")
-        plt.ylabel("PCo2 (ang. / amu^0.5)")#("He8_wedge (kcal/mol)")
+        plt.xlabel("PCo1 (ang. / amu^0.5)")
+        plt.ylabel("PCo2 (ang. / amu^0.5)")
         plt.title("CMDS result ("+name+")")
         
         x_array = np.array(result_list[1])

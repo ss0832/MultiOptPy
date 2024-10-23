@@ -109,6 +109,7 @@ def optimizeparser(parser):
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
+    parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     #parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (ex.) water')
@@ -118,6 +119,7 @@ def optimizeparser(parser):
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-order", "--saddle_order", type=int, default=0, help='optimization for (n-1)-th order saddle point (Newton group of opt method (RFO) is only available.) (ex.) [order (0)]')
     parser.add_argument('-cmds','--cmds', help="Apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
+    parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-irc','--intrinsic_reaction_coordinates', help="Calculate intrinsic reaction coordinates. (ex.) [[step_size], [max_step], [IRC_method]] (Recommended) [0.5 300 lqa]", nargs="*", type=str, default=[])    
     parser.add_argument('-rc','--ricci_curvature', help="calculate Ricci scalar of calculated approx. reaction path.", action='store_true')
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
@@ -414,6 +416,8 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.shape_conditions = []
         self.use_model_hessian = False
         self.cpcm_solv_model = None
+        self.cmds = False
+        self.pca = False
         return
  
  
