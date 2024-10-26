@@ -66,8 +66,8 @@ class SpacerModelPotential:
 
     def barrier_potential(self, distance, sigma):
         normalized_distance = distance / sigma
-        if normalized_distance >= 0.5:
-            ene = 50 * (normalized_distance - 0.5) ** 2
+        if normalized_distance >= 0.9:
+            ene = 50 * (normalized_distance - 0.9) ** 2
         else:
             ene = 0.0 
         return ene
