@@ -40,8 +40,8 @@ class SpacerModelPotential:
         self.lj_attractive_order = 6.0
         
         self.micro_iteration = 5000 * self.config["spacer_model_potential_particle_number"]
-        self.rand_search_iteration = 100 * self.config["spacer_model_potential_particle_number"]
-        self.threshold = 1e-2
+        self.rand_search_iteration = 50 * self.config["spacer_model_potential_particle_number"]
+        self.threshold = 1e-5
         self.init = True
         return
     
@@ -66,8 +66,8 @@ class SpacerModelPotential:
 
     def barrier_potential(self, distance, sigma):
         normalized_distance = distance / sigma
-        if normalized_distance >= 0.8:
-            ene = 100.0 * 10 ** 2 * (normalized_distance - 0.8) ** 2
+        if normalized_distance >= 0.25:
+            ene = 50 * (normalized_distance - 0.25) ** 2
         else:
             ene = 0.0 
         return ene
@@ -115,7 +115,7 @@ class SpacerModelPotential:
         print("rand_search")
         for i in range(self.rand_search_iteration):
             center = torch.mean(geom_num_list[np.array(self.config["spacer_model_potential_target"])-1], dim=0)
-            tmp_particle_num_list = torch.normal(mean=0, std=5, size=(self.config["spacer_model_potential_particle_number"], 3)) + center
+            tmp_particle_num_list = torch.normal(mean=0, std=100, size=(self.config["spacer_model_potential_particle_number"], 3)) + center
             energy = self.calc_potential(geom_num_list, tmp_particle_num_list, bias_pot_params)
             if energy < max_energy:
                 max_energy = energy
