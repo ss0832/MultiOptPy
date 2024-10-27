@@ -72,10 +72,7 @@ def ieipparser(parser):
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
-    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
-    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
-    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
-    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
+
 
     
     args = parser.parse_args()#model_function_mode
@@ -128,12 +125,11 @@ def optimizeparser(parser):
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
     parser.add_argument('-lcc','--loose_convergence_criteria', help="apply loose opt criteria.", action='store_true')
-    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
-    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
-    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
-    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
+
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
+    parser.add_argument("-lc", "--lagrange_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with lagrange multiplier (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
+    
     args = parser.parse_args()
     if len(args.INPUT) < 2:
         args.INPUT = args.INPUT[0]
@@ -209,10 +205,7 @@ def nebparser(parser):
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default=[], help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
-    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
-    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
-    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
-    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
+
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -256,10 +249,7 @@ def mdparser(parser):
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
-    parser.add_argument("-proj", "--project_out", nargs="*", type=str, default=[], help="project out optional vector (pair of group of atoms) from gradient and hessian (e.g.) [[1 2,3 (bond)] ...]")
-    parser.add_argument("-bproj", "--bend_project_out", nargs="*", type=str, default=[], help="project out optional vector (bending of fragments) from gradient and hessian (e.g.) [[1 2,3 4 (bend)] ...]")
-    parser.add_argument("-tproj", "--torsion_project_out", nargs="*", type=str, default=[], help="project out optional vector (torsion of fragments) from gradient and hessian (e.g.) [[1 2,3 4 5-7 (torsion)] ...]")
-    parser.add_argument("-oproj", "--outofplain_project_out", nargs="*", type=str, default=[], help="project out optional vector (out-of-plain angle of fragments) from gradient and hessian (e.g.) [[1 2,3 4 7-9(out-of-plain angle)] ...]")
+
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -333,10 +323,7 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.opt_method = ["AdaBelief"]
         self.opt_fragment = []
         self.NSTEP = "999"
-        self.project_out = []
-        self.bend_project_out = []
-        self.torsion_project_out = []
-        self.outofplain_project_out = []
+
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -370,10 +357,6 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.fixedges = 0
         self.gradient_fix_atoms = ""
         self.pyscf = False
-        self.project_out = []
-        self.bend_project_out = []
-        self.torsion_project_out = []
-        self.outofplain_project_out = []
         return
     
 class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -409,15 +392,13 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.oniom_method = []
         self.tight_convergence_criteria = False
         self.loose_convergence_criteria = False
-        self.project_out = []
-        self.bend_project_out = []
-        self.torsion_project_out = []
-        self.outofplain_project_out = []
+
         self.shape_conditions = []
         self.use_model_hessian = False
         self.cpcm_solv_model = None
         self.cmds = False
         self.pca = False
+        self.lagrange_constrain = []
         return
  
  
@@ -428,10 +409,7 @@ class MDInterface(BiasPotInterface):
         self.INPUT = input_file
         self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
         
-        self.project_out = []
-        self.bend_project_out = []
-        self.torsion_project_out = []
-        self.outofplain_project_out = []
+  
         self.timestep = 0.1
         return
 
@@ -449,6 +427,16 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    #---------------------
+    force_data["lagrange_constraint_condition_list"] = []
+    force_data["lagrange_constraint_atoms"] = []
+    if len(args.lagrange_constrain) % 2 != 0:
+        print("invaild input (-lc) ")
+        sys.exit(0)
+
+    for i in range(int(len(args.lagrange_constrain)/2)):
+        force_data["lagrange_constraint_condition_list"].append(str(args.lagrange_constrain[2*i]))
+        force_data["lagrange_constraint_atoms"].append(num_parse(args.lagrange_constrain[2*i+1]))
 
     #---------------------
     force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"] = []
@@ -537,45 +525,6 @@ def force_data_parser(args):
         force_data["value_range_fragm_2"].append(num_parse(args.bond_range_potential[6*i+5]))
     
     
-    #---------------------
-    force_data["project_out_fragm_pair"] = []
-
-    if len(args.project_out) % 2 != 0:
-        print("invaild input (-proj)")
-        sys.exit(0)
-    
-    for i in range(int(len(args.project_out)/2)):
-        force_data["project_out_fragm_pair"].append([num_parse(args.project_out[2*i]), num_parse(args.project_out[2*i+1])])
-    
-    #---------------------
-    force_data["project_out_bend_fragms"] = []
-
-    if len(args.bend_project_out) % 3 != 0:
-        print("invaild input (-bproj)")
-        sys.exit(0)
-    
-    for i in range(int(len(args.bend_project_out)/3)):
-        force_data["project_out_bend_fragms"].append([num_parse(args.bend_project_out[3*i]), num_parse(args.bend_project_out[3*i+1]), num_parse(args.bend_project_out[3*i+2])])
-    
-    #---------------------
-    force_data["project_out_torsion_fragms"] = []
-
-    if len(args.torsion_project_out) % 4 != 0:
-        print("invaild input (-tproj)")
-        sys.exit(0)
-    
-    for i in range(int(len(args.torsion_project_out)/4)):
-        force_data["project_out_torsion_fragms"].append([num_parse(args.torsion_project_out[4*i]), num_parse(args.torsion_project_out[4*i+1]), num_parse(args.torsion_project_out[4*i+2]), num_parse(args.torsion_project_out[4*i+3])])
-    
-    #---------------------
-    force_data["project_out_outofplain_fragms"] = []
-
-    if len(args.outofplain_project_out) % 4 != 0:
-        print("invaild input (-oproj)")
-        sys.exit(0)
-    
-    for i in range(int(len(args.outofplain_project_out)/4)):
-        force_data["project_out_outofplain_fragms"].append([num_parse(args.outofplain_project_out[4*i]), num_parse(args.outofplain_project_out[4*i+1]), num_parse(args.outofplain_project_out[4*i+2]), num_parse(args.outofplain_project_out[4*i+3])])
     
     #-----------------------
     if len(args.flux_potential) % 4 != 0:

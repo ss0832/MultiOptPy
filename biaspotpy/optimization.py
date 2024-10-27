@@ -21,12 +21,13 @@ from pca_analysis import PCAPathAnalysis
 from redundant_coordinations import RedundantInternalCoordinates
 from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools, project_fragm_pair_vector_for_grad, project_fragm_pair_vector_for_hess, project_fragm_bend_vector_for_grad, project_fragm_torsion_vector_for_grad, project_fragm_outofplain_vector_for_grad
+from calc_tools import CalculationStructInfo, Calculationtools
 from MO_analysis import NROAnalysis
-from constraint_condition import GradientSHAKE, shake_parser
+from constraint_condition import GradientSHAKE, shake_parser, LagrangeConstrain
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 from irc import IRC
 from bond_connectivity import judge_shape_condition
+
 
 class Optimize:
     def __init__(self, args):
@@ -152,9 +153,15 @@ class Optimize:
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
         
         return
+    
+    def save_input_data(self):
+        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        return
 
     def optimize(self):
         Calculation, xtb_method = self.import_calculation_module()
+        self.save_input_data()
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         self.ENERGY_LIST_FOR_PLOTTING = [] #
@@ -166,50 +173,56 @@ class Optimize:
         geom_num_list = None#Bohr
         e = None #Hartree
         B_e = None #Hartree
-        
-        file_directory, electric_charge_and_multiplicity, element_list = self.write_input_files(FIO)
-        #------------------------------------
-        if len(self.constraint_condition_list) > 0:
-            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
-        CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
-        #-----------------------------------
-        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(vars(self.args)))
         pre_B_e = 0.0
         pre_e = 0.0
         pre_B_g = []
         pre_g = []
+        file_directory, electric_charge_and_multiplicity, element_list = self.write_input_files(FIO)
         for i in range(len(element_list)):
             pre_B_g.append([0,0,0])
         pre_B_g = np.array(pre_B_g, dtype="float64")
         pre_move_vector = pre_B_g
         pre_g = pre_B_g
-        #-------------------------------------
-        finish_frag = False
-        #-----------------------------------
-        SP = self.setup_calculation(Calculation)
-
-        #-----------------------------------
+        self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
+        grad_list = []
+        bias_grad_list = []
+        orthogonal_bias_grad_list = []
+        orthogonal_grad_list = []
+        
         element_number_list = []
         for elem in element_list:
             element_number_list.append(element_number(elem))
         element_number_list = np.array(element_number_list, dtype="int")
-        #----------------------------------
+        #-------------------
+        lagrange_lambda_movestep = [] #(M, 1)
+        lagrange_lambda_prev_movestep = [] #(M, 1)
+        lagrange_lambda_list = [] #(M, 1)
+        lagrange_prev_lambda_list = [] #(M, 1)
+        lagrange_lambda_grad_list = [] #(M, 1)
+        lagrange_lambda_prev_grad_list = [] #(M, 1)
+        init_lagrange_lambda_list = [] #(M, 1)
         
-        self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
-        grad_list = []
-        bias_grad_list = []
+        lagrange_constraint_energy = 0.0 
+        lagrange_constraint_prev_energy = 0.0
+        LC = LagrangeConstrain(force_data["lagrange_constraint_condition_list"], force_data["lagrange_constraint_atoms"])
+        natom = len(element_list)
+        #-------------------
+
+        if len(self.constraint_condition_list) > 0:
+            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
         
-        orthogonal_bias_grad_list = []
-        orthogonal_grad_list = []
-        
+        CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
+
+        SP = self.setup_calculation(Calculation)        
         CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature, self.args.use_model_hessian)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         for i in range(len(optimizer_instances)):
-            optimizer_instances[i].set_hessian(self.Model_hess)
+            optimizer_instances[i].set_hessian(self.Model_hess) #hessian is None.
             if self.DELTA != "x":
                 optimizer_instances[i].DELTA = self.DELTA
+        
+ 
             
         #----------------------------------
         if self.NRO_analysis:
@@ -217,7 +230,6 @@ class Optimize:
         else:
             NRO = None
         #---------------------------------
-        finish_frag = False
         for iter in range(self.NSTEP):
             self.iter = iter
             finish_frag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -236,6 +248,7 @@ class Optimize:
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
 
 
+
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
             self.Model_hess = copy.copy(SP.Model_hess)
@@ -243,25 +256,34 @@ class Optimize:
             #if self.args.usedxtb != "None":
             #    common_freq, au_int = SP.ir(geom_num_list, element_list, electric_charge_and_multiplicity, xtb_method)
             #    G.stem_plot(common_freq, au_int, "IR_spectra_iteration_"+str(iter))
+            #--------------------------------------
             
-            #---------------------------------------
-            if iter == 0:
-                initial_geom_num_list = geom_num_list
-                pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
-                
-            else:
-                pass
+
 
 
             if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
                 break   
             
-            CalcBiaspot.Model_hess = self.Model_hess
-            
+            if iter == 0:
+                initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
+                pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
+                
             _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
             
-            #----------
-            B_g, g, BPA_hessian = self.project_out_optional_vectors(B_g, g, BPA_hessian, geom_num_list, force_data)
+            if iter == 0:
+                if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                    LC.initialize(geom_num_list)
+                    lagrange_lambda_list = LC.lagrange_init_lambda_calc(B_g.reshape(3*natom, 1), geom_num_list)
+                    init_lagrange_lambda_list = copy.copy(lagrange_lambda_list)
+                    lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
+                    lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
+                    lagrange_lambda_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
+                    lagrange_lambda_prev_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
+                    lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
+                    
+
+            else:
+                pass
             
             #----------
             
@@ -273,15 +295,43 @@ class Optimize:
             
 
             
-            for i in range(len(optimizer_instances)):
-                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+            
+            ###
+            if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                lagrange_constraint_atom_addgrad = LC.lagrange_constraint_grad_calc(geom_num_list, lagrange_lambda_list)
+                B_g += lagrange_constraint_atom_addgrad
+                g += lagrange_constraint_atom_addgrad
+                lagrange_lambda_grad_list = LC.lagrange_lambda_grad_calc(geom_num_list)
+                lagrange_constraint_energy = LC.calc_lagrange_constraint_energy(geom_num_list, lagrange_lambda_list)
                 
-                #if iter == 0 and self.FC_COUNT == -1:
-                #    self.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-                #    optimizer_instances[i].set_hessian(self.Model_hess)
+                lagrange_constraint_atom_addhess = LC.lagrange_constraint_atom_hess_calc(geom_num_list, lagrange_lambda_list)
+                lagrange_constraint_coupling_hessian = LC.lagrange_constraint_couple_hess_calc(geom_num_list)
+                
+                BPA_hessian += lagrange_constraint_atom_addhess
+                tmp_zero_mat = LC.make_couple_zero_hess(geom_num_list)
+                combined_BPA_hessian = LC.make_combined_lagrangian_hess(BPA_hessian, lagrange_constraint_coupling_hessian)
+                combined_hessian = LC.make_combined_lagrangian_hess(self.Model_hess, tmp_zero_mat)
+                e += float(lagrange_constraint_energy)
+                B_e += float(lagrange_constraint_energy)
+                
+            else:
+                pass
+            
+            ###
+            
+
+            
+            for i in range(len(optimizer_instances)):
+                if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                    optimizer_instances[i].set_bias_hessian(combined_BPA_hessian)
+                else:
+                    optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0:
-                    optimizer_instances[i].set_hessian(self.Model_hess)
+                    if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                        optimizer_instances[i].set_hessian(combined_hessian)
+                    else:
+                        optimizer_instances[i].set_hessian(self.Model_hess)
                      
             
             #----------------------------
@@ -305,7 +355,12 @@ class Optimize:
                 g = class_GradientSHAKE.run_grad(pre_geom, g) 
             
             
-            new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances)
+            new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lagrange_lambda_list, lagrange_prev_lambda_list, lagrange_lambda_grad_list, lagrange_lambda_prev_grad_list, lagrange_lambda_prev_movestep, init_lagrange_lambda_list)
+            lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
+            lagrange_lambda_prev_movestep = copy.copy(lagrange_lambda_movestep)
+            lagrange_lambda_list = copy.copy(CMV.new_lambda_list)
+            lagrange_lambda_movestep = copy.copy(CMV.lambda_movestep)
+            #print(lagrange_lambda_list, lagrange_lambda_movestep)
             if len(self.constraint_condition_list) > 0 and iter > 0:
                 tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
                
@@ -368,14 +423,20 @@ class Optimize:
 
                  
             #----------------------------
+            #Save previous gradient, movestep, and energy.
             pre_B_e = B_e#Hartree
             pre_e = e
             pre_B_g = B_g#Hartree/Bohr
             pre_g = g
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
-            #---------------------------
             
+           
+            lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
+            
+            lagrange_constraint_prev_energy = lagrange_constraint_energy
+            
+            #---------------------------
             if self.args.pyscf:
                 geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry, element_list)
                 file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
@@ -430,7 +491,7 @@ class Optimize:
     def check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
         max_force_threshold = self.MAX_FORCE_THRESHOLD
-        rms_force = abs(np.sqrt((B_g**2).mean()))
+        rms_force = abs(np.sqrt(np.mean(B_g**2.0)))
         rms_force_threshold = self.RMS_FORCE_THRESHOLD
         
         
@@ -446,74 +507,7 @@ class Optimize:
             return True, max_displacement_threshold, rms_displacement_threshold
         return False, max_displacement_threshold, rms_displacement_threshold
     
-    def project_out_optional_vectors(self, B_g, g, BPA_hessian, geom_num_list, force_data):
-        # project out optional vectors
-        if len(force_data["project_out_fragm_pair"]) > 0:
-            print("project out optional vectors")
-            for fragm_pair in force_data["project_out_fragm_pair"]:
-                fragm_1 = fragm_pair[0]
-                fragm_2 = fragm_pair[1]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                
-                # stretch
-                B_g = copy.copy(project_fragm_pair_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2))
-                g = copy.copy(project_fragm_pair_vector_for_grad(g, geom_num_list, fragm_1, fragm_2))
-            print("Project out: Done\n")
-        
-        if len(force_data["project_out_bend_fragms"]) > 0:
-            print("project out optional bending vectors")
-            for fragms in force_data["project_out_bend_fragms"]:    
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                
-                # bend
-                B_g = copy.copy(project_fragm_bend_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_3, fragm_2))
-                g = copy.copy(project_fragm_bend_vector_for_grad(g, geom_num_list, fragm_1, fragm_3, fragm_2))
-            print("Project out: Done\n")
-        if len(force_data["project_out_torsion_fragms"]) > 0:
-            print("project out optional torsion vectors")
-            for fragms in force_data["project_out_torsion_fragms"]:
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                fragm_4 = fragms[3]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                print("Fragment 4: ", fragm_4)
-                # torsion
-                B_g = copy.copy(project_fragm_torsion_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                g = copy.copy(project_fragm_torsion_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-            print("Project out: Done\n")
-        if len(force_data["project_out_outofplain_fragms"]) > 0:
-            print("project out optional out of plain vectors")
-            for fragms in force_data["project_out_outofplain_fragms"]:
-                fragm_1 = fragms[0]
-                fragm_2 = fragms[1]
-                fragm_3 = fragms[2]
-                fragm_4 = fragms[3]
-                print("Project out: \n")
-                print("Fragment 1: ", fragm_1)
-                print("Fragment 2: ", fragm_2)
-                print("Fragment 3: ", fragm_3)
-                print("Fragment 4: ", fragm_4)    
-                # out of plain
-                B_g = copy.copy(project_fragm_outofplain_vector_for_grad(B_g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                g = copy.copy(project_fragm_outofplain_vector_for_grad(g, geom_num_list, fragm_1, fragm_2, fragm_3, fragm_4))
-                
-                self.Model_hess = copy.copy(project_fragm_pair_vector_for_hess(self.Model_hess, geom_num_list, fragm_1, fragm_2))
-                if np.any(BPA_hessian != 0.0):
-                    BPA_hessian = copy.copy(project_fragm_pair_vector_for_hess(BPA_hessian, geom_num_list, fragm_1, fragm_2))
-            print("Project out: Done\n")    
-        return B_g, g, BPA_hessian
+ 
     
     def import_calculation_module(self):
         xtb_method = None
@@ -637,8 +631,7 @@ class Optimize:
         LL_Calc_BiasPot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
         HL_Calc_BiasPot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
         #-----------------------------------
-        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
-            f.write(str(vars(self.args)))
+        self.save_input_data()
         pre_model_HL_B_e = 0.0
         pre_model_HL_e = 0.0
         pre_model_HL_B_g = []

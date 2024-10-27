@@ -98,7 +98,7 @@ quasi_newton_mapping = {
 
 
 class CalculateMoveVector:
-    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0):
+    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=False):
         self.DELTA = DELTA
         self.temperature = temperature
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
@@ -113,6 +113,7 @@ class CalculateMoveVector:
         self.iter = 0
         self.element_list = element_list
         self.trust_radii_update = "trust"
+        self.model_hess_flag = model_hess_flag
         
     def initialization(self, method):
         optimizer_instances = []
@@ -135,7 +136,7 @@ class CalculateMoveVector:
                         optimizer_instances.append(optimizer_class())
                         if lower_m == "mwgradientdescent":
                             optimizer_instances[i].element_list = self.element_list
-                            optimizer_instances[i].atomic_mass = atomic_mass
+                            optimizer_instances[i].atomic_mass = atomic_mass # function in parameter.py
                         
                         
                         newton_tag.append(False)
@@ -194,8 +195,9 @@ class CalculateMoveVector:
         return
 
   
-    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances):#geom_num_list:Bohr
+    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lambda_list=[], prev_lambda_list=[], lambda_grad_list=[], lambda_prev_grad_list=[], lambda_prev_movestep=[], init_lambda_list=[]):#geom_num_list:Bohr
         natom = len(geom_num_list)
+        nconstrain = len(lambda_list)
         ###
         #-------------------------------------------------------------
         geom_num_list = geom_num_list.reshape(natom*3, 1)
@@ -211,6 +213,17 @@ class CalculateMoveVector:
         self.iter = iter
         self.geom_num_list = geom_num_list
         move_vector_list = []
+        if nconstrain > 0:
+            self.geom_num_list = np.vstack((geom_num_list, lambda_list))
+            geom_num_list = np.vstack((geom_num_list, lambda_list))
+            B_g = np.vstack((B_g, lambda_grad_list))
+            pre_B_g = np.vstack((pre_B_g, lambda_prev_grad_list))
+            g = np.vstack((g, lambda_grad_list))
+            pre_g = np.vstack((pre_g, lambda_prev_grad_list))
+            pre_move_vector = np.vstack((pre_move_vector, lambda_prev_movestep))
+            pre_geom = np.vstack((pre_geom, prev_lambda_list))
+            
+
 
         #-------------------------------------------------------------
         # update trust radii
@@ -219,7 +232,7 @@ class CalculateMoveVector:
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
   
-        elif self.FC_COUNT == -1:
+        elif self.FC_COUNT == -1 and not self.model_hess_flag:
             pass
 
         else:
@@ -302,11 +315,24 @@ class CalculateMoveVector:
         print("Optimizer instances: ", optimizer_instances)
         ###
         #-------------------------------------------------------------
+        if nconstrain > 0:
+            new_geometry = new_geometry[:-nconstrain]
+            new_lambda_list = new_geometry[-nconstrain:] / self.unitval.bohr2angstroms
+            move_vector = move_vector[:-nconstrain]
+            lambda_movestep = move_vector[-nconstrain:]
+            self.new_lambda_list = copy.copy(new_lambda_list)
+            self.lambda_movestep = copy.copy(lambda_movestep)
+        else:
+            self.new_lambda_list = []
+            self.lambda_movestep = []
         new_geometry = new_geometry.reshape(natom, 3)
         move_vector = move_vector.reshape(natom, 3)
         #-------------------------------------------------------------
-        ###
+        
 
+        #new_lambda_list : a.u.
+        #new_geometry : angstrom
+        #move_vector : bohr
+        #lambda_movestep : a.u.
         return new_geometry, np.array(move_vector, dtype="float64"), optimizer_instances
-
 

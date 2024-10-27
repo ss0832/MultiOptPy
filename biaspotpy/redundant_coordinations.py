@@ -335,11 +335,7 @@ class TorchDerivatives:
         vector1 = atom1 - atom2
         vector2 = atom3 - atom2
 
-        cos_angle = torch.matmul(vector1, vector2) / (torch.linalg.norm(vector1) * torch.linalg.norm(vector2))
-        if cos_angle > 1:
-            cos_angle += -2
-        elif cos_angle < -1:
-            cos_angle += 2
+        cos_angle = torch.matmul(vector1, vector2) / (torch.linalg.norm(vector1) * torch.linalg.norm(vector2) + 1e-15)
         angle = torch.arccos(cos_angle)
       
         return angle
@@ -356,11 +352,7 @@ class TorchDerivatives:
         v1 = v1 / torch.linalg.norm(v1, ord=2)
         v2 = torch.linalg.cross(a2, a3)
         v2 = v2 / torch.linalg.norm(v2, ord=2)
-        cos_angle = torch.sum(v1*v2) / torch.sum((v1**2) * torch.sum(v2**2)) ** 0.5
-        if cos_angle > 1:
-            cos_angle += -2
-        elif cos_angle < -1:
-            cos_angle += 2
+        cos_angle = torch.sum(v1*v2) / torch.sum((v1**2) * torch.sum(v2**2) + 1e-15) ** 0.5
         dihedral_angle = torch.arccos(cos_angle)
 
         dihedral_angle = torch.abs(dihedral_angle)    

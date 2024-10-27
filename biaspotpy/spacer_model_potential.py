@@ -33,6 +33,7 @@ class SpacerModelPotential:
 
         self.nparticle = self.config["spacer_model_potential_particle_number"]
         self.element_list = self.config["element_list"]
+        self.natom = len(self.element_list)
         self.particle_num_list = None
 
         self.file_directory = self.config["directory"]
@@ -77,7 +78,7 @@ class SpacerModelPotential:
         particle_sigma = self.config["spacer_model_potential_distance"] / self.bohr2angstroms
         particle_epsilon = self.config["spacer_model_potential_well_depth"] / self.hartree2kjmol
         #atom-particle interactions
-        spacer_indices = torch.tensor(self.config["spacer_model_potential_target"]) - 1
+        spacer_indices = torch.tensor([i for i in range(len(self.config["element_list"]))])
         geom_particles = geom_num_list[spacer_indices]  # shape: (M, 3), M = len(spacer_model_potential_target)
         atom_sigmas = torch.tensor([self.VDW_distance_lib(self.config["element_list"][idx]) for idx in spacer_indices])
         atom_epsilons = torch.tensor([self.VDW_well_depth_lib(self.config["element_list"][idx]) for idx in spacer_indices])
