@@ -1298,12 +1298,17 @@ def calc_local_fc_from_pBmat(cart_hess, pBmat):
     local_fc = np.diag(1/inv_local_fc)
     return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
 
+def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
+    B_inv = np.dot(np.linalg.inv(np.dot(pBmat, pBmat.T)), pBmat)
+    B_inv_2 = np.dot(pBmat.T, np.linalg.inv(np.dot(pBmat, pBmat.T)))
+    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv_2))
+    diag_local_fc = np.diag(local_fc)
+    return diag_local_fc
+
 
 def calc_RMS(data):
     return np.sqrt(np.mean(data ** 2))
 
-
-import torch
 
 def torch_rotate_around_axis(theta, axis='z'):
     cos_theta = torch.cos(theta).reshape(1)
@@ -1393,11 +1398,14 @@ if __name__ == "__main__":#test
     torsion_pBmat = partial_torsion_B_matrix(test_coord, 2, 1, 3, 4)
     print(bond_pBmat, bend_pBmat, torsion_pBmat)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bend_pBmat)
-    print(lfc, undfc, lndfc)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bend_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bond_pBmat)
-    print(lfc, undfc, lndfc)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bond_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, torsion_pBmat)
-    print(lfc, undfc, lndfc)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
         
 
 
