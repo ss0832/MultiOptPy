@@ -119,6 +119,13 @@ class CalculationStructInfo:
         data_name_list = DBD_name_list    
         return data_list, data_name_list
 
+def hess2mwhess(hessian, element_list):
+    elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")    
+    M = np.diag(np.repeat(elem_mass, 3))
+    M_minus_sqrt = np.diag(np.repeat(elem_mass, 3) ** (-0.5))
+    mw_hessian = np.dot(np.dot(M_minus_sqrt, hessian), M_minus_sqrt)#mw = mass weighted
+    return mw_hessian
+
 
 class Calculationtools:
     def __init__(self):
@@ -325,91 +332,6 @@ class Calculationtools:
             R = np.dot(Vt.T, U.T)
         P = np.dot(R, P.T).T
         return P, Q
-    
-    def torch_affine_transformation(self, geom_num_list, tr, LJ_center_vec, delta_angle):
-        natoms = len(geom_num_list)
-        ones = torch.ones(natoms, 1, requires_grad=True)
-        tmp_geom_num_list = torch.t(torch.cat((geom_num_list, ones), dim=1))
-        
-        
-        # affine translation
-        affine_tr_matrix = torch.tensor([[1.0 , 0.0, 0.0, -tr[0]],
-                                         [0.0 , 1.0, 0.0, -tr[1]],
-                                         [0.0 , 0.0, 1.0, -tr[2]],
-                                         [0.0 , 0.0, 0.0, 1.0 ]], dtype=torch.float64, requires_grad=True)
-                                         
-        if torch.linalg.norm(LJ_center_vec[1:3]) != 0.0:                      
-            cos_x_angle = torch.matmul(LJ_center_vec[1:3], torch.tensor([1.0, 0.0], dtype=torch.float64, requires_grad=True)) / (torch.linalg.norm(LJ_center_vec[1:3]) * torch.linalg.norm(torch.tensor([1.0, 0.0], dtype=torch.float64, requires_grad=True)))
-        else:
-            cos_x_angle = torch.tensor(0.0, dtype=torch.float64, requires_grad=True)
-        
-        
-        if LJ_center_vec[2] < 0:
-            x_angle = -torch.pi/2 + torch.arccos(cos_x_angle)
-        else:
-            x_angle = torch.pi/2 - torch.arccos(cos_x_angle)   
-
-        
-        affine_x_rot_matrix = torch.tensor([[1.0              , 0.0          , 0.0          , 0.0],
-                                            [0.0              , torch.cos(x_angle),-torch.sin(x_angle), 0.0],
-                                            [0.0              , torch.sin(x_angle), torch.cos(x_angle), 0.0],
-                                            [0.0              , 0.0          , 0.0          , 1.0]], dtype=torch.float64, requires_grad=True)
-        
-        tmp_LJ_center_vec = torch.cat((LJ_center_vec, torch.tensor([1.0], requires_grad=True)), dim=0)
-        
-        
-        after_x_rot_LJ_center_vec = torch.t(torch.matmul(affine_x_rot_matrix, torch.t(tmp_LJ_center_vec.reshape(1, 4))))
-        
-
-        xz = torch.cat((after_x_rot_LJ_center_vec[0][0].reshape(1), after_x_rot_LJ_center_vec[0][2].reshape(1)))
-        
-        if torch.linalg.norm(xz) != 0.0:
-            cos_y_angle = torch.matmul(xz, torch.tensor([1.0, 0.0], dtype=torch.float64, requires_grad=True)) / (torch.linalg.norm(xz) * torch.linalg.norm(torch.tensor([1.0, 0.0], dtype=torch.float64, requires_grad=True)))
-        else:
-            cos_y_angle = torch.tensor(0.0, dtype=torch.float64, requires_grad=True)
-            
-        if LJ_center_vec[2] < 0:
-            y_angle = -torch.pi/2 - torch.arccos(cos_y_angle)
-        else:
-            y_angle = torch.pi/2 + torch.arccos(cos_y_angle)
-
-        affine_y_rot_matrix = torch.tensor([[torch.cos(y_angle)  , 0.0, torch.sin(y_angle), 0.0],
-                                            [0.0              , 1.0, 0.0            , 0.0],
-                                            [-torch.sin(y_angle) , 0.0, torch.cos(y_angle), 0.0],
-                                            [0.0              , 0.0, 0.0            , 1.0]], dtype=torch.float64, requires_grad=True)
-        
-        
-        after_y_x_rot_LJ_center_vec = torch.t(torch.matmul(affine_y_rot_matrix, torch.t(after_x_rot_LJ_center_vec.reshape(1, 4))))
-        
-        # to adjust LJ center vector to z axis of specific direction.
-        if torch.linalg.norm(after_y_x_rot_LJ_center_vec[0:3]) != 0.0:                      
-            cos_x_angle_2 = torch.matmul(after_y_x_rot_LJ_center_vec[0][0:3], torch.tensor([0.0, 0.0, 1.0], dtype=torch.float64, requires_grad=True)) / (torch.linalg.norm(after_y_x_rot_LJ_center_vec[0][0:3]) * torch.linalg.norm(torch.tensor([0.0, 0.0, 1.0], dtype=torch.float64, requires_grad=True)))
-            
-        else:
-            cos_x_angle_2 = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
-            
-        
-        x_angle_2 = torch.arccos(cos_x_angle_2)
-       
-        affine_x_rot_matrix_2 = torch.tensor([[1.0             , 0.0                , 0.0                 , 0.0],
-                                             [0.0              , torch.cos(x_angle_2), -torch.sin(x_angle_2), 0.0],
-                                             [0.0              , torch.sin(x_angle_2),  torch.cos(x_angle_2), 0.0],
-                                             [0.0              , 0.0                , 0.0                 , 1.0]], dtype=torch.float64, requires_grad=True)
-        
-
-        affine_z_rot_matrix = torch.tensor([[torch.cos(delta_angle) , -torch.sin(delta_angle), 0.0, 0.0],
-                                            [torch.sin(delta_angle) , torch.cos(delta_angle) , 0.0, 0.0],
-                                            [0.0             , 0.0             , 1.0, 0.0],
-                                            [0.0             , 0.0             , 0.0, 1.0]], dtype=torch.float64, requires_grad=True)
-                                            
-                                           
-        tr_rot_matrix = torch.matmul(affine_z_rot_matrix, torch.matmul(affine_x_rot_matrix_2, torch.matmul(affine_y_rot_matrix, torch.matmul(affine_x_rot_matrix, affine_tr_matrix))))
-        
-        tmp_transformed_geom_num_list = torch.t(torch.matmul(tr_rot_matrix, tmp_geom_num_list))# [[x,y,z,1] ...]
-        transformed_geom_num_list = torch.tensor_split(tmp_transformed_geom_num_list, (0, 3), dim=1)[1]
-        # [[x,y,z] ...]
-        
-        return transformed_geom_num_list
         
     def gen_n_dinensional_rot_matrix(self, vector_1, vector_2):
         #Zhelezov NRMG algorithm (doi:10.5923/j.ajcam.20170702.04) This implementation may be not correct.
@@ -1304,7 +1226,16 @@ def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
     local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv_2))
     diag_local_fc = np.diag(local_fc)
     return diag_local_fc
+"""
+def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
+    #print(np.dot(pBmat.T, pBmat))
+    B_inv = np.dot(np.linalg.pinv(np.dot(pBmat.T, pBmat)), pBmat.T)
+    
+    local_fc = np.dot(B_inv.T, np.dot(cart_hess, B_inv))
+    diag_local_fc = np.diag(local_fc)
+    return diag_local_fc
 
+"""
 
 def calc_RMS(data):
     return np.sqrt(np.mean(data ** 2))
@@ -1389,7 +1320,8 @@ if __name__ == "__main__":#test
     print(partial_eigenvalue)
 
     from redundant_coordinations import partial_bend_B_matrix, partial_stretch_B_matirx, partial_torsion_B_matrix
-
+    test_mw_hess = hess2mwhess(test_hess, test_element_list)
+    print("normal coordinate")
     bond_pBmat = partial_stretch_B_matirx(test_coord, 1, 2)
     bend_pBmat = partial_bend_B_matrix(test_coord, 2, 1, 3)
     torsion_pBmat = partial_torsion_B_matrix(test_coord, 2, 1, 3, 4)
@@ -1403,8 +1335,23 @@ if __name__ == "__main__":#test
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, torsion_pBmat)
     lfc2 = calc_local_fc_from_pBmat_2(test_hess, torsion_pBmat)
     print(lfc, undfc, lndfc, lfc2)
-        
-
+    print("mass-weighted coordinate")
+    elem_mass = np.array([[atomic_mass(elem)**(0.5)] for elem in test_element_list], dtype="float64")
+    
+    bond_pBmat = partial_stretch_B_matirx(test_coord * elem_mass, 1, 2)
+    bend_pBmat = partial_bend_B_matrix(test_coord * elem_mass, 2, 1, 3)
+    torsion_pBmat = partial_torsion_B_matrix(test_coord * elem_mass, 2, 1, 3, 4)
+    print(bond_pBmat, bend_pBmat, torsion_pBmat)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bend_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bend_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bond_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bond_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, torsion_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48)
+    
 
 
 
