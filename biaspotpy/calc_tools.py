@@ -1291,11 +1291,11 @@ def calc_local_fc_from_pBmat(cart_hess, pBmat):
     #hessian projected out transion and rotation is needed.
     inv_cart_hess = np.linalg.inv(cart_hess)
     inv_local_fc = np.dot(pBmat, np.dot(inv_cart_hess, pBmat.T))
-    inv_non_diagonal_upper_fc = np.triu(inv_local_fc) - np.diag(np.diag(inv_local_fc))
-    inv_non_diagonal_lower_fc = np.tril(inv_local_fc) - np.diag(np.diag(inv_local_fc))
-    non_diagonal_ufc = 1 / inv_non_diagonal_upper_fc
-    non_diagonal_lfc = 1 / inv_non_diagonal_lower_fc
-    local_fc = np.diag(1/inv_local_fc)
+    local_fc_matrix = np.linalg.inv(inv_local_fc)
+
+    non_diagonal_ufc = np.triu(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
+    non_diagonal_lfc = np.tril(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
+    local_fc = np.diag(local_fc_matrix)
     return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
 
 def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
@@ -1356,9 +1356,6 @@ def torch_align_vector_with_z(v):
     ])
 
     R = torch.eye(3, dtype=v.dtype, requires_grad=True) + sin_theta * K + (1 - cos_theta) * torch.matmul(K, K)
-
-    
-    
     return R
     
 
