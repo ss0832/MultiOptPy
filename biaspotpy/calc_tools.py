@@ -1209,33 +1209,42 @@ def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
     return bond_matrix
 
 
-def calc_local_fc_from_pBmat(cart_hess, pBmat):
+def calc_local_fc_from_pBmat(cart_hess, pBmat):#This method is not good since hessian is ill-condition.
     #hessian projected out transion and rotation is needed.
     inv_cart_hess = np.linalg.inv(cart_hess)
     inv_local_fc = np.dot(pBmat, np.dot(inv_cart_hess, pBmat.T))
     local_fc_matrix = np.linalg.inv(inv_local_fc)
-
     non_diagonal_ufc = np.triu(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
     non_diagonal_lfc = np.tril(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
     local_fc = np.diag(local_fc_matrix)
     return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
 
-def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
+def calc_local_fc_from_pBmat_2(cart_hess, pBmat):#This method is only available to stationary point
     B_inv = np.dot(np.linalg.inv(np.dot(pBmat, pBmat.T)), pBmat)
-    B_inv_2 = np.dot(pBmat.T, np.linalg.inv(np.dot(pBmat, pBmat.T)))
-    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv_2))
-    diag_local_fc = np.diag(local_fc)
-    return diag_local_fc
-"""
-def calc_local_fc_from_pBmat_2(cart_hess, pBmat):
-    #print(np.dot(pBmat.T, pBmat))
-    B_inv = np.dot(np.linalg.pinv(np.dot(pBmat.T, pBmat)), pBmat.T)
-    
-    local_fc = np.dot(B_inv.T, np.dot(cart_hess, B_inv))
+    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv.T))
     diag_local_fc = np.diag(local_fc)
     return diag_local_fc
 
-"""
+def calc_local_fc_from_pBmat_3(cart_hess, pBmat):#This method is only available to stationary point
+    #ref.:https://geometric.readthedocs.io/en/latest/how-it-works.html
+    Gmat = np.dot(pBmat.T, pBmat)
+    U, s, VT = np.linalg.svd(Gmat)
+    s_inv = []
+    for value in s:
+        if value > 1e-6:
+            s_inv.append(1/value)
+        else:
+            s_inv.append(value)
+    s_inv = np.array(s_inv, dtype="float64")
+    s_inv = np.diag(s_inv)
+    Gmat_inv = np.dot(VT.T, np.dot(s_inv, U.T))
+    
+    B_inv = np.dot(Gmat_inv, pBmat.T)
+    local_fc = np.dot(B_inv.T, np.dot(cart_hess, B_inv))
+  
+    return local_fc
+
+
 
 def calc_RMS(data):
     return np.sqrt(np.mean(data ** 2))
@@ -1344,15 +1353,22 @@ if __name__ == "__main__":#test
     print(bond_pBmat, bend_pBmat, torsion_pBmat)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bend_pBmat)
     lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bend_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48)
+    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, bend_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bond_pBmat)
     lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bond_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48)
+    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, bond_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
     lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, torsion_pBmat)
     lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, torsion_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48)
-    
+    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
 
+    stack_Bmat = np.vstack([bond_pBmat, bend_pBmat, torsion_pBmat])
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, stack_Bmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, stack_Bmat)
+    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, stack_Bmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
 
 
 
