@@ -336,10 +336,10 @@ def torch_calc_angle(coord, atom_label_1, atom_label_2, atom_label_3):#coord:Boh
     
     vec_12 = vec_1 - vec_2
     vec_32 = vec_3 - vec_2
-    norm_vec_12 = torch.linalg.norm(vec_12) + 1e-12
-    norm_vec_32 = torch.linalg.norm(vec_32) + 1e-12
+    norm_vec_12 = torch.linalg.norm(vec_12) + 1e-15
+    norm_vec_32 = torch.linalg.norm(vec_32) + 1e-15
     
-    dot_prod = torch.dot(vec_12, vec_32) / (norm_vec_12 * norm_vec_32)
+    dot_prod = torch.matmul(vec_12, vec_32) / (norm_vec_12 * norm_vec_32)
     theta = torch.acos(dot_prod)
     return theta
 
@@ -350,14 +350,14 @@ def torch_calc_dihedral_angle(coord, atom_label_1, atom_label_2, atom_label_3, a
     vec_4 = coord[atom_label_4 - 1]
     
     vec_12 = vec_1 - vec_2
-    vec_23 = vec_3 - vec_2
-    vec_34 = vec_4 - vec_3
+    vec_23 = vec_2 - vec_3
+    vec_34 = vec_3 - vec_4
     
     v1 = torch.linalg.cross(vec_12, vec_23)
-    norm_v1 = torch.linalg.norm(v1, ord=2) + 1e-12
+    norm_v1 = torch.linalg.norm(v1) + 1e-15
     v2 = torch.linalg.cross(vec_23, vec_34)
-    norm_v2 = torch.linalg.norm(v2, ord=2) + 1e-12
-    cos_theta = torch.dot(v1, v2) / (norm_v1 * norm_v2)
+    norm_v2 = torch.linalg.norm(v2) + 1e-15
+    cos_theta = torch.sum(v1 * v2) / (norm_v1 * norm_v2)
     angle = torch.acos(cos_theta)
     
     return angle

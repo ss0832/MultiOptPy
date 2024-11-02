@@ -207,7 +207,7 @@ class Optimize:
         natom = len(element_list)
         #-------------------
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
-        if len(force_data["projection_constraint_condition_list"]) > 0:
+        if len(force_data["projection_constraint_condition_list"]) > 0 or len(force_data["lagrange_constraint_condition_list"]) > 0:
             projection_constrain = True
         else:
             projection_constrain = False
@@ -286,7 +286,8 @@ class Optimize:
                     lagrange_lambda_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
                     lagrange_lambda_prev_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
                     lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
-                    
+                if len(force_data["projection_constraint_condition_list"]) > 0:
+                    PC.initialize(geom_num_list)
 
             else:
                 pass

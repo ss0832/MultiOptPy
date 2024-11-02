@@ -635,13 +635,56 @@ class ProjectOutConstrain:
                 tmp_list.append(int(constraint_atoms_list[i][j]))
             self.constraint_atoms_list.append(tmp_list)
             
-        self.iteration = 5
+        self.iteration = 1
+        self.spring_const = 10.0
+        self.init_tag = True
         return
+
+
+    def initialize(self, geom_num_list):
+        tmp_init_constraint = []
+        for i in range(len(self.constraint_name)):
+            if self.constraint_name[i] == "bond":
+                vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1]
+                vec_2 = geom_num_list[self.constraint_atoms_list[i][1] - 1]
+                init_bond_dist = calc_bond_length_from_vec(vec_1, vec_2) 
+                tmp_init_constraint.append(init_bond_dist)
+                
+                
+                 
+            elif self.constraint_name[i] == "angle":
+                vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
+                vec_2 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
+                init_angle = calc_angle_from_vec(vec_1, vec_2)
+                tmp_init_constraint.append(init_angle)
+                
+      
+                
+            elif self.constraint_name[i] == "dihedral":
+                vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
+                vec_2 = geom_num_list[self.constraint_atoms_list[i][1] - 1] - geom_num_list[self.constraint_atoms_list[i][2] - 1]
+                vec_3 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][3] - 1]
+                init_dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
+                tmp_init_constraint.append(init_dihedral)
+                
+                   
+                
+            else:
+                print("error")
+                raise "error (invaild input of constraint conditions)"
+      
+        if self.init_tag:
+            self.init_constraint = tmp_init_constraint
+            self.init_tag = False
+        return tmp_init_constraint
+
 
     def calc_project_out_grad(self, coord, grad):# B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
         prev_proj_grad = copy.copy(grad)
         tmp_grad = copy.copy(grad)
+        current_geom = self.initialize(coord)
+
         for j in range(self.iteration):
             for i_constrain in range(len(self.constraint_name)):
                 if self.constraint_name[i_constrain] == "bond":
@@ -666,7 +709,13 @@ class ProjectOutConstrain:
                     B_mat = np.vstack((B_mat, tmp_b_mat))
             
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
-            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
+
+            constraint_int_grad = []
+            for i_constrain in range(len(self.constraint_name)):
+                grad = self.spring_const * (current_geom[i_constrain] - self.init_constraint[i_constrain])
+                constraint_int_grad.append([grad])
+            constraint_int_grad = np.array(constraint_int_grad)
+            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad + constraint_int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
             proj_grad = proj_grad.reshape(natom, 3)
             delta_grad = proj_grad - prev_proj_grad
@@ -680,6 +729,7 @@ class ProjectOutConstrain:
     
     def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
+        current_geom = self.initialize(coord)
         prev_proj_hess = copy.copy(hessian)
         tmp_hessian = copy.copy(hessian)
         for j in range(self.iteration):
@@ -713,8 +763,19 @@ class ProjectOutConstrain:
             
             
             int_grad = calc_int_grad_from_pBmat(grad.reshape(3*natom, 1), B_mat)
+
+            constraint_int_grad = []
+            
+            for i_constrain in range(len(self.constraint_name)):
+                grad = self.spring_const * (current_geom[i_constrain] - self.init_constraint[i_constrain])
+
+                constraint_int_grad.append([grad])
+            constraint_int_grad = np.array(constraint_int_grad)
+
+            constraint_int_hess = np.eye((len(self.constraint_name))) * self.spring_const
+
             int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(-1*int_hess, B_mat, B_mat_1st_derivative, int_grad)
+            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(-1*int_hess + constraint_int_hess, B_mat, B_mat_1st_derivative, int_grad + constraint_int_grad)
             proj_hess = tmp_hessian + projection_hess
             delta_hess = proj_hess - prev_proj_hess
             prev_proj_hess = copy.copy(proj_hess)
