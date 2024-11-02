@@ -195,7 +195,7 @@ class CalculateMoveVector:
         return
 
   
-    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lambda_list=[], prev_lambda_list=[], lambda_grad_list=[], lambda_prev_grad_list=[], lambda_prev_movestep=[], init_lambda_list=[], projection_constrain=True):#geom_num_list:Bohr
+    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lambda_list=[], prev_lambda_list=[], lambda_grad_list=[], lambda_prev_grad_list=[], lambda_prev_movestep=[], init_lambda_list=[], projection_constrain=False):#geom_num_list:Bohr
         natom = len(geom_num_list)
         nconstrain = len(lambda_list)
         ###

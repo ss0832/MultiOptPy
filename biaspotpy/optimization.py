@@ -60,7 +60,6 @@ class Optimize:
         self.temperature = float(args.md_like_perturbation)
         self.CMDS = args.cmds 
         self.PCA = args.pca
-        self.ricci_curvature = args.ricci_curvature
         #---------------------------
         if len(args.opt_method) > 2:
             print("invaild input (-opt)")
@@ -361,11 +360,7 @@ class Optimize:
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             #-------------------
             #----------------------------
-            if len(force_data["gradient_fix_atoms"]) > 0:
-                #fix_atom_list: force_data["gradient_fix_atoms"]
-                B_g = self.grad_fix_atoms(B_g, geom_num_list, force_data["gradient_fix_atoms"])
-                g = self.grad_fix_atoms(g, geom_num_list, force_data["gradient_fix_atoms"])
-                
+    
             #----------------------------
             if len(self.constraint_condition_list) > 0 and iter > 0:
                 B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
@@ -809,12 +804,7 @@ class Optimize:
                     real_LL_B_g = copy.copy(self.calc_fragement_grads(real_LL_B_g, force_data["opt_fragment"]))
                     real_LL_g = copy.copy(self.calc_fragement_grads(real_LL_g, force_data["opt_fragment"]))
                 
-                #----------------------------
-                if len(force_data["gradient_fix_atoms"]) > 0:
-                    #fix_atom_list: force_data["gradient_fix_atoms"]
-                    real_LL_B_g = self.grad_fix_atoms(real_LL_B_g, geom_num_list, force_data["gradient_fix_atoms"])
-                    real_LL_g = self.grad_fix_atoms(real_LL_g, geom_num_list, force_data["gradient_fix_atoms"])
-                    
+
                 #----------------------------
                 if len(self.constraint_condition_list) > 0 and microiter > 0:
                     real_LL_B_g = class_GradientSHAKE.run_grad(real_pre_geom, real_LL_B_g) 
@@ -883,11 +873,7 @@ class Optimize:
                 tmp_model_HL_B_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_B_g, force_data["opt_fragment"]))
                 tmp_model_HL_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_g, force_data["opt_fragment"]))
 
-            #----------------------------
-            if len(force_data["gradient_fix_atoms"]) > 0:
-                #fix_atom_list: force_data["gradient_fix_atoms"]
-                tmp_model_HL_B_g = self.grad_fix_atoms(tmp_model_HL_B_g, geom_num_list, force_data["gradient_fix_atoms"])
-                tmp_model_HL_g = self.grad_fix_atoms(tmp_model_HL_g, geom_num_list, force_data["gradient_fix_atoms"])
+ 
                 
             #----------------------------
             if len(self.constraint_condition_list) > 0 and iter > 0:
@@ -1129,22 +1115,6 @@ class Optimize:
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
     
-    def grad_fix_atoms(self, gradient, geom_num_list, fix_atom_list):
-        #fix_atom_list: force_data["gradient_fix_atoms"]
-        RIC = RedundantInternalCoordinates()
-        b_mat = RIC.B_matrix(geom_num_list)
-        int_grad = RIC.cartgrad2RICgrad(gradient.reshape(len(geom_num_list)*3, 1), b_mat)
-        
-        RIC_idx_list = list(itertools.combinations([i+1 for i in range(len(geom_num_list))], 2))
-        for fix_atoms in fix_atom_list:
-            fix_combination_list = list(itertools.combinations(sorted(fix_atoms), 2))
-            for fix in fix_combination_list:
-                int_grad_idx = RIC_idx_list.index(fix)
-                int_grad[int_grad_idx] *= 0.0
-               
-        fixed_gradient = RIC.RICgrad2cartgrad(int_grad, b_mat).reshape(len(geom_num_list), 3)
-        
-        return fixed_gradient
     
     def calc_fragement_grads(self, gradient, fragment_list):
         calced_gradient = gradient

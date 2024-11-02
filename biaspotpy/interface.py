@@ -101,7 +101,6 @@ def optimizeparser(parser):
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
-    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-md", "--md_like_perturbation",  type=str, default="0.0", help='add perturbation like molecule dynamics (ex.) [[temperature (unit. K)]]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
@@ -118,7 +117,6 @@ def optimizeparser(parser):
     parser.add_argument('-cmds','--cmds', help="Apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-irc','--intrinsic_reaction_coordinates', help="Calculate intrinsic reaction coordinates. (ex.) [[step_size], [max_step], [IRC_method]] (Recommended) [0.5 300 lqa]", nargs="*", type=str, default=[])    
-    parser.add_argument('-rc','--ricci_curvature', help="calculate Ricci scalar of calculated approx. reaction path.", action='store_true')
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-nro", "--NRO_analysis",  help="apply Natural Reaction Orbial analysis. (ref. Phys. Chem. Chem. Phys. 24, 3532 (2022))", action='store_true')
@@ -205,7 +203,6 @@ def nebparser(parser):
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
-    parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default=[], help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
 
 
     parser = parser_for_biasforce(parser)
@@ -255,7 +252,6 @@ def mdparser(parser):
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.geom_info = ["0"]
-    args.gradient_fix_atoms = []
     args.opt_method = ""
     args.opt_fragment = []
     args.oniom_method = []
@@ -356,7 +352,6 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.opt_method = ""
         self.opt_fragment = []
         self.fixedges = 0
-        self.gradient_fix_atoms = ""
         self.pyscf = False
         return
     
@@ -1127,17 +1122,7 @@ def force_data_parser(args):
     else:
         force_data["fix_atoms"] = ""
     
-    if len(args.gradient_fix_atoms) > 0:
-        force_data["gradient_fix_atoms"] = []
-        
-        for j in range(len(args.gradient_fix_atoms)):
-           
-            force_data["gradient_fix_atoms"].append(num_parse(args.gradient_fix_atoms[j]))
-    else:
-        force_data["gradient_fix_atoms"] = ""
-    
-    
-    
+
     force_data["geom_info"] = num_parse(args.geom_info[0])
     
     force_data["opt_method"] = args.opt_method
