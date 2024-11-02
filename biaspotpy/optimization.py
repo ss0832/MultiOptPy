@@ -23,7 +23,7 @@ from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from MO_analysis import NROAnalysis
-from constraint_condition import GradientSHAKE, shake_parser, LagrangeConstrain
+from constraint_condition import GradientSHAKE, shake_parser, LagrangeConstrain, ProjectOutConstrain
 from oniom_utils import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 from irc import IRC
 from bond_connectivity import judge_shape_condition
@@ -207,6 +207,13 @@ class Optimize:
         LC = LagrangeConstrain(force_data["lagrange_constraint_condition_list"], force_data["lagrange_constraint_atoms"])
         natom = len(element_list)
         #-------------------
+        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
+        if len(force_data["projection_constraint_condition_list"]) > 0:
+            projection_constrain = True
+        else:
+            projection_constrain = False
+        
+        #-------------------
 
         if len(self.constraint_condition_list) > 0:
             class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
@@ -261,7 +268,7 @@ class Optimize:
 
 
 
-            if finish_frag:#If QM calculation doesnt end, the process of this program is terminated. 
+            if finish_frag:#If QM calculation doesn't end, the process of this program is terminated. 
                 break   
             
             if iter == 0:
@@ -325,13 +332,23 @@ class Optimize:
                 if len(force_data["lagrange_constraint_condition_list"]) > 0:
                     optimizer_instances[i].set_bias_hessian(combined_BPA_hessian)
                 else:
-                    optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                    if len(force_data["projection_constraint_condition_list"]) > 0:
+                        proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
+                        optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
+                        
+                    
+                    else:
+                        optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0:
                     if len(force_data["lagrange_constraint_condition_list"]) > 0:
                         optimizer_instances[i].set_hessian(combined_hessian)
                     else:
-                        optimizer_instances[i].set_hessian(self.Model_hess)
+                        if len(force_data["projection_constraint_condition_list"]) > 0:
+                            proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
+                            optimizer_instances[i].set_hessian(proj_model_hess)
+                        else:
+                            optimizer_instances[i].set_hessian(self.Model_hess)
                      
             
             #----------------------------
@@ -354,8 +371,14 @@ class Optimize:
                 B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
                 g = class_GradientSHAKE.run_grad(pre_geom, g) 
             
+            if len(force_data["projection_constraint_condition_list"]) > 0:
+                B_g = PC.calc_project_out_grad(geom_num_list, B_g)
+                g = PC.calc_project_out_grad(geom_num_list, g)
+                
             
-            new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lagrange_lambda_list, lagrange_prev_lambda_list, lagrange_lambda_grad_list, lagrange_lambda_prev_grad_list, lagrange_lambda_prev_movestep, init_lagrange_lambda_list)
+            
+            
+            new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lagrange_lambda_list, lagrange_prev_lambda_list, lagrange_lambda_grad_list, lagrange_lambda_prev_grad_list, lagrange_lambda_prev_movestep, init_lagrange_lambda_list, projection_constrain)
             lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
             lagrange_lambda_prev_movestep = copy.copy(lagrange_lambda_movestep)
             lagrange_lambda_list = copy.copy(CMV.new_lambda_list)

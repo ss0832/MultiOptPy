@@ -3,7 +3,21 @@ import copy
 import torch
 from parameter import atomic_mass, UnitValueLib
 from calc_tools import calc_bond_length_from_vec, calc_angle_from_vec, calc_dihedral_angle_from_vec
-from redundant_coordinations import TorchDerivatives, partial_stretch_B_matirx, partial_bend_B_matrix, partial_torsion_B_matrix, RedundantInternalCoordinates
+from redundant_coordinations import (TorchDerivatives, 
+                                     partial_stretch_B_matirx,
+                                     partial_bend_B_matrix,
+                                     partial_torsion_B_matrix,
+                                     RedundantInternalCoordinates,
+                                     torch_B_matrix,
+                                     torch_B_matrix_derivative,
+                                     torch_calc_distance,
+                                     torch_calc_angle,
+                                     torch_calc_dihedral_angle,
+                                     calc_dot_B_deriv_int_grad,
+                                     calc_int_hess_from_pBmat_for_non_stationary_point,
+                                     calc_cart_hess_from_pBmat_for_non_stationary_point,
+                                     calc_int_grad_from_pBmat,
+                                     calc_cart_grad_from_pBmat)
 
 
 def shake_parser(constraints):
@@ -390,20 +404,20 @@ class LagrangeConstrain:
                 r = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 norm_r = np.linalg.norm(r) 
                 norm_r_0 = self.init_constraint[i]
-                lagrange_constraint_energy += lagrange_lambda_list[i] * (norm_r - norm_r_0) 
+                lagrange_constraint_energy += lagrange_lambda_list[i] * (norm_r - norm_r_0) ** 2
             elif self.constraint_name[i] == "angle":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][2]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 angle = calc_angle_from_vec(vec_1, vec_2)
                 angle_0 = self.init_constraint[i]
-                lagrange_constraint_energy += lagrange_lambda_list[i] * (angle - angle_0)
+                lagrange_constraint_energy += lagrange_lambda_list[i] * (angle - angle_0) ** 2
             elif self.constraint_name[i] == "dihedral":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][1]] - geom_num_list[self.constraint_atoms_list[i][2]]
                 vec_3 = geom_num_list[self.constraint_atoms_list[i][2]] - geom_num_list[self.constraint_atoms_list[i][3]]
                 dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
                 dihedral_0 = self.init_constraint[i]
-                lagrange_constraint_energy += lagrange_lambda_list[i] * (dihedral - dihedral_0)
+                lagrange_constraint_energy += lagrange_lambda_list[i] * (dihedral - dihedral_0) ** 2
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
@@ -418,11 +432,12 @@ class LagrangeConstrain:
             
             if self.constraint_name[i] == "bond":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]]])
+                r_norm = np.linalg.norm(stack_coord[0] - stack_coord[1])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)    
                 bond_grad = torch.func.jacrev(TorchDerivatives().distance, 0)(tmp_tensor).detach().numpy()
                 
-                tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][0]] += (bond_grad[0] - self.init_constraint_grad[i][0]) * lagrange_lambda_list[i]
-                tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][1]] += (bond_grad[1] - self.init_constraint_grad[i][1]) * lagrange_lambda_list[i]
+                tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][0]] += (bond_grad[0] - self.init_constraint_grad[i][0]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i])
+                tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][1]] += (bond_grad[1] - self.init_constraint_grad[i][1]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i])
             elif self.constraint_name[i] == "angle":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)
@@ -452,20 +467,20 @@ class LagrangeConstrain:
                 r = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 norm_r = np.linalg.norm(r)
                 norm_r_0 = self.init_constraint[i]
-                lagrange_lambda_grad_list.append([(norm_r - norm_r_0)])
+                lagrange_lambda_grad_list.append([(norm_r - norm_r_0) ** 2])
             elif self.constraint_name[i] == "angle":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][2]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 angle = calc_angle_from_vec(vec_1, vec_2)
                 angle_0 = self.init_constraint[i]
-                lagrange_lambda_grad_list.append([(angle - angle_0)])
+                lagrange_lambda_grad_list.append([(angle - angle_0) ** 2])
             elif self.constraint_name[i] == "dihedral":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0]] - geom_num_list[self.constraint_atoms_list[i][1]]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][1]] - geom_num_list[self.constraint_atoms_list[i][2]]
                 vec_3 = geom_num_list[self.constraint_atoms_list[i][2]] - geom_num_list[self.constraint_atoms_list[i][3]]
                 dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
                 dihedral_0 = self.init_constraint[i]
-                lagrange_lambda_grad_list.append([(dihedral - dihedral_0)])
+                lagrange_lambda_grad_list.append([(dihedral - dihedral_0) ** 2])
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
@@ -480,13 +495,15 @@ class LagrangeConstrain:
         for i in range(len(self.constraint_name)):
             if self.constraint_name[i] == "bond":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]]])
+                r_norm = np.linalg.norm(stack_coord[0] - stack_coord[1])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)    
                 bond_hess = torch.func.hessian(TorchDerivatives().distance, 0)(tmp_tensor).detach().numpy()
+                bond_grad = torch.func.jacrev(TorchDerivatives().distance, 0)(tmp_tensor).detach().numpy()
                 bond_hess = bond_hess.reshape(6, 6)
-                langrange_add_hessian[3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_hess[0:3, 0:3] - self.init_constraint_hess[i][0:3, 0:3]) * lagrange_lambda_list[i]
-                langrange_add_hessian[3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_hess[3:6, 3:6] - self.init_constraint_hess[i][3:6, 3:6]) * lagrange_lambda_list[i]
-                langrange_add_hessian[3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_hess[0:3, 3:6] - self.init_constraint_hess[i][0:3, 3:6]) * lagrange_lambda_list[i]
-                langrange_add_hessian[3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_hess[3:6, 0:3] - self.init_constraint_hess[i][3:6, 0:3]) * lagrange_lambda_list[i]
+                langrange_add_hessian[3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_hess[0:3, 0:3] - self.init_constraint_hess[i][0:3, 0:3]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i]) + 2 * lagrange_lambda_list[i] * 2 * np.dot((bond_grad[0] - self.init_constraint_grad[i]).T, (bond_grad[0] - self.init_constraint_grad[i]))
+                langrange_add_hessian[3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_hess[3:6, 3:6] - self.init_constraint_hess[i][3:6, 3:6]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i]) + 2 * lagrange_lambda_list[i] * 2 * np.dot((bond_grad[1] - self.init_constraint_grad[i]).T, (bond_grad[1] - self.init_constraint_grad[i]))
+                langrange_add_hessian[3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_hess[0:3, 3:6] - self.init_constraint_hess[i][0:3, 3:6]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i]) + 2 * lagrange_lambda_list[i] * 2 * np.dot((bond_grad[0] - self.init_constraint_grad[i]).T, (bond_grad[1] - self.init_constraint_grad[i]))
+                langrange_add_hessian[3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_hess[3:6, 0:3] - self.init_constraint_hess[i][3:6, 0:3]) * lagrange_lambda_list[i] * 2 * (r_norm - self.init_constraint[i]) + 2 * lagrange_lambda_list[i] * 2 * np.dot((bond_grad[1] - self.init_constraint_grad[i]).T, (bond_grad[0] - self.init_constraint_grad[i]))
                 
                 
     
@@ -534,9 +551,10 @@ class LagrangeConstrain:
             if self.constraint_name[i] == "bond":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)    
+                r_norm = np.linalg.norm(stack_coord[0] - stack_coord[1])
                 bond_couple_hess = torch.func.jacrev(TorchDerivatives().distance, 0)(tmp_tensor).detach().numpy()
-                coupling_hess[i, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_couple_hess[0] - self.init_constraint_grad[i][0])
-                coupling_hess[i, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_couple_hess[1] - self.init_constraint_grad[i][1])
+                coupling_hess[i, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (bond_couple_hess[0] - self.init_constraint_grad[i][0]) * 2 * (r_norm - self.init_constraint[i])
+                coupling_hess[i, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (bond_couple_hess[1] - self.init_constraint_grad[i][1]) * 2 * (r_norm - self.init_constraint[i])
                
             elif self.constraint_name[i] == "angle":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]]])
@@ -607,5 +625,107 @@ class LagrangeConstrain:
         return lambda_list
 
 
+class ProjectOutConstrain:
+    def __init__(self, constraint_name, constraint_atoms_list):
+        self.constraint_name = constraint_name
+        self.constraint_atoms_list = []
+        for i in range(len(constraint_atoms_list)):
+            tmp_list = []
+            for j in range(len(constraint_atoms_list[i])):
+                tmp_list.append(int(constraint_atoms_list[i][j]))
+            self.constraint_atoms_list.append(tmp_list)
+            
+        self.iteration = 5
+        return
 
+    def calc_project_out_grad(self, coord, grad):# B_g: (3N, 1), geom_num_list: (N, 3)
+        natom = len(coord)
+        prev_proj_grad = copy.copy(grad)
+        tmp_grad = copy.copy(grad)
+        for j in range(self.iteration):
+            for i_constrain in range(len(self.constraint_name)):
+                if self.constraint_name[i_constrain] == "bond":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
+                    
+                elif self.constraint_name[i_constrain] == "angle":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
+                
+                elif self.constraint_name[i_constrain] == "dihedral":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
+                else:
+                    print("error")
+                    raise "error (invaild input of constraint conditions)"
+                
+                
+                if i_constrain == 0:
+                    B_mat = tmp_b_mat        
+                else:
+                    B_mat = np.vstack((B_mat, tmp_b_mat))
+            
+            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
+            proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
+            proj_grad = proj_grad.reshape(natom, 3)
+            delta_grad = proj_grad - prev_proj_grad
+            prev_proj_grad = copy.copy(proj_grad)
+            #print("delta_grad: ", np.linalg.norm(delta_grad))
+            if np.linalg.norm(delta_grad) < 1.0e-6:
+                break
+            tmp_grad = copy.copy(proj_grad)
+        
+        return proj_grad
+    
+    def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
+        natom = len(coord)
+        prev_proj_hess = copy.copy(hessian)
+        tmp_hessian = copy.copy(hessian)
+        for j in range(self.iteration):
+            for i_constrain in range(len(self.constraint_name)):
+                if self.constraint_name[i_constrain] == "bond":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
+                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
+                    
+                    
+                elif self.constraint_name[i_constrain] == "angle":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
+                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy()
+                
+                elif self.constraint_name[i_constrain] == "dihedral":
+                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
+                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy()
+                else:
+                    print("error")
+                    raise "error (invaild input of constraint conditions)"
+                
+                
+                if i_constrain == 0:
+                    B_mat = tmp_b_mat
+                    B_mat_1st_derivative = tmp_b_mat_1st_derivative
+                else:
+                    B_mat = np.vstack((B_mat, tmp_b_mat))
+                    B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
+            
+            
+            int_grad = calc_int_grad_from_pBmat(grad.reshape(3*natom, 1), B_mat)
+            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(-1*int_hess, B_mat, B_mat_1st_derivative, int_grad)
+            proj_hess = tmp_hessian + projection_hess
+            delta_hess = proj_hess - prev_proj_hess
+            prev_proj_hess = copy.copy(proj_hess)
+            #print("delta_hess: ", np.linalg.norm(delta_hess))
+            if np.linalg.norm(delta_hess) < 1.0e-6:
+                break
+            tmp_hessian = copy.copy(proj_hess)
+            
+        
+        return proj_hess
+    
+    
+    
 

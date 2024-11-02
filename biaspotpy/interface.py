@@ -129,6 +129,7 @@ def optimizeparser(parser):
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     parser.add_argument("-lc", "--lagrange_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with lagrange multiplier (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
+    parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     
     args = parser.parse_args()
     if len(args.INPUT) < 2:
@@ -399,6 +400,7 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.cmds = False
         self.pca = False
         self.lagrange_constrain = []
+        self.projection_constrain = []
         return
  
  
@@ -427,6 +429,20 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    
+    #---------------------
+    force_data["projection_constraint_condition_list"] = []
+    force_data["projection_constraint_atoms"] = []
+    if len(args.projection_constrain) % 2 != 0:
+        print("invaild input (-pc) ")
+        sys.exit(0)
+
+    for i in range(int(len(args.projection_constrain)/2)):
+        force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
+        force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
+
+    
+    
     #---------------------
     force_data["lagrange_constraint_condition_list"] = []
     force_data["lagrange_constraint_atoms"] = []

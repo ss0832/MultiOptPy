@@ -1209,40 +1209,7 @@ def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
     return bond_matrix
 
 
-def calc_local_fc_from_pBmat(cart_hess, pBmat):#This method is not good since hessian is ill-condition.
-    #hessian projected out transion and rotation is needed.
-    inv_cart_hess = np.linalg.inv(cart_hess)
-    inv_local_fc = np.dot(pBmat, np.dot(inv_cart_hess, pBmat.T))
-    local_fc_matrix = np.linalg.inv(inv_local_fc)
-    non_diagonal_ufc = np.triu(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
-    non_diagonal_lfc = np.tril(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
-    local_fc = np.diag(local_fc_matrix)
-    return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
 
-def calc_local_fc_from_pBmat_2(cart_hess, pBmat):#This method is only available to stationary point
-    B_inv = np.dot(np.linalg.inv(np.dot(pBmat, pBmat.T)), pBmat)
-    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv.T))
-    diag_local_fc = np.diag(local_fc)
-    return diag_local_fc
-
-def calc_local_fc_from_pBmat_3(cart_hess, pBmat):#This method is only available to stationary point
-    #ref.:https://geometric.readthedocs.io/en/latest/how-it-works.html
-    Gmat = np.dot(pBmat.T, pBmat)
-    U, s, VT = np.linalg.svd(Gmat)
-    s_inv = []
-    for value in s:
-        if value > 1e-6:
-            s_inv.append(1/value)
-        else:
-            s_inv.append(value)
-    s_inv = np.array(s_inv, dtype="float64")
-    s_inv = np.diag(s_inv)
-    Gmat_inv = np.dot(VT.T, np.dot(s_inv, U.T))
-    
-    B_inv = np.dot(Gmat_inv, pBmat.T)
-    local_fc = np.dot(B_inv.T, np.dot(cart_hess, B_inv))
-  
-    return local_fc
 
 
 
@@ -1297,78 +1264,8 @@ def torch_align_vector_with_z(v):
 
     R = torch.eye(3, dtype=v.dtype, requires_grad=True) + sin_theta * K + (1 - cos_theta) * torch.matmul(K, K)
     return R
-    
 
 
-if __name__ == "__main__":#test
-    
-    test_coord = np.array( [[0.075000142905,          0.075000142905,         -0.000000000000],
-                            [ 1.027799531262,         -0.180310974599,          0.000000000000],
-                            [-0.180310974599,          1.027799531262,          0.000000000000],
-                            [-0.622488699568,         -0.622488699568,          0.000000000000]], dtype="float64") / UnitValueLib().bohr2angstroms
-    test_hess = np.array([[ 0.955797621, 0.000024060, -0.000000000, -0.518670978, 0.115520742, 0.000000000, -0.118512045, 0.115518826, 0.000000000, -0.318614598, -0.231063629, -0.000000000],
-                          [ 0.000024060, 0.955797621,  0.000000000, 0.115518826, -0.118512045, -0.000000000, 0.115520742,-0.518670978 ,-0.000000000,-0.231063629, -0.318614598, 0.000000000],
-                          [-0.000000000, 0.000000000,  -0.016934167, 0.000000000, -0.000000000 , 0.005642447, 0.000000000,-0.000000000, 0.005642447, 0.000000000, 0.000000000, 0.005649274 ],
-                          [-0.518670978,  0.115518826,0.000000000,0.534121419,-0.123663333,-0.000000000,-0.000671477,-0.007212539, -0.000000000,-0.014778964,0.015357046,-0.000000000],
-                          [ 0.115520742, -0.118512045,-0.000000000 ,-0.123663333,0.105749196, 0.000000000,0.039787518, -0.000671477,0.000000000,-0.031644928, 0.013434326,-0.000000000],
-                          [ 0.000000000,  -0.000000000,0.005642447,-0.000000000,0.000000000,-0.001877261,-0.000000000,0.000000000,-0.001883273,-0.000000000,0.000000000,-0.001881913],
-                          [-0.118512045, 0.115520742,0.000000000,-0.000671477,0.039787518, -0.000000000, 0.105749196, -0.123663333,0.000000000,0.013434326,-0.031644928,0.000000000],
-                          [ 0.115518826, -0.518670978 ,-0.000000000, -0.007212539,-0.000671477,0.000000000, -0.123663333,0.534121419,0.000000000,0.015357046,-0.014778964,0.000000000],
-                          [ 0.000000000, -0.000000000,0.005642447, -0.000000000,0.000000000,-0.001883273,0.000000000,0.000000000,-0.001877261,0.000000000,0.000000000,-0.001881913],
-                          [-0.318614598, -0.231063629, 0.000000000,-0.014778964,-0.031644928, -0.000000000,0.013434326,0.015357046,0.000000000,0.319959236,0.247351511,-0.000000000],
-                          [-0.231063629, -0.318614598, 0.000000000,0.015357046,0.013434326,0.000000000,-0.031644928,-0.014778964,0.000000000,0.247351511, 0.319959236, -0.000000000],
-                          [-0.000000000, 0.000000000,  0.005649274,-0.000000000, -0.000000000,-0.001881913,0.000000000, 0.000000000,-0.001881913,-0.000000000, -0.000000000,-0.001885447]], dtype="float64")
-    test_element_list = ["N", "H", "H", "H"]
-    partial_hess, partial_geom, partial_element_list = output_partial_hess(test_hess, [1,2], test_element_list, test_coord)
-    p_partial_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(partial_hess, partial_element_list, partial_geom)
-    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(p_partial_hess)
-    print(partial_eigenvalue)
-    
-    mw_partial_hess = Calculationtools().project_out_hess_tr_and_rot(partial_hess, partial_element_list, partial_geom)
-    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(mw_partial_hess)
-    print(partial_eigenvalue)
-
-    from redundant_coordinations import partial_bend_B_matrix, partial_stretch_B_matirx, partial_torsion_B_matrix
-    test_mw_hess = hess2mwhess(test_hess, test_element_list)
-    print("normal coordinate")
-    bond_pBmat = partial_stretch_B_matirx(test_coord, 1, 2)
-    bend_pBmat = partial_bend_B_matrix(test_coord, 2, 1, 3)
-    torsion_pBmat = partial_torsion_B_matrix(test_coord, 2, 1, 3, 4)
-    print(bond_pBmat, bend_pBmat, torsion_pBmat)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bend_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bend_pBmat)
-    print(lfc, undfc, lndfc, lfc2)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bond_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bond_pBmat)
-    print(lfc, undfc, lndfc, lfc2)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, torsion_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_hess, torsion_pBmat)
-    print(lfc, undfc, lndfc, lfc2)
-    print("mass-weighted coordinate")
-    elem_mass = np.array([[atomic_mass(elem)**(0.5)] for elem in test_element_list], dtype="float64")
-    
-    bond_pBmat = partial_stretch_B_matirx(test_coord * elem_mass, 1, 2)
-    bend_pBmat = partial_bend_B_matrix(test_coord * elem_mass, 2, 1, 3)
-    torsion_pBmat = partial_torsion_B_matrix(test_coord * elem_mass, 2, 1, 3, 4)
-    print(bond_pBmat, bend_pBmat, torsion_pBmat)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bend_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bend_pBmat)
-    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, bend_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, bond_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, bond_pBmat)
-    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, bond_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, torsion_pBmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, torsion_pBmat)
-    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, torsion_pBmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
-
-    stack_Bmat = np.vstack([bond_pBmat, bend_pBmat, torsion_pBmat])
-    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_mw_hess, stack_Bmat)
-    lfc2 = calc_local_fc_from_pBmat_2(test_mw_hess, stack_Bmat)
-    lfc3 = calc_local_fc_from_pBmat_3(test_mw_hess, stack_Bmat)
-    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
 
 
 

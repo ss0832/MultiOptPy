@@ -4,7 +4,8 @@ import copy
 
 import numpy as np
 
-
+from calc_tools import Calculationtools, output_partial_hess
+from parameter import UnitValueLib, atomic_mass
 
 class RedundantInternalCoordinates:
     def __init__(self):
@@ -322,6 +323,115 @@ def partial_torsion_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3, at
     return partial_B # radian/Bohr
 
 
+def torch_calc_distance(coord, atom_label_1, atom_label_2):#coord:Bohr
+    vec_1 = coord[atom_label_1 - 1]
+    vec_2 = coord[atom_label_2 - 1]
+    norm = torch.linalg.norm(vec_1 - vec_2)
+    return norm
+
+def torch_calc_angle(coord, atom_label_1, atom_label_2, atom_label_3):#coord:Bohr
+    vec_1 = coord[atom_label_1 - 1]
+    vec_2 = coord[atom_label_2 - 1]
+    vec_3 = coord[atom_label_3 - 1]
+    
+    vec_12 = vec_1 - vec_2
+    vec_32 = vec_3 - vec_2
+    norm_vec_12 = torch.linalg.norm(vec_12) + 1e-12
+    norm_vec_32 = torch.linalg.norm(vec_32) + 1e-12
+    
+    dot_prod = torch.dot(vec_12, vec_32) / (norm_vec_12 * norm_vec_32)
+    theta = torch.acos(dot_prod)
+    return theta
+
+def torch_calc_dihedral_angle(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4):#coord:Bohr
+    vec_1 = coord[atom_label_1 - 1]
+    vec_2 = coord[atom_label_2 - 1]
+    vec_3 = coord[atom_label_3 - 1]
+    vec_4 = coord[atom_label_4 - 1]
+    
+    vec_12 = vec_1 - vec_2
+    vec_23 = vec_3 - vec_2
+    vec_34 = vec_4 - vec_3
+    
+    v1 = torch.linalg.cross(vec_12, vec_23)
+    norm_v1 = torch.linalg.norm(v1, ord=2) + 1e-12
+    v2 = torch.linalg.cross(vec_23, vec_34)
+    norm_v2 = torch.linalg.norm(v2, ord=2) + 1e-12
+    cos_theta = torch.dot(v1, v2) / (norm_v1 * norm_v2)
+    angle = torch.acos(cos_theta)
+    
+    return angle
+
+
+def torch_B_matrix(coord, atom_labels, calc_int_coord_func):#coord:Bohr
+    B_mat = torch.func.jacrev(calc_int_coord_func)(coord, *atom_labels)
+    return B_mat
+
+def torch_B_matrix_derivative(coord, atom_labels, calc_int_coord_func):
+    B_mat_derivative = torch.func.jacrev(torch_B_matrix)(coord, atom_labels, calc_int_coord_func)
+    B_mat_derivative = B_mat_derivative.reshape(3*len(coord), 3*len(coord), 1)
+    return B_mat_derivative
+
+
+def calc_G_mat(Bmat):
+    Gmat = np.dot(Bmat.T, Bmat)
+    return Gmat
+
+def calc_inv_G_mat(Gmat, threshold=1e-6):
+    #Gmat += 1e-12*np.eye(len(Gmat)) 
+    #print(np.linalg.cond(Gmat))
+    U, s, VT = np.linalg.svd(Gmat)
+    s_inv = []
+    for value in s:
+        if value > threshold:
+            s_inv.append(1/value)
+        else:
+            s_inv.append(value)
+    s_inv = np.array(s_inv, dtype="float64")
+    s_inv = np.diag(s_inv)
+    Gmat_inv = np.dot(VT.T, np.dot(s_inv, U.T))
+    
+    return Gmat_inv
+
+def calc_inv_B_mat(Bmat):
+    Gmat = calc_G_mat(Bmat)
+    Gmat_inv = calc_inv_G_mat(Gmat)
+    Bmat_inv = np.dot(Gmat_inv, Bmat.T)
+    return Bmat_inv.T
+
+
+def calc_dot_B_deriv_int_grad(B_mat_1st_derivative, int_grad):#B_mat_1st_derivative: (3N, 3N, M), int_grad: (M, 1)
+    natom3 = len(B_mat_1st_derivative)
+    tmp_list = []
+    for i in range(natom3):
+        tmp_list.append(np.dot(B_mat_1st_derivative[i], int_grad))
+    dot_B_deriv_int_grad = np.array(tmp_list, dtype="float64").reshape(natom3, natom3)
+    return dot_B_deriv_int_grad
+
+
+def calc_int_hess_from_pBmat_for_non_stationary_point(cart_hess, pBmat, pBmat_1st_derivative, int_grad):
+    Bmat_inv = calc_inv_B_mat(pBmat)
+    dot_B_deriv_int_grad = calc_dot_B_deriv_int_grad(pBmat_1st_derivative, int_grad)
+    
+    int_hess = np.dot(Bmat_inv, np.dot(cart_hess - dot_B_deriv_int_grad, Bmat_inv.T))
+    return int_hess
+
+def calc_cart_hess_from_pBmat_for_non_stationary_point(int_hess, pBmat, pBmat_1st_derivative, int_grad):
+    dot_B_deriv_int_grad = calc_dot_B_deriv_int_grad(pBmat_1st_derivative, int_grad)
+    cart_hess = np.dot(pBmat.T, np.dot(int_hess, pBmat)) + dot_B_deriv_int_grad
+    return cart_hess
+
+
+def calc_int_grad_from_pBmat(cart_grad, pBmat):
+    Bmat_inv = calc_inv_B_mat(pBmat)
+    int_grad = np.dot(Bmat_inv, cart_grad)
+    return int_grad
+
+def calc_cart_grad_from_pBmat(int_grad, pBmat):
+    cart_grad = np.dot(pBmat.T, int_grad)
+    return cart_grad
+
+
 class TorchDerivatives:
     def __init__(self):
         return
@@ -360,3 +470,114 @@ class TorchDerivatives:
         return dihedral_angle
 
 
+def calc_local_fc_from_pBmat(cart_hess, pBmat):#This method is not good since hessian is ill-condition.
+    #hessian projected out transion and rotation is needed.
+    inv_cart_hess = np.linalg.inv(cart_hess)
+    inv_local_fc = np.dot(pBmat, np.dot(inv_cart_hess, pBmat.T))
+    local_fc_matrix = np.linalg.inv(inv_local_fc)
+    non_diagonal_ufc = np.triu(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
+    non_diagonal_lfc = np.tril(local_fc_matrix) - np.diag(np.diag(local_fc_matrix))
+    local_fc = np.diag(local_fc_matrix)
+    return local_fc, non_diagonal_ufc, non_diagonal_lfc#a.u.
+
+def calc_local_fc_from_pBmat_2(cart_hess, pBmat):#This method is only available to stationary point
+    B_inv = np.dot(np.linalg.inv(np.dot(pBmat, pBmat.T)), pBmat)
+    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv.T))
+    diag_local_fc = np.diag(local_fc)
+    return diag_local_fc
+
+def calc_local_fc_from_pBmat_3(cart_hess, pBmat):#This method is only available to stationary point
+    #ref.:https://geometric.readthedocs.io/en/latest/how-it-works.html
+    B_inv = calc_inv_B_mat(pBmat)
+    local_fc = np.dot(B_inv, np.dot(cart_hess, B_inv.T))
+
+    return local_fc
+
+
+
+
+if __name__ == "__main__":#test
+    
+    test_coord = np.array( [[0.075000142905,          0.075000142905,         -0.000000000000],
+                            [ 1.027799531262,         -0.180310974599,          0.000000000000],
+                            [-0.180310974599,          1.027799531262,          0.000000000000],
+                            [-0.622488699568,         -0.622488699568,          0.000000000000]], dtype="float64") / UnitValueLib().bohr2angstroms
+    test_hess = np.array([[ 0.955797621, 0.000024060, -0.000000000, -0.518670978, 0.115520742, 0.000000000, -0.118512045, 0.115518826, 0.000000000, -0.318614598, -0.231063629, -0.000000000],
+                          [ 0.000024060, 0.955797621,  0.000000000, 0.115518826, -0.118512045, -0.000000000, 0.115520742,-0.518670978 ,-0.000000000,-0.231063629, -0.318614598, 0.000000000],
+                          [-0.000000000, 0.000000000,  -0.016934167, 0.000000000, -0.000000000 , 0.005642447, 0.000000000,-0.000000000, 0.005642447, 0.000000000, 0.000000000, 0.005649274 ],
+                          [-0.518670978,  0.115518826,0.000000000,0.534121419,-0.123663333,-0.000000000,-0.000671477,-0.007212539, -0.000000000,-0.014778964,0.015357046,-0.000000000],
+                          [ 0.115520742, -0.118512045,-0.000000000 ,-0.123663333,0.105749196, 0.000000000,0.039787518, -0.000671477,0.000000000,-0.031644928, 0.013434326,-0.000000000],
+                          [ 0.000000000,  -0.000000000,0.005642447,-0.000000000,0.000000000,-0.001877261,-0.000000000,0.000000000,-0.001883273,-0.000000000,0.000000000,-0.001881913],
+                          [-0.118512045, 0.115520742,0.000000000,-0.000671477,0.039787518, -0.000000000, 0.105749196, -0.123663333,0.000000000,0.013434326,-0.031644928,0.000000000],
+                          [ 0.115518826, -0.518670978 ,-0.000000000, -0.007212539,-0.000671477,0.000000000, -0.123663333,0.534121419,0.000000000,0.015357046,-0.014778964,0.000000000],
+                          [ 0.000000000, -0.000000000,0.005642447, -0.000000000,0.000000000,-0.001883273,0.000000000,0.000000000,-0.001877261,0.000000000,0.000000000,-0.001881913],
+                          [-0.318614598, -0.231063629, 0.000000000,-0.014778964,-0.031644928, -0.000000000,0.013434326,0.015357046,0.000000000,0.319959236,0.247351511,-0.000000000],
+                          [-0.231063629, -0.318614598, 0.000000000,0.015357046,0.013434326,0.000000000,-0.031644928,-0.014778964,0.000000000,0.247351511, 0.319959236, -0.000000000],
+                          [-0.000000000, 0.000000000,  0.005649274,-0.000000000, -0.000000000,-0.001881913,0.000000000, 0.000000000,-0.001881913,-0.000000000, -0.000000000,-0.001885447]], dtype="float64")
+    test_element_list = ["N", "H", "H", "H"]
+    partial_hess, partial_geom, partial_element_list = output_partial_hess(test_hess, [1,2], test_element_list, test_coord)
+    p_partial_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(partial_hess, partial_element_list, partial_geom)
+    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(p_partial_hess)
+    print(partial_eigenvalue)
+    
+    mw_partial_hess = Calculationtools().project_out_hess_tr_and_rot(partial_hess, partial_element_list, partial_geom)
+    partial_eigenvalue, partial_eigenvector = np.linalg.eigh(mw_partial_hess)
+    print(partial_eigenvalue)
+
+
+    test_mw_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot(test_hess, test_element_list, test_coord))
+    tmp_test_mw_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot(test_hess, test_element_list, test_coord))
+    print("normal coordinate")
+    bond_pBmat = partial_stretch_B_matirx(test_coord, 1, 2)
+    bend_pBmat = partial_bend_B_matrix(test_coord, 2, 1, 3)
+    torsion_pBmat = partial_torsion_B_matrix(test_coord, 2, 1, 3, 4)
+    print(bond_pBmat, bend_pBmat, torsion_pBmat)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bend_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bend_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, bond_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, bond_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(test_hess, torsion_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(test_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc, lfc2)
+    print("mass-weighted coordinate")
+    elem_mass = np.array([[atomic_mass(elem)**(0.5)] for elem in test_element_list], dtype="float64")
+    
+    bond_pBmat = partial_stretch_B_matirx(test_coord * elem_mass, 1, 2)
+    bend_pBmat = partial_bend_B_matrix(test_coord * elem_mass, 2, 1, 3)
+    torsion_pBmat = partial_torsion_B_matrix(test_coord * elem_mass, 2, 1, 3, 4)
+    print(bond_pBmat, bend_pBmat, torsion_pBmat)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(tmp_test_mw_hess, bend_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(tmp_test_mw_hess, bend_pBmat)
+    lfc3 = calc_local_fc_from_pBmat_3(tmp_test_mw_hess, bend_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(tmp_test_mw_hess, bond_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(tmp_test_mw_hess, bond_pBmat)
+    lfc3 = calc_local_fc_from_pBmat_3(tmp_test_mw_hess, bond_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(tmp_test_mw_hess, torsion_pBmat)
+    lfc2 = calc_local_fc_from_pBmat_2(tmp_test_mw_hess, torsion_pBmat)
+    lfc3 = calc_local_fc_from_pBmat_3(tmp_test_mw_hess, torsion_pBmat)
+    print(lfc, undfc, lndfc, lfc2 * 5140.48, lfc3, lfc2)
+
+    stack_Bmat = np.vstack([bond_pBmat, bend_pBmat, torsion_pBmat])
+    lfc, undfc, lndfc = calc_local_fc_from_pBmat(tmp_test_mw_hess, stack_Bmat)
+    lfc2 = calc_local_fc_from_pBmat_2(tmp_test_mw_hess, stack_Bmat)
+    lfc3 = calc_local_fc_from_pBmat_3(tmp_test_mw_hess, stack_Bmat)
+    print(lfc, undfc, lndfc, lfc3 * 5140.48, lfc2 * 5140.48, lfc3, lfc2)
+
+    angle_B_matrix_derivative = torch_B_matrix_derivative(torch.tensor(test_coord * elem_mass, dtype=torch.float64), [2, 1, 3], torch_calc_angle)
+    angle_B_matrix_derivative = angle_B_matrix_derivative.detach().numpy()
+    print(angle_B_matrix_derivative)
+    angle_B_matrix = torch_B_matrix(torch.tensor(test_coord * elem_mass, dtype=torch.float64), [2, 1, 3], torch_calc_angle)
+    angle_B_matrix = angle_B_matrix.detach().numpy()
+    angle_B_matrix = angle_B_matrix.reshape(1, 12)
+    print(angle_B_matrix.reshape(1, 12))
+    #For test, test_coord is used as gradient.
+    int_grad = calc_int_grad_from_pBmat(test_coord.reshape(12, 1), angle_B_matrix)
+    cart_grad_from_int_grad = calc_cart_grad_from_pBmat(-int_grad, angle_B_matrix)
+    print(((cart_grad_from_int_grad - test_coord.reshape(12, 1))))
+    int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(test_hess, angle_B_matrix, angle_B_matrix_derivative, int_grad)
+    cart_hess_from_int_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(int_hess, angle_B_matrix, angle_B_matrix_derivative, int_grad)
+    print(((cart_hess_from_int_hess - test_hess)))
