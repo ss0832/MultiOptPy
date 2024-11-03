@@ -257,6 +257,7 @@ class Optimize:
 
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+                #SP.Model_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(SP.Model_hess, element_list, geom_num_list)
             self.Model_hess = copy.copy(SP.Model_hess)
             
             #if self.args.usedxtb != "None":
@@ -340,7 +341,7 @@ class Optimize:
                     else:
                         optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
-                if iter % self.FC_COUNT == 0:
+                if iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and iter % self.mFC_COUNT == 0):
                     if len(force_data["lagrange_constraint_condition_list"]) > 0:
                         optimizer_instances[i].set_hessian(combined_hessian)
                     else:

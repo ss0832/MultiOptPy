@@ -416,6 +416,13 @@ def calc_int_hess_from_pBmat_for_non_stationary_point(cart_hess, pBmat, pBmat_1s
     int_hess = np.dot(Bmat_inv, np.dot(cart_hess - dot_B_deriv_int_grad, Bmat_inv.T))
     return int_hess
 
+def calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(cart_hess, pBmat, pBmat_1st_derivative, int_grad):
+    Bmat_inv = calc_inv_B_mat(pBmat)
+    dot_B_deriv_int_grad = calc_dot_B_deriv_int_grad(pBmat_1st_derivative, int_grad)
+    couple_hess = np.dot(Bmat_inv, cart_hess - dot_B_deriv_int_grad)
+    return couple_hess
+
+
 def calc_cart_hess_from_pBmat_for_non_stationary_point(int_hess, pBmat, pBmat_1st_derivative, int_grad):
     dot_B_deriv_int_grad = calc_dot_B_deriv_int_grad(pBmat_1st_derivative, int_grad)
     cart_hess = np.dot(pBmat.T, np.dot(int_hess, pBmat)) + dot_B_deriv_int_grad

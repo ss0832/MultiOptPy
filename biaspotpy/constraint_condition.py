@@ -16,6 +16,7 @@ from redundant_coordinations import (TorchDerivatives,
                                      calc_dot_B_deriv_int_grad,
                                      calc_int_hess_from_pBmat_for_non_stationary_point,
                                      calc_cart_hess_from_pBmat_for_non_stationary_point,
+                                     calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point,
                                      calc_int_grad_from_pBmat,
                                      calc_cart_grad_from_pBmat)
 
@@ -685,7 +686,7 @@ class ProjectOutConstrain:
         tmp_grad = copy.copy(grad)
         current_geom = self.initialize(coord)
 
-        for j in range(self.iteration):
+        for j in range(1):
             for i_constrain in range(len(self.constraint_name)):
                 if self.constraint_name[i_constrain] == "bond":
                     atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
@@ -731,6 +732,7 @@ class ProjectOutConstrain:
         natom = len(coord)
         current_geom = self.initialize(coord)
         prev_proj_hess = copy.copy(hessian)
+        tmp_grad = copy.copy(grad)
         tmp_hessian = copy.copy(hessian)
         for j in range(self.iteration):
             for i_constrain in range(len(self.constraint_name)):
@@ -762,7 +764,7 @@ class ProjectOutConstrain:
                     B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
             
             
-            int_grad = calc_int_grad_from_pBmat(grad.reshape(3*natom, 1), B_mat)
+            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
 
             constraint_int_grad = []
             
@@ -777,6 +779,12 @@ class ProjectOutConstrain:
             int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
             projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(-1*int_hess + constraint_int_hess, B_mat, B_mat_1st_derivative, int_grad + constraint_int_grad)
             proj_hess = tmp_hessian + projection_hess
+
+            couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+            eff_hess = np.dot(couple_hess.T, np.dot(int_hess, couple_hess))
+
+            proj_hess = proj_hess - eff_hess
+
             delta_hess = proj_hess - prev_proj_hess
             prev_proj_hess = copy.copy(proj_hess)
             #print("delta_hess: ", np.linalg.norm(delta_hess))
