@@ -11,6 +11,7 @@ from redundant_coordinations import (TorchDerivatives,
                                      torch_B_matrix,
                                      torch_B_matrix_derivative,
                                      torch_calc_distance,
+                                     torch_calc_fragm_distance,
                                      torch_calc_angle,
                                      torch_calc_dihedral_angle,
                                      calc_dot_B_deriv_int_grad,
@@ -639,25 +640,39 @@ class ProjectOutConstrain:
         self.iteration = 1
         self.spring_const = 10.0
         self.init_tag = True
+        #self.func_list = None
         return
 
 
     def initialize(self, geom_num_list):
         tmp_init_constraint = []
+        #tmp_func_list = []
         for i in range(len(self.constraint_name)):
             if self.constraint_name[i] == "bond":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 init_bond_dist = calc_bond_length_from_vec(vec_1, vec_2) 
                 tmp_init_constraint.append(init_bond_dist)
+                #tmp_func_list.append(torch_calc_distance)
                 
-                
+            if self.constraint_name[i] == "fbond":
+                divide_index = self.constraint_atoms_list[i][-1]
+                fragm_1 = np.array(self.constraint_atoms_list[i][:divide_index], dtype=np.int32) - 1
+                fragm_2 = np.array(self.constraint_atoms_list[i][divide_index:], dtype=np.int32) - 1
+
+
+                vec_1 = np.mean(geom_num_list[fragm_1], axis=0)
+                vec_2 = np.mean(geom_num_list[fragm_2], axis=0)
+                init_bond_dist = calc_bond_length_from_vec(vec_1, vec_2) 
+                tmp_init_constraint.append(init_bond_dist)  
+                #tmp_func_list.append(torch_calc_fragm_distance)
                  
             elif self.constraint_name[i] == "angle":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 init_angle = calc_angle_from_vec(vec_1, vec_2)
                 tmp_init_constraint.append(init_angle)
+                #tmp_func_list.append(torch_calc_angle)
                 
       
                 
@@ -667,6 +682,7 @@ class ProjectOutConstrain:
                 vec_3 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][3] - 1]
                 init_dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
                 tmp_init_constraint.append(init_dihedral)
+                #tmp_func_list.append(torch_calc_dihedral_angle)
                 
                    
                 
@@ -676,6 +692,7 @@ class ProjectOutConstrain:
       
         if self.init_tag:
             self.init_constraint = tmp_init_constraint
+            #self.func_list = tmp_func_list
             self.init_tag = False
         return tmp_init_constraint
 
@@ -691,7 +708,15 @@ class ProjectOutConstrain:
                 if self.constraint_name[i_constrain] == "bond":
                     atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
                     tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
-                    
+                
+                elif self.constraint_name[i_constrain] == "fbond":
+
+                    divide_index = self.constraint_atoms_list[i_constrain][-1]
+                    fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64)
+                    fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64)
+                    atom_label = [fragm_1, fragm_2]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
+                
                 elif self.constraint_name[i_constrain] == "angle":
                     atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
                     tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
@@ -740,7 +765,14 @@ class ProjectOutConstrain:
                     atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
                     tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
                     tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
-                    
+
+                elif self.constraint_name[i_constrain] == "fbond":
+                    divide_index = self.constraint_atoms_list[i_constrain][-1]
+                    fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64) 
+                    fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64) 
+                    atom_label = [fragm_1, fragm_2]
+                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
+                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy()
                     
                 elif self.constraint_name[i_constrain] == "angle":
                     atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]

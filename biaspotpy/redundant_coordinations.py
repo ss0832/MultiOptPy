@@ -329,6 +329,12 @@ def torch_calc_distance(coord, atom_label_1, atom_label_2):#coord:Bohr
     norm = torch.linalg.norm(vec_1 - vec_2)
     return norm
 
+def torch_calc_fragm_distance(coord, atom_fragm_1, atom_fragm_2):#fragm_n:tensor
+    vec_1 = torch.mean(input=coord[atom_fragm_1 - 1], dim=0)
+    vec_2 = torch.mean(input=coord[atom_fragm_2 - 1], dim=0)
+    norm = torch.linalg.norm(vec_1 - vec_2)
+    return norm
+
 def torch_calc_angle(coord, atom_label_1, atom_label_2, atom_label_3):#coord:Bohr
     vec_1 = coord[atom_label_1 - 1]
     vec_2 = coord[atom_label_2 - 1]
