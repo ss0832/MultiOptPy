@@ -392,6 +392,10 @@ class Optimize:
                 new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
                 new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
                 new_geometry *= self.bohr2angstroms
+            #if not PC.Isduplicated:
+            #    tmp_new_geometry = new_geometry / self.bohr2angstroms
+            #    new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+            
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)

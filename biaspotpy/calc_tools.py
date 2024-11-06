@@ -449,7 +449,39 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     angle = torch.arccos(cos_theta)
     return angle
 
+def change_torsion_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, atom_idx4, target_torsion):#rad:target_torsion
+    A = coordinates[atom_idx1]
+    B = coordinates[atom_idx2]
+    C = coordinates[atom_idx3]
+    D = coordinates[atom_idx4]
+    current_torsion = calc_dihedral_angle_from_vec(A - B, B - C, C - D)
+    torsion_diff = target_torsion - current_torsion 
+    BC = C - B
+    new_D = rotate_atom(D, C, BC, -torsion_diff * 0.5)
+    new_A = rotate_atom(A, B, BC, torsion_diff * 0.5)     
+    coordinates[atom_idx4] = new_D
+    coordinates[atom_idx1] = new_A
+    A = coordinates[atom_idx1]
+    B = coordinates[atom_idx2]
+    C = coordinates[atom_idx3]
+    D = coordinates[atom_idx4]
+    return coordinates
 
+def change_bond_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, target_angle):#rad:target_angle
+    A = coordinates[atom_idx1]
+    B = coordinates[atom_idx2]
+    C = coordinates[atom_idx3]
+    BA = A - B
+    BC = C - B
+    current_angle_rad = calc_angle_from_vec(BA, BC)
+    rotation_axis = np.linalg.cross(BA, BC) 
+    rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+    angle_diff = target_angle - current_angle_rad
+    new_A = rotate_atom(A, B, rotation_axis, -angle_diff / 2.0)
+    new_C = rotate_atom(C, B, rotation_axis, angle_diff / 2.0) 
+    coordinates[atom_idx1] = new_A
+    coordinates[atom_idx3] = new_C
+    return coordinates
 
 def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = np.cross(vector1, vector2)
@@ -459,6 +491,19 @@ def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     cos_theta = np.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = np.arccos(cos_theta)
     return angle
+
+def rotate_atom(coord, axis_point, axis_direction, angle):
+    axis_unit = axis_direction / np.linalg.norm(axis_direction)
+    translated_coord = coord - axis_point
+    cos_angle = np.cos(angle)
+    sin_angle = np.sin(angle)
+    rotation_matrix = np.array([
+        [cos_angle + axis_unit[0]**2 * (1 - cos_angle), axis_unit[0]*axis_unit[1]*(1 - cos_angle) - axis_unit[2]*sin_angle, axis_unit[0]*axis_unit[2]*(1 - cos_angle) + axis_unit[1]*sin_angle],
+        [axis_unit[1]*axis_unit[0]*(1 - cos_angle) + axis_unit[2]*sin_angle, cos_angle + axis_unit[1]**2 * (1 - cos_angle), axis_unit[1]*axis_unit[2]*(1 - cos_angle) - axis_unit[0]*sin_angle],
+        [axis_unit[2]*axis_unit[0]*(1 - cos_angle) - axis_unit[1]*sin_angle, axis_unit[2]*axis_unit[1]*(1 - cos_angle) + axis_unit[0]*sin_angle, cos_angle + axis_unit[2]**2 * (1 - cos_angle)]
+    ])
+    rotated_coord = np.dot(rotation_matrix, translated_coord)
+    return rotated_coord + axis_point
 
 def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
@@ -1187,13 +1232,24 @@ def project_fragm_outofplain_vector_for_grad(gradient, geom_num_list, fragm_1, f
     return gradient_proj # ndarray (natoms, 3)
 
 
-def change_atom_distance(geom_num_list, atom1, atom2, distance):
+def move_atom_distance_one_side(geom_num_list, atom1, atom2, distance):
     vec = geom_num_list[atom2 - 1] - geom_num_list[atom1 - 1]
     norm_vec = np.linalg.norm(vec)
     unit_vec = vec / norm_vec
-    geom_num_list[atom1 - 1] = geom_num_list[atom2 - 1] + distance * unit_vec
+    geom_num_list[atom2 - 1] = geom_num_list[atom2 - 1] + distance * unit_vec
     return geom_num_list
     
+def change_atom_distance_both_side(geom_num_list, atom1, atom2, distance):
+    vec = geom_num_list[atom2 - 1] - geom_num_list[atom1 - 1]
+    norm_vec = np.linalg.norm(vec)
+    unit_vec = vec / norm_vec
+    dist_diff = distance - norm_vec
+
+    geom_num_list[atom1 - 1] = geom_num_list[atom1 - 1] - dist_diff * unit_vec * 0.5
+    geom_num_list[atom2 - 1] = geom_num_list[atom2 - 1] + dist_diff * unit_vec * 0.5
+    return geom_num_list
+
+
 
 def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
     bond_matrix = np.zeros((len(geom_num_list), len(geom_num_list)))

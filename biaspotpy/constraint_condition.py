@@ -2,7 +2,12 @@ import numpy as np
 import copy
 import torch
 from parameter import atomic_mass, UnitValueLib
-from calc_tools import calc_bond_length_from_vec, calc_angle_from_vec, calc_dihedral_angle_from_vec
+from calc_tools import (calc_bond_length_from_vec, 
+                        calc_angle_from_vec, 
+                        calc_dihedral_angle_from_vec, change_atom_distance_both_side, 
+                        change_bond_angle_both_side, 
+                        change_torsion_angle_both_side
+                        )
 from redundant_coordinations import (TorchDerivatives, 
                                      partial_stretch_B_matirx,
                                      partial_bend_B_matrix,
@@ -19,7 +24,14 @@ from redundant_coordinations import (TorchDerivatives,
                                      calc_cart_hess_from_pBmat_for_non_stationary_point,
                                      calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point,
                                      calc_int_grad_from_pBmat,
-                                     calc_cart_grad_from_pBmat)
+                                     calc_cart_grad_from_pBmat,
+                                     )
+
+def isduplicated(num_list):
+    numbers = [item for sublist in num_list for item in sublist]
+    boolean = len(numbers) != len(set(numbers))
+    return boolean
+
 
 
 def shake_parser(constraints):
@@ -655,7 +667,7 @@ class ProjectOutConstrain:
                 tmp_init_constraint.append(init_bond_dist)
                 #tmp_func_list.append(torch_calc_distance)
                 
-            if self.constraint_name[i] == "fbond":
+            elif self.constraint_name[i] == "fbond":
                 divide_index = self.constraint_atoms_list[i][-1]
                 fragm_1 = np.array(self.constraint_atoms_list[i][:divide_index], dtype=np.int32) - 1
                 fragm_2 = np.array(self.constraint_atoms_list[i][divide_index:], dtype=np.int32) - 1
@@ -696,11 +708,43 @@ class ProjectOutConstrain:
             self.init_tag = False
         return tmp_init_constraint
 
+    def adjust_init_coord(self, coord):
+
+        for i_constrain in range(len(self.constraint_name)):
+            if self.constraint_name[i_constrain] == "bond":
+                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
+            
+            elif self.constraint_name[i_constrain] == "angle":
+                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                coord = change_bond_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, self.init_constraint[i_constrain])
+                
+            elif self.constraint_name[i_constrain] == "dihedral":
+                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                atom_label_4 = self.constraint_atoms_list[i_constrain][3] - 1
+                coord = change_torsion_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4, self.init_constraint[i_constrain])
+                
+            else:
+                pass
+        return coord
+
 
     def calc_project_out_grad(self, coord, grad):# B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
         prev_proj_grad = copy.copy(grad)
         tmp_grad = copy.copy(grad)
+        #self.Isduplicated = isduplicated(self.constraint_atoms_list)
+        #if self.Isduplicated:
+        #    pass
+        #else:
+        #    coord = self.adjust_init_coord(coord)
+
+
         current_geom = self.initialize(coord)
 
         for j in range(1):
@@ -755,6 +799,13 @@ class ProjectOutConstrain:
     
     def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
+
+        #self.Isduplicated = isduplicated(self.constraint_atoms_list)
+        #if self.Isduplicated:
+        #    pass
+        #else:
+        #    coord = self.adjust_init_coord(coord)
+
         current_geom = self.initialize(coord)
         prev_proj_hess = copy.copy(hessian)
         tmp_grad = copy.copy(grad)
