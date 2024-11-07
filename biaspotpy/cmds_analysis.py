@@ -16,9 +16,13 @@ class CMDSPathAnalysis:
     def __init__(self, directory, energy_list, bias_energy_list):
         self.directory = directory
         energy_list = np.array(energy_list)
-        self.energy_list = energy_list - energy_list[0]
+        if len(energy_list) < 3:
+            self.energy_list = None
+            self.bias_energy_list = None
+            return
+        self.energy_list = energy_list[1:] - energy_list[1:][0]
         bias_energy_list = np.array(bias_energy_list)
-        self.bias_energy_list = bias_energy_list - bias_energy_list[0]
+        self.bias_energy_list = bias_energy_list[1:] - bias_energy_list[1:][0]
         return
     
     def read_xyz_file(self, struct_path_1, struct_path_2):
@@ -82,6 +86,11 @@ class CMDSPathAnalysis:
         return
     
     def main(self):
+        if self.energy_list is None and self.bias_energy_list is None:
+            print("There is not enough data to perform CMDS analysis...")
+            return
+            
+            
         print("processing CMDS analysis to aprrox. reaction path ...")
         file_list = sorted(glob.glob(self.directory+"samples_*_[0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9][0-9]/*.xyz")) + sorted(glob.glob(self.directory+"samples_*_[0-9][0-9][0-9][0-9][0-9][0-9]/*.xyz"))  
         file_list = file_list[1:]
