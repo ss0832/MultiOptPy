@@ -20,7 +20,7 @@ from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from constraint_condition import shake_parser, SHAKE
 from pbc import apply_periodic_boundary_condition
-
+from constraint_condition import ProjectOutConstrain
 
 class Thermostat:
     def __init__(self, momentum_list, temperature, pressure, element_list=[]):
@@ -333,6 +333,9 @@ class MD:
             new_geometry = apply_periodic_boundary_condition(new_geometry, TM.element_list, self.pbc_box)
         return new_geometry
 
+
+
+
     def md(self):
         if self.args.othersoft != "None":
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
@@ -368,6 +371,9 @@ class MD:
 
         temperature_list = []
         force_data = force_data_parser(self.args)
+        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
+
+
         finish_frag = False
         
         geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
@@ -454,8 +460,16 @@ class MD:
                 TM.init_purtubation(geom_num_list, B_e, B_g)
                 initial_geom_num_list = geom_num_list
                 pre_geom = initial_geom_num_list    
+                if len(force_data["projection_constraint_condition_list"]) > 0:
+                    PC.initialize(geom_num_list)
+
             else:
                 pass
+
+            if len(force_data["projection_constraint_condition_list"]) > 0:
+                B_g = PC.calc_project_out_grad(geom_num_list, B_g)
+                g = PC.calc_project_out_grad(geom_num_list, g)
+
 
             #-------------------energy profile 
             if iter == 0:
@@ -539,8 +553,8 @@ class MD:
         else:
             FIO.xyz_file_make()
         
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
-        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "maximum_value", "max")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "minimum_value", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
         
         
@@ -551,14 +565,14 @@ class MD:
             for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
                 f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
         
-        
-        
-        
         #----------------------
         print("Complete...")
         return
 
     
+    def MMmd(self):
+        
+        return
 
     def geom_info_extract(self, force_data, file_directory, B_g, g):
         if len(force_data["geom_info"]) > 1:

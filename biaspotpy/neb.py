@@ -1,12 +1,16 @@
 import os
 import numpy as np
 import csv
+import sys
 import glob
 import time
 import matplotlib.pyplot as plt
 import random
 import copy
 from scipy.signal import argrelextrema
+
+from constraint_condition import ProjectOutConstrain
+
 
 try:
     import psi4
@@ -810,17 +814,18 @@ class NEB:
             
             force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
             
-            if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
-                if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                    move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                    move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                else:
-                    move_vector_delta = min(0.05, np.linalg.norm(move_vector))
-                    move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
+            #if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
+            if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
+            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
+                move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
             else:
-                print("zero move vec (Projected velocity-verlet algorithm)")
-                move_vector.append(total_delta[i] * 0.0)  
+                move_vector_delta = min(0.05, np.linalg.norm(move_vector))
+                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
+            #else:
+                
+                #print("zero move vec (Projected velocity-verlet algorithm)")
+                #move_vector.append(total_delta[i] * 0.0)  
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
@@ -1028,6 +1033,9 @@ class NEB:
         file_directory = self.make_psi4_input_file(geometry_list,0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
+        #PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
+ 
+
         #prepare for FIRE method 
         dt = 0.5
         n_reset = 0
@@ -1095,6 +1103,9 @@ class NEB:
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
+
+
+
             #------------------
             #calculate force
             total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
@@ -1131,6 +1142,7 @@ class NEB:
                 
             #------------------
             pre_geom = geometry_num_list
+            
             geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
             pre_total_force = total_force
