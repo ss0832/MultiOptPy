@@ -79,7 +79,8 @@ def ieipparser(parser):
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
-     
+    args.lagrange_constrain = []
+    args.projection_constrain = []
     args.opt_fragment = []
     args.oniom_method = []
     return args
@@ -212,6 +213,8 @@ def nebparser(parser):
     args.opt_method = ""
     args.opt_fragment = []
     args.oniom_method = []
+    args.lagrange_constrain = []
+    args.projection_constrain = []
     return args
 
 
@@ -255,6 +258,8 @@ def mdparser(parser):
     args.opt_method = ""
     args.opt_fragment = []
     args.oniom_method = []
+    args.lagrange_constrain = []
+    args.projection_constrain = []
     return args
 
 
@@ -320,7 +325,8 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.opt_method = ["AdaBelief"]
         self.opt_fragment = []
         self.NSTEP = "999"
-
+        self.lagrange_constrain = []
+        self.projection_constrain = []
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -352,6 +358,8 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.opt_method = ""
         self.opt_fragment = []
         self.fixedges = 0
+        self.lagrange_constrain = []
+        self.projection_constrain = []
         self.pyscf = False
         return
     
@@ -406,7 +414,8 @@ class MDInterface(BiasPotInterface):
         self.INPUT = input_file
         self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
         
-  
+        self.lagrange_constrain = []
+        self.projection_constrain = []
         self.timestep = 0.1
         return
 
