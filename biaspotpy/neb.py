@@ -932,7 +932,7 @@ class NEB:
                     if psi4:
                         psi4.core.clean()
                     break
-                print("\n\n\nNEB:   "+str(optimize_num)+" ITR. \n\n\n")
+                print("\n\n\n  NEB: ITR. "+str(optimize_num)+" \n\n\n")
                 self.xyz_file_make(file_directory)
                 #------------------
                 #get energy and gradient
@@ -946,7 +946,8 @@ class NEB:
                 #--------------
                 if optimize_num == init_num:
                     init_geometry_num_list = geometry_num_list
-                
+
+
                 #-------------
                 biased_energy_list = []
                 biased_gradient_list = []
@@ -957,8 +958,24 @@ class NEB:
                 biased_energy_list = np.array(biased_energy_list ,dtype="float64")
                 biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
                 #------------------
+
+                if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == init_num:
+                    PC_list = []
+                    for i in range(len(energy_list)):
+                        PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"]))
+                        PC_list[i].initialize(geometry_num_list[i])
+
+                if len(force_data["projection_constraint_condition_list"]) > 0:
+                    for i in range(len(energy_list)):
+                        biased_gradient_list[i] = PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i])   
+
                 #calculate force
                 total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+
+
+
+
+
                 #------------------
                 cos_list = []
                 for i in range(len(total_force)):
@@ -1008,33 +1025,12 @@ class NEB:
     def run(self):
         
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
-        """
-        # IDPP method
-        tmp_geometry_list = []
-        for geom in geometry_list:
-            tmp_list = []
-            for g in geom[1:]:
-                tmp_list.append(g[1:4])
-            tmp_geometry_list.append(tmp_list)
-        tmp_geometry_list = np.array(tmp_geometry_list, dtype="float64")
-        tmp_geometry_list = optimize_initial_guess(tmp_geometry_list)
-        
-        tmp_tmp_geometry_list = []
-        for geom in tmp_geometry_list:
-            tmp_list = [electric_charge_and_multiplicity]
-            for g in range(len(geom)):
-                tmp_list.append([element_list[g]]+geom[g].tolist())
-            tmp_tmp_geometry_list.append(tmp_list)
-        
-        geometry_list = copy.copy(tmp_tmp_geometry_list)
-        """
         
         self.element_list = element_list
         file_directory = self.make_psi4_input_file(geometry_list,0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
-        #PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
- 
+        
 
         #prepare for FIRE method 
         dt = 0.5
@@ -1047,7 +1043,7 @@ class NEB:
             for elem in element_list:
                 element_number_list.append(element_number(elem))
             element_number_list = np.array(element_number_list, dtype="int")
-        exit_flag = False
+        
         with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
         #prepare for quasi-Newton method
@@ -1057,7 +1053,6 @@ class NEB:
         if self.GLOBAL_QUASI_NEWTOM_METHOD:
             global_hessian = np.eye(len(element_list)*3*len(geometry_list))
         
-        min_biased_energy_list = []
         
         
         if self.om:
@@ -1079,7 +1074,7 @@ class NEB:
                 if psi4:
                     psi4.core.clean()
                 break
-            print("\n\n\nNEB:   "+str(optimize_num)+" ITR. \n\n\n")
+            print("\n\n\n NEB: ITR.  "+str(optimize_num)+"  \n\n\n")
             self.xyz_file_make(file_directory)
             #------------------
             #get energy and gradient
@@ -1104,12 +1099,23 @@ class NEB:
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
 
+            if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == 0:
+                PC_list = []
+                for i in range(len(energy_list)):
+                    PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"]))
+                    PC_list[i].initialize(geometry_num_list[i])
+
+            if len(force_data["projection_constraint_condition_list"]) > 0:
+                for i in range(len(energy_list)):
+                    biased_gradient_list[i] = copy.copy(PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i]))            
+
 
 
             #------------------
             #calculate force
             total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-       
+
+
             #------------------
             cos_list = []
             for i in range(len(total_force)):
@@ -1118,6 +1124,11 @@ class NEB:
             
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             
+
+
+
+
+
             #------------------
             #relax path
             if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
