@@ -58,7 +58,8 @@ class Calculation:
                         input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
                     input_data_for_display = np.array(input_data_for_display, dtype="float64")
                 else:
-                    input_data_for_display = geom_num_list/self.bohr2angstroms
+                    geom_num_list = np.array(geom_num_list, dtype="float64")
+                    input_data_for_display = geom_num_list / self.bohr2angstroms
                     
                 print("\n",input_file,"\n")
                 mol = pyscf.gto.M(atom = input_file,
