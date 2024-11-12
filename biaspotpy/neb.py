@@ -708,7 +708,7 @@ class NEB:
             #delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
             delta_hess = self.Bofill_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
             hessian[i] += delta_hess
-            DELTA_for_QNM = 0.1
+            DELTA_for_QNM = 0.05
             matrix_for_RFO = np.append(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1), axis=1)
             tmp = np.array([np.append(g[i].reshape(1, len(geom_num_list[i])*3), 0.0)], dtype="float64")
             
@@ -720,7 +720,7 @@ class NEB:
           
             #if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
             lambda_for_calc = min(-10, lambda_for_calc)
-            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.1*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.01*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
             
             #else:
                 
@@ -780,7 +780,7 @@ class NEB:
         move_vector.append(total_delta[-1]/np.linalg.norm(total_delta[-1]) * end_tr)
         #--------------------
         
-        new_geometory = (geom_num_list + move_vector)*self.bohr2angstroms
+        new_geometory = (geom_num_list - move_vector)*self.bohr2angstroms
         return new_geometory, hessian
  
     def GFSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, global_hessian, biased_energy_list, pre_biased_energy_list):
@@ -795,7 +795,7 @@ class NEB:
         #delta_hess = self.FSB_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
         delta_hess = self.Bofill_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
         global_hessian += delta_hess   
-        DELTA_for_QNM = 0.1
+        DELTA_for_QNM = 0.05
         
         matrix_for_RFO = np.append(global_hessian, global_g, axis=1)
         tmp = np.array([np.append(global_g.reshape(len(global_g)), 0.0)], dtype="float64")
@@ -805,7 +805,7 @@ class NEB:
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
         lambda_for_calc = float(RFO_eigenvalue[0])
         lambda_for_calc = min(-10, lambda_for_calc)
-        total_delta = (DELTA_for_QNM*np.linalg.solve((global_hessian -0.1*lambda_for_calc*(np.eye(len(global_hessian))) ), global_g)).reshape(len(g), len(g[0]), 3)
+        total_delta = (DELTA_for_QNM*np.linalg.solve((global_hessian -0.01*lambda_for_calc*(np.eye(len(global_hessian))) ), global_g)).reshape(len(g), len(g[0]), 3)
         
         move_vector = [total_delta[0]]
         trust_radii_1_list = []
