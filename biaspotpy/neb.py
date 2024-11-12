@@ -583,8 +583,8 @@ class NEB:
             trust_radii_1_list.append(str(trust_radii_1*2))
             trust_radii_2_list.append(str(trust_radii_2*2))
             
-            normalized_vec_1 = (geometry_num_list[i-1] - geometry_num_list[i])/np.linalg.norm(geometry_num_list[i-1] - geometry_num_list[i])
-            normalized_vec_2 = (geometry_num_list[i+1] - geometry_num_list[i])/np.linalg.norm(geometry_num_list[i+1] - geometry_num_list[i])
+            normalized_vec_1 = (geometry_num_list[i-1] - geometry_num_list[i])/(np.linalg.norm(geometry_num_list[i-1] - geometry_num_list[i]) + 1e-15)
+            normalized_vec_2 = (geometry_num_list[i+1] - geometry_num_list[i])/(np.linalg.norm(geometry_num_list[i+1] - geometry_num_list[i]) + 1e-15)
             normalized_delta =  total_delta[i] / np.linalg.norm(total_delta[i])
             
             cos_1 = np.sum(normalized_vec_1 * normalized_delta) 
@@ -685,16 +685,16 @@ class NEB:
             tangent_vec_z = tangent_vec_z.reshape(len(geom_num_list[i])*3, 1)
             
             tmp_g = g[i].reshape(len(geom_num_list[i])*3, 1)
-            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_x) 
-            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_y) 
-            tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_z)
+            #tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_x) 
+            #tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_y) 
+            #tmp_g = project_optional_vector_for_grad(tmp_g, tangent_vec_z)
             
             g[i] = copy.copy(tmp_g.reshape(len(geom_num_list[i]), 3))
             
             tmp_hessian = hessian[i]
-            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_x)
-            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_y)
-            tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_z)
+            #tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_x)
+            #tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_y)
+            #tmp_hessian = project_optional_vector_for_hess(tmp_hessian, tangent_vec_z)
             hessian[i] = copy.copy(tmp_hessian)
              
 
@@ -705,9 +705,10 @@ class NEB:
             delta_grad = (g[i] - pre_g[i]).reshape(len(geom_num_list[i])*3, 1)
             displacement = (geom_num_list[i] - pre_geom[i]).reshape(len(geom_num_list[i])*3, 1)
             
-            delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
+            #delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
+            delta_hess = self.Bofill_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
             hessian[i] += delta_hess
-            DELTA_for_QNM = 0.03
+            DELTA_for_QNM = 0.1
             matrix_for_RFO = np.append(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1), axis=1)
             tmp = np.array([np.append(g[i].reshape(1, len(geom_num_list[i])*3), 0.0)], dtype="float64")
             
@@ -718,8 +719,8 @@ class NEB:
             print("# NODE",i," LAMBDA: ", lambda_for_calc)
           
             #if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
-                
-            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.05*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
+            lambda_for_calc = min(-10, lambda_for_calc)
+            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.1*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
             
             #else:
                 
@@ -751,18 +752,22 @@ class NEB:
             
             force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
             
-            if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
-                if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                    move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                    move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                else:
-                    move_vector_delta = min(0.05, np.linalg.norm(move_vector))
-                    move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
+            #if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
+            tmp_trust_radii = None
+
+            if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                tmp_trust_radii = trust_radii_1
+            if np.linalg.norm(total_delta[i]) > trust_radii_2:
+                tmp_trust_radii = trust_radii_2
+            if tmp_trust_radii is not None:
+                move_vector.append(total_delta[i]*tmp_trust_radii/np.linalg.norm(total_delta[i]))
             else:
-                pass
-                print("nearly zero move vec (Projected velocity-verlet algorithm)")
-                move_vector.append(total_delta[i]/np.linalg.norm(total_delta[i]) * 0.001)  
+                move_vector_delta = min(0.1, np.linalg.norm(move_vector))
+                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
+            #else:
+            #    pass
+            #print("nearly zero move vec (Projected velocity-verlet algorithm)")
+            #move_vector.append(total_delta[i]/np.linalg.norm(total_delta[i]) * 0.001)  
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")
@@ -787,9 +792,10 @@ class NEB:
         delta_grad = global_g - global_pre_g
         displacement = global_geom_list - global_pre_geom_list
         
-        delta_hess = self.FSB_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
+        #delta_hess = self.FSB_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
+        delta_hess = self.Bofill_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
         global_hessian += delta_hess   
-        DELTA_for_QNM = 0.03
+        DELTA_for_QNM = 0.1
         
         matrix_for_RFO = np.append(global_hessian, global_g, axis=1)
         tmp = np.array([np.append(global_g.reshape(len(global_g)), 0.0)], dtype="float64")
@@ -798,7 +804,8 @@ class NEB:
         RFO_eigenvalue, _ = np.linalg.eig(matrix_for_RFO)
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
         lambda_for_calc = float(RFO_eigenvalue[0])
-        total_delta = (DELTA_for_QNM*np.linalg.solve((global_hessian -0.05*lambda_for_calc*(np.eye(len(global_hessian))) ), global_g)).reshape(len(g), len(g[0]), 3)
+        lambda_for_calc = min(-10, lambda_for_calc)
+        total_delta = (DELTA_for_QNM*np.linalg.solve((global_hessian -0.1*lambda_for_calc*(np.eye(len(global_hessian))) ), global_g)).reshape(len(g), len(g[0]), 3)
         
         move_vector = [total_delta[0]]
         trust_radii_1_list = []
@@ -813,14 +820,16 @@ class NEB:
             trust_radii_2_list.append(str(trust_radii_2*2))
             
             force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
-            
+            tmp_trust_radii = None
             #if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
             if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
+                tmp_trust_radii = trust_radii_1
+            if np.linalg.norm(total_delta[i]) > trust_radii_2:
+                tmp_trust_radii = trust_radii_2
+            if tmp_trust_radii is not None:
+                move_vector.append(total_delta[i]*tmp_trust_radii/np.linalg.norm(total_delta[i]))
             else:
-                move_vector_delta = min(0.05, np.linalg.norm(move_vector))
+                move_vector_delta = min(0.1, np.linalg.norm(move_vector))
                 move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
             #else:
                 
@@ -849,6 +858,22 @@ class NEB:
         delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
         #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, geom_num_list)
         return delta_hess
+
+
+    def Bofill_hessian_update(self, hess, displacement, delta_grad, geom_num_list):
+        #J. Chem. Phys. 1999, 111, 10806
+        A = delta_grad - np.dot(hess, displacement)
+        delta_hess_SR1 = np.dot(A, A.T) / (np.dot(A.T, displacement) + 1e-15)
+         
+        block_1 = delta_grad - 1 * np.dot(hess, displacement) 
+        block_2 = np.dot(displacement, displacement.T) / ((np.dot(displacement.T, displacement)) ** 2 + 1e-15)
+        
+        delta_hess_PSB = -1 * np.dot(block_1.T, displacement) * block_2 + (np.dot(block_1, displacement.T) + np.dot(displacement, block_1.T)) / (np.dot(displacement.T, displacement)  + 1e-15)
+            
+        Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / (np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement) + 1e-15)
+        delta_hess = Bofill_const*delta_hess_SR1 + (1 - Bofill_const)*delta_hess_PSB
+        return delta_hess
+    
 
     def adaptic_method(self, energy_list, gradient_list, new_geometory, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
         print("ANEB (Adaptic NEB)")#J. Chem. Phys. 117, 4651–4658 (2002) https://doi.org/10.1063/1.1495401
