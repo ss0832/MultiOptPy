@@ -5,7 +5,7 @@ import itertools
 import math
 import numpy as np
 import torch
-
+from collections import deque
 
         
 class AFIRPotential:
@@ -18,6 +18,7 @@ class AFIRPotential:
         self.R_0 = 3.8164/self.bohr2angstroms #ang.→bohr
         self.EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
         self.p = 6.0
+        #self.prev_energy_list = deque(maxlen=5)
         return
     def calc_energy(self, geom_num_list, bias_pot_params):
         """
@@ -55,5 +56,10 @@ class AFIRPotential:
         A = (omega * vector).sum() 
         B = omega.sum()  
         
+        
+        
         energy = alpha*(A/B)#A/B:Bohr
+        
+        #self.prev_energy_list.append(energy)
+        #print(self.prev_energy_list)
         return energy #hartree

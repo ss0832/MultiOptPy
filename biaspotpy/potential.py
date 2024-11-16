@@ -1,11 +1,12 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
+from parameter import UnitValueLib
 from fileio import save_bias_pot_info, save_bias_param_grad_info
 
 import numpy as np
 import copy
 import random
 import torch
+import re
 
 from LJ_repulsive_potential import LJRepulsivePotentialCone, LJRepulsivePotentialGaussian, LJRepulsivePotentialv2Value, LJRepulsivePotentialv2Scale, LJRepulsivePotentialValue, LJRepulsivePotentialScale
 from AFIR_potential import AFIRPotential
@@ -60,11 +61,15 @@ class BiasPotentialCalculation:
         geom_num_list = ndarray2tensor(geom_num_list)
         #------------------------------------------------
         #if iter == "" or iter == 0:
-        self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = make_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
+        
         if iter == 0:
+            self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = make_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
             self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = make_micro_iter_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
         
-
+        else:
+            self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = change_bias_pot_params(force_data, self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list, geom_num_list, iter)
+            #self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = change_bias_pot_params(force_data, self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list, geom_num_list, iter)
+        
         #------------------    
         if len(force_data["gaussian_potential_target"]) > 0:
             if self.metaD_history_list is None:
@@ -249,6 +254,139 @@ def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, 
     return bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list
 
 
+def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list, geom_num_list, iter):
+    def process_AFIR_pot(i):
+        gamma_data = force_data["AFIR_gamma"][i]
+        AFIR_gamma_tmp = (
+            gradually_change_param(gamma_data[0], gamma_data[1], iter)
+            if len(gamma_data) == 2 and iter != ""
+            else gamma_data[0]
+        )
+        print(AFIR_gamma_tmp)
+        return torch.tensor([AFIR_gamma_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_keep_pot_v2(i):
+        spring_data = force_data["keep_pot_v2_spring_const"][i]
+        distance_data = force_data["keep_pot_v2_distance"][i]
+
+        spring_const_tmp = (
+            gradually_change_param(spring_data[0], spring_data[1], iter)
+            if len(spring_data) == 2 and iter != ""
+            else spring_data[0]
+        )
+        dist_tmp = (
+            gradually_change_param(distance_data[0], distance_data[1], iter)
+            if len(distance_data) == 2 and iter != ""
+            else distance_data[0]
+        )
+
+        print(spring_const_tmp, dist_tmp)
+        return torch.tensor([spring_const_tmp, dist_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_keep_angle_v2(i):
+        spring_data = force_data["keep_angle_v2_spring_const"][i]
+        angle_data = force_data["keep_angle_v2_angle"][i]
+
+        spring_const_tmp = (
+            gradually_change_param(spring_data[0], spring_data[1], iter)
+            if len(spring_data) == 2 and iter != ""
+            else spring_data[0]
+        )
+        angle_tmp = (
+            gradually_change_param(angle_data[0], angle_data[1], iter)
+            if len(angle_data) == 2 and iter != ""
+            else angle_data[0]
+        )
+
+        print(spring_const_tmp, angle_tmp)
+        return torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_keep_dihedral_angle_v2(i):
+        spring_data = force_data["keep_dihedral_angle_v2_spring_const"][i]
+        angle_data = force_data["keep_dihedral_angle_v2_angle"][i]
+
+        spring_const_tmp = (
+            gradually_change_param(spring_data[0], spring_data[1], iter)
+            if len(spring_data) == 2 and iter != ""
+            else spring_data[0]
+        )
+        angle_tmp = (
+            gradually_change_param(angle_data[0], angle_data[1], iter)
+            if len(angle_data) == 2 and iter != ""
+            else angle_data[0]
+        )
+
+        print(spring_const_tmp, angle_tmp)
+        return torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_keep_dihedral_angle_cos(i):
+        potential_const_data = force_data["keep_dihedral_angle_cos_potential_const"][i]
+        angle_const_data = force_data["keep_dihedral_angle_cos_angle_const"][i]
+        angle_data = force_data["keep_dihedral_angle_cos_angle"][i]
+
+        potential_const_tmp = (
+            gradually_change_param(potential_const_data[0], potential_const_data[1], iter)
+            if len(potential_const_data) == 2 and iter != ""
+            else potential_const_data[0]
+        )
+        angle_const_tmp = (
+            gradually_change_param(angle_const_data[0], angle_const_data[1], iter)
+            if len(angle_const_data) == 2 and iter != ""
+            else angle_const_data[0]
+        )
+        angle_tmp = (
+            gradually_change_param(angle_data[0], angle_data[1], iter)
+            if len(angle_data) == 2 and iter != ""
+            else angle_data[0]
+        )
+
+        print(potential_const_tmp, angle_const_tmp, angle_tmp)
+        return torch.tensor([potential_const_tmp, angle_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_keep_out_of_plain_angle_v2(i):
+        spring_data = force_data["keep_out_of_plain_angle_v2_spring_const"][i]
+        angle_data = force_data["keep_out_of_plain_angle_v2_angle"][i]
+
+        spring_const_tmp = (
+            gradually_change_param(spring_data[0], spring_data[1], iter)
+            if len(spring_data) == 2 and iter != ""
+            else spring_data[0]
+        )
+        angle_tmp = (
+            gradually_change_param(angle_data[0], angle_data[1], iter)
+            if len(angle_data) == 2 and iter != ""
+            else angle_data[0]
+        )
+
+        print(spring_const_tmp, angle_tmp)
+        return torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
+
+    def process_default():
+        pass  # Do nothing for unsupported patterns
+
+    pattern_to_function = {
+        r"AFIR_pot_\d+": process_AFIR_pot,
+        r"keep_pot_v2_\d+": process_keep_pot_v2,
+        r"keep_angle_v2_\d+": process_keep_angle_v2,
+        r"keep_dihedral_angle_v2_\d+": process_keep_dihedral_angle_v2,
+        r"keep_dihedral_angle_cos_\d+": process_keep_dihedral_angle_cos,
+        r"keep_out_of_plain_angle_v2_\d+": process_keep_out_of_plain_angle_v2,
+        # Add patterns here for other types if needed
+    }
+
+    for i, bias_pot_obj_id in enumerate(bias_pot_obj_id_list):
+        matched = False
+        for pattern, func in pattern_to_function.items():
+            if re.match(pattern, bias_pot_obj_id):
+                bias_pot_params_list[i] = func(i)
+                matched = True
+                break
+        if not matched:
+            process_default()
+
+    return bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list
+
+
 def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom_num_list, iter):
     bias_pot_obj_list = []
     bias_pot_obj_id_list = []
@@ -340,7 +478,7 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
             
             
             bias_pot_obj_list.append(UP)
-            bias_pot_obj_id_list.append("flux_pot_"+str(i))
+            bias_pot_obj_id_list.append("universal_pot_"+str(i))
             bias_pot_params_list.append([])
         else:
             pass
@@ -487,17 +625,8 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
             
     for i in range(len(force_data["keep_pot_v2_spring_const"])):
         if not 0.0 in force_data["keep_pot_v2_spring_const"][i]:
-            if len(force_data["keep_pot_v2_spring_const"][i]) == 2 and iter != "":
-                spring_const_tmp = gradually_change_param(force_data["keep_pot_v2_spring_const"][i][0], force_data["keep_pot_v2_spring_const"][i][1], iter)
-                print(spring_const_tmp)
-            else:
-                spring_const_tmp = force_data["keep_pot_v2_spring_const"][i][0]
-                
-            if len(force_data["keep_pot_v2_distance"][i]) == 2 and iter != "":
-                dist_tmp = gradually_change_param(force_data["keep_pot_v2_distance"][i][0], force_data["keep_pot_v2_distance"][i][1], iter)
-                print(dist_tmp)
-            else:
-                dist_tmp = force_data["keep_pot_v2_distance"][i][0]      
+            spring_const_tmp = force_data["keep_pot_v2_spring_const"][i][0]
+            dist_tmp = force_data["keep_pot_v2_distance"][i][0]      
             SKP = StructKeepPotentialv2(keep_pot_v2_spring_const=spring_const_tmp, 
                                         keep_pot_v2_distance=dist_tmp, 
                                         keep_pot_v2_fragm1=force_data["keep_pot_v2_fragm1"][i],
@@ -614,17 +743,9 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     if len(geom_num_list) > 2:
         for i in range(len(force_data["keep_angle_v2_spring_const"])):
             if not 0.0 in force_data["keep_angle_v2_spring_const"][i]:
-                if len(force_data["keep_angle_v2_spring_const"][i]) == 2 and iter != "":
-                    spring_const_tmp = gradually_change_param(force_data["keep_angle_v2_spring_const"][i][0], force_data["keep_angle_v2_spring_const"][i][1], iter)
-                    print(spring_const_tmp)
-                else:
-                    spring_const_tmp = force_data["keep_angle_v2_spring_const"][i][0]
-                    
-                if len(force_data["keep_angle_v2_angle"][i]) == 2 and iter != "":
-                    angle_tmp = gradually_change_param(force_data["keep_angle_v2_angle"][i][0], force_data["keep_angle_v2_angle"][i][1], iter)
-                    print(angle_tmp)
-                else:
-                    angle_tmp = force_data["keep_angle_v2_angle"][i][0]
+                
+                spring_const_tmp = force_data["keep_angle_v2_spring_const"][i][0]
+                angle_tmp = force_data["keep_angle_v2_angle"][i][0]
                 bias_pot_params = torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64) 
                 SKAngleP = StructKeepAnglePotentialv2(
                     keep_angle_v2_fragm1=force_data["keep_angle_v2_fragm1"][i], 
@@ -693,17 +814,9 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     if len(geom_num_list) > 3:
         for i in range(len(force_data["keep_dihedral_angle_v2_spring_const"])):
             if not 0.0 in force_data["keep_dihedral_angle_v2_spring_const"][i]:
-                if len(force_data["keep_dihedral_angle_v2_spring_const"][i]) == 2 and iter != "":
-                    spring_const_tmp = gradually_change_param(force_data["keep_dihedral_angle_v2_spring_const"][i][0], force_data["keep_dihedral_angle_v2_spring_const"][i][1], iter)
-                    print(spring_const_tmp)
-                else:
-                    spring_const_tmp = force_data["keep_dihedral_angle_v2_spring_const"][i][0]
-                    
-                if len(force_data["keep_dihedral_angle_v2_angle"][i]) == 2 and iter != "":
-                    angle_tmp = gradually_change_param(force_data["keep_dihedral_angle_v2_angle"][i][0], force_data["keep_dihedral_angle_v2_angle"][i][1], iter)
-                    print(angle_tmp)
-                else:
-                    angle_tmp = force_data["keep_dihedral_angle_v2_angle"][i][0]
+                
+                spring_const_tmp = force_data["keep_dihedral_angle_v2_spring_const"][i][0]
+                angle_tmp = force_data["keep_dihedral_angle_v2_angle"][i][0]
                     
                 SKDAP = StructKeepDihedralAnglePotentialv2(keep_dihedral_angle_v2_spring_const=spring_const_tmp, 
                                             keep_dihedral_angle_v2_fragm1=force_data["keep_dihedral_angle_v2_fragm1"][i], 
@@ -725,23 +838,12 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     if len(geom_num_list) > 3:
         for i in range(len(force_data["keep_dihedral_angle_cos_potential_const"])):
             if not 0.0 in force_data["keep_dihedral_angle_cos_potential_const"][i]:
-                if len(force_data["keep_dihedral_angle_cos_potential_const"][i]) == 2 and iter != "":
-                    potential_const_tmp = gradually_change_param(force_data["keep_dihedral_angle_cos_spring_const"][i][0], force_data["keep_dihedral_angle_cos_spring_const"][i][1], iter)
-                    print(potential_const_tmp)
-                else:
-                    potential_const_tmp = force_data["keep_dihedral_angle_cos_potential_const"][i][0]
-                    
-                if len(force_data["keep_dihedral_angle_cos_angle_const"][i]) == 2 and iter != "":
-                    angle_const_tmp = gradually_change_param(force_data["keep_dihedral_angle_cos_angle_const"][i][0], force_data["keep_dihedral_angle_cos_angle_const"][i][1], iter)
-                    print(angle_const_tmp)
-                else:
-                    angle_const_tmp = force_data["keep_dihedral_angle_cos_angle_const"][i][0]
                 
-                if len(force_data["keep_dihedral_angle_cos_angle"][i]) == 2 and iter != "":
-                    angle_tmp = gradually_change_param(force_data["keep_dihedral_angle_cos_angle"][i][0], force_data["keep_dihedral_angle_cos_angle"][i][1], iter)
-                    print(angle_tmp)
-                else:
-                    angle_tmp = force_data["keep_dihedral_angle_cos_angle"][i][0]
+                potential_const_tmp = force_data["keep_dihedral_angle_cos_potential_const"][i][0]
+                
+                angle_const_tmp = force_data["keep_dihedral_angle_cos_angle_const"][i][0]
+
+                angle_tmp = force_data["keep_dihedral_angle_cos_angle"][i][0]
                 
                     
                 SKDAP = StructKeepDihedralAnglePotentialCos(keep_dihedral_angle_cos_potential_const=potential_const_tmp, 
@@ -762,17 +864,9 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     if len(geom_num_list) > 3:
         for i in range(len(force_data["keep_out_of_plain_angle_v2_spring_const"])):
             if not 0.0 in force_data["keep_out_of_plain_angle_v2_spring_const"][i]:
-                if len(force_data["keep_out_of_plain_angle_v2_spring_const"][i]) == 2 and iter != "":
-                    spring_const_tmp = gradually_change_param(force_data["keep_out_of_plain_angle_v2_spring_const"][i][0], force_data["keep_out_of_plain_angle_v2_spring_const"][i][1], iter)
-                    print(spring_const_tmp)
-                else:
-                    spring_const_tmp = force_data["keep_out_of_plain_angle_v2_spring_const"][i][0]
-                    
-                if len(force_data["keep_out_of_plain_angle_v2_angle"][i]) == 2 and iter != "":
-                    angle_tmp = gradually_change_param(force_data["keep_out_of_plain_angle_v2_angle"][i][0], force_data["keep_out_of_plain_angle_v2_angle"][i][1], iter)
-                    print(angle_tmp)
-                else:
-                    angle_tmp = force_data["keep_out_of_plain_angle_v2_angle"][i][0]
+                
+                spring_const_tmp = force_data["keep_out_of_plain_angle_v2_spring_const"][i][0]
+                angle_tmp = force_data["keep_out_of_plain_angle_v2_angle"][i][0]
                 bias_pot_params = torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
                 SKOPAP = StructKeepOutofPlainAnglePotentialv2(keep_out_of_plain_angle_v2_spring_const=spring_const_tmp, 
                                             keep_out_of_plain_angle_v2_fragm1=force_data["keep_out_of_plain_angle_v2_fragm1"][i], 
