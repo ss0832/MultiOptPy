@@ -506,6 +506,58 @@ def calc_local_fc_from_pBmat_3(cart_hess, pBmat):#This method is only available 
 
     return local_fc
 
+def cartesian_to_z_matrix(cart_coords):
+    def calculate_torsion_angle(A, B, C, D):
+        AB = B - A
+        BC = C - B
+        CD = D - C
+
+        normal_ABC = np.cross(AB, BC)
+        normal_BCD = np.cross(BC, CD)
+        
+        normal_ABC = normal_ABC / np.linalg.norm(normal_ABC)
+        normal_BCD = normal_BCD / np.linalg.norm(normal_BCD)
+        
+        cosine_angle = np.dot(normal_ABC, normal_BCD)
+        angle = np.arccos(cosine_angle)
+
+        sign = np.dot(np.cross(normal_ABC, normal_BCD), BC)  
+        if sign < 0:
+            angle = -angle
+        
+        return np.degrees(angle)
+    n_atoms = len(cart_coords)
+    z_matrix = []
+    
+    distance_1_2 = np.linalg.norm(np.array(cart_coords[1]) - np.array(cart_coords[0])) + 1e-15
+    z_matrix.append([distance_1_2])
+
+    distance_1_3 = np.linalg.norm(np.array(cart_coords[2]) - np.array(cart_coords[0])) + 1e-15
+    distance_2_3 = np.linalg.norm(np.array(cart_coords[2]) - np.array(cart_coords[1])) + 1e-15
+    angle_1_2_3 = np.degrees(np.arccos(np.dot(np.array(cart_coords[1]) - np.array(cart_coords[0]),
+                                              np.array(cart_coords[2]) - np.array(cart_coords[0])) /
+                                        (distance_1_2 * distance_1_3)))
+    z_matrix.append([distance_2_3])
+    z_matrix.append([angle_1_2_3])
+    for i in range(3, n_atoms):
+    
+        distance_i_minus_1 = np.linalg.norm(np.array(cart_coords[i]) - np.array(cart_coords[i-1])) + 1e-15
+        distance_i_minus_2 = np.linalg.norm(np.array(cart_coords[i]) - np.array(cart_coords[i-2])) + 1e-15
+        clipped_value = np.clip(np.dot(np.array(cart_coords[i-1]) - np.array(cart_coords[i-2]),
+                                                                   np.array(cart_coords[i]) - np.array(cart_coords[i-1])) /
+                                                           (distance_i_minus_2 * distance_i_minus_1), -1, 1)
+        angle_i_minus_2_i_minus_1_i = np.degrees(np.arccos(clipped_value))
+        
+        
+        torsion_angle = calculate_torsion_angle(cart_coords[i - 3], cart_coords[i - 2], cart_coords[i - 1], cart_coords[i])
+        z_matrix.append([distance_i_minus_1])  
+        z_matrix.append([angle_i_minus_2_i_minus_1_i])
+        z_matrix.append([torsion_angle])
+    z_matrix = np.array(z_matrix)
+    return z_matrix
+
+
+
 
 
 
