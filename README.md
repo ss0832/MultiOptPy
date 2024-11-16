@@ -31,6 +31,9 @@ Optional
 References are given in the source code.
 
 ## Usage
+
+After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
+
 ```
 python optmain.py SN2.xyz -ma 150 1 6
 ```
