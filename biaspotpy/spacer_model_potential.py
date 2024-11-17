@@ -42,7 +42,7 @@ class SpacerModelPotential:
         
         self.micro_iteration = 5000 * self.config["spacer_model_potential_particle_number"]
         self.rand_search_iteration = 50 * self.config["spacer_model_potential_particle_number"]
-        self.threshold = 1e-5
+        self.threshold = 2e-6
         self.init = True
         return
     
@@ -65,12 +65,20 @@ class SpacerModelPotential:
         ene = epsilon * (torch.exp(-2 * self.a * (distance - sigma)) -2 * torch.exp(-1 * self.a * (distance - sigma)))
         return ene
 
-    def barrier_potential(self, distance, sigma):
+    
+    def barrier_switching_potential(self, distance, sigma):
         normalized_distance = distance / sigma
-        if normalized_distance >= 0.9:
-            ene = 50 * (normalized_distance - 0.9) ** 2
+        min_norm_dist = 0.9
+        max_norm_dist = 1.0
+        const = 1.0
+
+        if normalized_distance >= min_norm_dist and normalized_distance < max_norm_dist: 
+            ene = -1 * const * (1 - 10 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 3 + 15 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 4 - 6 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 5) + const
+        elif normalized_distance >= max_norm_dist:
+            ene = const * normalized_distance 
         else:
             ene = 0.0 
+
         return ene
     
     def calc_potential(self, geom_num_list, particle_num_list, bias_pot_params):
@@ -104,10 +112,10 @@ class SpacerModelPotential:
             min_dist = norm_list[min_idx]
             
             atom_sigma = self.config["spacer_model_potential_cavity_scaling"] * self.VDW_distance_lib(self.config["element_list"][self.num2tgtatomlabel[min_idx]])
-            energy = energy + self.barrier_potential(min_dist, atom_sigma)
+            energy = energy + self.barrier_switching_potential(min_dist, atom_sigma)
 
         self.tmp_geom_num_list_for_save = torch.cat([geom_num_list, particle_num_list], dim=0) * self.bohr2angstroms
-        self.tmp_element_list_for_save = self.config["element_list"] + ["Ar"] * len(particle_num_list)
+        self.tmp_element_list_for_save = self.config["element_list"] + ["He"] * len(particle_num_list)
         
         return energy
     
