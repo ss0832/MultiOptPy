@@ -71,15 +71,22 @@ class SpacerModelPotential:
         min_norm_dist = 0.9
         max_norm_dist = 1.0
         const = 1.0
+        
+        in_range = (normalized_distance >= min_norm_dist) & (normalized_distance < max_norm_dist)
+        out_of_range = normalized_distance >= max_norm_dist
+        ene = torch.zeros_like(normalized_distance) 
 
-        if normalized_distance >= min_norm_dist and normalized_distance < max_norm_dist: 
-            ene = -1 * const * (1 - 10 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 3 + 15 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 4 - 6 * ((normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)) ** 5) + const
-        elif normalized_distance >= max_norm_dist:
-            ene = const * normalized_distance 
-        else:
-            ene = 0.0 
+        normalized_diff = (normalized_distance - min_norm_dist) / (max_norm_dist - min_norm_dist)
+        ene[in_range] = -const * (
+            1 - 10 * normalized_diff[in_range]**3
+            + 15 * normalized_diff[in_range]**4
+            - 6 * normalized_diff[in_range]**5
+        ) + const
 
+        ene[out_of_range] = const * normalized_distance[out_of_range]
+        ene = torch.sum(ene)
         return ene
+
     
     def calc_potential(self, geom_num_list, particle_num_list, bias_pot_params):
         energy = 0.0
@@ -106,13 +113,17 @@ class SpacerModelPotential:
         energy = energy + pairwise_energies.sum()
 
         #avoid scattering particle to outside of cavity
-        for i in range(len(particle_num_list)):
-            norm_list = torch.abs(torch.linalg.norm(geom_num_list[np.array(self.config["spacer_model_potential_target"])-1], dim=1) - torch.linalg.norm(particle_num_list[i]))
-            min_idx = torch.argmin(norm_list).item()
-            min_dist = norm_list[min_idx]
-            
-            atom_sigma = self.config["spacer_model_potential_cavity_scaling"] * self.VDW_distance_lib(self.config["element_list"][self.num2tgtatomlabel[min_idx]])
-            energy = energy + self.barrier_switching_potential(min_dist, atom_sigma)
+        target_geom = geom_num_list[np.array(self.config["spacer_model_potential_target"]) - 1]
+
+        norm_diff = torch.abs(torch.linalg.norm(target_geom, dim=1).unsqueeze(1) - torch.linalg.norm(particle_num_list, dim=1).unsqueeze(0))
+        min_dist, min_idx = torch.min(norm_diff, dim=0)
+     
+        element_indices = [self.num2tgtatomlabel[idx.item()] for idx in min_idx]
+        atom_sigmas = self.config["spacer_model_potential_cavity_scaling"] * torch.tensor(
+            [self.VDW_distance_lib(self.config["element_list"][idx]) for idx in element_indices]
+        )
+
+        energy =  energy + self.barrier_switching_potential(min_dist, atom_sigmas)
 
         self.tmp_geom_num_list_for_save = torch.cat([geom_num_list, particle_num_list], dim=0) * self.bohr2angstroms
         self.tmp_element_list_for_save = self.config["element_list"] + ["He"] * len(particle_num_list)
