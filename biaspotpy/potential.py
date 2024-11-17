@@ -62,9 +62,8 @@ class BiasPotentialCalculation:
         BPA_hessian = np.zeros((3*len(g), 3*len(g)))
         geom_num_list = ndarray2tensor(geom_num_list)
         #------------------------------------------------
-        #if iter == "" or iter == 0:
         
-        if iter == 0:
+        if iter == 0 or iter == "":
             self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = make_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
             self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = make_micro_iter_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
             self.bias_pot_prev_ene_list = [np.inf for i in range(len(self.bias_pot_obj_id_list))]
