@@ -98,7 +98,6 @@ def optimizeparser(parser):
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
-    parser.add_argument("-oniom", "--oniom_method", type=str, nargs="*", default=[], help='Use ONIOM2 (our own 2-layered integrated molecular orbital and molecular machine) method (ex.) [[atom label numbers for high layer (1,2)] [link atoms (3,4)] [calculation level for low layer (GFN2-xTB, GFN1-xTB, mace_mp, etc.)]] (ref.) Int. J. Quantum Chem., 60, 1101-1109 (1996).')
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -212,7 +211,7 @@ def nebparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-    args.oniom_method = []
+    
     args.lagrange_constrain = []
    
     return args
@@ -258,7 +257,7 @@ def mdparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-    args.oniom_method = []
+    
     args.lagrange_constrain = []
   
     return args
@@ -394,7 +393,7 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.othersoft = "None"
         self.NRO_analysis = False
         self.intrinsic_reaction_coordinate = []
-        self.oniom_method = []
+       
         self.tight_convergence_criteria = False
         self.loose_convergence_criteria = False
 
@@ -1139,8 +1138,6 @@ def force_data_parser(args):
     
     force_data["xtb"] = args.usextb
     force_data["opt_fragment"] = [num_parse(args.opt_fragment[i]) for i in range(len(args.opt_fragment))]
-    if len(args.oniom_method) > 0:
-        force_data["oniom_method"] = [num_parse(args.oniom_method[0]), num_parse(args.oniom_method[1]), args.oniom_method[2]]
-    
+
     
     return force_data
