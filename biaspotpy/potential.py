@@ -43,6 +43,8 @@ class BiasPotentialCalculation:
         self.mi_bias_pot_params_list = []
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
+        self.bias_pot_prev_ene_list = []
+        
     
 
     
@@ -65,10 +67,11 @@ class BiasPotentialCalculation:
         if iter == 0:
             self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = make_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
             self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = make_micro_iter_bias_pot_obj_list(force_data, element_list, self.BPA_FOLDER_DIRECTORY, self.JOBID, geom_num_list, iter)
+            self.bias_pot_prev_ene_list = [np.inf for i in range(len(self.bias_pot_obj_id_list))]
         
-        else:
-            self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = change_bias_pot_params(force_data, self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list, geom_num_list, iter)
-            #self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = change_bias_pot_params(force_data, self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list, geom_num_list, iter)
+        
+            
+ 
         
         #------------------    
         if len(force_data["gaussian_potential_target"]) > 0:
@@ -94,11 +97,11 @@ class BiasPotentialCalculation:
 
         tmp_bias_pot_params_grad_list = []
         tmp_bias_pot_params_grad_name_list = []
+        change_param_flag = []
         
-        
-        #-----------------
+        ###-----------------
         # combine almost all the bias potentials
-        #-----------------
+        ###-----------------
         for j in range(len(self.bias_pot_obj_list)):
             tmp_bias_pot_params = self.bias_pot_params_list[j]
             
@@ -117,41 +120,50 @@ class BiasPotentialCalculation:
                 tmp_bias_pot_params_grad_name_list.append(self.bias_pot_obj_id_list[j])
             
             save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.bias_pot_obj_id_list[j])
-           
+            
+            change_param_flag.append(False)
+
+            self.bias_pot_prev_ene_list[j] = tmp_B_e.item()
+
             B_e = B_e + tmp_B_e
             BPA_grad_list = BPA_grad_list + tmp_tensor_BPA_grad
             BPA_hessian = BPA_hessian + tmp_tensor_BPA_hessian
         
+
+        self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list = change_bias_pot_params(force_data, self.bias_pot_obj_list, self.bias_pot_obj_id_list, self.bias_pot_params_list, geom_num_list, iter, change_param_flag, tmp_bias_pot_params_grad_list)
+
         ###-----------------
         # combine the bias potentials using microiteration
         ###-----------------
-        for i in range(len(self.mi_bias_pot_obj_list)):
-            tmp_bias_pot_params = self.mi_bias_pot_params_list[i]
+        for j in range(len(self.mi_bias_pot_obj_list)):
+            tmp_bias_pot_params = self.mi_bias_pot_params_list[j]
             
-            tmp_B_e = self.mi_bias_pot_obj_list[i].calc_energy(geom_num_list, tmp_bias_pot_params)
-            tmp_tensor_BPA_grad = torch.func.jacrev(self.mi_bias_pot_obj_list[i].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
+            tmp_B_e = self.mi_bias_pot_obj_list[j].calc_energy(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_grad = torch.func.jacrev(self.mi_bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
             tmp_tensor_BPA_grad = tensor2ndarray(tmp_tensor_BPA_grad)
-            tmp_tensor_BPA_hessian = torch.func.hessian(self.mi_bias_pot_obj_list[i].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
+            tmp_tensor_BPA_hessian = torch.func.hessian(self.mi_bias_pot_obj_list[j].calc_energy, argnums=0)(geom_num_list, tmp_bias_pot_params)
             tmp_tensor_BPA_hessian = torch.reshape(tmp_tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
             tmp_tensor_BPA_hessian = tensor2ndarray(tmp_tensor_BPA_hessian)
             if len(tmp_bias_pot_params) > 0:
-                results = torch.func.jacrev(self.mi_bias_pot_obj_list[i].calc_energy, argnums=1)(geom_num_list, tmp_bias_pot_params)
+                results = torch.func.jacrev(self.mi_bias_pot_obj_list[j].calc_energy, argnums=1)(geom_num_list, tmp_bias_pot_params)
                 results = tensor2ndarray(results)
-                print(self.mi_bias_pot_obj_id_list[i],":dE_bias_pot/d_param: ", results)
-                save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.mi_bias_pot_obj_id_list[i])
+                print(self.mi_bias_pot_obj_id_list[j],":dE_bias_pot/d_param: ", results)
+                save_bias_param_grad_info(self.BPA_FOLDER_DIRECTORY, results, self.mi_bias_pot_obj_id_list[j])
                 tmp_bias_pot_params_grad_list.append(results)
-                tmp_bias_pot_params_grad_name_list.append(self.mi_bias_pot_obj_id_list[i])
+                tmp_bias_pot_params_grad_name_list.append(self.mi_bias_pot_obj_id_list[j])
             
-            save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.mi_bias_pot_obj_id_list[i])
+            save_bias_pot_info(self.BPA_FOLDER_DIRECTORY, tmp_B_e.item(), tmp_tensor_BPA_grad, self.mi_bias_pot_obj_id_list[j])
            
+
+            #self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list = change_bias_pot_params(force_data, self.mi_bias_pot_obj_list, self.mi_bias_pot_obj_id_list, self.mi_bias_pot_params_list, geom_num_list, iter)
             B_e = B_e + tmp_B_e
             BPA_grad_list = BPA_grad_list + tmp_tensor_BPA_grad
             BPA_hessian = BPA_hessian + tmp_tensor_BPA_hessian
             # calculate effective hessian (ref.: https://doi.org/10.1021/ct9003383)
-            eff_hess = self.mi_bias_pot_obj_list[i].calc_eff_hessian(geom_num_list, tmp_bias_pot_params)
+            eff_hess = self.mi_bias_pot_obj_list[j].calc_eff_hessian(geom_num_list, tmp_bias_pot_params)
             eff_hess = tensor2ndarray(eff_hess)
             BPA_hessian = BPA_hessian + eff_hess
-            self.mi_bias_pot_obj_list[i].save_state()
+            self.mi_bias_pot_obj_list[j].save_state()
             
         
         
@@ -254,20 +266,23 @@ def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, 
     return bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list
 
 
-def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list, geom_num_list, iter):
-    def process_AFIR_pot(i):
-        gamma_data = force_data["AFIR_gamma"][i]
+def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, bias_pot_params_list, geom_num_list, iter, change_param_flag, tmp_bias_pot_params_grad_list):
+    def process_AFIR_pot(k):
+     
+        gamma_data = force_data["AFIR_gamma"][k]
         AFIR_gamma_tmp = (
             gradually_change_param(gamma_data[0], gamma_data[1], iter)
             if len(gamma_data) == 2 and iter != ""
             else gamma_data[0]
         )
+
         print(AFIR_gamma_tmp)
+        
         return torch.tensor([AFIR_gamma_tmp], requires_grad=True, dtype=torch.float64)
 
-    def process_keep_pot_v2(i):
-        spring_data = force_data["keep_pot_v2_spring_const"][i]
-        distance_data = force_data["keep_pot_v2_distance"][i]
+    def process_keep_pot_v2(k):
+        spring_data = force_data["keep_pot_v2_spring_const"][k]
+        distance_data = force_data["keep_pot_v2_distance"][k]
 
         spring_const_tmp = (
             gradually_change_param(spring_data[0], spring_data[1], iter)
@@ -283,9 +298,9 @@ def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, 
         print(spring_const_tmp, dist_tmp)
         return torch.tensor([spring_const_tmp, dist_tmp], requires_grad=True, dtype=torch.float64)
 
-    def process_keep_angle_v2(i):
-        spring_data = force_data["keep_angle_v2_spring_const"][i]
-        angle_data = force_data["keep_angle_v2_angle"][i]
+    def process_keep_angle_v2(k):
+        spring_data = force_data["keep_angle_v2_spring_const"][k]
+        angle_data = force_data["keep_angle_v2_angle"][k]
 
         spring_const_tmp = (
             gradually_change_param(spring_data[0], spring_data[1], iter)
@@ -301,9 +316,9 @@ def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, 
         print(spring_const_tmp, angle_tmp)
         return torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
 
-    def process_keep_dihedral_angle_v2(i):
-        spring_data = force_data["keep_dihedral_angle_v2_spring_const"][i]
-        angle_data = force_data["keep_dihedral_angle_v2_angle"][i]
+    def process_keep_dihedral_angle_v2(k):
+        spring_data = force_data["keep_dihedral_angle_v2_spring_const"][k]
+        angle_data = force_data["keep_dihedral_angle_v2_angle"][k]
 
         spring_const_tmp = (
             gradually_change_param(spring_data[0], spring_data[1], iter)
@@ -319,10 +334,10 @@ def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, 
         print(spring_const_tmp, angle_tmp)
         return torch.tensor([spring_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
 
-    def process_keep_dihedral_angle_cos(i):
-        potential_const_data = force_data["keep_dihedral_angle_cos_potential_const"][i]
-        angle_const_data = force_data["keep_dihedral_angle_cos_angle_const"][i]
-        angle_data = force_data["keep_dihedral_angle_cos_angle"][i]
+    def process_keep_dihedral_angle_cos(k):
+        potential_const_data = force_data["keep_dihedral_angle_cos_potential_const"][k]
+        angle_const_data = force_data["keep_dihedral_angle_cos_angle_const"][k]
+        angle_data = force_data["keep_dihedral_angle_cos_angle"][k]
 
         potential_const_tmp = (
             gradually_change_param(potential_const_data[0], potential_const_data[1], iter)
@@ -343,9 +358,9 @@ def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, 
         print(potential_const_tmp, angle_const_tmp, angle_tmp)
         return torch.tensor([potential_const_tmp, angle_const_tmp, angle_tmp], requires_grad=True, dtype=torch.float64)
 
-    def process_keep_out_of_plain_angle_v2(i):
-        spring_data = force_data["keep_out_of_plain_angle_v2_spring_const"][i]
-        angle_data = force_data["keep_out_of_plain_angle_v2_angle"][i]
+    def process_keep_out_of_plain_angle_v2(k):
+        spring_data = force_data["keep_out_of_plain_angle_v2_spring_const"][k]
+        angle_data = force_data["keep_out_of_plain_angle_v2_angle"][k]
 
         spring_const_tmp = (
             gradually_change_param(spring_data[0], spring_data[1], iter)
@@ -378,7 +393,9 @@ def change_bias_pot_params(force_data, bias_pot_obj_list, bias_pot_obj_id_list, 
         matched = False
         for pattern, func in pattern_to_function.items():
             if re.match(pattern, bias_pot_obj_id):
-                bias_pot_params_list[i] = func(i)
+                extracted = re.findall(r'_[0-9]+', bias_pot_obj_id)[0]
+                num = int(extracted[1:])
+                bias_pot_params_list[i] = func(num)
                 matched = True
                 break
         if not matched:
