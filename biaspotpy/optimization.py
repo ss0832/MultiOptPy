@@ -422,8 +422,8 @@ class Optimize:
             self.print_info(e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
             
-            grad_list.append(np.sqrt((g**2).mean()))
-            bias_grad_list.append(np.sqrt((B_g**2).mean()))
+            grad_list.append(np.sqrt((g[g > 1e-10]**2).mean()))
+            bias_grad_list.append(np.sqrt((B_g[B_g > 1e-10]**2).mean()))
             #----------------------
             if iter > 0:
                 norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector)*3, 1)
@@ -522,7 +522,7 @@ class Optimize:
     def check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
         max_force_threshold = self.MAX_FORCE_THRESHOLD
-        rms_force = abs(np.sqrt(np.mean(B_g**2.0)))
+        rms_force = abs(np.sqrt(np.mean(B_g[B_g > 1e-10]**2.0)))
         rms_force_threshold = self.RMS_FORCE_THRESHOLD
         
         
@@ -531,7 +531,7 @@ class Optimize:
         
         max_displacement = abs(displacement_vector.max())
         max_displacement_threshold = max(self.MAX_DISPLACEMENT_THRESHOLD, self.MAX_DISPLACEMENT_THRESHOLD + delta_max_force_threshold)
-        rms_displacement = abs(np.sqrt((displacement_vector**2).mean()))
+        rms_displacement = abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean()))
         rms_displacement_threshold = max(self.RMS_DISPLACEMENT_THRESHOLD, self.RMS_DISPLACEMENT_THRESHOLD + delta_rms_force_threshold)
         
         if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
@@ -613,13 +613,13 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                 f.write("gradient (RMS) [hartree/Bohr] \n")
         with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-            f.write(str(np.sqrt((g**2).mean()))+"\n")
+            f.write(str(np.sqrt((g[g > 1e-10]**2).mean()))+"\n")
         #-------------------
         if iter == 0:
             with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
                 f.write("bias gradient (RMS) [hartree/Bohr] \n")
         with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-            f.write(str(np.sqrt((B_g**2).mean()))+"\n")
+            f.write(str(np.sqrt((B_g[B_g > 1e-10]**2).mean()))+"\n")
             #-------------------
         return
     
@@ -707,9 +707,9 @@ class Optimize:
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
         print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g**2).mean())), self.RMS_FORCE_THRESHOLD))
+        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g[B_g > 1e-10]**2).mean())), self.RMS_FORCE_THRESHOLD))
         print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), max_displacement_threshold))
-        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector**2).mean())), rms_displacement_threshold))
+        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean())), rms_displacement_threshold))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
