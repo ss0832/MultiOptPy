@@ -24,6 +24,8 @@ class Calculation:
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
         self.hessian_flag = False
+        self.cpcm_solv_model = None
+        self.alpb_solv_model = None
     
     def numerical_hessian(self, geom_num_list, element_list, method, electric_charge_and_multiplicity):#geom_num_list: 3*N (Bohr)
         numerical_delivative_delta = 0.0001
@@ -51,7 +53,10 @@ class Calculation:
                             
                             calc.set("max-iter", max_scf_iteration)
                             calc.set("verbosity", 0)
-                            
+                            if not self.cpcm_solv_model is None:
+                                calc.add("cpcm-solvation", self.cpcm_solv_model)
+                            if not self.alpb_solv_model is None:
+                                calc.add("alpb-solvation", self.alpb_solv_model)
                             res = calc.singlepoint()        
                             g = res.get("gradient") #hartree/Bohr
                             tmp_grad.append(g[atom_num_2][j])
@@ -113,7 +118,13 @@ class Calculation:
                 calc.set("max-iter", max_scf_iteration)           
                 calc.set("verbosity", 0)
                 calc.set("save-integrals", 1)
-                
+                if not self.cpcm_solv_model is None:        
+                    print("Apply CPCM solvation model")
+                    calc.add("cpcm-solvation", self.cpcm_solv_model)
+                if not self.alpb_solv_model is None:
+                    print("Apply ALPB solvation model")
+                    calc.add("alpb-solvation", self.alpb_solv_model)
+                            
                 res = calc.singlepoint()
                 
                 e = float(res.get("energy"))  #hartree

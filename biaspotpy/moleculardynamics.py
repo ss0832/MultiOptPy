@@ -295,8 +295,8 @@ class MD:
         else:
             self.pbc_box = []
         self.args = args
-        
-
+        self.cpcm_solv_model = args.cpcm_solv_model
+        self.alpb_solv_model = args.alpb_solv_model
         return
     
 
@@ -412,6 +412,9 @@ class MD:
                          electronic_charge = self.electronic_charge,
                          excited_state = self.excited_state
                          )
+        SP.cpcm_solv_model = self.cpcm_solv_model
+        SP.alpb_solv_model = self.alpb_solv_model
+
         TM = Thermostat(self.momentum_list, self.initial_temperature, self.initial_pressure, element_list=element_list)
         TM.delta_timescale = self.timestep
         #-----------------------------------

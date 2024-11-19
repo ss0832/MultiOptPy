@@ -72,6 +72,8 @@ def ieipparser(parser):
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
+    parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
+    parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
 
     
@@ -108,7 +110,8 @@ def optimizeparser(parser):
     parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
-    #parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (ex.) water')
+    parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
+    parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
@@ -204,6 +207,8 @@ def nebparser(parser):
     parser.add_argument("-aneb", "--ANEB_num",  type=int, default=0, help='execute adaptic NEB (ANEB) method. (default setting is not executing ANEB.)')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
+    parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
+    parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -250,6 +255,8 @@ def mdparser(parser):
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
+    parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
+    parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
 
     parser = parser_for_biasforce(parser)
@@ -327,6 +334,8 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
         self.NSTEP = "999"
         self.lagrange_constrain = []
         self.projection_constrain = []
+        self.cpcm_solv_model = None
+        self.alpb_solv_model = None
         return
 
 class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -361,6 +370,8 @@ class NEBInterface(BiasPotInterface):# inheritance is not good for readable code
         self.lagrange_constrain = []
         self.projection_constrain = []
         self.pyscf = False
+        self.cpcm_solv_model = None
+        self.alpb_solv_model = None
         return
     
 class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable code.
@@ -400,6 +411,7 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.shape_conditions = []
         self.use_model_hessian = False
         self.cpcm_solv_model = None
+        self.alpb_solv_model = None
         self.cmds = False
         self.pca = False
         self.lagrange_constrain = []
@@ -417,6 +429,8 @@ class MDInterface(BiasPotInterface):
         self.lagrange_constrain = []
         self.projection_constrain = []
         self.timestep = 0.1
+        self.cpcm_solv_model = None
+        self.alpb_solv_model = None
         return
 
 

@@ -40,7 +40,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         for i in range(len(args.electronic_charge)):
             self.electric_charge_and_multiplicity_list.append([int(args.electronic_charge[i]), int(args.spin_multiplicity[i])])
 
-
+        self.cpcm_solv_model = args.cpcm_solv_model
+        self.alpb_solv_model = args.alpb_solv_model
         #self.force_perpendicularity_convage_criterion = 0.008 #Hartree/Bohr
         self.img_distance_convage_criterion = 0.15 #Bohr
         #self.F_R_convage_criterion = 0.012
@@ -537,6 +538,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          electronic_charge = self.electronic_charge[i] or electric_charge_and_multiplicity_list[i][0],
                          spin_multiplicity = self.spin_multiplicity[i] or electric_charge_and_multiplicity_list[i][1],
                          excited_state = self.excite_state_list[i]))
+            
+            SP_list[i].cpcm_solv_model = self.cpcm_solv_model
+            SP_list[i].alpb_solv_model = self.alpb_solv_model
             if self.args.pyscf:
                 file_directory = FIO_img_list[i].make_pyscf_input_file(geometry_list_list[i], 0)
             else:

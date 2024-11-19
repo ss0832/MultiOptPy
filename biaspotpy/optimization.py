@@ -128,11 +128,12 @@ class Optimize:
         self.final_energy = None #Hartree
         self.final_bias_energy = None #Hartree
         self.othersoft = args.othersoft
-
+        self.cpcm_solv_model = args.cpcm_solv_model
+        self.alpb_solv_model = args.alpb_solv_model
         self.shape_conditions = args.shape_conditions
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
-        #self.cpcm_solv_model = args.cpcm_solv_model
+        
         return
 
     def make_init_directory(self, file):
@@ -585,7 +586,8 @@ class Optimize:
             electronic_charge=self.electronic_charge,
             excited_state=self.excited_state
         )
-        #SP.cpcm_solv_model = self.cpcm_solv_model
+        SP.cpcm_solv_model = self.cpcm_solv_model
+        SP.alpb_solv_model = self.alpb_solv_model
         return SP
 
     def write_input_files(self, FIO):
