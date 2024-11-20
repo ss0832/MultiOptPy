@@ -328,11 +328,18 @@ class Optimize:
             
             if len(force_data["fix_atoms"]) > 0:
                 fix_num = []
+                n_fix = len(force_data["fix_atoms"])
                 for fnum in force_data["fix_atoms"]:
                     fix_num.extend([3*(fnum-1)+0, 3*(fnum-1)+1, 3*(fnum-1)+2])
                 fix_num = np.array(fix_num, dtype="int64")
-                self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(self.Model_hess[np.ix_(fix_num, fix_num)], self.Model_hess[fix_num, :]))
-                BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(BPA_hessian[np.ix_(fix_num, fix_num)], BPA_hessian[fix_num, :]))
+
+                tmp_fix_hess = self.Model_hess[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
+                inv_tmp_fix_hess = np.linalg.pinv(tmp_fix_hess)
+                tmp_fix_bias_hess = BPA_hessian[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
+                inv_tmp_fix_bias_hess = np.linalg.pinv(tmp_fix_bias_hess)
+
+                self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
+                BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
 
             
             for i in range(len(optimizer_instances)):
