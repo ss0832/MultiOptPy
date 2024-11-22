@@ -355,7 +355,8 @@ class Optimize:
                         optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and iter % self.mFC_COUNT == 0):
-                    self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
+                    if len(force_data["fix_atoms"]) > 0:
+                        self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
                     
                     if len(force_data["lagrange_constraint_condition_list"]) > 0:
                         optimizer_instances[i].set_hessian(combined_hessian)
