@@ -29,3 +29,6 @@ python optmain.py swarn_oxidation.xyz -xtb GFN2-xTB -ma 50 10 6 -opt RFO_FSB -mo
 ```
 python optmain.py witting_rxn.xyz -xtb GFN2-xTB -ma 100 1 26 150 14 24
 ```
+```
+python ieipmain.py curtius_rearrgement -xtb GFN2-xTB
+```
