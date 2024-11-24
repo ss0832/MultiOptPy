@@ -384,7 +384,8 @@ class Optimize:
             
            
             if len(force_data["projection_constraint_condition_list"]) > 0:
-                B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g))
+                proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
+                B_g = copy.copy(g + proj_d_B_g)
                 g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
             
            
