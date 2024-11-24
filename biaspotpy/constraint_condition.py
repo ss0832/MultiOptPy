@@ -864,7 +864,7 @@ class ProjectOutConstrain:
             proj_hess = tmp_hessian + projection_hess
 
             couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            eff_hess = np.dot(couple_hess.T, np.dot(int_hess, couple_hess))
+            eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
 
             proj_hess = proj_hess - eff_hess
 

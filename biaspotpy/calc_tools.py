@@ -209,7 +209,7 @@ class Calculationtools:
         eigenvalues = np.sort(eigenvalues)
         idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
         print("=== hessian projected out transition and rotation (mass-weighted coordination) ===")
-        print("eigenvalues: ", eigenvalues[idx_eigenvalues])
+        print(f"eigenvalues (NUMBER OF VALUES: {len(eigenvalues[idx_eigenvalues])}): \n", eigenvalues[idx_eigenvalues])
         return mw_hess_proj
 
     def project_out_hess_tr_and_rot_for_coord(self, hessian, element_list, geomerty):#do not consider atomic mass
@@ -247,7 +247,7 @@ class Calculationtools:
         eigenvalues = np.sort(eigenvalues)
         idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
         print("=== hessian projected out transition and rotation (normal coordination) ===")
-        print("eigenvalues: ", eigenvalues[idx_eigenvalues])
+        print(f"eigenvalues (NUMBER OF VALUES: {len(eigenvalues[idx_eigenvalues])}): \n", eigenvalues[idx_eigenvalues])
         return hess_proj    
     
   

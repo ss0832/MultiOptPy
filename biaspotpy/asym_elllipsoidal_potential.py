@@ -667,6 +667,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
             tmp_rot_angle_list = torch.tensor([tmp_rot_angle_list], dtype=torch.float64, requires_grad=True)
             energy = self.calc_potential(geom_num_list, tmp_rot_angle_list, bias_pot_params)
             if energy < max_energy:
+                print("Energy: ", energy)
                 max_energy = energy
                 self.rot_angle_list = tmp_rot_angle_list
         print("rand_search done")

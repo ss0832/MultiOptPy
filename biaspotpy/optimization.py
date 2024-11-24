@@ -382,18 +382,21 @@ class Optimize:
                 B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
                 g = class_GradientSHAKE.run_grad(pre_geom, g) 
             
+           
             if len(force_data["projection_constraint_condition_list"]) > 0:
-                B_g = PC.calc_project_out_grad(geom_num_list, B_g)
-                g = PC.calc_project_out_grad(geom_num_list, g)
-                
+                B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g))
+                g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
+            
+           
             if len(force_data["fix_atoms"]) > 0:
                 for j in force_data["fix_atoms"]:
                     g[j-1] = copy.copy(g[j-1]*0.0)
                     B_g[j-1] = copy.copy(B_g[j-1]*0.0)
 
 
-            
+           
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lagrange_lambda_list, lagrange_prev_lambda_list, lagrange_lambda_grad_list, lagrange_lambda_prev_grad_list, lagrange_lambda_prev_movestep, init_lagrange_lambda_list, projection_constrain)
+            
             lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
             lagrange_lambda_prev_movestep = copy.copy(lagrange_lambda_movestep)
             lagrange_lambda_list = copy.copy(CMV.new_lambda_list)
