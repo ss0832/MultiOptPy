@@ -29,7 +29,7 @@ class AsymmetricEllipsoidalLJPotential:
         self.lj_attractive_order = 6.0
         
         self.micro_iteration = 15000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
-        self.rand_search_iteration = 2500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        self.rand_search_iteration = 500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
         self.threshold = 1e-7
         self.init = True
 
@@ -408,7 +408,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
         self.lj_attractive_order = 6.0
         
         self.micro_iteration = 15000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
-        self.rand_search_iteration = 2500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
+        self.rand_search_iteration = 500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
         self.threshold = 1e-7
         self.init = True
         return
