@@ -45,7 +45,7 @@ class ConjgateGradient:
         if self.Initialization:
             self.d_vector = geom_num_list * 0.0
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         
         alpha = self.calc_alpha()
         

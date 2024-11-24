@@ -47,7 +47,7 @@ class Newton:
             print("linesearch mode")
         if self.Initialization:
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         
         delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
@@ -95,7 +95,7 @@ class Newton:
             self.momentum_disp = geom_num_list * 0.0
             self.momentum_grad = geom_num_list * 0.0
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         
         if self.iter == 1:
             self.momentum_disp = geom_num_list - pre_geom

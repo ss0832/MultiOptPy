@@ -22,6 +22,11 @@ class RationalFunctionOptimization:
         self.saddle_order = self.config["saddle_order"] #
         self.iter = 0 #
         self.beta = 0.5
+        self.grad_rms_threshold = 0.01
+        self.tight_grad_rms_threshold = 0.0002 
+        self.combine_eigen_vec_num = 3
+        self.combine_eigvec_flag = False
+
         return
     
     def calc_center(self, geomerty, element_list=[]):#geomerty:Bohr
@@ -95,7 +100,7 @@ class RationalFunctionOptimization:
         print("RFOv2")
         if self.Initialization:
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
@@ -144,7 +149,7 @@ class RationalFunctionOptimization:
         #ref.:Culot, P., Dive, G., Nguyen, V.H. et al. A quasi-Newton algorithm for first-order saddle-point location. Theoret. Chim. Acta 82, 189–205 (1992). https://doi.org/10.1007/BF01113492
         if self.Initialization:
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
@@ -177,9 +182,21 @@ class RationalFunctionOptimization:
         for i in range(len(hess_eigenvalue)):
             tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
             if i < self.saddle_order:
-                move_vector += DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (hess_eigenvalue[hess_eigenval_indices[i]] + lambda_for_calc + 1e-8) 
+                step_scaling = 1.0
+                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
+                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
             else:
-                move_vector += DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (hess_eigenvalue[hess_eigenval_indices[i]] - lambda_for_calc + 1e-8)
+                step_scaling = 1.0
+                if self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and hess_eigenvalue[i] < -1e-9 and self.combine_eigvec_flag:
+                    print(f"To locate geometry away from unwanted saddle point, combine {self.combine_eigen_vec_num} other eigenvectors ...")# Gaussian 16 Rev.C 01
+                    for j in range(self.saddle_order + 1, min(self.saddle_order + 1 + self.combine_eigen_vec_num, len(hess_eigenvalue))):
+                       
+                        tmp_vector += np.array([hess_eigenvector[hess_eigenval_indices[j+i]].T], dtype="float64")
+                    tmp_vector /= self.combine_eigen_vec_num * (1 / (step_scaling))
+                
+
+                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
+                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
         move_vector = move_vector
@@ -192,7 +209,7 @@ class RationalFunctionOptimization:
         print("RFOv1")
         if self.Initialization:
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
@@ -203,7 +220,7 @@ class RationalFunctionOptimization:
         
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
             delta_hess = self.hessian_update(displacement, delta_grad)
-           # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
+            # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
@@ -239,7 +256,7 @@ class RationalFunctionOptimization:
             self.momentum_disp = geom_num_list * 0.0
             self.momentum_grad = geom_num_list * 0.0
             self.Initialization = False
-            return -1*self.DELTA*B_g
+            return self.DELTA*B_g
             
         
         if self.iter == 1:
