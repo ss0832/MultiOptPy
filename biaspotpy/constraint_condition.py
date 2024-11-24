@@ -650,7 +650,7 @@ class ProjectOutConstrain:
             self.constraint_atoms_list.append(tmp_list)
             
         self.iteration = 1
-        self.spring_const = 10.0
+        self.spring_const = 100.0
         self.init_tag = True
         #self.func_list = None
         return
