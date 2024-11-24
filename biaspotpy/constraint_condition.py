@@ -859,8 +859,8 @@ class ProjectOutConstrain:
 
             constraint_int_hess = np.eye((len(self.constraint_name))) * self.spring_const
 
-            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point(-1*int_hess + constraint_int_hess, B_mat, B_mat_1st_derivative, int_grad + constraint_int_grad)
+            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)#-1*int_hess +
+            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point( constraint_int_hess, B_mat, B_mat_1st_derivative, int_grad + constraint_int_grad)
             proj_hess = tmp_hessian + projection_hess
 
             couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
