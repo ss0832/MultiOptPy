@@ -447,7 +447,11 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     norm_v2 = torch.linalg.norm(v2) + 1e-15
     cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
+    sign = torch.sign(torch.sum(torch.linalg.cross(v1 / norm_v1, v2 / norm_v2) * vector3))
+    if sign != 0:
+        angle = -1 * angle * sign
     return angle
+
 
 def change_torsion_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, atom_idx4, target_torsion):#rad:target_torsion
     A = coordinates[atom_idx1]
@@ -455,7 +459,8 @@ def change_torsion_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3,
     C = coordinates[atom_idx3]
     D = coordinates[atom_idx4]
     current_torsion = calc_dihedral_angle_from_vec(A - B, B - C, C - D)
-    torsion_diff = target_torsion - current_torsion 
+    
+    torsion_diff = target_torsion - current_torsion
 
     BC = C - B
     new_D = rotate_atom(D, C, BC, torsion_diff * 0.5)
@@ -474,7 +479,9 @@ def change_bond_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, ta
     current_angle_rad = calc_angle_from_vec(BA, BC)
     rotation_axis = np.cross(BA, BC) 
     rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+    
     angle_diff = target_angle - current_angle_rad
+
     new_A = rotate_atom(A, B, rotation_axis, -angle_diff / 2.0)
     new_C = rotate_atom(C, B, rotation_axis, angle_diff / 2.0) 
     coordinates[atom_idx1] = new_A
@@ -487,8 +494,13 @@ def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     norm_v1 = np.linalg.norm(v1) + 1e-15
     norm_v2 = np.linalg.norm(v2) + 1e-15
     cos_theta = np.sum(v1*v2) / (norm_v1 * norm_v2)
-    angle = np.arccos(cos_theta)
-    return angle
+    angle = np.abs(np.arccos(cos_theta))
+    sign = np.sign(np.dot(np.cross(v1 / norm_v1, v2 / norm_v2), vector3))
+    if sign != 0:
+        angle = -1 * angle * sign
+    return angle 
+
+
 
 def rotate_atom(coord, axis_point, axis_direction, angle):
     axis_unit = axis_direction / np.linalg.norm(axis_direction)

@@ -699,6 +699,7 @@ class ProjectOutConstrain:
                 vec_3 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][3] - 1]
                 init_dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
                 tmp_init_constraint.append(init_dihedral)
+              
                 #tmp_func_list.append(torch_calc_dihedral_angle)
                 
                    

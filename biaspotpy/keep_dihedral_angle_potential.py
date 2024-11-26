@@ -27,7 +27,7 @@ class StructKeepDihedralAnglePotential:
         a2 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][1]-1]
         a3 = geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][3]-1] - geom_num_list[self.config["keep_dihedral_angle_atom_pairs"][2]-1]
 
-        angle = torch_calc_dihedral_angle_from_vec(a1, a2, a3)
+        angle = torch.abs(torch_calc_dihedral_angle_from_vec(a1, a2, a3))
         if len(bias_pot_params) == 0:
             energy = 0.5 * self.config["keep_dihedral_angle_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_angle"]))) ** 2
         else:
@@ -83,7 +83,7 @@ class StructKeepDihedralAnglePotentialv2:
         a2 = fragm_3_center - fragm_2_center
         a3 = fragm_4_center - fragm_3_center
 
-        angle = torch_calc_dihedral_angle_from_vec(a1, a2, a3)
+        angle = torch.abs(torch_calc_dihedral_angle_from_vec(a1, a2, a3))
         if len(bias_pot_params) == 0:
             energy = 0.5 * self.config["keep_dihedral_angle_v2_spring_const"] * (angle - torch.deg2rad(torch.tensor(self.config["keep_dihedral_angle_v2_angle"]))) ** 2
         else:
