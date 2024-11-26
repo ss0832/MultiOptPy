@@ -456,15 +456,13 @@ def change_torsion_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3,
     D = coordinates[atom_idx4]
     current_torsion = calc_dihedral_angle_from_vec(A - B, B - C, C - D)
     torsion_diff = target_torsion - current_torsion 
+
     BC = C - B
-    new_D = rotate_atom(D, C, BC, -torsion_diff * 0.5)
-    new_A = rotate_atom(A, B, BC, torsion_diff * 0.5)     
+    new_D = rotate_atom(D, C, BC, torsion_diff * 0.5)
+    new_A = rotate_atom(A, B, BC, -1*torsion_diff * 0.5)     
     coordinates[atom_idx4] = new_D
     coordinates[atom_idx1] = new_A
-    A = coordinates[atom_idx1]
-    B = coordinates[atom_idx2]
-    C = coordinates[atom_idx3]
-    D = coordinates[atom_idx4]
+
     return coordinates
 
 def change_bond_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, target_angle):#rad:target_angle
@@ -474,7 +472,7 @@ def change_bond_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, ta
     BA = A - B
     BC = C - B
     current_angle_rad = calc_angle_from_vec(BA, BC)
-    rotation_axis = np.linalg.cross(BA, BC) 
+    rotation_axis = np.cross(BA, BC) 
     rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
     angle_diff = target_angle - current_angle_rad
     new_A = rotate_atom(A, B, rotation_axis, -angle_diff / 2.0)
@@ -1233,20 +1231,20 @@ def project_fragm_outofplain_vector_for_grad(gradient, geom_num_list, fragm_1, f
 
 
 def move_atom_distance_one_side(geom_num_list, atom1, atom2, distance):
-    vec = geom_num_list[atom2 - 1] - geom_num_list[atom1 - 1]
+    vec = geom_num_list[atom2] - geom_num_list[atom1]
     norm_vec = np.linalg.norm(vec)
     unit_vec = vec / norm_vec
-    geom_num_list[atom2 - 1] = geom_num_list[atom2 - 1] + distance * unit_vec
+    geom_num_list[atom2] = geom_num_list[atom2] + distance * unit_vec
     return geom_num_list
     
 def change_atom_distance_both_side(geom_num_list, atom1, atom2, distance):
-    vec = geom_num_list[atom2 - 1] - geom_num_list[atom1 - 1]
+    vec = geom_num_list[atom2] - geom_num_list[atom1]
     norm_vec = np.linalg.norm(vec)
     unit_vec = vec / norm_vec
     dist_diff = distance - norm_vec
 
-    geom_num_list[atom1 - 1] = geom_num_list[atom1 - 1] - dist_diff * unit_vec * 0.5
-    geom_num_list[atom2 - 1] = geom_num_list[atom2 - 1] + dist_diff * unit_vec * 0.5
+    geom_num_list[atom1] = geom_num_list[atom1] - dist_diff * unit_vec * 0.5
+    geom_num_list[atom2] = geom_num_list[atom2] + dist_diff * unit_vec * 0.5
     return geom_num_list
 
 

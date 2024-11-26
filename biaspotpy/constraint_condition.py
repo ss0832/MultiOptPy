@@ -650,9 +650,14 @@ class ProjectOutConstrain:
             self.constraint_atoms_list.append(tmp_list)
             
         self.iteration = 1
-        self.spring_const = 100.0
         self.init_tag = True
         #self.func_list = None
+        self.Isduplicated = isduplicated(self.constraint_atoms_list)
+        if self.Isduplicated:
+            self.spring_const = 50.0
+        else:
+            self.spring_const = 0.0
+
         return
 
 
@@ -708,7 +713,7 @@ class ProjectOutConstrain:
             self.init_tag = False
         return tmp_init_constraint
 
-    def adjust_init_coord(self, coord):
+    def adjust_init_coord(self, coord):#coord:Bohr
 
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
@@ -734,15 +739,13 @@ class ProjectOutConstrain:
         return coord
 
 
+
+
     def calc_project_out_grad(self, coord, grad):# B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
         prev_proj_grad = copy.copy(grad)
         tmp_grad = copy.copy(grad)
-        #self.Isduplicated = isduplicated(self.constraint_atoms_list)
-        #if self.Isduplicated:
-        #    pass
-        #else:
-        #    coord = self.adjust_init_coord(coord)
+
 
 
         current_geom = self.initialize(coord)
@@ -800,11 +803,6 @@ class ProjectOutConstrain:
     def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
 
-        #self.Isduplicated = isduplicated(self.constraint_atoms_list)
-        #if self.Isduplicated:
-        #    pass
-        #else:
-        #    coord = self.adjust_init_coord(coord)
 
         current_geom = self.initialize(coord)
         prev_proj_hess = copy.copy(hessian)

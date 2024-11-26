@@ -404,10 +404,8 @@ class Optimize:
             lagrange_lambda_list = copy.copy(CMV.new_lambda_list)
             lagrange_lambda_movestep = copy.copy(CMV.lambda_movestep)
             #print(lagrange_lambda_list, lagrange_lambda_movestep)
-            if len(self.constraint_condition_list) > 0 and iter > 0:
-                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
-               
-                new_geometry = tmp_new_geometry * self.bohr2angstroms
+
+
             ##------------
             ## project out translation and rotation
             ##------------
@@ -415,10 +413,17 @@ class Optimize:
                 new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
                 new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
                 new_geometry *= self.bohr2angstroms
-            #if not PC.Isduplicated:
-            #    tmp_new_geometry = new_geometry / self.bohr2angstroms
-            #    new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             
+            if not PC.Isduplicated:
+                tmp_new_geometry = new_geometry / self.bohr2angstroms
+                new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+            
+
+            if len(self.constraint_condition_list) > 0 and iter > 0:
+                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
+               
+                new_geometry = tmp_new_geometry * self.bohr2angstroms
+                
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)

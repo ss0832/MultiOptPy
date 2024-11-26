@@ -195,11 +195,11 @@ class NEB:
         
         return geometry_list, element_list, electric_charge_and_multiplicity
 
-    def make_geometry_list_2(self, new_geometory, element_list, electric_charge_and_multiplicity):
-        new_geometory = new_geometory.tolist()
-        #print(new_geometory)
+    def make_geometry_list_2(self, new_geometry, element_list, electric_charge_and_multiplicity):
+        new_geometry = new_geometry.tolist()
+        #print(new_geometry)
         geometry_list = []
-        for geometries in new_geometory:
+        for geometries in new_geometry:
             new_data = [electric_charge_and_multiplicity]
             for num, geometry in enumerate(geometries):
                 geometory = list(map(str, geometry))
@@ -639,9 +639,9 @@ class NEB:
         #--------------------
         
         
-        new_geometory = (geometry_num_list + move_vector)*self.bohr2angstroms
+        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
          
-        return new_geometory, dt, n_reset, a
+        return new_geometry, dt, n_reset, a
 
     def SD_calc(self, geometry_num_list, total_force_list):
         total_delta = []
@@ -668,9 +668,9 @@ class NEB:
         else:
             move_vector.append(total_delta[-1])
         #--------------------
-        new_geometory = (geometry_num_list + move_vector)*self.bohr2angstroms
+        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
 
-        return new_geometory
+        return new_geometry
     
     def FSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, hessian, biased_energy_list, pre_biased_energy_list):
         print("Quasi-Newton method")
@@ -772,8 +772,8 @@ class NEB:
         move_vector.append(total_delta[-1]/np.linalg.norm(total_delta[-1]) * end_tr)
         #--------------------
         
-        new_geometory = (geom_num_list - move_vector)*self.bohr2angstroms
-        return new_geometory, hessian
+        new_geometry = (geom_num_list - move_vector)*self.bohr2angstroms
+        return new_geometry, hessian
  
     def GFSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, global_hessian, biased_energy_list, pre_biased_energy_list):
         #ref. J. Chem. Phys. 128, 134106 (2008) (based on GL-BFGS)
@@ -867,7 +867,7 @@ class NEB:
         return delta_hess
     
 
-    def adaptic_method(self, energy_list, gradient_list, new_geometory, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
+    def adaptic_method(self, energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
         print("ANEB (Adaptic NEB)")#J. Chem. Phys. 117, 4651–4658 (2002) https://doi.org/10.1063/1.1495401
         image_num = 1
         part_num = 2
@@ -881,24 +881,24 @@ class NEB:
             node_num = len(energy_list)
             print(max(idx_max_ene-image_num, 0), min(idx_max_ene+1+image_num, node_num-1))
             energy_list = copy.copy(energy_list[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
-            new_geometory = copy.copy(new_geometory[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
+            new_geometry = copy.copy(new_geometry[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
            
-            geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
             
             
             
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
             geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(file_directory, part_num)
-            new_geometory = []
+            new_geometry = []
             for geom in geometry_list:
                 tmp_list = []
                 for g in geom[1:]:
                     tmp_list.append(g[1:4])
-                new_geometory.append(tmp_list)
-            new_geometory = np.array(new_geometory, dtype="float64")
+                new_geometry.append(tmp_list)
+            new_geometry = np.array(new_geometry, dtype="float64")
            
             
-            geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
             
             
             
@@ -1007,28 +1007,36 @@ class NEB:
                 #------------------
                 #relax path
                 if self.QUASI_NEWTOM_METHOD and optimize_num > init_num:
-                    new_geometory, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
+                    new_geometry, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
                 elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > init_num:
-                    new_geometory, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
+                    new_geometry, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
             
                 
                 elif optimize_num < self.sd:
                     total_velocity = self.force2velocity(total_force, element_list)
-                    new_geometory, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
+                    new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                     
                 else:
-                    new_geometory = self.SD_calc(geometry_num_list, total_force)
+                    new_geometry = self.SD_calc(geometry_num_list, total_force)
                 
                 #------------------
                 #fix atoms
                 if len(force_data["fix_atoms"]) > 0:
-                    for k in range(len(new_geometory)):
+                    for k in range(len(new_geometry)):
                         for j in force_data["fix_atoms"]:
-                            new_geometory[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
+                            new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
                 #-------------    
                 
+                if not PC_list[0].Isduplicated:
+                    for x in range(len(new_geometry)):
+                        tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
+                        tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+                        new_geometry[x] = copy.copy(tmp_new_geometry)
+            
+
+
                 pre_geom = geometry_num_list
-                geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+                geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
                 file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
                 pre_total_force = total_force
                 pre_total_velocity = total_velocity
@@ -1155,29 +1163,37 @@ class NEB:
             #------------------
             #relax path
             if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
-                new_geometory, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
+                new_geometry, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
             
             elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > 0:
-                new_geometory, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
+                new_geometry, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
             
             elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometory, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
+                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                 
             else:
-                new_geometory = self.SD_calc(geometry_num_list, total_force)
+                new_geometry = self.SD_calc(geometry_num_list, total_force)
             
             #------------------
             #fix atoms
             if len(force_data["fix_atoms"]) > 0:
-                for k in range(len(new_geometory)):
+                for k in range(len(new_geometry)):
                     for j in force_data["fix_atoms"]:
-                        new_geometory[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
-                
+                        new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
+        
+            if not PC_list[0].Isduplicated:
+                for x in range(len(new_geometry)):
+                    tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
+                    tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+                    new_geometry[x] = copy.copy(tmp_new_geometry)
+            
+
+
             #------------------
             pre_geom = geometry_num_list
             
-            geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
             pre_total_force = total_force
             pre_total_velocity = total_velocity
@@ -1201,12 +1217,12 @@ class NEB:
             energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
         pre_total_velocity = np.array(total_velocity, dtype="float64")
-        geometry_list = self.make_geometry_list_2(new_geometory, element_list, electric_charge_and_multiplicity)
+        geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
         energy_list = energy_list
         
         if self.ANEB_num > 0:
             #Adaptic NEB
-            self.adaptic_method(energy_list, gradient_list, new_geometory, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list)
+            self.adaptic_method(energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list)
         
         
         print("Complete...")
