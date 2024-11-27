@@ -447,7 +447,7 @@ def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     norm_v2 = torch.linalg.norm(v2) + 1e-15
     cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
-    sign = torch.sign(torch.sum(torch.linalg.cross(v1 / norm_v1, v2 / norm_v2) * vector3))
+    sign = torch.sign(torch.sum(torch.linalg.cross(v1 / norm_v1, v2 / norm_v2) * vector2))
     if sign != 0:
         angle = -1 * angle * sign
     return angle
@@ -495,7 +495,7 @@ def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     norm_v2 = np.linalg.norm(v2) + 1e-15
     cos_theta = np.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = np.abs(np.arccos(cos_theta))
-    sign = np.sign(np.dot(np.cross(v1 / norm_v1, v2 / norm_v2), vector3))
+    sign = np.sign(np.dot(np.cross(v1 / norm_v1, v2 / norm_v2), vector2))
     if sign != 0:
         angle = -1 * angle * sign
     return angle 
