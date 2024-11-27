@@ -414,7 +414,7 @@ class Optimize:
                 new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
                 new_geometry *= self.bohr2angstroms
             
-            if not PC.Isduplicated:
+            if len(force_data["projection_constraint_condition_list"]) > 0:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             

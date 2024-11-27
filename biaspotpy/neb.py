@@ -1027,7 +1027,7 @@ class NEB:
                             new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
                 #-------------    
                 
-                if not PC_list[0].Isduplicated:
+                if len(force_data["projection_constraint_condition_list"]) > 0:
                     for x in range(len(new_geometry)):
                         tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
                         tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
@@ -1182,7 +1182,7 @@ class NEB:
                     for j in force_data["fix_atoms"]:
                         new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
         
-            if not PC_list[0].Isduplicated:
+            if len(force_data["projection_constraint_condition_list"]) > 0:
                 for x in range(len(new_geometry)):
                     tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
                     tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    

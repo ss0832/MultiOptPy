@@ -652,11 +652,7 @@ class ProjectOutConstrain:
         self.iteration = 1
         self.init_tag = True
         #self.func_list = None
-        self.Isduplicated = isduplicated(self.constraint_atoms_list)
-        if self.Isduplicated:
-            self.spring_const = 50.0
-        else:
-            self.spring_const = 0.0
+        self.spring_const = 0.0
 
         return
 
