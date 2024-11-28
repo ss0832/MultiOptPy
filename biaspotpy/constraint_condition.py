@@ -6,7 +6,8 @@ from calc_tools import (calc_bond_length_from_vec,
                         calc_angle_from_vec, 
                         calc_dihedral_angle_from_vec, change_atom_distance_both_side, 
                         change_bond_angle_both_side, 
-                        change_torsion_angle_both_side
+                        change_torsion_angle_both_side,
+                        change_fragm_distance_both_side
                         )
 from redundant_coordinations import (TorchDerivatives, 
                                      partial_stretch_B_matirx,
@@ -718,6 +719,12 @@ class ProjectOutConstrain:
                 atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
                 coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
             
+            elif self.constraint_name[i_constrain] == "fbond":
+                divide_index = self.constraint_atoms_list[i_constrain][-1]
+                fragm_1 = np.array(self.constraint_atoms_list[i_constrain][:divide_index], dtype=np.int32) - 1
+                fragm_2 = np.array(self.constraint_atoms_list[i_constrain][divide_index:], dtype=np.int32) - 1
+                coord = change_fragm_distance_both_side(coord, fragm_1, fragm_2, self.init_constraint[i_constrain])
+
             elif self.constraint_name[i_constrain] == "angle":
                 atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
                 atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
@@ -733,6 +740,7 @@ class ProjectOutConstrain:
                 
             else:
                 pass
+            
         return coord
 
 

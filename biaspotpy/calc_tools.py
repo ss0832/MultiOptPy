@@ -1259,6 +1259,29 @@ def change_atom_distance_both_side(geom_num_list, atom1, atom2, distance):
     geom_num_list[atom2] = geom_num_list[atom2] + dist_diff * unit_vec * 0.5
     return geom_num_list
 
+def change_fragm_distance_both_side(geom_num_list, fragm1, fragm2, distance):
+    center_1 = np.array([0.0, 0.0, 0.0], dtype="float64")
+    for i in fragm1:
+        center_1 += geom_num_list[i]
+    center_1 /= len(fragm1)
+    
+    center_2 = np.array([0.0, 0.0, 0.0], dtype="float64")
+    for i in fragm2:
+        center_2 += geom_num_list[i]
+    center_2 /= len(fragm2)
+    
+    vec = center_2 - center_1
+    norm_vec = np.linalg.norm(vec)
+    unit_vec = vec / norm_vec
+    dist_diff = distance - norm_vec
+    
+    for i in fragm1:
+        geom_num_list[i] = geom_num_list[i] - dist_diff * unit_vec * 0.5
+    
+    for i in fragm2:
+        geom_num_list[i] = geom_num_list[i] + dist_diff * unit_vec * 0.5
+        
+    return geom_num_list
 
 
 def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
