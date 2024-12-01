@@ -1,5 +1,37 @@
 
 
+def UFF_bond_distance_lib(element):
+    if element is int:
+        element = number_element(element)
+    UFF_bond_distance = {'H_':0.354, 'H_b':0.460, 'He':0.849,
+                        'Li' : 1.336, 'Be': 1.074, 'B_3':0.838, 'B_2':0.828, 'C_3': 0.757, 'C_R': 0.729, 'C_2': 0.732, 'C_1': 0.706,###
+                          'N':3.660,'O':3.500 , 'F':3.364,'Ne': 3.243, 
+                        'Na':2.983,'Mg': 3.021 ,'Al':4.499 ,'Si': 4.295, 'P':4.147, 'S':4.035 ,'Cl':3.947,'Ar':3.868 ,
+                        'K':3.812 ,'Ca':3.399 ,'Sc':3.295 ,'Ti':3.175 ,'V': 3.144, 'Cr':3.023 ,'Mn': 2.961, 'Fe': 2.912,'Co':2.872 ,'Ni':2.834 ,'Cu':3.495 ,'Zn':2.763 ,'Ga': 4.383,'Ge':4.280,'As':4.230 ,'Se':4.205,'Br':4.189,'Kr':4.141 ,
+                        'Rb':4.114 ,'Sr': 3.641,'Y':3.345 ,'Zr':3.124 ,'Nb':3.165 ,'Mo':3.052 ,'Tc':2.998 ,'Ru':2.963 ,'Rh':2.929 ,'Pd':2.899 ,'Ag':3.148 ,'Cd':2.848 ,'In':4.463 ,'Sn':4.392 ,'Sb':4.420 ,'Te':4.470 , 'I':4.50, 'Xe':4.404 , 
+                        'Cs':4.517 ,'Ba':3.703 , 'La':3.522 , 'Ce':3.556 ,'Pr':3.606 ,'Nd':3.575 ,'Pm':3.547 ,'Sm':3.520 ,'Eu':3.493 ,'Gd':3.368 ,'Tb':3.451 ,'Dy':3.428 ,'Ho':3.409 ,'Er':3.391 ,'Tm':3.374 ,'Yb':3.355,'Lu':3.640 ,'Hf': 3.141,
+                        'Ta':3.170 ,'W':3.069 ,'Re':2.954 ,'Os':3.120 ,'Ir':2.840 ,'Pt':2.754 ,'Au':3.293 ,'Hg':2.705 ,'Tl':4.347 ,'Pb':4.297 ,'Bi':4.370 ,'Po':4.709 ,'At':4.750 ,'Rn': 4.765}#H...Rn J. Am. Chem. Soc., 1992, 114, 10024 #ang.
+                
+    return UFF_bond_distance[element] / UnitValueLib().bohr2angstroms#Bohr
+
+
+
+def UFF_bondangle_lib(element):# not implemented
+    if element is int:
+        element = number_element(element)
+    UFF_bondangle = {'H_':180.0, 'H_b':83.5, 'He':90.0,
+                        'Li' : 180.0, 'Be': 109.47, 'B_3':109.47, 'B_2':120.0, 'C_3': 109.47, 'C_R': 120.0, 'C_2': 120.0, 'C_1': 180.0,###
+                          'N':3.660,'O':3.500 , 'F':3.364,'Ne': 3.243, 
+                        'Na':2.983,'Mg': 3.021 ,'Al':4.499 ,'Si': 4.295, 'P':4.147, 'S':4.035 ,'Cl':3.947,'Ar':3.868 ,
+                        'K':3.812 ,'Ca':3.399 ,'Sc':3.295 ,'Ti':3.175 ,'V': 3.144, 'Cr':3.023 ,'Mn': 2.961, 'Fe': 2.912,'Co':2.872 ,'Ni':2.834 ,'Cu':3.495 ,'Zn':2.763 ,'Ga': 4.383,'Ge':4.280,'As':4.230 ,'Se':4.205,'Br':4.189,'Kr':4.141 ,
+                        'Rb':4.114 ,'Sr': 3.641,'Y':3.345 ,'Zr':3.124 ,'Nb':3.165 ,'Mo':3.052 ,'Tc':2.998 ,'Ru':2.963 ,'Rh':2.929 ,'Pd':2.899 ,'Ag':3.148 ,'Cd':2.848 ,'In':4.463 ,'Sn':4.392 ,'Sb':4.420 ,'Te':4.470 , 'I':4.50, 'Xe':4.404 , 
+                        'Cs':4.517 ,'Ba':3.703 , 'La':3.522 , 'Ce':3.556 ,'Pr':3.606 ,'Nd':3.575 ,'Pm':3.547 ,'Sm':3.520 ,'Eu':3.493 ,'Gd':3.368 ,'Tb':3.451 ,'Dy':3.428 ,'Ho':3.409 ,'Er':3.391 ,'Tm':3.374 ,'Yb':3.355,'Lu':3.640 ,'Hf': 3.141,
+                        'Ta':3.170 ,'W':3.069 ,'Re':2.954 ,'Os':3.120 ,'Ir':2.840 ,'Pt':2.754 ,'Au':3.293 ,'Hg':2.705 ,'Tl':4.347 ,'Pb':4.297 ,'Bi':4.370 ,'Po':4.709 ,'At':4.750 ,'Rn': 4.765}#H...Rn J. Am. Chem. Soc., 1992, 114, 10024 #ang.
+                
+    return UFF_bondangle[element] * UnitValueLib().deg2rad #rad
+
+
+
 
 def D2_VDW_radii_lib(element):
     # VDW radii for D2 dispersion model
@@ -144,27 +176,28 @@ def covalent_radii_lib(element):#single bond
 def double_covalent_radii_lib(element):#double bond
     if element is int:
         element = number_element(element)
-    CRL = {"H": None, "He": None, 
+    CRL = {"H": 0.32, "He": 0.46, 
            "Li": 1.24, "Be": 0.90, "B": 0.78, "C": 0.67, "N": 0.60, "O": 0.57, "F": 0.59, "Ne": 0.96, 
            "Na": 1.60, "Mg": 1.32, "Al":1.13, "Si": 1.07, "P": 1.02, "S": 0.94, "Cl": 0.95, "Ar": 1.07, 
            "K": 1.93, "Ca": 1.47, "Sc": 1.16, "Ti": 1.17, "V": 1.12, "Cr": 1.11, "Mn": 1.05, "Fe": 1.09, "Co": 1.03, "Ni": 1.01, "Cu": 1.15, "Zn": 1.20, "Ga": 1.17, "Ge": 1.11, "As": 1.14, "Se": 1.07, "Br": 1.09, "Kr": 1.21, 
            "Rb": 2.02, "Sr": 1.57, "Y": 1.30, "Zr": 1.27,"Nb": 1.25,"Mo": 1.21,"Tc": 1.20,"Ru": 1.14,"Rh": 1.10,"Pd": 1.17,"Ag": 1.39,"Cd": 1.44,"In": 1.36,"Sn": 1.30,"Sb": 1.33,"Te": 1.28,"I": 1.29,"Xe": 1.35,
            "Cs": 2.09,"Ba": 1.61,"La":1.39,"Ce": 1.37,"Pr": 1.38,"Nd": 1.37,"Pm": 1.35,"Sm": 1.34,"Eu": 1.34,"Gd": 1.35 ,"Tb": 1.35,"Dy": 1.33,"Ho": 1.33,"Er": 1.33,"Tm": 1.31,"Yb": 1.29,"Lu": 1.31,"Hf": 1.28,"Ta": 1.26,"W": 1.20,"Re": 1.19,"Os": 1.16,"Ir": 1.15,"Pt": 1.12,"Au": 1.21,"Hg": 1.42,"Tl": 1.42,"Pb":1.35,"Bi":1.41,"Po":1.35,"At":1.38,"Rn":1.45, 'X':1.000}#ang.
     # ref. P. Pyykkö; M. Atsumi (2009). "Molecular Double-Bond Covalent Radii for Elements Li–E112". Chemistry: A European Journal. 15 (46): 12770–12779. doi:10.1002/chem.200901472.  (H...Rn)
+    #If double bond length is not available, single bond length is used. (H, He)
             
     return CRL[element] / UnitValueLib().bohr2angstroms#Bohr
 
 def triple_covalent_radii_lib(element):#triple bond
     if element is int:
         element = number_element(element)
-    CRL = {"H": None, "He": None, 
-           "Li": None, "Be": 0.85, "B": 0.73, "C": 0.60, "N": 0.54, "O": 0.53, "F": 0.53, "Ne": None, 
-           "Na": None, "Mg": 1.27, "Al":1.11, "Si": 1.02, "P": 0.94, "S": 0.95, "Cl": 0.93, "Ar": 0.96, 
-           "K": None, "Ca": 1.33, "Sc": 1.14, "Ti": 1.08, "V": 1.06, "Cr": 1.03, "Mn": 1.03, "Fe": 1.02, "Co": 0.96, "Ni": 1.01, "Cu": 1.20, "Zn": None, "Ga": 1.21, "Ge": 1.21, "As": 1.06, "Se": 1.07, "Br": 1.10, "Kr": 1.08, 
-           "Rb": None, "Sr": 1.39, "Y": 1.24, "Zr": 1.21,"Nb": 1.16,"Mo": 1.13,"Tc": 1.10,"Ru": 1.03,"Rh": 1.06,"Pd": 1.12,"Ag": 1.37,"Cd": None,"In": 1.46,"Sn": 1.32,"Sb": 1.27,"Te": 1.21,"I": 1.25,"Xe": 1.22,
-           "Cs": None,"Ba": 1.49,"La":1.39,"Ce": 1.31,"Pr": 1.28,"Nd": None,"Pm": None,"Sm": None,"Eu": None,"Gd": 1.32 ,"Tb": None,"Dy": None,"Ho": None,"Er": None,"Tm": None,"Yb": None,"Lu": 1.31,"Hf": 1.21,"Ta": 1.19,"W": 1.15,"Re": 1.10,"Os": 1.09,"Ir": 1.07,"Pt": 1.10,"Au": 1.23,"Hg": None,"Tl": 1.50,"Pb":1.37,"Bi":1.35,"Po":1.29,"At":1.38,"Rn":1.33, 'X':1.000}#ang.
+    CRL = {"H": 0.32, "He": 0.46, 
+           "Li": 1.24, "Be": 0.85, "B": 0.73, "C": 0.60, "N": 0.54, "O": 0.53, "F": 0.53, "Ne": 0.96, 
+            "Na": 1.60, "Mg": 1.27, "Al":1.11, "Si": 1.02, "P": 0.94, "S": 0.95, "Cl": 0.93, "Ar": 0.96, 
+            "K": 1.93, "Ca": 1.33, "Sc": 1.14, "Ti": 1.08, "V": 1.06, "Cr": 1.03, "Mn": 1.03, "Fe": 1.02, "Co": 0.96, "Ni": 1.01, "Cu": 1.20, "Zn": 1.20, "Ga": 1.21, "Ge": 1.21, "As": 1.06, "Se": 1.07, "Br": 1.10, "Kr": 1.08, 
+           "Rb": 2.02, "Sr": 1.39, "Y": 1.24, "Zr": 1.21,"Nb": 1.16,"Mo": 1.13,"Tc": 1.10,"Ru": 1.03,"Rh": 1.06,"Pd": 1.12,"Ag": 1.37,"Cd": 1.44,"In": 1.46,"Sn": 1.32,"Sb": 1.27,"Te": 1.21,"I": 1.25,"Xe": 1.22,
+          "Cs": 2.09,"Ba": 1.49,"La":1.39,"Ce": 1.31,"Pr": 1.28,"Nd": 1.37,"Pm": 1.35,"Sm": 1.34,"Eu": 1.34,"Gd": 1.32 ,"Tb": 1.35,"Dy": 1.33,"Ho": 1.33,"Er": 1.33,"Tm": 1.31,"Yb": 1.29,"Lu": 1.31,"Hf": 1.21,"Ta": 1.19,"W": 1.15,"Re": 1.10,"Os": 1.09,"Ir": 1.07,"Pt": 1.10,"Au": 1.23,"Hg": 1.42,"Tl": 1.50,"Pb":1.37,"Bi":1.35,"Po":1.29,"At":1.38,"Rn":1.33, 'X':1.000}#ang.
     # ref. P. Pyykkö; S. Riedel; M. Patzschke (2005). "Triple-Bond Covalent Radii". Chemistry: A European Journal. 11 (12): 3511–3520. doi:10.1002/chem.200401299. (H...Rn)
-            
+    #If there is no triple bond length, use the double bond length; if there is no double bond length, use the single bond length. (H, He, Li, Ne, Na, K, Zn, Rb, Cd, Cs, Nd, Pm, Sm, Eu, Tb, Dy, Ho, Er, Tm, Yb, Hg)
     return CRL[element] / UnitValueLib().bohr2angstroms#Bohr
 
 def element_number(elem):
@@ -224,5 +257,7 @@ class UnitValueLib:
         self.hartree2j =  4.3597447222071 * 10 ** (-18) 
         self.bohr2m = 5.29177210903 * 10 ** (-11)
         self.mol2au = 6.02214076 * 10 ** 23
+        self.deg2rad = 0.017453292519943295
+        self.au2sec = 2.418884326505 * 10 ** (-17)
         return
         

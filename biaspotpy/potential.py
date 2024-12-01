@@ -24,6 +24,7 @@ from flux_potential import FluxPotential
 from value_range_potential import ValueRangePotential
 from mechano_force_potential import LinearMechanoForcePotential, LinearMechanoForcePotentialv2
 from asym_elllipsoidal_potential import AsymmetricEllipsoidalLJPotential, AsymmetricEllipsoidalLJPotentialv2
+from nanoreactor_potential import NanoReactorPotential
 
 class BiasPotentialCalculation:
     def __init__(self, FOLDER_DIRECTORY="./"):
@@ -49,13 +50,13 @@ class BiasPotentialCalculation:
 
     
     def main(self, e, g, geom_num_list, element_list,  force_data, pre_B_g="", iter="", initial_geom_num_list=""):
-        numerical_derivative_delta = 1e-5 #unit:Bohr
-        
+        numerical_derivative_delta = 1e-5 #unit:Bohr 
         #g:hartree/Bohr
         #e:hartree
         #geom_num_list:Bohr
-
-  
+        tmp_bias_pot_params_grad_list = []
+        tmp_bias_pot_params_grad_name_list = []
+        change_param_flag = []
         #--------------------------------------------------
         B_e = torch.tensor(0.0, dtype=torch.float64)
         BPA_grad_list = g*0.0
@@ -69,10 +70,10 @@ class BiasPotentialCalculation:
             self.bias_pot_prev_ene_list = [np.inf for i in range(len(self.bias_pot_obj_id_list))]
         
         
-            
- 
-        
-        #------------------    
+        ####------------------    
+        # For meta-dynamics
+        ####------------------
+        # caution : This potential is not for geometry optimization.
         if len(force_data["gaussian_potential_target"]) > 0:
             if self.metaD_history_list is None:
                 self.metaD_history_list = [[] for i in range(len(force_data["gaussian_potential_target"]))]
@@ -94,9 +95,29 @@ class BiasPotentialCalculation:
             
             self.metaD_history_list = METAD.history_list
 
-        tmp_bias_pot_params_grad_list = []
-        tmp_bias_pot_params_grad_name_list = []
-        change_param_flag = []
+
+        
+        ###-----------------
+        # For ab initio nano-reactor (ref.:https://doi.org/10.1038/nchem.2099, https://doi.org/10.1021/acs.jctc.4c00826)
+        ###-----------------
+        # caution : This potential is not for geometry optimization.
+        if len(force_data["nano_reactor_potential"]) > 0:
+            time = torch.tensor([iter], dtype=torch.float64)
+            NRP = NanoReactorPotential(inner_wall=force_data["nano_reactor_potential"][0][0],
+                                       outer_wall=force_data["nano_reactor_potential"][0][1],
+                                       contraction_time=force_data["nano_reactor_potential"][0][2],
+                                       expansion_time=force_data["nano_reactor_potential"][0][3],
+                                       element_list=element_list,)
+            B_e += NRP.calc_energy(geom_num_list, time)
+            
+            tensor_BPA_grad = torch.func.jacfwd(NRP.calc_energy)(geom_num_list, time)
+            BPA_grad_list += tensor2ndarray(tensor_BPA_grad)
+
+            tensor_BPA_hessian = torch.func.hessian(NRP.calc_energy)(geom_num_list, time)
+            tensor_BPA_hessian = torch.reshape(tensor_BPA_hessian, (len(geom_num_list)*3, len(geom_num_list)*3))
+            BPA_hessian += tensor2ndarray(tensor_BPA_hessian) 
+        
+
         
         ###-----------------
         # combine almost all the bias potentials
