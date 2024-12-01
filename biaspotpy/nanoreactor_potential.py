@@ -45,8 +45,8 @@ class NanoReactorPotential:
         
         U_c = torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_inner ** 2, torch.zeros_like(distance_inner))
         
-        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_outer ** 2, torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_inner, torch.zeros_like(distance_list)))
-        energy = torch.sum(f_t * U_c + (1 - f_t) * U_e)
+        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_outer ** 2, torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_inner, torch.zeros_like(distance_list)))
+        energy = torch.sum(f_t * U_c + (1.0 - f_t) * U_e)
         
         return energy #hartree
     
