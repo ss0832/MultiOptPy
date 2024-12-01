@@ -18,8 +18,8 @@ class NanoReactorPotential:
         self.au2sec = UVL.au2sec
         self.inner_wall = torch.tensor(self.config["inner_wall"] / self.bohr2angstroms, dtype=torch.float64)
         self.outer_wall = torch.tensor(self.config["outer_wall"] / self.bohr2angstroms, dtype=torch.float64)
-        self.contraction_time = torch.tensor(self.config["contraction_time"] * 10 ** 12 / self.au2sec, dtype=torch.float64) #pico-sec to au
-        self.expansion_time = torch.tensor(self.config["expansion_time"] * 10 ** 12 / self.au2sec, dtype=torch.float64) #pico-sec to au
+        self.contraction_time = torch.tensor(self.config["contraction_time"] * 10 ** -12 / self.au2sec, dtype=torch.float64) #pico-sec to au
+        self.expansion_time = torch.tensor(self.config["expansion_time"] * 10 ** -12 / self.au2sec, dtype=torch.float64) #pico-sec to au
         
         self.contraction_force_const = 1.0 / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
         self.expansion_force_const = 0.5 / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
@@ -45,8 +45,8 @@ class NanoReactorPotential:
         
         U_c = torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_inner ** 2, torch.zeros_like(distance_inner))
         
-        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_outer ** 2, torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_inner ** 2, torch.zeros_like(distance_list)))
+        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_outer ** 2,
+                          torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_inner ** 2, torch.zeros_like(distance_list)))
         energy = torch.sum(f_t * U_c + (1.0 - f_t) * U_e)
-        
         return energy #hartree
     
