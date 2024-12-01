@@ -9,6 +9,7 @@ import torch
       
 class NanoReactorPotential:
     def __init__(self, **kwarg):
+        # ref.:https://doi.org/10.1038/nchem.2099, https://doi.org/10.1021/acs.jctc.4c00826
         self.config = kwarg
         UVL = UnitValueLib()
         self.hartree2kcalmol = UVL.hartree2kcalmol 
@@ -24,8 +25,7 @@ class NanoReactorPotential:
         self.expansion_force_const = 0.5 / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
         self.element_list = self.config["element_list"]
         self.atom_mass_list = torch.tensor([[atomic_mass(element)] for element in self.element_list], dtype=torch.float64)
-        #torch.heaviside(xx, 0.5)
-        #torch.floor(xx)
+
         return
     
     def calc_energy(self, geom_num_list, time):#geom_num_list: (n_atoms, 3), bohr time: au 
@@ -45,7 +45,7 @@ class NanoReactorPotential:
         
         U_c = torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_inner ** 2, torch.zeros_like(distance_inner))
         
-        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_outer ** 2, torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_inner, torch.zeros_like(distance_list)))
+        U_e = torch.where(distance_list > self.outer_wall, self.atom_mass_list * 0.5 * self.contraction_force_const * distance_outer ** 2, torch.where(distance_list < self.inner_wall, self.atom_mass_list * 0.5 * self.expansion_force_const * distance_inner ** 2, torch.zeros_like(distance_list)))
         energy = torch.sum(f_t * U_c + (1.0 - f_t) * U_e)
         
         return energy #hartree
