@@ -107,6 +107,8 @@ class BiasPotentialCalculation:
                                        outer_wall=force_data["nano_reactor_potential"][0][1],
                                        contraction_time=force_data["nano_reactor_potential"][0][2],
                                        expansion_time=force_data["nano_reactor_potential"][0][3],
+                                       contraction_force_const=force_data["nano_reactor_potential"][0][4],
+                                       expansion_force_const=force_data["nano_reactor_potential"][0][5],
                                        element_list=element_list,)
             B_e += NRP.calc_energy(geom_num_list, time)
             

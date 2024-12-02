@@ -21,8 +21,8 @@ class NanoReactorPotential:
         self.contraction_time = torch.tensor(self.config["contraction_time"] * 10 ** -12 / self.au2sec, dtype=torch.float64) #pico-sec to au
         self.expansion_time = torch.tensor(self.config["expansion_time"] * 10 ** -12 / self.au2sec, dtype=torch.float64) #pico-sec to au
         
-        self.contraction_force_const = 1.0 / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
-        self.expansion_force_const = 0.5 / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
+        self.contraction_force_const = self.config["contraction_force_const"] / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
+        self.expansion_force_const = self.config["expansion_force_const"] / self.hartree2kcalmol * self.bohr2angstroms ** 2 # kcal/mol/A^2 to hartree/bohr^2
         self.element_list = self.config["element_list"]
         self.atom_mass_list = torch.tensor([[atomic_mass(element)] for element in self.element_list], dtype=torch.float64)
 
@@ -34,6 +34,8 @@ class NanoReactorPotential:
                              self.outer_wall, 
                              self.contraction_time,
                              self.expansion_time,
+                             self.contraction_force_const,
+                             self.expansion_force_const,
                              self.element_list
         """
         distance_list = torch.linalg.norm(geom_num_list, ord=2, dim=1).reshape(-1, 1)

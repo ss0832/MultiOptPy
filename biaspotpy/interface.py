@@ -177,7 +177,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-lmefpv2", "--linear_mechano_force_pot_v2", nargs="*",  type=str, default=[], help='add linear mechanochemical force (ex.) [[force(pN)] [atom(ex. 1)] [direction (xyz)] ...]')
     parser.add_argument("-aerp", "--asymmetric_ellipsoidal_repulsive_potential", nargs="*",  type=str, default=[], help='add asymmetric ellipsoidal repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]')
     parser.add_argument("-aerpv2", "--asymmetric_ellipsoidal_repulsive_potential_v2", nargs="*",  type=str, default=[], help='add asymmetric ellipsoidal repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]')
-    parser.add_argument("-nrp", "--nano_reactor_potential", nargs="*",  type=str, default=[], help='add nano reactor potential (ex.) [[inner wall (ang.)] [outer wall (ang.)] [contraction time (ps)] [expansion time (ps)]] (Recommendation: 8.0 14.0 1.5 0.5)')
+    parser.add_argument("-nrp", "--nano_reactor_potential", nargs="*",  type=str, default=[], help='add nano reactor potential (ex.) [[inner wall (ang.)] [outer wall (ang.)] [contraction time (ps)] [expansion time (ps)] [contraction force const (kcal/mol/A^2)] [expansion force const (kcal/mol/A^2)]] (Recommendation: 8.0 14.0 1.5 0.5 1.0 0.5)')
     return parser
 
 
@@ -451,13 +451,13 @@ def force_data_parser(args):
     force_data = {}
     #---------------------
     force_data["nano_reactor_potential"] = []
-    if len(args.nano_reactor_potential) % 4 != 0:
+    if len(args.nano_reactor_potential) % 6 != 0:
         print("invaild input (-nrp) ")
         sys.exit(0)
     
     ### add nano reactor potential (ex.) [[inner wall (ang.)] [outer wall (ang.)] [contraction time (ps)] [expansion time (ps)]]
-    for i in range(int(len(args.nano_reactor_potential)/4)):
-        force_data["nano_reactor_potential"].append([float(args.nano_reactor_potential[4*i]), float(args.nano_reactor_potential[4*i+1]), float(args.nano_reactor_potential[4*i+2]), float(args.nano_reactor_potential[4*i+3])])
+    for i in range(int(len(args.nano_reactor_potential)/6)):
+        force_data["nano_reactor_potential"].append([float(args.nano_reactor_potential[6*i]), float(args.nano_reactor_potential[6*i+1]), float(args.nano_reactor_potential[6*i+2]), float(args.nano_reactor_potential[6*i+3]), float(args.nano_reactor_potential[6*i+4]), float(args.nano_reactor_potential[6*i+5])])
     
     #---------------------
     force_data["projection_constraint_condition_list"] = []
