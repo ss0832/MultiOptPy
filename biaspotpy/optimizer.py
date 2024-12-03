@@ -112,7 +112,6 @@ class CalculateMoveVector:
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
-        self.trust_radii_update = "trust"
         self.model_hess_flag = model_hess_flag
         
     def initialization(self, method):
@@ -198,6 +197,7 @@ class CalculateMoveVector:
     def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lambda_list=[], prev_lambda_list=[], lambda_grad_list=[], lambda_prev_grad_list=[], lambda_prev_movestep=[], init_lambda_list=[], projection_constrain=False):#geom_num_list:Bohr
         natom = len(geom_num_list)
         nconstrain = len(lambda_list)
+        
         ###
         #-------------------------------------------------------------
         geom_num_list = geom_num_list.reshape(natom*3, 1)
@@ -228,30 +228,31 @@ class CalculateMoveVector:
         #-------------------------------------------------------------
         # update trust radii
         #-------------------------------------------------------------
-        if self.iter == 0 and self.FC_COUNT != -1:
-            if self.saddle_order > 0:
-                self.trust_radii = min(self.trust_radii, 0.1)
-  
-        elif self.FC_COUNT == -1 and not self.model_hess_flag:
+
+        if self.FC_COUNT == -1 and not self.model_hess_flag:
             pass
 
         else:
-            if self.trust_radii_update == "trust":
-                for i in range(len(optimizer_instances)):
-                    if self.newton_tag[i]:
-                        model_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
-                        break
-                else:
-                    model_hess = None
-                    
-            if model_hess is None:
-                pass
+           
+            for i in range(len(optimizer_instances)):
+                if self.newton_tag[i]:
+                    model_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
+                    break
             else:
-                self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii, self.trust_radii_update)
+                model_hess = None
+                    
+            if model_hess is None and self.FC_COUNT == -1:
+                pass
             
+            else:
+                self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii)
+            
+        if self.saddle_order > 0:
+            self.trust_radii = min(self.trust_radii, 0.1)
+        
+        if self.iter == 0 and self.FC_COUNT != -1:
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
-        
         
         if projection_constrain:
             self.trust_radii = min(self.trust_radii, 0.1)
@@ -333,8 +334,8 @@ class CalculateMoveVector:
         new_geometry = new_geometry.reshape(natom, 3)
         move_vector = move_vector.reshape(natom, 3)
         #-------------------------------------------------------------
+      
         
-
         #new_lambda_list : a.u.
         #new_geometry : angstrom
         #move_vector : bohr
