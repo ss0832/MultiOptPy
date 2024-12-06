@@ -344,7 +344,7 @@ class LagrangeConstrain:
             for j in range(len(constraint_atoms_list[i])):
                 tmp_list.append(int(constraint_atoms_list[i][j])-1)
             self.constraint_atoms_list.append(tmp_list)
-            
+        self.init_tag = True    
         return
     
     def initialize(self, geom_num_list):
@@ -393,10 +393,10 @@ class LagrangeConstrain:
                 
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]], geom_num_list[self.constraint_atoms_list[i][3]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)
-                dihedral_grad = torch.func.jacrev(TorchDerivatives().dihedral, 0)(tmp_tensor).detach().numpy()
+                dihedral_grad = torch.func.jacrev(TorchDerivatives().dihedral_angle, 0)(tmp_tensor).detach().numpy()
                 tmp_init_constraint_grad.append(dihedral_grad)
                 
-                dihedral_hess = torch.func.hessian(TorchDerivatives().dihedral, 0)(tmp_tensor).detach().numpy()
+                dihedral_hess = torch.func.hessian(TorchDerivatives().dihedral_angle, 0)(tmp_tensor).detach().numpy()
                 dihedral_hess = dihedral_hess.reshape(12, 12)
                 tmp_init_constraint_hess.append(dihedral_hess)
                 
@@ -409,8 +409,57 @@ class LagrangeConstrain:
         self.init_constraint_grad = tmp_init_constraint_grad
         self.init_constraint_hess = tmp_init_constraint_hess
 
+
+        if self.init_tag:
+            self.init_constraint = np.array(tmp_init_constraint)
+            #self.func_list = tmp_func_list
+            self.init_tag = False
+        return tmp_init_constraint
+
+    def adjust_init_coord(self, coord):#coord:Bohr
+        print("Adjusting initial coordinates... (SHAKE-like method) ")
+        jiter = 10000
+        shake_like_method_threshold = 1.0e-10
+        for jter in range(jiter): # SHAKE-like algorithm
+            for i_constrain in range(len(self.constraint_name)):
+                if self.constraint_name[i_constrain] == "bond":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
+                
+                elif self.constraint_name[i_constrain] == "fbond":
+                    divide_index = self.constraint_atoms_list[i_constrain][-1]
+                    fragm_1 = np.array(self.constraint_atoms_list[i_constrain][:divide_index], dtype=np.int32) - 1
+                    fragm_2 = np.array(self.constraint_atoms_list[i_constrain][divide_index:], dtype=np.int32) - 1
+                    coord = change_fragm_distance_both_side(coord, fragm_1, fragm_2, self.init_constraint[i_constrain])
+
+                elif self.constraint_name[i_constrain] == "angle":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                    coord = change_bond_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, self.init_constraint[i_constrain])
+                    
+                elif self.constraint_name[i_constrain] == "dihedral":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                    atom_label_4 = self.constraint_atoms_list[i_constrain][3] - 1
+                    coord = change_torsion_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4, self.init_constraint[i_constrain])
+                    
+                else:
+                    pass
         
-        return 
+            current_coord = np.array(self.initialize(coord))
+            
+            if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_like_method_threshold:
+                print("Adjusted!!! : ITR. ", jter)
+                break
+            
+        
+                
+        return coord
+    
+    
     
     def calc_lagrange_constraint_energy(self, geom_num_list, lagrange_lambda_list):
         lagrange_constraint_energy = 0.0
@@ -464,7 +513,7 @@ class LagrangeConstrain:
             elif self.constraint_name[i] == "dihedral":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]], geom_num_list[self.constraint_atoms_list[i][3]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)
-                dihedral_grad = torch.func.jacrev(TorchDerivatives().dihedral, 0)(tmp_tensor).detach().numpy()
+                dihedral_grad = torch.func.jacrev(TorchDerivatives().dihedral_angle, 0)(tmp_tensor).detach().numpy()
                 tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][0]] += (dihedral_grad[0] - self.init_constraint_grad[i][0]) * lagrange_lambda_list[i]
                 tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][1]] += (dihedral_grad[1] - self.init_constraint_grad[i][1]) * lagrange_lambda_list[i]
                 tmp_lagrange_constraint_atom_addgrad[self.constraint_atoms_list[i][2]] += (dihedral_grad[2] - self.init_constraint_grad[i][2]) * lagrange_lambda_list[i]
@@ -542,7 +591,7 @@ class LagrangeConstrain:
             elif self.constraint_name[i] == "dihedral":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]], geom_num_list[self.constraint_atoms_list[i][3]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)
-                dihedral_hess = torch.func.hessian(TorchDerivatives().dihedral, 0)(tmp_tensor).detach().numpy()
+                dihedral_hess = torch.func.hessian(TorchDerivatives().dihedral_angle, 0)(tmp_tensor).detach().numpy()
                 dihedral_hess = dihedral_hess.reshape(12, 12)
                 langrange_add_hessian[3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (dihedral_hess[0:3, 0:3]  - self.init_constraint_hess[i][0:3, 0:3])* lagrange_lambda_list[i]
                 langrange_add_hessian[3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (dihedral_hess[3:6, 3:6]  - self.init_constraint_hess[i][3:6, 3:6])* lagrange_lambda_list[i]
@@ -584,7 +633,7 @@ class LagrangeConstrain:
             elif self.constraint_name[i] == "dihedral":
                 stack_coord = np.vstack([geom_num_list[self.constraint_atoms_list[i][0]], geom_num_list[self.constraint_atoms_list[i][1]], geom_num_list[self.constraint_atoms_list[i][2]], geom_num_list[self.constraint_atoms_list[i][3]]])
                 tmp_tensor = torch.tensor(stack_coord, requires_grad=True)
-                dihedral_couple_hess = torch.func.jacrev(TorchDerivatives().dihedral, 0)(tmp_tensor).detach().numpy()
+                dihedral_couple_hess = torch.func.jacrev(TorchDerivatives().dihedral_angle, 0)(tmp_tensor).detach().numpy()
                 coupling_hess[i, 3*(self.constraint_atoms_list[i][0]):3*(self.constraint_atoms_list[i][0])+3] += (dihedral_couple_hess[0] - self.init_constraint_grad[i][0])
                 coupling_hess[i, 3*(self.constraint_atoms_list[i][1]):3*(self.constraint_atoms_list[i][1])+3] += (dihedral_couple_hess[1] - self.init_constraint_grad[i][1])
                 coupling_hess[i, 3*(self.constraint_atoms_list[i][2]):3*(self.constraint_atoms_list[i][2])+3] += (dihedral_couple_hess[2] - self.init_constraint_grad[i][2])
@@ -714,7 +763,7 @@ class ProjectOutConstrain:
     def adjust_init_coord(self, coord):#coord:Bohr
         print("Adjusting initial coordinates... (SHAKE-like method) ")
         jiter = 10000
-        shake_lile_method_threshold = 1.0e-10
+        shake_like_method_threshold = 1.0e-10
         for jter in range(jiter): # SHAKE-like algorithm
             for i_constrain in range(len(self.constraint_name)):
                 if self.constraint_name[i_constrain] == "bond":
@@ -746,7 +795,7 @@ class ProjectOutConstrain:
         
             current_coord = np.array(self.initialize(coord))
             
-            if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_lile_method_threshold:
+            if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_like_method_threshold:
                 print("Adjusted!!! : ITR. ", jter)
                 break
             

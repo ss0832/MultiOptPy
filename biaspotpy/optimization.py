@@ -115,10 +115,7 @@ class Optimize:
             if args.usextb == "None":
                 print("Currently, Natural Reaction Orbital analysis is only available for xTB method.")
                 sys.exit(0)
-        if len(args.constraint_condition) > 0:
-            self.constraint_condition_list = shake_parser(args.constraint_condition)
-        else:
-            self.constraint_condition_list = []
+
             
         self.irc = args.intrinsic_reaction_coordinates
         self.force_data = force_data_parser(self.args)
@@ -214,9 +211,7 @@ class Optimize:
         
         #-------------------
 
-        if len(self.constraint_condition_list) > 0:
-            class_GradientSHAKE = GradientSHAKE(self.constraint_condition_list)
-        
+
         CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
 
         SP = self.setup_calculation(Calculation)        
@@ -378,10 +373,7 @@ class Optimize:
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             #-------------------
 
-            if len(self.constraint_condition_list) > 0 and iter > 0:
-                B_g = class_GradientSHAKE.run_grad(pre_geom, B_g) 
-                g = class_GradientSHAKE.run_grad(pre_geom, g) 
-            
+ 
            
             if len(force_data["projection_constraint_condition_list"]) > 0:
                 g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
@@ -418,12 +410,10 @@ class Optimize:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             
-
-            if len(self.constraint_condition_list) > 0 and iter > 0:
-                tmp_new_geometry = class_GradientSHAKE.run_coord(pre_geom, new_geometry/self.bohr2angstroms, element_list) 
-               
-                new_geometry = tmp_new_geometry * self.bohr2angstroms
-                
+            if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                tmp_new_geometry = new_geometry / self.bohr2angstroms
+                new_geometry = LC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+             
             #---------------------------------
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -485,7 +475,6 @@ class Optimize:
             
            
             lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
-            
             lagrange_constraint_prev_energy = lagrange_constraint_energy
             
             #---------------------------

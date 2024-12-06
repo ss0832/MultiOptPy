@@ -121,7 +121,6 @@ def optimizeparser(parser):
     parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-irc','--intrinsic_reaction_coordinates', help="Calculate intrinsic reaction coordinates. (ex.) [[step_size], [max_step], [IRC_method]] (Recommended) [0.5 300 lqa]", nargs="*", type=str, default=[])    
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
-    parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)),(atom1),(atom2)] [(bond_angle (deg.)),(atom1),(atom2),(atom3)] [(dihedral_angle (deg.)),(atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-nro", "--NRO_analysis",  help="apply Natural Reaction Orbial analysis. (ref. Phys. Chem. Chem. Phys. 24, 3532 (2022))", action='store_true')
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
@@ -129,13 +128,13 @@ def optimizeparser(parser):
 
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
-    parser.add_argument("-lc", "--lagrange_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with lagrange multiplier (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     
     args = parser.parse_args()
     if len(args.INPUT) < 2:
         args.INPUT = args.INPUT[0]
-
+    args.constraint_condition = []
+    args.lagrange_constrain = []
     return args
 
 def parser_for_biasforce(parser):
