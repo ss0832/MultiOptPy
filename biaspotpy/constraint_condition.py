@@ -712,35 +712,46 @@ class ProjectOutConstrain:
         return tmp_init_constraint
 
     def adjust_init_coord(self, coord):#coord:Bohr
-
-        for i_constrain in range(len(self.constraint_name)):
-            if self.constraint_name[i_constrain] == "bond":
-                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
-                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
-                coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
-            
-            elif self.constraint_name[i_constrain] == "fbond":
-                divide_index = self.constraint_atoms_list[i_constrain][-1]
-                fragm_1 = np.array(self.constraint_atoms_list[i_constrain][:divide_index], dtype=np.int32) - 1
-                fragm_2 = np.array(self.constraint_atoms_list[i_constrain][divide_index:], dtype=np.int32) - 1
-                coord = change_fragm_distance_both_side(coord, fragm_1, fragm_2, self.init_constraint[i_constrain])
-
-            elif self.constraint_name[i_constrain] == "angle":
-                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
-                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
-                atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
-                coord = change_bond_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, self.init_constraint[i_constrain])
+        print("Adjusting initial coordinates... (SHAKE-like method) ")
+        jiter = 10000
+        shake_lile_method_threshold = 1.0e-10
+        for jter in range(jiter): # SHAKE-like algorithm
+            for i_constrain in range(len(self.constraint_name)):
+                if self.constraint_name[i_constrain] == "bond":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
                 
-            elif self.constraint_name[i_constrain] == "dihedral":
-                atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
-                atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
-                atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
-                atom_label_4 = self.constraint_atoms_list[i_constrain][3] - 1
-                coord = change_torsion_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4, self.init_constraint[i_constrain])
-                
-            else:
-                pass
+                elif self.constraint_name[i_constrain] == "fbond":
+                    divide_index = self.constraint_atoms_list[i_constrain][-1]
+                    fragm_1 = np.array(self.constraint_atoms_list[i_constrain][:divide_index], dtype=np.int32) - 1
+                    fragm_2 = np.array(self.constraint_atoms_list[i_constrain][divide_index:], dtype=np.int32) - 1
+                    coord = change_fragm_distance_both_side(coord, fragm_1, fragm_2, self.init_constraint[i_constrain])
+
+                elif self.constraint_name[i_constrain] == "angle":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                    coord = change_bond_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, self.init_constraint[i_constrain])
+                    
+                elif self.constraint_name[i_constrain] == "dihedral":
+                    atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
+                    atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
+                    atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
+                    atom_label_4 = self.constraint_atoms_list[i_constrain][3] - 1
+                    coord = change_torsion_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4, self.init_constraint[i_constrain])
+                    
+                else:
+                    pass
+        
+            current_coord = np.array(self.initialize(coord))
             
+            if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_lile_method_threshold:
+                print("Adjusted!!! : ITR. ", jter)
+                break
+            
+        
+                
         return coord
 
 
