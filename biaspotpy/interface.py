@@ -461,15 +461,33 @@ def force_data_parser(args):
     #---------------------
     force_data["projection_constraint_condition_list"] = []
     force_data["projection_constraint_atoms"] = []
-    if len(args.projection_constrain) % 2 != 0:
-        print("invaild input (-pc) ")
-        sys.exit(0)
-
-    for i in range(int(len(args.projection_constrain)/2)):
-        force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
-        force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
-
+    force_data["projection_constraint_constant"] = []
     
+    if len(args.projection_constrain) > 0:
+        if args.projection_constrain[0] == "manual":
+            if len(args.projection_constrain[1:]) % 3 != 0:
+                print("invaild input (-pc) ")
+                sys.exit(0)
+            
+            tmp_val = args.projection_constrain[1:]
+            for i in range(int(len(tmp_val)/3)):
+                force_data["projection_constraint_condition_list"].append(str(tmp_val[3*i]))
+                force_data["projection_constraint_atoms"].append(num_parse(tmp_val[3*i+1]))
+                force_data["projection_constraint_constant"].append(float(tmp_val[3*i+2]))
+            
+        
+        else:#auto
+            if len(args.projection_constrain) % 2 != 0:
+                print("invaild input (-pc) ")
+                sys.exit(0)
+
+
+
+            for i in range(int(len(args.projection_constrain)/2)):
+                force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
+                force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
+
+        
     
     #---------------------
     force_data["lagrange_constraint_condition_list"] = []

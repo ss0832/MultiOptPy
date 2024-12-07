@@ -690,7 +690,7 @@ class LagrangeConstrain:
 
 
 class ProjectOutConstrain:
-    def __init__(self, constraint_name, constraint_atoms_list):
+    def __init__(self, constraint_name, constraint_atoms_list, constraint_constant=[]):
         self.constraint_name = constraint_name
         self.constraint_atoms_list = []
         for i in range(len(constraint_atoms_list)):
@@ -699,6 +699,7 @@ class ProjectOutConstrain:
                 tmp_list.append(int(constraint_atoms_list[i][j]))
             self.constraint_atoms_list.append(tmp_list)
             
+        self.constraint_constant = constraint_constant
         self.iteration = 1
         self.init_tag = True
         #self.func_list = None
@@ -755,8 +756,19 @@ class ProjectOutConstrain:
                 raise "error (invaild input of constraint conditions)"
       
         if self.init_tag:
-            self.init_constraint = tmp_init_constraint
-            #self.func_list = tmp_func_list
+            if len(self.constraint_constant) == 0:
+                self.init_constraint = tmp_init_constraint
+            else:
+                self.init_constraint = []
+                for i in range(len(self.constraint_constant)):
+                    if self.constraint_name[i] == "bond" or self.constraint_name[i] == "fbond":
+                        self.init_constraint.append(self.constraint_constant[i]/UnitValueLib().bohr2angstroms)
+                    elif self.constraint_name[i] == "angle" or self.constraint_name[i] == "dihedral":
+                        self.init_constraint.append(np.deg2rad(self.constraint_constant[i]))
+                    else:
+                        print("error")
+                        raise "error (invaild input of constraint conditions)"
+                
             self.init_tag = False
         return tmp_init_constraint
 

@@ -203,7 +203,7 @@ class Optimize:
         LC = LagrangeConstrain(force_data["lagrange_constraint_condition_list"], force_data["lagrange_constraint_atoms"])
         natom = len(element_list)
         #-------------------
-        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
+        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
         if len(force_data["projection_constraint_condition_list"]) > 0 or len(force_data["lagrange_constraint_condition_list"]) > 0:
             projection_constrain = True
         else:

@@ -982,7 +982,7 @@ class NEB:
                 if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == init_num:
                     PC_list = []
                     for i in range(len(energy_list)):
-                        PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"]))
+                        PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
                         PC_list[i].initialize(geometry_num_list[i])
 
                 if len(force_data["projection_constraint_condition_list"]) > 0:
@@ -1133,7 +1133,7 @@ class NEB:
             if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == 0:
                 PC_list = []
                 for i in range(len(energy_list)):
-                    PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"]))
+                    PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
                     PC_list[i].initialize(geometry_num_list[i])
 
             if len(force_data["projection_constraint_condition_list"]) > 0:

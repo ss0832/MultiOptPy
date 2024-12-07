@@ -3,21 +3,18 @@ import os
 import shutil
 import copy
 import glob
-import itertools
 import datetime
 import time
 
 import numpy as np
 
-from optimizer import CalculateMoveVector
 from potential import BiasPotentialCalculation
-from calc_tools import CalculationStructInfo, Calculationtools
+from calc_tools import CalculationStructInfo
 from visualization import Graph
 from fileio import FileIO
 from parameter import UnitValueLib, element_number, atomic_mass
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
-from cmds_analysis import CMDSPathAnalysis
 from constraint_condition import shake_parser, SHAKE
 from pbc import apply_periodic_boundary_condition
 from constraint_condition import ProjectOutConstrain
@@ -371,7 +368,7 @@ class MD:
 
         temperature_list = []
         force_data = force_data_parser(self.args)
-        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"])
+        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
 
 
         finish_frag = False

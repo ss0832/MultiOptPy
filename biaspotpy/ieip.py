@@ -3,15 +3,14 @@ import sys
 import time
 import glob
 import copy
-import torch
 import numpy as np
 
 from potential import BiasPotentialCalculation
 from optimizer import CalculateMoveVector 
-from calc_tools import CalculationStructInfo, Calculationtools
+from calc_tools import Calculationtools
 from visualization import Graph
 from fileio import FileIO
-from parameter import UnitValueLib, element_number
+from parameter import UnitValueLib
 from interface import force_data_parser
 import ModelFunction as MF
 
