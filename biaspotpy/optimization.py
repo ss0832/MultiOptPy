@@ -202,15 +202,12 @@ class Optimize:
         lagrange_constraint_prev_energy = 0.0
         LC = LagrangeConstrain(force_data["lagrange_constraint_condition_list"], force_data["lagrange_constraint_atoms"])
         natom = len(element_list)
-        #-------------------
+
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
         if len(force_data["projection_constraint_condition_list"]) > 0 or len(force_data["lagrange_constraint_condition_list"]) > 0:
             projection_constrain = True
         else:
             projection_constrain = False
-        
-        #-------------------
-
 
         CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
 
@@ -222,9 +219,7 @@ class Optimize:
             optimizer_instances[i].set_hessian(self.Model_hess) #hessian is None.
             if self.DELTA != "x":
                 optimizer_instances[i].DELTA = self.DELTA
-        
- 
-            
+
         #----------------------------------
         if self.NRO_analysis:
             NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=xtb_method, element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
@@ -259,8 +254,6 @@ class Optimize:
             #    G.stem_plot(common_freq, au_int, "IR_spectra_iteration_"+str(iter))
             #--------------------------------------
             
-
-
 
             if finish_frag:#If QM calculation doesn't end, the process of this program is terminated. 
                 break   
@@ -447,9 +440,14 @@ class Optimize:
             
             if self.NRO_analysis:
                 NRO.run(SP, geom_num_list, move_vector)
+            
             #------------------------
+            
             if converge_flag:#convergent criteria
-                break
+                if len(force_data["projection_constraint_condition_list"]) > 0 and iter == 0:
+                    pass
+                else:
+                    break
             #-------------------------
             
             if len(force_data["fix_atoms"]) > 0:
@@ -527,7 +525,7 @@ class Optimize:
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
-
+        return
 
     def check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
