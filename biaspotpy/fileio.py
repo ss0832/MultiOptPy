@@ -157,6 +157,18 @@ class FileIO:
                         w.write(str(row))
                         w.write(" ")
                     w.write("\n")
+        
+        if len(geometry_list) == 1:
+            for y, geometry in enumerate(geometry_list):
+                with open(file_directory+"/visualization_"+os.path.basename(self.START_FILE[:-4])+".xyz","w") as w:
+                    w.write(str(len(geometry)-1)+"\n")
+                    for rows in geometry:
+                        for row in rows:
+                            w.write(str(row))
+                            w.write(" ")
+                        w.write("\n")
+
+        
         return file_directory
 
     def make_pyscf_input_file(self, geometry_list, iter):#geometry_list: ang.
