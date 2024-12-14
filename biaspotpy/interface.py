@@ -63,7 +63,7 @@ def ieipparser(parser):
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-es", "--excited_state", type=int, nargs="*", default=[0, 0],
                         help='calculate excited state (default: [0(initial state), 0(final state)]) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
-    parser.add_argument("-mf", "--model_function_mode", help="use model function to optimization", type=str, default='None',)
+    parser.add_argument("-mf", "--model_function_mode", help="use model function to optimization (seam, avoiding, conical, mesx, meci)", type=str, default='None',)
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')

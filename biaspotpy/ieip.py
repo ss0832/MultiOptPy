@@ -520,7 +520,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             geometry_list_list.append(geometry_list)
             element_list_list.append(element_list)
             electric_charge_and_multiplicity_list.append(electric_charge_and_multiplicity)
-    
+        self.save_input_data()
         SP_list = []
         file_directory_list = []
         for i in range(len(FIO_img_list)):
@@ -556,7 +556,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         return
         
 
-        
+    def save_input_data(self):
+        with open(self.iEIP_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        return
         
     def model_function_optimization(self, file_directory_list, SP_list, element_list_list, electric_charge_and_multiplicity_list, FIO_img_list):
         
@@ -640,6 +643,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     CMF = MF.ConicalModelFunction()
                 elif self.mf_mode == "mesx":
                     MESX = MF.OptMESX()
+                elif self.mf_mode == "meci":
+                    MECI_bare = MF.OptMECI()
+                    MECI_bias = MF.OptMECI()
                 else:
                     print("Unexpected method. exit...")
                     raise
@@ -714,7 +720,17 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     OPTIMIZER_INSTANCE_LIST[0][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
                     OPTIMIZER_INSTANCE_LIST[1][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
                     
+            elif self.mf_mode == "meci":
+                mf_energy = MECI_bare.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
+                mf_bias_energy = MECI_bias.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
+                gp_grad = MECI_bare.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
+                gp_bias_grad = MECI_bias.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
+                tmp_smf_bias_grad_list = [gp_bias_grad, gp_bias_grad]
+                tmp_smf_grad_list = [gp_grad, gp_grad]
                 
+                for l in range(len(OPTIMIZER_INSTANCE_LIST[0])):
+                    OPTIMIZER_INSTANCE_LIST[0][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
+                    OPTIMIZER_INSTANCE_LIST[1][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)  
             else:
                 print("No model function is selected.")
                 raise
@@ -734,8 +750,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             if self.mf_mode == "mesx":
                 tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
                 tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
+            if self.mf_mode == "meci":
+                tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
+                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
                 
-                
+                 
             
             tmp_move_vector_list = np.array(tmp_move_vector_list)
             tmp_new_geometry_list = np.array(tmp_new_geometry_list)
@@ -873,9 +892,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         print("                         Value                         Threshold ")
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
-        print("Maxinum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
+        print("Maximum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
         print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g**2).mean())), self.RMS_FORCE_THRESHOLD))
-        print("Maxinum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
+        print("Maximum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), self.MAX_DISPLACEMENT_THRESHOLD))
         print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector**2).mean())), self.RMS_DISPLACEMENT_THRESHOLD))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
