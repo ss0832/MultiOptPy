@@ -702,43 +702,32 @@ class ProjectOutConstrain:
         self.constraint_constant = constraint_constant
         self.iteration = 1
         self.init_tag = True
-        #self.func_list = None
         self.spring_const = 0.0
-
         return
 
-
-    def initialize(self, geom_num_list):
+    def initialize(self, geom_num_list):#Bohr
         tmp_init_constraint = []
-        #tmp_func_list = []
         for i in range(len(self.constraint_name)):
             if self.constraint_name[i] == "bond":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 init_bond_dist = calc_bond_length_from_vec(vec_1, vec_2) 
                 tmp_init_constraint.append(init_bond_dist)
-                #tmp_func_list.append(torch_calc_distance)
                 
             elif self.constraint_name[i] == "fbond":
                 divide_index = self.constraint_atoms_list[i][-1]
                 fragm_1 = np.array(self.constraint_atoms_list[i][:divide_index], dtype=np.int32) - 1
                 fragm_2 = np.array(self.constraint_atoms_list[i][divide_index:], dtype=np.int32) - 1
-
-
                 vec_1 = np.mean(geom_num_list[fragm_1], axis=0)
                 vec_2 = np.mean(geom_num_list[fragm_2], axis=0)
                 init_bond_dist = calc_bond_length_from_vec(vec_1, vec_2) 
                 tmp_init_constraint.append(init_bond_dist)  
-                #tmp_func_list.append(torch_calc_fragm_distance)
                  
             elif self.constraint_name[i] == "angle":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 vec_2 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
                 init_angle = calc_angle_from_vec(vec_1, vec_2)
                 tmp_init_constraint.append(init_angle)
-                #tmp_func_list.append(torch_calc_angle)
-                
-      
                 
             elif self.constraint_name[i] == "dihedral":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1] - geom_num_list[self.constraint_atoms_list[i][1] - 1]
@@ -746,10 +735,15 @@ class ProjectOutConstrain:
                 vec_3 = geom_num_list[self.constraint_atoms_list[i][2] - 1] - geom_num_list[self.constraint_atoms_list[i][3] - 1]
                 init_dihedral = calc_dihedral_angle_from_vec(vec_1, vec_2, vec_3)
                 tmp_init_constraint.append(init_dihedral)
-              
-                #tmp_func_list.append(torch_calc_dihedral_angle)
-                
-                   
+               
+            elif self.constraint_name[i] == "x":
+                tmp_init_constraint.append(geom_num_list[self.constraint_atoms_list[i][0] - 1][0])
+            
+            elif self.constraint_name[i] == "y":
+                tmp_init_constraint.append(geom_num_list[self.constraint_atoms_list[i][0] - 1][1])
+            
+            elif self.constraint_name[i] == "z":
+                tmp_init_constraint.append(geom_num_list[self.constraint_atoms_list[i][0] - 1][2])
                 
             else:
                 print("error")
@@ -761,8 +755,8 @@ class ProjectOutConstrain:
             else:
                 self.init_constraint = []
                 for i in range(len(self.constraint_constant)):
-                    if self.constraint_name[i] == "bond" or self.constraint_name[i] == "fbond":
-                        self.init_constraint.append(self.constraint_constant[i]/UnitValueLib().bohr2angstroms)
+                    if self.constraint_name[i] == "bond" or self.constraint_name[i] == "fbond" or self.constraint_name[i] == "x" or self.constraint_name[i] == "y" or self.constraint_name[i] == "z":
+                        self.init_constraint.append(self.constraint_constant[i] / UnitValueLib().bohr2angstroms)
                     elif self.constraint_name[i] == "angle" or self.constraint_name[i] == "dihedral":
                         self.init_constraint.append(np.deg2rad(self.constraint_constant[i]))
                     else:
@@ -770,6 +764,7 @@ class ProjectOutConstrain:
                         raise "error (invaild input of constraint conditions)"
                 
             self.init_tag = False
+       
         return tmp_init_constraint
 
     def adjust_init_coord(self, coord):#coord:Bohr
@@ -801,7 +796,20 @@ class ProjectOutConstrain:
                     atom_label_3 = self.constraint_atoms_list[i_constrain][2] - 1
                     atom_label_4 = self.constraint_atoms_list[i_constrain][3] - 1
                     coord = change_torsion_angle_both_side(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4, self.init_constraint[i_constrain])
+                
+                elif self.constraint_name[i_constrain] == "x":
+                    atom_label = self.constraint_atoms_list[i_constrain][0] - 1 
+                    coord[atom_label][0] = self.init_constraint[i_constrain] 
                     
+                
+                elif self.constraint_name[i_constrain] == "y":
+                    atom_label = self.constraint_atoms_list[i_constrain][0] - 1 
+                    coord[atom_label][1] = self.init_constraint[i_constrain]
+                
+                elif self.constraint_name[i_constrain] == "z":
+                    atom_label = self.constraint_atoms_list[i_constrain][0] - 1 
+                    coord[atom_label][2] = self.init_constraint[i_constrain]
+                
                 else:
                     pass
         
@@ -810,147 +818,146 @@ class ProjectOutConstrain:
             if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_like_method_threshold:
                 print("Adjusted!!! : ITR. ", jter)
                 break
-            
-        
-                
+
         return coord
 
 
 
 
-    def calc_project_out_grad(self, coord, grad):# B_g: (3N, 1), geom_num_list: (N, 3)
+    def calc_project_out_grad(self, coord, grad):# grad: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
-        prev_proj_grad = copy.copy(grad)
         tmp_grad = copy.copy(grad)
-
-
-
-        current_geom = self.initialize(coord)
-
-        for j in range(1):
-            for i_constrain in range(len(self.constraint_name)):
-                if self.constraint_name[i_constrain] == "bond":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
-                
-                elif self.constraint_name[i_constrain] == "fbond":
-
-                    divide_index = self.constraint_atoms_list[i_constrain][-1]
-                    fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64)
-                    fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64)
-                    atom_label = [fragm_1, fragm_2]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
-                
-                elif self.constraint_name[i_constrain] == "angle":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
-                
-                elif self.constraint_name[i_constrain] == "dihedral":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
-                else:
-                    print("error")
-                    raise "error (invaild input of constraint conditions)"
-                
-                
-                if i_constrain == 0:
-                    B_mat = tmp_b_mat        
-                else:
-                    B_mat = np.vstack((B_mat, tmp_b_mat))
+        tmp_b_mat = None
+        
+        for i_constrain in range(len(self.constraint_name)):
+            if self.constraint_name[i_constrain] == "bond":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
             
-            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+            elif self.constraint_name[i_constrain] == "fbond":
 
-            constraint_int_grad = []
-            for i_constrain in range(len(self.constraint_name)):
-                grad = self.spring_const * (current_geom[i_constrain] - self.init_constraint[i_constrain])
-                constraint_int_grad.append([grad])
-            constraint_int_grad = np.array(constraint_int_grad)
-            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad + constraint_int_grad, B_mat)
+                divide_index = self.constraint_atoms_list[i_constrain][-1]
+                fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64)
+                fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64)
+                atom_label = [fragm_1, fragm_2]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
+            
+            elif self.constraint_name[i_constrain] == "angle":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
+            
+            elif self.constraint_name[i_constrain] == "dihedral":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
+            
+            else:
+                pass
+                
+            if i_constrain == 0:
+                B_mat = tmp_b_mat        
+            else:
+                if tmp_b_mat is not None:
+                    B_mat = np.vstack((B_mat, tmp_b_mat))
+                else:
+                    pass
+                
+        for i_constrain in range(len(self.constraint_name)):    
+            if self.constraint_name[i_constrain] == "x":
+                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][0] = 0.0
+            
+            elif self.constraint_name[i_constrain] == "y":
+                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][1] = 0.0
+            
+            elif self.constraint_name[i_constrain] == "z":
+                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][2] = 0.0
+            
+        if tmp_b_mat is not None:
+            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
             proj_grad = proj_grad.reshape(natom, 3)
-            delta_grad = proj_grad - prev_proj_grad
-            prev_proj_grad = copy.copy(proj_grad)
-            #print("delta_grad: ", np.linalg.norm(delta_grad))
-            if np.linalg.norm(delta_grad) < 1.0e-6:
-                break
-            tmp_grad = copy.copy(proj_grad)
-        
+        else:
+            proj_grad = tmp_grad
+
         return proj_grad
     
     def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord)
-
-
-        current_geom = self.initialize(coord)
-        prev_proj_hess = copy.copy(hessian)
         tmp_grad = copy.copy(grad)
         tmp_hessian = copy.copy(hessian)
-        for j in range(self.iteration):
-            for i_constrain in range(len(self.constraint_name)):
-                if self.constraint_name[i_constrain] == "bond":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
-                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
+        tmp_b_mat = None
+        tmp_b_mat_1st_derivative = None
+    
+        for i_constrain in range(len(self.constraint_name)):
+            if self.constraint_name[i_constrain] == "bond":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
+                tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
 
-                elif self.constraint_name[i_constrain] == "fbond":
-                    divide_index = self.constraint_atoms_list[i_constrain][-1]
-                    fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64) 
-                    fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64) 
-                    atom_label = [fragm_1, fragm_2]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
-                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy()
-                    
-                elif self.constraint_name[i_constrain] == "angle":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
-                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy()
+            elif self.constraint_name[i_constrain] == "fbond":
+                divide_index = self.constraint_atoms_list[i_constrain][-1]
+                fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64) 
+                fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64) 
+                atom_label = [fragm_1, fragm_2]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
+                tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy()
                 
-                elif self.constraint_name[i_constrain] == "dihedral":
-                    atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
-                    tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
-                    tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy()
-                else:
-                    print("error")
-                    raise "error (invaild input of constraint conditions)"
-                
-                
-                if i_constrain == 0:
-                    B_mat = tmp_b_mat
-                    B_mat_1st_derivative = tmp_b_mat_1st_derivative
-                else:
+            elif self.constraint_name[i_constrain] == "angle":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
+                tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy()
+            
+            elif self.constraint_name[i_constrain] == "dihedral":
+                atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
+                tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
+                tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy()
+            
+            else:
+                pass
+            
+            
+            if i_constrain == 0:
+                B_mat = tmp_b_mat
+                B_mat_1st_derivative = tmp_b_mat_1st_derivative
+            else:
+                if tmp_b_mat is not None:
                     B_mat = np.vstack((B_mat, tmp_b_mat))
                     B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
+                else:
+                    pass
+               
+        
+        for i_constrain in range(len(self.constraint_name)):
+            if self.constraint_name[i_constrain] == "x":
+                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0].reshape(1, 1)
+                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0, :].reshape(1, -1)
+                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
+                tmp_hessian = tmp_hessian - eff_hess
             
+            elif self.constraint_name[i_constrain] == "y":
+                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1].reshape(1, 1)
+                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1, :].reshape(1, -1)
+                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
+                tmp_hessian = tmp_hessian - eff_hess
             
+            elif self.constraint_name[i_constrain] == "z":
+                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2].reshape(1, 1)
+                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2, :].reshape(1, -1)
+                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
+                tmp_hessian = tmp_hessian - eff_hess
+        
+        
+        if tmp_b_mat is not None:
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+            proj_hess = tmp_hessian
 
-            constraint_int_grad = []
-            
-            for i_constrain in range(len(self.constraint_name)):
-                grad = self.spring_const * (current_geom[i_constrain] - self.init_constraint[i_constrain])
-
-                constraint_int_grad.append([grad])
-            constraint_int_grad = np.array(constraint_int_grad)
-
-            constraint_int_hess = np.eye((len(self.constraint_name))) * self.spring_const
-
-            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)#-1*int_hess +
-            projection_hess = calc_cart_hess_from_pBmat_for_non_stationary_point( constraint_int_hess, B_mat, B_mat_1st_derivative, int_grad + constraint_int_grad)
-            proj_hess = tmp_hessian + projection_hess
-
+            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
             couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
             eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
-
             proj_hess = proj_hess - eff_hess
+        else:
+            proj_hess = tmp_hessian
 
-            delta_hess = proj_hess - prev_proj_hess
-            prev_proj_hess = copy.copy(proj_hess)
-            #print("delta_hess: ", np.linalg.norm(delta_hess))
-            if np.linalg.norm(delta_hess) < 1.0e-6:
-                break
-            tmp_hessian = copy.copy(proj_hess)
-            
-        
         return proj_hess
     
     

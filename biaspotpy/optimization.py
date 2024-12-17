@@ -165,7 +165,6 @@ class Optimize:
         self.NUM_LIST = [] #
         force_data = force_data_parser(self.args)
         finish_frag = False
-        
         geom_num_list = None#Bohr
         e = None #Hartree
         B_e = None #Hartree
@@ -204,11 +203,25 @@ class Optimize:
         natom = len(element_list)
 
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
-        if len(force_data["projection_constraint_condition_list"]) > 0 or len(force_data["lagrange_constraint_condition_list"]) > 0:
+        if len(force_data["projection_constraint_condition_list"]) > 0:
             projection_constrain = True
         else:
             projection_constrain = False
 
+        if len(force_data["lagrange_constraint_condition_list"]) > 0:
+            lagrange_constrain = True
+        else:
+            lagrange_constrain = False
+            
+        if len(force_data["fix_atoms"]) == 0:
+            allactive_flag = True
+        else:
+            allactive_flag = False
+
+        if "x" in force_data["projection_constraint_condition_list"] or "y" in force_data["projection_constraint_condition_list"] or "z" in force_data["projection_constraint_condition_list"]:
+            allactive_flag = False
+            
+            
         CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
 
         SP = self.setup_calculation(Calculation)        
@@ -241,9 +254,9 @@ class Optimize:
             #---------------------------------------
             
             SP.Model_hess = copy.copy(self.Model_hess)
+
+
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
-
-
 
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
@@ -254,22 +267,21 @@ class Optimize:
             #    G.stem_plot(common_freq, au_int, "IR_spectra_iteration_"+str(iter))
             #--------------------------------------
             
-
             if finish_frag:#If QM calculation doesn't end, the process of this program is terminated. 
                 break   
             
             if iter == 0:
-                if len(force_data["fix_atoms"]) == 0:
+                if allactive_flag:
                     initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                     pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
                 else:
                     initial_geom_num_list = geom_num_list 
                     pre_geom = initial_geom_num_list 
 
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)#new_geometry:ang.
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
             
             if iter == 0:
-                if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                if lagrange_constrain:
                     LC.initialize(geom_num_list)
                     lagrange_lambda_list = LC.lagrange_init_lambda_calc(B_g.reshape(3*natom, 1), geom_num_list)
                     init_lagrange_lambda_list = copy.copy(lagrange_lambda_list)
@@ -278,7 +290,7 @@ class Optimize:
                     lagrange_lambda_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
                     lagrange_lambda_prev_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
                     lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
-                if len(force_data["projection_constraint_condition_list"]) > 0:
+                if projection_constrain:
                     PC.initialize(geom_num_list)
 
             else:
@@ -292,9 +304,7 @@ class Optimize:
             print("=== Eigenvalue (After Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
             
-
-
-            if len(force_data["lagrange_constraint_condition_list"]) > 0:
+            if lagrange_constrain:
                 lagrange_constraint_atom_addgrad = LC.lagrange_constraint_grad_calc(geom_num_list, lagrange_lambda_list)
                 B_g += lagrange_constraint_atom_addgrad
                 g += lagrange_constraint_atom_addgrad
@@ -314,7 +324,7 @@ class Optimize:
             else:
                 pass
             
-            if len(force_data["fix_atoms"]) > 0:
+            if not allactive_flag:
                 fix_num = []
                 n_fix = len(force_data["fix_atoms"])
                 for fnum in force_data["fix_atoms"]:
@@ -325,31 +335,27 @@ class Optimize:
                 inv_tmp_fix_hess = np.linalg.pinv(tmp_fix_hess)
                 tmp_fix_bias_hess = BPA_hessian[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
                 inv_tmp_fix_bias_hess = np.linalg.pinv(tmp_fix_bias_hess)
-
-                
                 BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
 
             
             for i in range(len(optimizer_instances)):
-                if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                if lagrange_constrain:
                     optimizer_instances[i].set_bias_hessian(combined_BPA_hessian)
                 else:
-                    if len(force_data["projection_constraint_condition_list"]) > 0:
+                    if projection_constrain:
                         proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
                         optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
-                        
-                    
                     else:
                         optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and iter % self.mFC_COUNT == 0):
-                    if len(force_data["fix_atoms"]) > 0:
+                    if not allactive_flag:
                         self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
                     
-                    if len(force_data["lagrange_constraint_condition_list"]) > 0:
+                    if lagrange_constrain:
                         optimizer_instances[i].set_hessian(combined_hessian)
                     else:
-                        if len(force_data["projection_constraint_condition_list"]) > 0:
+                        if projection_constrain:
                             proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
                             optimizer_instances[i].set_hessian(proj_model_hess)
                         else:
@@ -357,7 +363,7 @@ class Optimize:
                      
             
             #----------------------------
-            if len(force_data["opt_fragment"]) > 0:
+            if not allactive_flag:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
                 g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
             
@@ -366,16 +372,14 @@ class Optimize:
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             #-------------------
 
- 
-           
-            if len(force_data["projection_constraint_condition_list"]) > 0:
+            if projection_constrain:
                 g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
                 proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
                 B_g = copy.copy(g + proj_d_B_g)
                 
             
            
-            if len(force_data["fix_atoms"]) > 0:
+            if not allactive_flag:
                 for j in force_data["fix_atoms"]:
                     g[j-1] = copy.copy(g[j-1]*0.0)
                     B_g[j-1] = copy.copy(B_g[j-1]*0.0)
@@ -390,20 +394,19 @@ class Optimize:
             lagrange_lambda_movestep = copy.copy(CMV.lambda_movestep)
             #print(lagrange_lambda_list, lagrange_lambda_movestep)
 
-
             ##------------
             ## project out translation and rotation
             ##------------
-            if len(force_data["fix_atoms"]) == 0:
+            if allactive_flag:
                 new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
                 new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
                 new_geometry *= self.bohr2angstroms
             
-            if len(force_data["projection_constraint_condition_list"]) > 0:
+            if projection_constrain:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             
-            if len(force_data["lagrange_constraint_condition_list"]) > 0:
+            if lagrange_constrain:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = LC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
              
@@ -444,7 +447,7 @@ class Optimize:
             #------------------------
             
             if converge_flag:#convergent criteria
-                if len(force_data["projection_constraint_condition_list"]) > 0 and iter == 0:
+                if projection_constrain and iter == 0:
                     pass
                 else:
                     break
@@ -459,9 +462,6 @@ class Optimize:
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
             if DC_exit_flag:
                 break
-
-
-                 
             #----------------------------
             #Save previous gradient, movestep, and energy.
             pre_B_e = B_e#Hartree
@@ -471,7 +471,6 @@ class Optimize:
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
             
-           
             lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
             lagrange_constraint_prev_energy = lagrange_constraint_energy
             
