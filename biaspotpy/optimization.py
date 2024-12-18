@@ -598,11 +598,17 @@ class Optimize:
 
     def write_input_files(self, FIO):
         if self.args.pyscf:
-            geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
+            if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
+                geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
+            else:
+                geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
             file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
             electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
         else:
-            geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+            if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
+                geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
+            else:
+                geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         self.element_list = element_list
         self.Model_hess = np.eye(len(element_list) * 3)

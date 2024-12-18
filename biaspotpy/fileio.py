@@ -1,6 +1,6 @@
 import glob
 import os
-
+import re
 import numpy as np
 
 from scipy.signal import argrelextrema
@@ -187,6 +187,31 @@ class FileIO:
                         w.write(" ")
                     w.write("\n")
         return file_directory
+    
+    
+    def read_gjf_file(self, args_electric_charge_and_multiplicity):        
+        geometry_list = []
+        element_list = []
+        with open(self.START_FILE, 'r') as f:
+            lines = f.read().splitlines()
+        read_flag = False
+        pattern = '[0-9]+ [0-9]+'
+        repatter = re.compile(pattern)
+        for i in range(len(lines)):
+            if bool(re.match(repatter, lines[i])) is True:
+                electric_charge_and_multiplicity = lines[i].split()
+                read_flag = True
+                geometry_list.append("dummy")
+                geometry_list.append(lines[i].split())
+                continue
+            if read_flag and len(lines[i]) == 0:
+                break
+            if read_flag:
+                element_list.append(lines[i].split()[0])
+                geometry_list.append(lines[i].split())   
+        geometry_list = [geometry_list]
+
+        return geometry_list, element_list, electric_charge_and_multiplicity
     
     
     def save_gjf_file(self, geometry_list):
