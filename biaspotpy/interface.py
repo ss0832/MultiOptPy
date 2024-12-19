@@ -95,7 +95,7 @@ def optimizeparser(parser):
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-es", "--excited_state", type=int, default=0, help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
-    parser.add_argument("-ns", "--NSTEP",  type=int, default='300', help='iter. number')
+    parser.add_argument("-ns", "--NSTEP",  type=int, default='1000', help='number of iteration (default: 1000)')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
