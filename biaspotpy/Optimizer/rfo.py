@@ -21,7 +21,7 @@ class RationalFunctionOptimization:
         self.FC_COUNT = -1 #
         self.saddle_order = self.config["saddle_order"] #
         self.iter = 0 #
-        self.beta = 0.5
+        self.beta = 0.10
         self.grad_rms_threshold = 0.01
         self.tight_grad_rms_threshold = 0.0002 
         self.combine_eigen_vec_num = 3
@@ -138,7 +138,6 @@ class RationalFunctionOptimization:
             
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        move_vector = move_vector
         self.hessian += delta_hess 
         self.iter += 1
      
@@ -199,7 +198,6 @@ class RationalFunctionOptimization:
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        move_vector = move_vector
         self.hessian += delta_hess 
         self.iter += 1
      
@@ -215,9 +213,6 @@ class RationalFunctionOptimization:
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
         DELTA_for_QNM = self.DELTA
         
-
-        
-        
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
             delta_hess = self.hessian_update(displacement, delta_grad)
             # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
@@ -232,18 +227,11 @@ class RationalFunctionOptimization:
         eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
-        
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
-            
-        #move_vector = DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)))), B_g.reshape(len(geom_num_list), 1))
-        
-        DELTA_for_QNM = self.DELTA
-        
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        
-            
-        move_vector = move_vector
+
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
+
         self.hessian += delta_hess 
         self.iter += 1
         return move_vector
