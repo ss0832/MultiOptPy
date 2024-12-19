@@ -20,7 +20,7 @@ class OptMESX:
         dgv_vec = delta_grad / np.linalg.norm(delta_grad)
         dgv_vec = dgv_vec.reshape(-1, 1)
         
-        P_matrix = np.eye((len(dgv_vec))) -1 * np.dot(dgv_vec.T, dgv_vec) 
+        P_matrix = np.eye((len(dgv_vec))) -1 * np.dot(dgv_vec, dgv_vec.T)
         gp_grad =  2 * (energy_1 - energy_2) * dgv_vec + np.dot(P_matrix, 0.5 * (grad_1.reshape(-1, 1) + grad_2.reshape(-1, 1)))
         
         gp_grad = gp_grad.reshape(len(grad_1), 3)

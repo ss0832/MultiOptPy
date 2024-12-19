@@ -32,7 +32,7 @@ class OptMECI:
         
         self.approx_cdv_vec = (np.dot(self.approx_cdv_vec.T, dgv_vec) * self.prev_dgv_vec -1 * np.dot(self.prev_dgv_vec.T, dgv_vec) * self.approx_cdv_vec) / np.sqrt(np.dot(self.approx_cdv_vec.T, dgv_vec) ** 2 + np.dot(self.prev_dgv_vec.T, dgv_vec) ** 2) 
 
-        P_matrix = np.eye((len(dgv_vec))) -1 * np.dot(dgv_vec.T, dgv_vec) -1 * np.dot(self.approx_cdv_vec.T, self.approx_cdv_vec)
+        P_matrix = np.eye((len(dgv_vec))) -1 * np.dot(dgv_vec, dgv_vec.T) -1 * np.dot(self.approx_cdv_vec, self.approx_cdv_vec.T)
         gp_grad =  2 * (energy_1 - energy_2) * dgv_vec + np.dot(P_matrix, 0.5 * (grad_1.reshape(-1, 1) + grad_2.reshape(-1, 1)))
        
         self.prev_dgv_vec = dgv_vec
