@@ -850,35 +850,35 @@ class ProjectOutConstrain:
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
             
+            elif self.constraint_name[i_constrain] == "x":
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                tmp_b_mat[0][3*(atom_label - 1) + 0] = 1.0
+            
+            elif self.constraint_name[i_constrain] == "y":
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat[0][3*(atom_label - 1) + 1] = 1.0
+            
+            elif self.constraint_name[i_constrain] == "z":
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat[0][3*(atom_label - 1) + 2] = 1.0
+            
             else:
-                pass
+                print("error")
+                raise "error (invaild input of constraint conditions)"
                 
             if i_constrain == 0:
                 B_mat = tmp_b_mat        
             else:
-                if tmp_b_mat is not None:
-                    B_mat = np.vstack((B_mat, tmp_b_mat))
-                else:
-                    pass
+                B_mat = np.vstack((B_mat, tmp_b_mat))
                 
-        for i_constrain in range(len(self.constraint_name)):    
-            if self.constraint_name[i_constrain] == "x":
-                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][0] = 0.0
-            
-            elif self.constraint_name[i_constrain] == "y":
-                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][1] = 0.0
-            
-            elif self.constraint_name[i_constrain] == "z":
-                tmp_grad[self.constraint_atoms_list[i_constrain][0] - 1][2] = 0.0
-            
-        if tmp_b_mat is not None:
-            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
-            projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
-            proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
-            proj_grad = proj_grad.reshape(natom, 3)
-        else:
-            proj_grad = tmp_grad
-
+        int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+        projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
+        proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
+        proj_grad = proj_grad.reshape(natom, 3)
+        
         return proj_grad
     
     def calc_project_out_hess(self, coord, grad, hessian):# hessian:(3N, 3N), B_g: (3N, 1), geom_num_list: (N, 3)
@@ -912,52 +912,43 @@ class ProjectOutConstrain:
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
                 tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy()
             
+            elif self.constraint_name[i_constrain] == "x":
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                tmp_b_mat[0][3*(atom_label - 1) + 0] = 1.0
+                tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label,atom_label], torch_calc_distance)).detach().numpy()
+            elif self.constraint_name[i_constrain] == "y":
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                tmp_b_mat[0][3*(atom_label - 1) + 1] = 1.0
+                tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label,atom_label], torch_calc_distance)).detach().numpy() 
+            
+            elif self.constraint_name[i_constrain] == "z":
+                atom_label = self.constraint_atoms_list[i_constrain][0]
+                tmp_b_mat = torch.zeros(1, 3*natom)
+                tmp_b_mat[0][3*(atom_label - 1) + 2] = 1.0
+                tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label,atom_label], torch_calc_distance)).detach().numpy() 
+            
             else:
-                pass
+                print("error")
+                raise "error (invaild input of constraint conditions)"
             
-            
+           
             if i_constrain == 0:
                 B_mat = tmp_b_mat
                 B_mat_1st_derivative = tmp_b_mat_1st_derivative
-            else:
-                if tmp_b_mat is not None:
-                    B_mat = np.vstack((B_mat, tmp_b_mat))
-                    B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
-                else:
-                    pass
-               
+            else:  
+                B_mat = np.vstack((B_mat, tmp_b_mat))
+                B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
+       
+        int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+        proj_hess = tmp_hessian
+        int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+        couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+        eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
+        proj_hess = proj_hess - eff_hess
+     
         
-        for i_constrain in range(len(self.constraint_name)):
-            if self.constraint_name[i_constrain] == "x":
-                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0].reshape(1, 1)
-                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 0, :].reshape(1, -1)
-                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
-                tmp_hessian = tmp_hessian - eff_hess
-            
-            elif self.constraint_name[i_constrain] == "y":
-                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1].reshape(1, 1)
-                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 1, :].reshape(1, -1)
-                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
-                tmp_hessian = tmp_hessian - eff_hess
-            
-            elif self.constraint_name[i_constrain] == "z":
-                xx_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2][3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2].reshape(1, 1)
-                couple_hess = tmp_hessian[3*(self.constraint_atoms_list[i_constrain][0] - 1) + 2, :].reshape(1, -1)
-                eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(xx_hess + np.eye((len(xx_hess))) * 1e-15), couple_hess))
-                tmp_hessian = tmp_hessian - eff_hess
-        
-        
-        if tmp_b_mat is not None:
-            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
-            proj_hess = tmp_hessian
-
-            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
-            proj_hess = proj_hess - eff_hess
-        else:
-            proj_hess = tmp_hessian
-
         return proj_hess
     
     
