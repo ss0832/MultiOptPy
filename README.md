@@ -79,26 +79,14 @@ example 1) `-opt FIRE`.
 
 Perform structural optimization using the FIRE method.
 
-example 2) `-opt FSB`: Perform structural optimization using the FIRE method.
-
-Optimize by quasi-Newton method. A combination of the BFGS and SR1 methods is used to update the model Hessian.
-
-example 3) `-opt RFO_FSB`
-
-RFO (Rational Function Optimization method, one of the quasi-Newtonian methods) is used for optimization. A combination of the BFGS and SR1 methods is used to update the model Hessian.
-
-example 4) `-opt RFO_mFSB`
-
-Optimization is performed using the RFO method (Rational Function Optimization method, one of the quasi-Newton methods). A combination of the BFGS and SR1 methods is used to update the model Hessian. The displacement and gradient changes used to update the Hessian include information from two or more previous gradients and displacements.
 
 Available optimization methods:
 
 Recommended optimization methods:
 
-- AdaBelief (fast convergence)
 - FIRE (suitable for finding locally optimal solutions)
 - RFO_FSB (can use quasi-Newton method)
-- RFO2_Bofill (for calculation of saddle point)
+- RFO3_Bofill (for calculation of saddle point)
 
 `-ma`
 
@@ -242,15 +230,7 @@ Use GFN2-xTB method to optimize molecular structure.
 
  - Other options are experimental.
 
-## TODO
 
-Second derivative of each bias potential is analytically formulated and implemented.
-- (2023/09/01) Some of second derivative of bias potentials is implemented with exceptions of keep angle and keep dihedral angle.
-- (2023/11/11) Autograd function (pytorch) Calculates all derivatives. 
-
-Implementation of an algorithm to find more than a primary saddle point
-- (2024/02/11) execute 1st order SADDLE calculation by using options '-opt RFO2_Bofill' and '-order 1'
- 
 ## Author
 
 Author of this program is ss0832.
