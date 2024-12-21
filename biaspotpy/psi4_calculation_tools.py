@@ -106,7 +106,15 @@ class Calculation:
                 with open(self.BPA_FOLDER_DIRECTORY+"dipole.csv" ,"a") as f:
                     f.write(",".join(list(map(str,(psi4.constants.dipmom_au2debye*wfn.variable('DIPOLE')).tolist()))+[str(np.linalg.norm(psi4.constants.dipmom_au2debye*wfn.variable('DIPOLE'),ord=2))])+"\n")
                 with open(self.BPA_FOLDER_DIRECTORY+"MULLIKEN_CHARGES.csv" ,"a") as f:
-                    f.write(",".join(list(map(str,wfn.variable('MULLIKEN CHARGES').tolist())))+"\n")           
+                    f.write(",".join(list(map(str,wfn.variable('MULLIKEN CHARGES').tolist())))+"\n")
+                    
+                alpha_first_ionization_energy = -1 * MO_levels[lumo_alpha-1]
+                alpha_electron_affinity = MO_levels[lumo_alpha]
+                global_electrophilicity_index = (alpha_first_ionization_energy + alpha_electron_affinity) / (8 * (alpha_first_ionization_energy - alpha_electron_affinity))
+                
+                print("=== global electrophilicity index ===")
+                print(global_electrophilicity_index, "hartree")
+                
                 #with open(input_file[:-4]+"_WIBERG_LOWDIN_INDICES.csv" ,"a") as f:
                 #    for i in range(len(np.array(wfn.variable('WIBERG LOWDIN INDICES')).tolist())):
                 #        f.write(",".join(list(map(str,np.array(wfn.variable('WIBERG LOWDIN INDICES')).tolist()[i])))+"\n")           

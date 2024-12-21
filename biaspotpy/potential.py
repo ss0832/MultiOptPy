@@ -10,9 +10,9 @@ import re
 
 from LJ_repulsive_potential import LJRepulsivePotentialCone, LJRepulsivePotentialGaussian, LJRepulsivePotentialv2Value, LJRepulsivePotentialv2Scale, LJRepulsivePotentialValue, LJRepulsivePotentialScale
 from AFIR_potential import AFIRPotential
-from keep_potential import StructKeepPotential, StructKeepPotentialv2, StructKeepPotentialAniso
+from keep_potential import StructKeepPotential, StructKeepPotentialv2
 from anharmonic_keep_potential import StructAnharmonicKeepPotential
-from keep_angle_potential import StructKeepAnglePotential, StructKeepAnglePotentialv2, StructKeepAnglePotentialAtomDistDependent, StructKeepAnglePotentialLonePairAngle
+from keep_angle_potential import StructKeepAnglePotential, StructKeepAnglePotentialv2
 from keep_dihedral_angle_potential import StructKeepDihedralAnglePotential, StructKeepDihedralAnglePotentialv2, StructKeepDihedralAnglePotentialCos
 from keep_outofplain_angle_potential import StructKeepOutofPlainAnglePotential, StructKeepOutofPlainAnglePotentialv2
 from void_point_potential import VoidPointPotential
@@ -646,21 +646,6 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
         else:
             pass
         
-    for i in range(len(force_data["aniso_keep_pot_v2_spring_const_mat"])):
-        if np.any(force_data["aniso_keep_pot_v2_spring_const_mat"][i] != 0.0):
-            SKP = StructKeepPotentialAniso(aniso_keep_pot_v2_spring_const_mat=force_data["aniso_keep_pot_v2_spring_const_mat"][i], 
-                                        aniso_keep_pot_v2_dist=force_data["aniso_keep_pot_v2_dist"][i], 
-                                            aniso_keep_pot_v2_fragm1=force_data["aniso_keep_pot_v2_fragm1"][i],
-                                        aniso_keep_pot_v2_fragm2=force_data["aniso_keep_pot_v2_fragm2"][i]
-                                        )
-            
-            bias_pot_obj_list.append(SKP)
-            bias_pot_obj_id_list.append("keep_pot_aniso_v2_"+str(i))
-            bias_pot_params_list.append([])
-            
-
-        else:
-            pass
             
     for i in range(len(force_data["keep_pot_v2_spring_const"])):
         if not 0.0 in force_data["keep_pot_v2_spring_const"][i]:
@@ -763,21 +748,6 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     else:
         pass
 
-    if len(geom_num_list) > 7:
-        for i in range(len(force_data["lone_pair_keep_angle_spring_const"])):
-            if force_data["lone_pair_keep_angle_spring_const"][i] != 0.0:
-                SKAngleP = StructKeepAnglePotentialLonePairAngle(lone_pair_keep_angle_spring_const=force_data["lone_pair_keep_angle_spring_const"][i], 
-                                            lone_pair_keep_angle_angle=force_data["lone_pair_keep_angle_angle"][i], 
-                                            lone_pair_keep_angle_atom_pair_1=force_data["lone_pair_keep_angle_atom_pair_1"][i],
-                                            lone_pair_keep_angle_atom_pair_2=force_data["lone_pair_keep_angle_atom_pair_2"][i]
-                                            )
-                
-                bias_pot_obj_list.append(SKAngleP)
-                bias_pot_obj_id_list.append("lone_pair_keep_angle_"+str(i))   
-                bias_pot_params_list.append([])
-
-    else:
-        pass
     
     if len(geom_num_list) > 2:
         for i in range(len(force_data["keep_angle_v2_spring_const"])):
@@ -800,23 +770,6 @@ def make_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom
     else:
         pass
     
-    if len(geom_num_list) > 2:
-        for i in range(len(force_data["aDD_keep_angle_spring_const"])):
-            if force_data["aDD_keep_angle_spring_const"][i] != 0.0:
-                aDDKAngleP = StructKeepAnglePotentialAtomDistDependent(aDD_keep_angle_spring_const=force_data["aDD_keep_angle_spring_const"][i], 
-                                            aDD_keep_angle_min_angle=force_data["aDD_keep_angle_min_angle"][i], 
-                                            aDD_keep_angle_max_angle=force_data["aDD_keep_angle_max_angle"][i],
-                                            aDD_keep_angle_base_dist=force_data["aDD_keep_angle_base_dist"][i],
-                                            aDD_keep_angle_reference_atom=force_data["aDD_keep_angle_reference_atom"][i],
-                                            aDD_keep_angle_center_atom=force_data["aDD_keep_angle_center_atom"][i],
-                                            aDD_keep_angle_atoms=force_data["aDD_keep_angle_atoms"][i])
-
-                bias_pot_obj_list.append(aDDKAngleP)
-                bias_pot_obj_id_list.append("aDD_keep_angle_"+str(i))   
-                bias_pot_params_list.append([])
-
-    else:
-        pass
     
     if len(geom_num_list) > 3:
         for i in range(len(force_data["keep_dihedral_angle_spring_const"])):

@@ -148,11 +148,9 @@ def parser_for_biasforce(parser):
     parser.add_argument("-fp", "--flux_potential", nargs="*",  type=str, default=[], help='Add potential to make flow. ( k/p*(x-x_0)^p )(ex.) [[x,y,z (constant (a.u.))] [x,y,z (order)] [x,y,z coordinate (ang.)] [Fragm.(ex. 1,2,3-5)] ...]')
     parser.add_argument("-kp", "--keep_pot", nargs="*",  type=str, default=[], help='keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-kpv2", "--keep_pot_v2", nargs="*",  type=str, default=[], help='keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
-    parser.add_argument("-anikpv2", "--aniso_keep_pot_v2", nargs="*",  type=str, default=[], help='aniso keep potential_v2 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)(xx xy xz yx yy yz zx zy zz)] [keep distance (ang.)] [Fragm.1] [Fragm.2] ...] ')
     parser.add_argument("-akp", "--anharmonic_keep_pot", nargs="*",  type=str, default=[], help='Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...] ')
     parser.add_argument("-ka", "--keep_angle", nargs="*",  type=str, default=[], help='keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...] ')
     parser.add_argument("-kav2", "--keep_angle_v2", nargs="*",  type=str, default=[], help='keep angle_v2 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] ...] ')
-    parser.add_argument("-lpka", "--lone_pair_keep_angle", nargs="*",  type=str, default=[], help='lone pair keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [lone_pair_1 (center,atom1,atom2,atom3)] [lone_pair_2 (center,atom1,atom2,atom3)] ...] ')
     parser.add_argument("-up", "--universal_potential", nargs="*",  type=str, default=[], help="Potential to gather specified atoms to a single point (ex.) [[potential (kJ/mol)] [target atoms (1,2)] ...]")
     
     parser.add_argument("-ddka", "--atom_distance_dependent_keep_angle", nargs="*",  type=str, default=[], help='atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] ')
@@ -282,14 +280,13 @@ class BiasPotInterface:
         
         self.keep_pot = []#['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
         self.keep_pot_v2 = []#['0.0', '1.0', '1','2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
-        self.aniso_keep_pot_v2 = []#['0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.0', '1.0', '1', '2']
+
         
         self.universal_potential = []
         self.anharmonic_keep_pot = []#['0.0', '1.0', '1.0', '1,2']#Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
         self.keep_angle = []#['0.0', '90', '1,2,3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.keep_angle_v2 = []#['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
         self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
-        self.lone_pair_keep_angle = []#['0.0', '90', '1,2,3,4', '5,6,7,8']
 
         self.flux_potential = []#['0.0', '1.0', '1,2,3,4']#flux potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2,atom3,atom4] ...]
         self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
@@ -330,7 +327,7 @@ class iEIPInterface(BiasPotInterface):# inheritance is not good for readable cod
 
         self.fix_atoms = []  
         self.geom_info = []
-        self.opt_method = ["AdaBelief"]
+        self.opt_method = ["FIRE"]
         self.opt_fragment = []
         self.NSTEP = "999"
         self.lagrange_constrain = []
@@ -837,28 +834,7 @@ def force_data_parser(args):
             print("invaild input (-ka atom_pairs)")
             sys.exit(0)
     
-    #------------------------
-    #lone_pair_keep_angle
-    if len(args.lone_pair_keep_angle) % 4 != 0:
-        print("invaild input (-lpka)")
-        sys.exit(0)
-    
-    force_data["lone_pair_keep_angle_spring_const"] = []
-    force_data["lone_pair_keep_angle_angle"] = []
-    force_data["lone_pair_keep_angle_atom_pair_1"] = []
-    force_data["lone_pair_keep_angle_atom_pair_2"] = []
-    
-    for i in range(int(len(args.lone_pair_keep_angle)/4)):
-        force_data["lone_pair_keep_angle_spring_const"].append(float(args.lone_pair_keep_angle[4*i]))#au
-        force_data["lone_pair_keep_angle_angle"].append(float(args.lone_pair_keep_angle[4*i+1]))#degrees
-        force_data["lone_pair_keep_angle_atom_pair_1"].append(num_parse(args.lone_pair_keep_angle[4*i+2]))
-        force_data["lone_pair_keep_angle_atom_pair_2"].append(num_parse(args.lone_pair_keep_angle[4*i+3]))
-        if len(force_data["lone_pair_keep_angle_atom_pair_1"][i]) != 4:
-            print("invaild input (-ka lone_pair_atom_pairs_1)")
-            sys.exit(0)
-        if len(force_data["lone_pair_keep_angle_atom_pair_2"][i]) != 4:
-            print("invaild input (-ka lone_pair_atom_pairs_2)")
-            sys.exit(0)
+
             
     #---------------------
     if len(args.keep_angle_v2) % 5 != 0:
@@ -880,55 +856,6 @@ def force_data_parser(args):
        
     #---------------------
     
-    if len(args.aniso_keep_pot_v2) % 12 != 0:
-        print("invaild input (-anikpv2)")
-        sys.exit(0)
-    
-    force_data["aniso_keep_pot_v2_spring_const_mat"] = []
-    force_data["aniso_keep_pot_v2_dist"] = []
-    force_data["aniso_keep_pot_v2_fragm1"] = []
-    force_data["aniso_keep_pot_v2_fragm2"] = []
-    
-    for i in range(int(len(args.aniso_keep_pot_v2)/12)):
-        tmp_mat = np.array([[float(args.aniso_keep_pot_v2[12*i]),float(args.aniso_keep_pot_v2[12*i+1]),float(args.aniso_keep_pot_v2[12*i+2])],
-                   [float(args.aniso_keep_pot_v2[12*i+3]),float(args.aniso_keep_pot_v2[12*i+4]),float(args.aniso_keep_pot_v2[12*i+5])],
-                   [float(args.aniso_keep_pot_v2[12*i+6]),float(args.aniso_keep_pot_v2[12*i+7]),float(args.aniso_keep_pot_v2[12*i+8])]], dtype="float64")
-        force_data["aniso_keep_pot_v2_spring_const_mat"].append(tmp_mat)#au
-        force_data["aniso_keep_pot_v2_dist"].append(float(args.aniso_keep_pot_v2[12*i+9]))#degrees
-        force_data["aniso_keep_pot_v2_fragm1"].append(num_parse(args.aniso_keep_pot_v2[12*i+10]))
-        force_data["aniso_keep_pot_v2_fragm2"].append(num_parse(args.aniso_keep_pot_v2[12*i+11]))
-       
-    #---------------------
-    
-    
-    if len(args.atom_distance_dependent_keep_angle) % 7 != 0:#[[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...]
-        print("invaild input (-ddka)")
-        sys.exit(0)
-    
-    force_data["aDD_keep_angle_spring_const"] = []
-    force_data["aDD_keep_angle_min_angle"] = []
-    force_data["aDD_keep_angle_max_angle"] = []
-    force_data["aDD_keep_angle_base_dist"] = []
-    force_data["aDD_keep_angle_reference_atom"] = []
-    force_data["aDD_keep_angle_center_atom"] = []
-    force_data["aDD_keep_angle_atoms"] = []
-    
-    for i in range(int(len(args.atom_distance_dependent_keep_angle)/7)):
-        force_data["aDD_keep_angle_spring_const"].append(float(args.atom_distance_dependent_keep_angle[7*i]))#au
-        force_data["aDD_keep_angle_min_angle"].append(float(args.atom_distance_dependent_keep_angle[7*i+1]))#degrees
-        force_data["aDD_keep_angle_max_angle"].append(float(args.atom_distance_dependent_keep_angle[7*i+2]))#degrees
-        if float(args.atom_distance_dependent_keep_angle[7*i+1]) > float(args.atom_distance_dependent_keep_angle[7*i+2]):
-            print("invaild input (-ddka min_angle > max_angle)")
-            sys.exit(0)
-        
-        force_data["aDD_keep_angle_base_dist"].append(float(args.atom_distance_dependent_keep_angle[7*i+3]))#ang.
-        force_data["aDD_keep_angle_reference_atom"].append(int(args.atom_distance_dependent_keep_angle[7*i+4]))#ang.
-        force_data["aDD_keep_angle_center_atom"].append(int(args.atom_distance_dependent_keep_angle[7*i+5]))#ang.
-        force_data["aDD_keep_angle_atoms"].append(num_parse(args.atom_distance_dependent_keep_angle[7*i+6]))
-        if len(force_data["aDD_keep_angle_atoms"][i]) != 3:
-            print("invaild input (-ddka atoms)")
-            sys.exit(0)
-    #---------------------
     if len(args.keep_dihedral_angle) % 3 != 0:
         print("invaild input (-kda)")
         sys.exit(0)
