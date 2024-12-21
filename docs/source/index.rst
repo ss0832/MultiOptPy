@@ -1,7 +1,7 @@
 BiasPotPy
 =========
 
-test page
+test page (Repository: https://github.com/ss0832/BiasPotPy)
 
 An optimizer for quantum chemical calculations including the artificial force induced reaction (AFIR) method.
 
