@@ -134,22 +134,24 @@ class Optimize:
         return
 
     def make_init_directory(self, file):
-        self.START_FILE = file #
-        if self.args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_ASE_"+str(time.time()).replace(".","_")+"/"
+        """
+        Create initial directory for optimization results.
+        """
+        self.START_FILE = file
+        timestamp = str(time.time()).replace(".", "_")
+        date = str(datetime.datetime.now().date())
+        base_dir = f"{date}/{self.START_FILE[:-4]}_BPA_"
 
+        if self.args.othersoft != "None":
+            self.BPA_FOLDER_DIRECTORY = f"{base_dir}ASE_{timestamp}/"
         elif self.args.usextb == "None" and self.args.usedxtb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
+            self.BPA_FOLDER_DIRECTORY = f"{base_dir}{self.FUNCTIONAL}_{self.BASIS_SET}_{timestamp}/"
         else:
-            if self.args.usedxtb != "None":
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.args.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
-            else:
-                self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_BPA_"+self.args.usextb+"_"+str(time.time()).replace(".","_")+"/"
+            method = self.args.usedxtb if self.args.usedxtb != "None" else self.args.usextb
+            self.BPA_FOLDER_DIRECTORY = f"{base_dir}{method}_{timestamp}/"
         
-        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True) #
+        os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
         
-        return
-    
     def save_input_data(self):
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -254,8 +256,6 @@ class Optimize:
             #---------------------------------------
             
             SP.Model_hess = copy.copy(self.Model_hess)
-
-
             e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
 
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
@@ -265,7 +265,6 @@ class Optimize:
             #if self.args.usedxtb != "None":
             #    common_freq, au_int = SP.ir(geom_num_list, element_list, electric_charge_and_multiplicity, xtb_method)
             #    G.stem_plot(common_freq, au_int, "IR_spectra_iteration_"+str(iter))
-            #--------------------------------------
             
             if finish_frag:#If QM calculation doesn't end, the process of this program is terminated. 
                 break   
@@ -392,8 +391,7 @@ class Optimize:
             lagrange_lambda_prev_movestep = copy.copy(lagrange_lambda_movestep)
             lagrange_lambda_list = copy.copy(CMV.new_lambda_list)
             lagrange_lambda_movestep = copy.copy(CMV.lambda_movestep)
-            #print(lagrange_lambda_list, lagrange_lambda_movestep)
-
+            
             ##------------
             ## project out translation and rotation
             ##------------

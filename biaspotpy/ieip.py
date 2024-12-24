@@ -257,7 +257,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
             energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
-            
+            geom_num_list_1, geom_num_list_2 = Calculationtools().kabsch_algorithm(geom_num_list_1, geom_num_list_2)
             if iter == 0:
                 m_1 = gradient_1 * 0.0
                 m_2 = gradient_1 * 0.0
@@ -370,6 +370,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             new_geom_num_list_1 = geom_num_list_1 + adabelief_1
             new_geom_num_list_2 = geom_num_list_2 + adabelief_2
             
+            new_geom_num_list_1, new_geom_num_list_2 = Calculationtools().kabsch_algorithm(new_geom_num_list_1, new_geom_num_list_2)
+    
             if iter != 0:
                 prev_delta_geometry = delta_geometry
             
@@ -643,9 +645,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     CMF = MF.ConicalModelFunction()
                 elif self.mf_mode == "mesx":
                     MESX = MF.OptMESX()
+                    
                 elif self.mf_mode == "meci":
                     MECI_bare = MF.OptMECI()
                     MECI_bias = MF.OptMECI()
+
                 else:
                     print("Unexpected method. exit...")
                     raise
