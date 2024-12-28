@@ -452,21 +452,17 @@ def force_data_parser(args):
         force_data["nano_reactor_potential"].append([float(args.nano_reactor_potential[6*i]), float(args.nano_reactor_potential[6*i+1]), float(args.nano_reactor_potential[6*i+2]), float(args.nano_reactor_potential[6*i+3]), float(args.nano_reactor_potential[6*i+4]), float(args.nano_reactor_potential[6*i+5])])
     
     #---------------------
-    force_data["projection_constraint_condition_list"] = []
-    force_data["projection_constraint_atoms"] = []
-    force_data["projection_constraint_constant"] = []
-    
     if len(args.projection_constrain) > 0:
         if args.projection_constrain[0] == "manual":
-            if len(args.projection_constrain[1:]) % 3 != 0:
+            if len(args.projection_constrain) % 4 != 0:
                 print("invaild input (-pc) ")
                 sys.exit(0)
             
-            tmp_val = args.projection_constrain[1:]
-            for i in range(int(len(tmp_val)/3)):
-                force_data["projection_constraint_condition_list"].append(str(tmp_val[3*i]))
-                force_data["projection_constraint_atoms"].append(num_parse(tmp_val[3*i+1]))
-                force_data["projection_constraint_constant"].append(float(tmp_val[3*i+2]))
+            tmp_val = args.projection_constrain
+            for i in range(int(len(tmp_val)/4)):
+                force_data["projection_constraint_condition_list"].append(str(tmp_val[4*i+1]))
+                force_data["projection_constraint_atoms"].append(num_parse(tmp_val[4*i+2]))
+                force_data["projection_constraint_constant"].append(float(tmp_val[4*i+3]))
             
         
         else:#auto
@@ -480,8 +476,6 @@ def force_data_parser(args):
                 force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
                 force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
 
-        
-    
     #---------------------
     force_data["lagrange_constraint_condition_list"] = []
     force_data["lagrange_constraint_atoms"] = []
