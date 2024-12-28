@@ -10,6 +10,8 @@ import itertools
 
 bohr2ang = 0.529177210903
 
+#Example: python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
+
 def calc_boltzmann_distribution(energy_list, temperature=298.15):
     """
     Calculate the Boltzmann distribution.
@@ -87,11 +89,12 @@ def read_xyz(file_name):
     return geom_num_list, element_list
 
 def conformation_search(parser):
-    parser.add_argument("-bf", "--base_force", type=float, default=100.0, help='bias force to search conformations (default: 100.0 kJ)', required=True)
+    parser.add_argument("-bf", "--base_force", type=float, default=100.0, help='bias force to search conformations (default: 100.0 kJ)')
     parser.add_argument("-ms", "--max_samples", type=int, default=50, help='the number of trial of calculation (default: 50)')
     parser.add_argument("-nl", "--number_of_lowest",  type=int, default=5, help='termination condition of calculation for updating list (default: 5)')
     parser.add_argument("-nr", "--number_of_rank",  type=int, default=10, help='termination condition of calculation for making list (default: 10)')
     parser.add_argument("-tgta", "--target_atoms", nargs="*", type=str, help='the atom to add bias force to perform conformational search (ex.) 1,2,3 or 1-3', default=None)
+    parser.add_argument("-st", "--sampling_temperature", type=float, help='set temperature to select conformer using Boltzmann distribution (default) 298.15 (K)', default=298.15)
     return parser
 
 def return_pair_idx(i, j):
@@ -141,18 +144,20 @@ def read_energy_file(file_name):
     
     for i in range(len(data)):
         splitted_data = data[i].split()
-        
+        if len(splitted_data) == 0:
+            continue
         energy_list.append(float(splitted_data[0]))
     
     return energy_list
 
 def make_tgt_atom_pair(geom_num_list, element_list, target_atoms):
-    norm_dist_min = 1.5
-    norm_dist_max = 5.0
+    norm_dist_min = 1.0
+    norm_dist_max = 8.0
     norm_distance_list = biaspotpy.calc_tools.calc_normalized_distance_list(geom_num_list, element_list)
     bool_tgt_atom_list = np.where((norm_dist_min < norm_distance_list) & (norm_distance_list < norm_dist_max), True, False)
     updated_target_atom_pairs = []
     for i, j in itertools.combinations(target_atoms, 2):
+        
         pair_idx = return_pair_idx(i, j)
         if bool_tgt_atom_list[pair_idx]:
             updated_target_atom_pairs.append([i, j])
@@ -160,7 +165,7 @@ def make_tgt_atom_pair(geom_num_list, element_list, target_atoms):
     return updated_target_atom_pairs
 
 
-def is_identical(conformer, energy, energy_list, folder_name, init_INPUT,ene_threshold=1e-4, dist_threshold=1e-1):
+def is_identical(conformer, energy, energy_list, folder_name, init_INPUT, ene_threshold=1e-4, dist_threshold=1e-1):
     no_ext_init_INPUT = os.path.splitext(init_INPUT)[0]
     ene_identical_list = []
     
@@ -198,7 +203,7 @@ if __name__ == '__main__':
     args = biaspotpy.interface.optimizeparser(parser)
     
     init_geom_num_list, init_element_list = read_xyz(args.INPUT)
-    
+    sampling_temperature = args.sampling_temperature
     folder_name = os.path.splitext(args.INPUT)[0]+"_"+str(int(args.base_force))+"KJ_CS_REPORT"
     
     if not os.path.exists(folder_name):
@@ -216,18 +221,20 @@ if __name__ == '__main__':
         target_atoms = [i-1 for i in num_parse(args.target_atoms[0])]
     else:
         target_atoms = [i for i in range(len(init_geom_num_list))]
-    
+   
     init_INPUT = args.INPUT
     init_AFIR_CONFIG = args.manual_AFIR
-    
+   
     atom_pair_list = make_tgt_atom_pair(init_geom_num_list, init_element_list, target_atoms)
     random.shuffle(atom_pair_list)
     
     # prepare for the first calculation
     prev_rank_list = None
     no_update_count = 0
-    EQ_num = len(energy_list)-1
-    count = 0
+    if len(energy_list) == 0:
+        count = len(energy_list)
+    else:
+        count = len(energy_list) - 1
     reason = ""
     if len(energy_list) == 0:
         print("initial conformer.")
@@ -244,14 +251,21 @@ if __name__ == '__main__':
         print("Energy: ", energy)
         save_xyz_file(init_conformer, init_element_list, folder_name+"/"+init_INPUT, "EQ"+str(0))                
     
-    
+    if len(atom_pair_list) == 0:
+        print("Cannot make atom_pair list. exit...")
+        exit()
+    else:
+        with open(folder_name+"/search_atom_pairs.log", 'a') as f:
+            for atom_pair in atom_pair_list:
+                f.write(str(atom_pair)+"\n")
+            
     for i in range(args.max_samples):
         if os.path.exists(folder_name+"/end.txt"):
             print("The stop signal is detected. Exit....")
             reason = "The stop signal is detected. Exit...."
             break
         
-        if len(atom_pair_list) < i:
+        if len(atom_pair_list) <= i + 1:
             print("All possible atom pairs are searched. Exit....")
             reason = "All possible atom pairs are searched. Exit...."
             break
@@ -293,7 +307,7 @@ if __name__ == '__main__':
             
             print("Find new conformer.")
             print("Energy: ", energy)
-            save_xyz_file(conformer, init_element_list, folder_name+"/"+init_INPUT, "EQ"+str(count+EQ_num))
+            save_xyz_file(conformer, init_element_list, folder_name+"/"+init_INPUT, "EQ"+str(count))
         
         
         # Check termination criteria
@@ -321,9 +335,9 @@ if __name__ == '__main__':
         # Switch conformer
         if len(energy_list) > 1:
             if i % 5 == 0:
-                idx = switch_conformer(energy_list, temperature=2981.5)
+                idx = switch_conformer(energy_list, sampling_temperature*10)
             else:
-                idx = switch_conformer(energy_list)
+                idx = switch_conformer(energy_list, sampling_temperature)
             no_ext_init_INPUT = os.path.splitext(init_INPUT)[0]
             args.INPUT = folder_name + "/" + no_ext_init_INPUT + "_EQ" + str(idx) + ".xyz"
             print("Switch conformer: EQ"+str(idx))
