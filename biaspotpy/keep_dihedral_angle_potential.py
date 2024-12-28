@@ -1,11 +1,7 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools, torch_calc_dihedral_angle_from_vec
-
-
+from parameter import UnitValueLib
+from calc_tools import torch_calc_dihedral_angle_from_vec
 import torch
-
-
 
 class StructKeepDihedralAnglePotential:
     def __init__(self, **kwarg):

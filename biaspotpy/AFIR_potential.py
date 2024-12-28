@@ -1,11 +1,7 @@
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
+from parameter import UnitValueLib, covalent_radii_lib
 
-import itertools
 import math
-import numpy as np
 import torch
-from collections import deque
 
         
 class AFIRPotential:
@@ -18,7 +14,6 @@ class AFIRPotential:
         self.R_0 = 3.8164/self.bohr2angstroms #ang.→bohr
         self.EPSIRON = 1.0061/self.hartree2kjmol #kj/mol→hartree
         self.p = 6.0
-        #self.prev_energy_list = deque(maxlen=5)
         return
     def calc_energy(self, geom_num_list, bias_pot_params):
         """
@@ -56,10 +51,5 @@ class AFIRPotential:
         A = (omega * vector).sum() 
         B = omega.sum()  
         
-        
-        
         energy = alpha*(A/B)#A/B:Bohr
-        
-        #self.prev_energy_list.append(energy)
-        #print(self.prev_energy_list)
         return energy #hartree

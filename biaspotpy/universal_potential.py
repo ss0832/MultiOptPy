@@ -1,6 +1,5 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
+from parameter import UnitValueLib
 
 import numpy as np
 import torch

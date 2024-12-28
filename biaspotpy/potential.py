@@ -47,8 +47,6 @@ class BiasPotentialCalculation:
         self.bias_pot_prev_ene_list = []
         
     
-
-    
     def main(self, e, g, geom_num_list, element_list,  force_data, pre_B_g="", iter="", initial_geom_num_list=""):
         numerical_derivative_delta = 1e-5 #unit:Bohr 
         #g:hartree/Bohr

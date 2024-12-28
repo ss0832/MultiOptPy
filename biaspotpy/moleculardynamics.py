@@ -15,9 +15,8 @@ from fileio import FileIO
 from parameter import UnitValueLib, element_number, atomic_mass
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
-from constraint_condition import shake_parser, SHAKE
+from constraint_condition import shake_parser, SHAKE, ProjectOutConstrain
 from pbc import apply_periodic_boundary_condition
-from constraint_condition import ProjectOutConstrain
 
 class Thermostat:
     def __init__(self, momentum_list, temperature, pressure, element_list=[]):
@@ -84,7 +83,7 @@ class Thermostat:
         self.momentum_list = self.momentum_list * np.exp(-self.delta_timescale * self.zeta * 0.5)
 
         self.momentum_list += new_g * self.delta_timescale * 0.5
-        print("Sum of momenta (absolute value):", np.sum(np.abs(self.momentum_list)))
+        print("NVT ensemble (Nose_Hoover) : Sum of momenta (absolute value):", np.sum(np.abs(self.momentum_list)))
         tmp_list = []
         for i, elem in enumerate(self.element_list):
             tmp_list.append(self.delta_timescale * self.momentum_list[i] / atomic_mass(elem))
@@ -111,7 +110,7 @@ class Thermostat:
         self.momentum_list = self.momentum_list * np.exp(-self.delta_timescale * self.zeta_chain[0] * 0.5)
 
         self.momentum_list += new_g * self.delta_timescale * 0.5
-        print("Sum of momenta (absolute value):", np.sum(np.abs(self.momentum_list)))
+        print("NVT ensemble (Nose_Hoover chain) : Sum of momenta (absolute value):", np.sum(np.abs(self.momentum_list)))
         
         tmp_list = []
         for i, elem in enumerate(self.element_list):
@@ -140,7 +139,7 @@ class Thermostat:
     def Velocity_Verlet(self, geom_num_list, new_g, prev_g, iter):#NVE ensemble 
         tmp_new_g = copy.copy(-1*new_g)
         tmp_prev_g = copy.copy(-1*prev_g)
-
+        #print("NVE ensemble (Velocity_Verlet)")
         self.momentum_list += ( tmp_new_g + tmp_prev_g ) * (self.delta_timescale) * 0.5 #+ third_term + fourth_term
         #-----------
         tmp_list = []
@@ -426,7 +425,10 @@ class MD:
 
         #----------------------------------
         ct_count = 0
-        
+        if len(force_data["projection_constraint_condition_list"]) > 0:
+            projection_constrain_flag = True
+        else:
+            projection_constrain_flag = False
         
         for iter in range(self.NSTEP):
             #-----------------------------
@@ -460,13 +462,13 @@ class MD:
                 TM.init_purtubation(geom_num_list, B_e, B_g)
                 initial_geom_num_list = geom_num_list
                 pre_geom = initial_geom_num_list    
-                if len(force_data["projection_constraint_condition_list"]) > 0:
+                if projection_constrain_flag:
                     PC.initialize(geom_num_list)
 
             else:
                 pass
 
-            if len(force_data["projection_constraint_condition_list"]) > 0:
+            if projection_constrain_flag:
                 B_g = PC.calc_project_out_grad(geom_num_list, B_g)
                 g = PC.calc_project_out_grad(geom_num_list, g)
 
@@ -569,10 +571,6 @@ class MD:
         print("Complete...")
         return
 
-    
-    def MMmd(self):
-        
-        return
 
     def geom_info_extract(self, force_data, file_directory, B_g, g):
         if len(force_data["geom_info"]) > 1:

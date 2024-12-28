@@ -2,7 +2,7 @@ import itertools
 import numpy as np
 import copy
 
-from parameter import UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, element_number, number_element, atomic_mass, UnitValueLib
+from parameter import covalent_radii_lib, atomic_mass
 
 try:
     import torch

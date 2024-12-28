@@ -4,8 +4,8 @@ import itertools
 import numpy as np
 import copy
 
-from calc_tools import Calculationtools, return_pair_idx #kabsch_algorithm
-from parameter import atomic_mass, UnitValueLib
+from calc_tools import Calculationtools
+from parameter import atomic_mass
 from redundant_coordinations import cartesian_to_z_matrix
 
 ### These are toy functions. ###

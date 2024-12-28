@@ -103,7 +103,6 @@ def optimizeparser(parser):
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
-    parser.add_argument("-md", "--md_like_perturbation",  type=str, default="0.0", help='add perturbation like molecule dynamics (ex.) [[temperature (unit. K)]]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
@@ -386,7 +385,6 @@ class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable
         self.DELTA = 'x'
         self.excited_state = 0
         self.fix_atoms = ""#fix atoms (ex.) [atoms (ex.) 1,2,3-6]
-        self.md_like_perturbation = "0.0"
         self.geom_info = "1"#calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]
         self.opt_method = ["AdaBelief"]#optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE third_order_momentum_Adam (quasi-Newton method) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]
         self.calc_exact_hess = -1#calculate exact hessian per steps (ex.) [steps per one hess calculation]

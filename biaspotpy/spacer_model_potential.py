@@ -1,14 +1,9 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
+from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
 from Optimizer.fire import FIRE
-
 
 import numpy as np
 import torch
-import itertools  
-import math
-import random 
 import copy
 
 
@@ -18,7 +13,7 @@ class SpacerModelPotential:
             self.VDW_distance_lib = UFF_VDW_distance_lib #function
             self.VDW_well_depth_lib = UFF_VDW_well_depth_lib #function
         else:
-            raise "No MM potential type"
+            raise "Unexpected MM potential type"
         self.config = kwarg
         
         UVL = UnitValueLib()
@@ -41,7 +36,7 @@ class SpacerModelPotential:
         self.lj_attractive_order = 6.0
         
         self.micro_iteration = 5000 * self.config["spacer_model_potential_particle_number"]
-        self.rand_search_iteration = 50 * self.config["spacer_model_potential_particle_number"]
+        self.rand_search_iteration = 250 * self.config["spacer_model_potential_particle_number"]
         self.threshold = 2e-6
         self.init = True
         return
@@ -70,7 +65,7 @@ class SpacerModelPotential:
         normalized_distance = distance / sigma
         min_norm_dist = 0.9
         max_norm_dist = 1.0
-        const = 1.0
+        const = 0.5
         
         in_range = (normalized_distance >= min_norm_dist) & (normalized_distance < max_norm_dist)
         out_of_range = normalized_distance >= max_norm_dist

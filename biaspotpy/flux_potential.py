@@ -1,11 +1,6 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
-
-import numpy as np
+from parameter import UnitValueLib
 import torch
-import itertools
-  
       
 class FluxPotential:
     def __init__(self, **kwarg):
