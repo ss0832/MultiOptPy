@@ -23,7 +23,6 @@ from Optimizer.adafactor import Adafactor
 from Optimizer.prodigy import Prodigy
 #from Optimizer.adabound import AdaBound
 from Optimizer.adadelta import Adadelta
-from Optimizer.purtubation import Perturbation
 from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.rfo import RationalFunctionOptimization 
 from Optimizer.newton import Newton 
@@ -300,13 +299,6 @@ class CalculateMoveVector:
                 print("Chosen method:", self.method[1])
         else:
             move_vector = copy.copy(move_vector_list[0])
-
-        # add perturbation (toy function)
-        P = Perturbation(temperature=self.temperature)
-        perturbation = P.boltzmann_dist_perturb(move_vector)
-        
-        move_vector += perturbation
-        print("perturbation: ", np.linalg.norm(perturbation))
 
         #-------------------------------------------------------------
         #display trust radii

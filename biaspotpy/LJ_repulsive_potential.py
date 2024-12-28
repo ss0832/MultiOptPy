@@ -1,15 +1,11 @@
 
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, covalent_radii_lib, UFF_effective_charge_lib
-from calc_tools import Calculationtools
+from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
 
 import itertools
 import math
-import numpy as np
 import torch
 
 
-    
-    
 class LJRepulsivePotentialScale:
     def __init__(self, mm_pot_type="UFF", **kwarg):
         if mm_pot_type == "UFF":

@@ -10,18 +10,14 @@ import copy
 from scipy.signal import argrelextrema
 
 from constraint_condition import ProjectOutConstrain
-
-
 try:
     import psi4
 except:
     print("You can't use psi4.")
-
 try:
     from tblite.interface import Calculator
 except:
     print("You can't use extended tight binding method.")
-
 try:
     import pyscf
     from pyscf import gto, scf, dft, tddft, tdscf
@@ -30,14 +26,11 @@ except:
     print("You can't use pyscf.")
 #reference about LUP method:J. Chem. Phys. 94, 751–760 (1991) https://doi.org/10.1063/1.460343
 
-color_list = ["g"] #use for matplotlib
-
 from interface import force_data_parser
-
 from parameter import element_number, atomic_mass
 from potential import BiasPotentialCalculation
-from calc_tools import Calculationtools, project_optional_vector_for_grad, project_optional_vector_for_hess
-from idpp import optimize_initial_guess
+
+color_list = ["g"] #use for matplotlib
 
 
 def extremum_list_index(energy_list):

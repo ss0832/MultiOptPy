@@ -28,10 +28,6 @@ class Calculation:
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """execute QM calclation."""
-        gradient_list = []
-        energy_list = []
-        geometry_num_list = []
-        geometry_optimized_num_list = []
         finish_frag = False
         try:
             os.mkdir(file_directory)
@@ -110,7 +106,7 @@ class Calculation:
                     
                 alpha_first_ionization_energy = -1 * MO_levels[lumo_alpha-1]
                 alpha_electron_affinity = MO_levels[lumo_alpha]
-                global_electrophilicity_index = (alpha_first_ionization_energy + alpha_electron_affinity) / (8 * (alpha_first_ionization_energy - alpha_electron_affinity))
+                global_electrophilicity_index = (alpha_first_ionization_energy + alpha_electron_affinity) / (8 * (alpha_first_ionization_energy - alpha_electron_affinity + 1e-15))
                 
                 print("=== global electrophilicity index ===")
                 print(global_electrophilicity_index, "hartree")

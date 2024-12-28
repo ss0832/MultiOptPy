@@ -1,7 +1,5 @@
-import numpy as np
-import itertools
 import copy
-
+import numpy as np
 from calc_tools import Calculationtools, fragment_check
 
 

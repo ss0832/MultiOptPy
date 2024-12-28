@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+
 class Graph:
     def __init__(self, folder_directory):
         self.BPA_FOLDER_DIRECTORY = folder_directory

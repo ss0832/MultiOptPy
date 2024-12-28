@@ -18,12 +18,10 @@ from interface import force_data_parser
 from approx_hessian import ApproxHessian
 from cmds_analysis import CMDSPathAnalysis
 from pca_analysis import PCAPathAnalysis
-from redundant_coordinations import RedundantInternalCoordinates
-from riemann_curvature import CalculationCurvature
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from MO_analysis import NROAnalysis
-from constraint_condition import GradientSHAKE, shake_parser, LagrangeConstrain, ProjectOutConstrain
+from constraint_condition import LagrangeConstrain, ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
 
@@ -59,7 +57,7 @@ class Optimize:
         self.microiter_num = 100
         self.args = args
         self.FC_COUNT = args.calc_exact_hess
-        self.temperature = float(args.md_like_perturbation)
+        self.temperature = 0.0
         self.CMDS = args.cmds
         self.PCA = args.pca
         self.DELTA = "x" if args.DELTA == "x" else float(args.DELTA)

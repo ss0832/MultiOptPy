@@ -41,16 +41,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
 
         self.cpcm_solv_model = args.cpcm_solv_model
         self.alpb_solv_model = args.alpb_solv_model
-        #self.force_perpendicularity_convage_criterion = 0.008 #Hartree/Bohr
         self.img_distance_convage_criterion = 0.15 #Bohr
-        #self.F_R_convage_criterion = 0.012
-        #self.DELTA = float(args.DELTA) # 
 
         self.N_THREAD = args.N_THREAD #
         self.SET_MEMORY = args.SET_MEMORY #
         self.START_FILE = args.INPUT+"/" #directory
-        #self.NSTEP = args.NSTEP #
-        #-----------------------------
+       
         self.BASIS_SET = args.basisset # 
         self.FUNCTIONAL = args.functional # 
         self.usextb = args.usextb
@@ -137,7 +133,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         return
 
     def microiteration(self, SP1, SP2, FIO1, FIO2, file_directory_1, file_directory_2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter):
-        #Add force to minimize potential along MEP. (based on nudged elestic bond method)
+        #Add force to minimize potential along MEP. (based on nudged elastic bond method)
  
         for i in range(self.microiter_num):
             print("# Microiteration "+str(i))
@@ -248,7 +244,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         GRAD_LIST_B = []
         ENERGY_LIST_A = []
         ENERGY_LIST_B = []
-        #G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient [a.u.]", name="gradient")
         prev_delta_geometry = 0.0
         for iter in range(0, self.microiterlimit):
             if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
@@ -577,10 +572,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         ENERGY_LIST_LIST = [[] for i in range(len(SP_list))]
         MF_ENERGY_LIST = []
 
-
-
-
-
         for iter in range(0, self.microiterlimit):
             if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
                 break
@@ -749,22 +740,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_move_vector_list.append(tmp_move_vector)
                 tmp_new_geometry_list.append(tmp_new_geometry)
                 OPTIMIZER_INSTANCE_LIST[j] = tmp_optimizer_instances
-            
-            
+             
             if self.mf_mode == "mesx":
                 tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
                 tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
             if self.mf_mode == "meci":
                 tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
-                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
-                
-                 
+                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]   
             
             tmp_move_vector_list = np.array(tmp_move_vector_list)
             tmp_new_geometry_list = np.array(tmp_new_geometry_list)
-
-   
-
 
             for j in range(len(SP_list)):
                 tmp_new_geometry_list[j] -= Calculationtools().calc_center_of_mass(tmp_new_geometry_list[j], element_list_list[j])
@@ -799,9 +784,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             PREV_MF_GRAD_LIST = tmp_smf_grad_list
             PREV_B_e_LIST = tmp_bias_energy_list
             PREV_e_LIST = tmp_energy_list
-            
-
-            
             
             
             BIAS_MF_ENERGY_LIST.append(mf_bias_energy)
@@ -876,7 +858,6 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 for k in range(len(NUM_LIST)):
                     f.write(str(NUM_LIST[k])+","+str(BIAS_MF_GRAD_LIST[j][k])+"\n")
                     
-        
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         
         for j in range(len(SP_list)):

@@ -76,10 +76,7 @@ class Calculation:
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):
         """execute extended tight binding method calclation."""
-        gradient_list = []
-        energy_list = []
-        geometry_num_list = []
-        geometry_optimized_num_list = []
+
         finish_frag = False
         
         try:
