@@ -522,8 +522,9 @@ class MD:
                 for j in force_data["fix_atoms"]:
                     new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
             
-            #------------------------            
-
+            if projection_constrain_flag:
+                tmp_new_geometry = new_geometry / self.bohr2angstroms
+                new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             #----------------------------
             pre_B_g = B_g#Hartree/Bohr
            
