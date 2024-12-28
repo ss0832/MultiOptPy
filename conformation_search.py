@@ -240,7 +240,9 @@ if __name__ == '__main__':
         print("initial conformer.")
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
-        
+        if not bpa.optimized_flag:
+            print("Optimization is failed. Exit...")
+            exit()
         energy = bpa.final_energy
         init_conformer = bpa.final_geometry #Bohr
         init_conformer = init_conformer * bohr2ang #Angstrom
@@ -287,15 +289,17 @@ if __name__ == '__main__':
         args.manual_AFIR = init_AFIR_CONFIG
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
-        
+        optimized_flag = bpa.optimized_flag
         energy = bpa.final_energy
         conformer = bpa.final_geometry #Bohr
         conformer = conformer * bohr2ang #Angstrom
         # Check identical
         bool_identical = is_identical(conformer, energy, energy_list, folder_name, init_INPUT)
         
-        if bool_identical:
-            pass
+        
+        if bool_identical or not optimized_flag:
+            if not optimized_flag:
+                print("Optimization is failed...")
         
         else:
             count += 1
