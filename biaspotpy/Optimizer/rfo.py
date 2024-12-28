@@ -1,16 +1,11 @@
-from .linesearch import LineSearch
 from .hessian_update import ModelHessianUpdate
 import numpy as np
-
 
 """
 RFO method
  The Journal of Physical Chemistry, Vol. 89, No. 1, 1985
  Theor chim Acta (1992) 82: 189-205
 """
-
-
-
 
 class RationalFunctionOptimization:
     def __init__(self, **config):
@@ -79,16 +74,16 @@ class RationalFunctionOptimization:
         return
     
     def hessian_update(self, displacement, delta_grad):
-        if "MSP" in self.config["method"]:
+        if "msp" in self.config["method"].lower():
             print("RFO_MSP_quasi_newton_method")
             delta_hess = self.hess_update.MSP_hessian_update(self.hessian, displacement, delta_grad)
-        elif "BFGS" in self.config["method"]:
+        elif "bfgs" in self.config["method"].lower():
             print("RFO_BFGS_quasi_newton_method")
             delta_hess = self.hess_update.BFGS_hessian_update(self.hessian, displacement, delta_grad)
-        elif "FSB" in self.config["method"]:
+        elif "fsb" in self.config["method"].lower():
             print("RFO_FSB_quasi_newton_method")
             delta_hess = self.hess_update.FSB_hessian_update(self.hessian, displacement, delta_grad)
-        elif "Bofill" in self.config["method"]:
+        elif "bofill" in self.config["method"].lower():
             print("RFO_Bofill_quasi_newton_method")
             delta_hess = self.hess_update.Bofill_hessian_update(self.hessian, displacement, delta_grad)
         else:
@@ -138,9 +133,16 @@ class RationalFunctionOptimization:
             
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        self.hessian += delta_hess 
-        self.iter += 1
-     
+
+        
+        if abs(lambda_for_calc) > 1e+5:
+            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
+            self.iter += 1
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+
+        
         return move_vector#Bohr.
         
     def normal_v3(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
@@ -198,8 +200,15 @@ class RationalFunctionOptimization:
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
-        self.hessian += delta_hess 
-        self.iter += 1
+        
+        
+        if abs(lambda_for_calc) > 1e+5:
+            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
+            self.iter += 1
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+
      
         return move_vector#Bohr.
     
@@ -232,8 +241,13 @@ class RationalFunctionOptimization:
 
         move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
 
-        self.hessian += delta_hess 
-        self.iter += 1
+        if abs(lambda_for_calc) > 1e+5:
+            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
+            self.iter += 1
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+            
         return move_vector
         
     def moment(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
