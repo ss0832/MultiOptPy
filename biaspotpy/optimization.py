@@ -232,6 +232,9 @@ class Optimize:
         else:
             NRO = None
 
+        optimized_flag = False
+
+
         for iter in range(self.NSTEP):
             self.iter = iter
             finish_frag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -426,9 +429,10 @@ class Optimize:
                 if projection_constrain and iter == 0:
                     pass
                 else:
+                    optimized_flag = True
                     break
 
-            if len(force_data["fix_atoms"]) > 0:
+            if not allactive_flag:
                 for j in force_data["fix_atoms"]:
                     new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
             
@@ -457,10 +461,12 @@ class Optimize:
                 geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
                 file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
 
+
+
         self.finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    orthogonal_bias_grad_list, orthogonal_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
-        
+        self.optimized_flag = optimized_flag
         return
 
     def finalize_optimization(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
