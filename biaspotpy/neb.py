@@ -82,8 +82,6 @@ class NEB:
         
         self.cpcm_solv_model = args.cpcm_solv_model
         self.alpb_solv_model = args.alpb_solv_model  
-        self.QUASI_NEWTOM_METHOD = args.QUASI_NEWTOM_METHOD
-        self.GLOBAL_QUASI_NEWTOM_METHOD = args.GLOBAL_QUASI_NEWTOM_METHOD
         self.N_THREAD = args.N_THREAD
         self.SET_MEMORY = args.SET_MEMORY
         self.NEB_NUM = args.NSTEP
@@ -665,205 +663,12 @@ class NEB:
 
         return new_geometry
     
-    def FSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, hessian, biased_energy_list, pre_biased_energy_list):
-        print("Quasi-Newton method")
-        
-        #project tangent vector from gradient and hessian 
-        for i in range(1, len(geom_num_list)-1):
-            tangent_vec = (geom_num_list[i+1] - geom_num_list[i-1]) / (np.linalg.norm(geom_num_list[i+1] - geom_num_list[i-1]))
-            tangent_vec_x = np.array([], dtype="float64")
-            tangent_vec_y = np.array([], dtype="float64")
-            tangent_vec_z = np.array([], dtype="float64")
-            
-            for j in range(len(geom_num_list[i])):
-                tangent_vec_x = np.append(tangent_vec_x, np.array([tangent_vec[j][0], 0.0, 0.0], dtype="float"), axis=0)
-                tangent_vec_y = np.append(tangent_vec_y, np.array([0.0, tangent_vec[j][1], 0.0], dtype="float"), axis=0)
-                tangent_vec_z = np.append(tangent_vec_z, np.array([0.0, 0.0, tangent_vec[j][2]], dtype="float"), axis=0)
-            tangent_vec_x = tangent_vec_x.reshape(len(geom_num_list[i])*3, 1)
-            tangent_vec_y = tangent_vec_y.reshape(len(geom_num_list[i])*3, 1)
-            tangent_vec_z = tangent_vec_z.reshape(len(geom_num_list[i])*3, 1)
-            
-
-        total_delta = []
-        for i in range(len(geom_num_list)):
-
-            delta_grad = (g[i] - pre_g[i]).reshape(len(geom_num_list[i])*3, 1)
-            displacement = (geom_num_list[i] - pre_geom[i]).reshape(len(geom_num_list[i])*3, 1)
-            
-            #delta_hess = self.FSB_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
-            delta_hess = self.Bofill_hessian_update(hessian[i], displacement, delta_grad, geom_num_list[i]) 
-            hessian[i] += delta_hess
-            DELTA_for_QNM = 0.05
-            matrix_for_RFO = np.append(hessian[i], g[i].reshape(len(geom_num_list[i])*3, 1), axis=1)
-            tmp = np.array([np.append(g[i].reshape(1, len(geom_num_list[i])*3), 0.0)], dtype="float64")
-            
-            matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-            RFO_eigenvalue, _ = np.linalg.eig(matrix_for_RFO)
-            RFO_eigenvalue = np.sort(RFO_eigenvalue)
-            lambda_for_calc = float(RFO_eigenvalue[0])
-            print("# NODE",i," LAMBDA: ", lambda_for_calc)
-          
-            #if biased_energy_list[i] < pre_biased_energy_list[i] + np.dot(pre_g[i].reshape(1, len(geom_num_list[i])*3), displacement.reshape(len(geom_num_list[i])*3, 1)):
-            lambda_for_calc = min(-10, lambda_for_calc)
-            delta = (DELTA_for_QNM*np.linalg.solve((hessian[i] -0.01*lambda_for_calc*(np.eye(len(geom_num_list[i])*3)) ), g[i].reshape(len(geom_num_list[i])*3, 1))).reshape(len(geom_num_list[i]), 3)
-            
-            #else:
-                
-            #    print("#NODE", i," linesearching...")
-            #    alpha = np.abs(np.dot(g[i].reshape(1, len(geom_num_list[i])*3), displacement) / (np.dot(displacement.T, displacement) + 1e-8))
-            #    cos = np.sum(displacement.reshape(len(geom_num_list[i]), 3) * g[i]) / (np.linalg.norm(displacement) * np.linalg.norm(g[i]) + 1e-8)
-            #    print("cos = ", cos)
-            #    print("alpha =", alpha)
-            #    delta = -1 * (abs(cos) * alpha) * displacement.reshape(len(geom_num_list[i]), 3)
-            
-            total_delta.append(delta)
-        #---------------------
-        move_vector = []
-        start_edge = np.linalg.norm(total_delta[0])
-        start_tr = min(0.1, start_edge)
-        move_vector.append(total_delta[0]/np.linalg.norm(total_delta[0]) * start_tr)
-        
- 
-        trust_radii_1_list = []
-        trust_radii_2_list = []
-        
-        for i in range(1, len(total_delta)-1):
-            #total_delta[i] *= (abs(cos_list[i]) ** 0.1 + 0.1)
-            trust_radii_1 = np.linalg.norm(geom_num_list[i] - geom_num_list[i-1]) / 2.0
-            trust_radii_2 = np.linalg.norm(geom_num_list[i] - geom_num_list[i+1]) / 2.0
-            
-            trust_radii_1_list.append(str(trust_radii_1*2))
-            trust_radii_2_list.append(str(trust_radii_2*2))
-            
-            force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
-            
-            #if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
-            tmp_trust_radii = None
-
-            if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                tmp_trust_radii = trust_radii_1
-            if np.linalg.norm(total_delta[i]) > trust_radii_2:
-                tmp_trust_radii = trust_radii_2
-            if tmp_trust_radii is not None:
-                move_vector.append(total_delta[i]*tmp_trust_radii/np.linalg.norm(total_delta[i]))
-            else:
-                move_vector_delta = min(0.1, np.linalg.norm(move_vector))
-                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
-            #else:
-            #    pass
-            #print("nearly zero move vec (Projected velocity-verlet algorithm)")
-            #move_vector.append(total_delta[i]/np.linalg.norm(total_delta[i]) * 0.001)  
-            
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
-            f.write(",".join(trust_radii_1_list)+"\n")
-        
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_2.csv", "a") as f:
-            f.write(",".join(trust_radii_2_list)+"\n")
-        
-        end_edge = np.linalg.norm(total_delta[-1])
-        end_tr = min(0.1, end_edge)
-        move_vector.append(total_delta[-1]/np.linalg.norm(total_delta[-1]) * end_tr)
-        #--------------------
-        
-        new_geometry = (geom_num_list - move_vector)*self.bohr2angstroms
-        return new_geometry, hessian
- 
-    def GFSB_quasi_newton_calc(self, geom_num_list, pre_geom, g, pre_g, global_hessian, biased_energy_list, pre_biased_energy_list):
-        #ref. J. Chem. Phys. 128, 134106 (2008) (based on GL-BFGS)
-        global_g = g.reshape(len(g)*len(g[0])*3, 1)
-        global_pre_g = pre_g.reshape(len(pre_g)*len(pre_g[0])*3, 1)
-        global_geom_list = geom_num_list.reshape(len(geom_num_list)*len(geom_num_list[0])*3, 1)
-        global_pre_geom_list = pre_geom.reshape(len(pre_geom)*len(pre_geom[0])*3, 1)
-        delta_grad = global_g - global_pre_g
-        displacement = global_geom_list - global_pre_geom_list
-        
-        #delta_hess = self.FSB_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
-        delta_hess = self.Bofill_hessian_update(global_hessian, displacement, delta_grad, global_geom_list) 
-        global_hessian += delta_hess   
-        DELTA_for_QNM = 0.05
-        
-        matrix_for_RFO = np.append(global_hessian, global_g, axis=1)
-        tmp = np.array([np.append(global_g.reshape(len(global_g)), 0.0)], dtype="float64")
-        
-        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        RFO_eigenvalue, _ = np.linalg.eig(matrix_for_RFO)
-        RFO_eigenvalue = np.sort(RFO_eigenvalue)
-        lambda_for_calc = float(RFO_eigenvalue[0])
-        lambda_for_calc = min(-10, lambda_for_calc)
-        total_delta = (DELTA_for_QNM*np.linalg.solve((global_hessian -0.01*lambda_for_calc*(np.eye(len(global_hessian))) ), global_g)).reshape(len(g), len(g[0]), 3)
-        
-        move_vector = [total_delta[0]]
-        trust_radii_1_list = []
-        trust_radii_2_list = []
-        
-        for i in range(1, len(total_delta)-1):
-            #total_delta[i] *= (abs(cos_list[i]) ** 0.1 + 0.1)
-            trust_radii_1 = np.linalg.norm(geom_num_list[i] - geom_num_list[i-1]) / 2.0
-            trust_radii_2 = np.linalg.norm(geom_num_list[i] - geom_num_list[i+1]) / 2.0
-            
-            trust_radii_1_list.append(str(trust_radii_1*2))
-            trust_radii_2_list.append(str(trust_radii_2*2))
-            
-            force_move_vec_cos = np.sum(g[i] * total_delta[i]) / (np.linalg.norm(g[i]) * np.linalg.norm(total_delta[i])) 
-            tmp_trust_radii = None
-            #if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
-            if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                tmp_trust_radii = trust_radii_1
-            if np.linalg.norm(total_delta[i]) > trust_radii_2:
-                tmp_trust_radii = trust_radii_2
-            if tmp_trust_radii is not None:
-                move_vector.append(total_delta[i]*tmp_trust_radii/np.linalg.norm(total_delta[i]))
-            else:
-                move_vector_delta = min(0.1, np.linalg.norm(move_vector))
-                move_vector.append(move_vector_delta*total_delta[i]/np.linalg.norm(total_delta[i]))
-            #else:
-                
-                #print("zero move vec (Projected velocity-verlet algorithm)")
-                #move_vector.append(total_delta[i] * 0.0)  
-            
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
-            f.write(",".join(trust_radii_1_list)+"\n")
-        
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_2.csv", "a") as f:
-            f.write(",".join(trust_radii_2_list)+"\n")
-        
-        move_vector.append(total_delta[-1])
-        #--------------------
-        
-        new_geometry = (geom_num_list + move_vector)*self.bohr2angstroms
-        return new_geometry, global_hessian
- 
-        
-    def FSB_hessian_update(self, hess, displacement, delta_grad, geom_num_list):
-        #J. Chem. Phys. 1999, 111, 10806
-        A = delta_grad - np.dot(hess, displacement)
-        delta_hess_SR1 = np.dot(A, A.T) / (np.dot(A.T, displacement) + 1e-8) 
-        delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / (np.dot(displacement.T, delta_grad) + 1e-8))  - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ (np.dot(np.dot(displacement.T, hess), displacement) + 1e-8)) 
-        Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / (np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement) + 1e-8)
-        delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
-        #delta_hess = Calculationtools().project_out_hess_tr_and_rot(delta_hess, self.element_list, geom_num_list)
-        return delta_hess
-
-
-    def Bofill_hessian_update(self, hess, displacement, delta_grad, geom_num_list):
-        #J. Chem. Phys. 1999, 111, 10806
-        A = delta_grad - np.dot(hess, displacement)
-        delta_hess_SR1 = np.dot(A, A.T) / (np.dot(A.T, displacement) + 1e-15)
-         
-        block_1 = delta_grad - 1 * np.dot(hess, displacement) 
-        block_2 = np.dot(displacement, displacement.T) / ((np.dot(displacement.T, displacement)) ** 2 + 1e-15)
-        
-        delta_hess_PSB = -1 * np.dot(block_1.T, displacement) * block_2 + (np.dot(block_1, displacement.T) + np.dot(displacement, block_1.T)) / (np.dot(displacement.T, displacement)  + 1e-15)
-            
-        Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / (np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement) + 1e-15)
-        delta_hess = Bofill_const*delta_hess_SR1 + (1 - Bofill_const)*delta_hess_PSB
-        return delta_hess
-    
 
     def adaptic_method(self, energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
         print("ANEB (Adaptic NEB)")#J. Chem. Phys. 117, 4651–4658 (2002) https://doi.org/10.1063/1.1495401
         image_num = 1
         part_num = 2
+ 
         for adaptic_num in range(self.ANEB_num):
             print("Adaptic NEB cycle:", adaptic_num)
             idx_max_ene = np.argmax(energy_list)
@@ -898,17 +703,16 @@ class NEB:
             file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
             pre_total_velocity = [[[]]]
             force_data = force_data_parser(self.args)
+            if len(force_data["projection_constraint_condition_list"]) > 0:
+                projection_constraint_flag = True
+            else:
+                projection_constraint_flag = False  
             #prepare for FIRE method 
             dt = 0.5
             n_reset = 0
             a = self.FIRE_a_start
 
-            #prepare for quasi-Newton method
-            if self.QUASI_NEWTOM_METHOD:
-                hessian_list = np.array([np.eye(len(element_list*3)) for i in range(len(geometry_list))], dtype="float64")
-            if self.GLOBAL_QUASI_NEWTOM_METHOD:
-                global_hessian = np.eye(len(element_list)*3*len(geometry_list))
-            
+           
             if self.args.usextb == "None":
                 pass
             else:
@@ -932,10 +736,7 @@ class NEB:
             elif self.nesb:
                 STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
             else:
-                if self.QUASI_NEWTOM_METHOD or self.GLOBAL_QUASI_NEWTOM_METHOD:
-                    STRING_FORCE_CALC = CaluculationNEB2(self.APPLY_CI_NEB)
-                else:
-                    STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
+                STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
             
             for optimize_num in range(self.NEB_NUM*(adaptic_num+1)+1, self.NEB_NUM*(adaptic_num+2)+1):
                 
@@ -972,22 +773,18 @@ class NEB:
                 biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
                 #------------------
 
-                if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == init_num:
+                if projection_constraint_flag and optimize_num == init_num:
                     PC_list = []
                     for i in range(len(energy_list)):
                         PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
                         PC_list[i].initialize(geometry_num_list[i])
 
-                if len(force_data["projection_constraint_condition_list"]) > 0:
+                if projection_constraint_flag:
                     for i in range(len(energy_list)):
                         biased_gradient_list[i] = PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i])   
 
                 #calculate force
                 total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-
-
-
-
 
                 #------------------
                 cos_list = []
@@ -999,13 +796,7 @@ class NEB:
                 
                 #------------------
                 #relax path
-                if self.QUASI_NEWTOM_METHOD and optimize_num > init_num:
-                    new_geometry, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
-                elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > init_num:
-                    new_geometry, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
-            
-                
-                elif optimize_num < self.sd:
+                if optimize_num < self.sd:
                     total_velocity = self.force2velocity(total_force, element_list)
                     new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                     
@@ -1020,7 +811,7 @@ class NEB:
                             new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
                 #-------------    
                 
-                if len(force_data["projection_constraint_condition_list"]) > 0:
+                if projection_constraint_flag:
                     for x in range(len(new_geometry)):
                         tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
                         tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
@@ -1051,7 +842,10 @@ class NEB:
         file_directory = self.make_psi4_input_file(geometry_list,0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
-        
+        if len(force_data["projection_constraint_condition_list"]) > 0:
+            projection_constraint_flag = True
+        else:
+            projection_constraint_flag = False        
 
         #prepare for FIRE method 
         dt = 0.5
@@ -1067,14 +861,6 @@ class NEB:
         
         with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
-        #prepare for quasi-Newton method
-        if self.QUASI_NEWTOM_METHOD:
-            hessian_list = np.array([np.eye(len(element_list)*3) for i in range(len(geometry_list))], dtype="float64")
-        
-        if self.GLOBAL_QUASI_NEWTOM_METHOD:
-            global_hessian = np.eye(len(element_list)*3*len(geometry_list))
-        
-        
         
         if self.om:
             STRING_FORCE_CALC = CaluculationOM(self.APPLY_CI_NEB)
@@ -1085,10 +871,8 @@ class NEB:
         elif self.nesb:
             STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
         else:
-            if self.QUASI_NEWTOM_METHOD or self.GLOBAL_QUASI_NEWTOM_METHOD:
-                STRING_FORCE_CALC = CaluculationNEB2(self.APPLY_CI_NEB)
-            else:
-                STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
+            
+            STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
                 
         for optimize_num in range(self.NEB_NUM):
             
@@ -1123,13 +907,13 @@ class NEB:
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
 
-            if len(force_data["projection_constraint_condition_list"]) > 0 and optimize_num == 0:
+            if projection_constraint_flag and optimize_num == 0:
                 PC_list = []
                 for i in range(len(energy_list)):
                     PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
                     PC_list[i].initialize(geometry_num_list[i])
 
-            if len(force_data["projection_constraint_condition_list"]) > 0:
+            if projection_constraint_flag:
                 for i in range(len(energy_list)):
                     biased_gradient_list[i] = copy.copy(PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i]))            
 
@@ -1155,13 +939,7 @@ class NEB:
 
             #------------------
             #relax path
-            if self.QUASI_NEWTOM_METHOD and optimize_num > 0:
-                new_geometry, hessian_list = self.FSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, hessian_list, biased_energy_list, pre_biased_energy_list)
-            
-            elif self.GLOBAL_QUASI_NEWTOM_METHOD and optimize_num > 0:
-                new_geometry, global_hessian = self.GFSB_quasi_newton_calc(geometry_num_list, pre_geom, total_force, pre_total_force, global_hessian, biased_energy_list, pre_biased_energy_list)
-            
-            elif optimize_num < self.sd:
+            if optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
                 new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                 
@@ -1175,7 +953,7 @@ class NEB:
                     for j in force_data["fix_atoms"]:
                         new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
         
-            if len(force_data["projection_constraint_condition_list"]) > 0:
+            if projection_constraint_flag:
                 for x in range(len(new_geometry)):
                     tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
                     tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    

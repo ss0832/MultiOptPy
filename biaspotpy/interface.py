@@ -196,8 +196,6 @@ def nebparser(parser):
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
     parser.add_argument("-cineb", "--apply_CI_NEB",  type=int, default='99999', help='apply CI_NEB method')
     parser.add_argument("-sd", "--steepest_descent",  type=int, default='99999', help='apply steepest_descent method')
-    parser.add_argument("-qnt", "--QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to quasi-Newton method')
-    parser.add_argument("-gqnt", "--GLOBAL_QUASI_NEWTOM_METHOD", action='store_true', help='changing optimizer to global-quasi-Newton method')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
