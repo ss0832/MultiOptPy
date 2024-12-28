@@ -67,6 +67,10 @@ For orientation search
 ```
 python orientation_search.py aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB 
 ```
+For conformation search
+```
+python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
+```
 
 ## Options
 (optmain.py)
