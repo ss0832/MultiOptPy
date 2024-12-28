@@ -109,7 +109,7 @@ if __name__ == '__main__':
         bias_energy = bpa.final_bias_energy
         
         next_input_file_for_save = directory + save_xyz_file(opted_geometry, element_list, original_input_file, i+1, directory)
-        next_input_file = save_xyz_file(opted_geometry, element_list, original_input_file, i+1, directory)
+        next_input_file = save_xyz_file(opted_geometry, element_list, original_input_file, i+1, "")
         args = original_args
         args.INPUT = next_input_file
         print("Done.")
