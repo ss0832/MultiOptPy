@@ -317,7 +317,7 @@ if __name__ == '__main__':
         # Check termination criteria
         if len(energy_list) > args.number_of_rank:
             sorted_energy_list = np.sort(np.array(energy_list))
-            rank_list = sorted_energy_list[-args.number_of_rank:]
+            rank_list = sorted_energy_list[:args.number_of_rank]
             
             if np.all(rank_list == prev_rank_list):
                 no_update_count += 1
