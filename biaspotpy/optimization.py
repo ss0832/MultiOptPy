@@ -740,13 +740,15 @@ class Optimize:
             START_FILE_LIST = [self.args.INPUT]
         else:
             START_FILE_LIST = self.args.INPUT #
-
         for file in START_FILE_LIST:
             print("********************************")
             print(file)
             print("********************************")
-            self.make_init_directory(file)
+            if os.path.exists(file) == False:
+                print(f"{file} does not exist.")
+                continue
             
+            self.make_init_directory(file)
             self.optimize()
         
             if self.CMDS:
@@ -761,7 +763,6 @@ class Optimize:
                     xtb_method = self.args.usextb
                 else:
                     xtb_method = "None"
-                
                 if self.iter % self.FC_COUNT == 0:
                     hessian = self.Model_hess
                 else:
@@ -769,5 +770,4 @@ class Optimize:
                 EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
                 EXEC_IRC.run()
             print(f"Optimization of {file} is completed.")
-            
         return
