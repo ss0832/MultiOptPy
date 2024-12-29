@@ -71,7 +71,10 @@ For conformation search
 ```
 python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
 ```
-
+For relaxed scan (Similar to functions implemented in Gaussian)
+```
+python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -pyscf
+```
 ## Options
 (optmain.py)
 
