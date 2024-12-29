@@ -17,7 +17,7 @@ class Adadelta:
         self.config = config
         return
     
-    def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):#delta is not required. This method tends to converge local minima. This class doesnt work well.
+    def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):#delta is not required. This method tends to converge local minima. This class doesnt work well.
         print("Adadelta")
         if self.Initialization:
             self.adam_m = geom_num_list * 0.0

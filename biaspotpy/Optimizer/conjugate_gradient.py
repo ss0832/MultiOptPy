@@ -36,7 +36,7 @@ class ConjgateGradient:
         beta = np.dot(self.gradient.reshape(1, len(self.geom_num_list)), self.gradient.reshape(len(self.geom_num_list), 1)) / (np.dot(self.d_vector.reshape(1, len(self.geom_num_list)), (self.gradient - self.prev_gradient).reshape(len(self.geom_num_list), 1)) + self.epsilon)
         return beta
     
-    def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
+    def run(self, geom_num_list, B_g, pre_B_g, pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
         #cg method
         self.geom_num_list = np.array(geom_num_list)
         self.gradient = np.array(B_g)

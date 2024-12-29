@@ -16,7 +16,7 @@ class AdamW:
         self.Initialization = True
         self.config = config
     
-    def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
+    def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
         print("AdamW")
         if self.Initialization:
             self.adam_m = geom_num_list * 0.0
