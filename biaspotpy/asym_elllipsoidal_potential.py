@@ -155,29 +155,27 @@ class AsymmetricEllipsoidalLJPotential:
             
             #--------------
           
-            
-        
         # interaction between asymmetric ellipsoid and asymmetric ellipsoid
         if len(bias_pot_params) > 1:
             for pot_i in range(len(bias_pot_params)):
+                root_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_i][0] - 1
+                LJ_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_i][1] - 1
+                asym_elip_eps_i = bias_pot_params[pot_i][0] / self.hartree2kjmol
+                asym_elip_sig_xp_i = bias_pot_params[pot_i][1] / self.bohr2angstroms
+                asym_elip_sig_xm_i = bias_pot_params[pot_i][2] / self.bohr2angstroms
+                asym_elip_sig_yp_i = bias_pot_params[pot_i][3] / self.bohr2angstroms
+                asym_elip_sig_ym_i = bias_pot_params[pot_i][4] / self.bohr2angstroms
+                asym_elip_sig_zp_i = bias_pot_params[pot_i][5] / self.bohr2angstroms
+                asym_elip_sig_zm_i = bias_pot_params[pot_i][6] / self.bohr2angstroms
+                asym_elip_dist_i = bias_pot_params[pot_i][7] / self.bohr2angstroms
+                # rotate the asymmetric ellipsoid
+                LJ_vec_i = geom_num_list[LJ_atom_i] - geom_num_list[root_atom_i]
+                LJ_vec_i = LJ_vec_i / torch.norm(LJ_vec_i)
+                LJ_center_i = geom_num_list[root_atom_i] + LJ_vec_i * asym_elip_dist_i
+
                 for pot_j in range(pot_i+1, len(bias_pot_params)):
                     if pot_i > pot_j:
                         continue
-       
-                    root_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_i][0] - 1
-                    LJ_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_i][1] - 1
-                    asym_elip_eps_i = bias_pot_params[pot_i][0] / self.hartree2kjmol
-                    asym_elip_sig_xp_i = bias_pot_params[pot_i][1] / self.bohr2angstroms
-                    asym_elip_sig_xm_i = bias_pot_params[pot_i][2] / self.bohr2angstroms
-                    asym_elip_sig_yp_i = bias_pot_params[pot_i][3] / self.bohr2angstroms
-                    asym_elip_sig_ym_i = bias_pot_params[pot_i][4] / self.bohr2angstroms
-                    asym_elip_sig_zp_i = bias_pot_params[pot_i][5] / self.bohr2angstroms
-                    asym_elip_sig_zm_i = bias_pot_params[pot_i][6] / self.bohr2angstroms
-                    asym_elip_dist_i = bias_pot_params[pot_i][7] / self.bohr2angstroms
-                    # rotate the asymmetric ellipsoid
-                    LJ_vec_i = geom_num_list[LJ_atom_i] - geom_num_list[root_atom_i]
-                    LJ_vec_i = LJ_vec_i / torch.norm(LJ_vec_i)
-                    LJ_center_i = geom_num_list[root_atom_i] + LJ_vec_i * asym_elip_dist_i
                     
                     root_atom_j = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_j][0] - 1
                     LJ_atom_j = self.config["asymmetric_ellipsoidal_repulsive_potential_atoms"][pot_j][1] - 1
@@ -246,9 +244,6 @@ class AsymmetricEllipsoidalLJPotential:
                     r_ell_i_norm = torch.linalg.norm(r_ell_i)
                     lj_eps_i = 1 / torch.sqrt((x_j / r_ell_i_norm / x_i_eps) ** 2 + (y_j / r_ell_i_norm / y_i_eps) ** 2 + (z_j / r_ell_i_norm / z_i_eps) ** 2 )
 
-
-                    
-                    
                     pos_i = rotated_z_axis_adjusted_LJ_center_i_j[0] - z_axis_adjusted_LJ_center_j[0]
                   
                     x_i = pos_i[0]
@@ -293,10 +288,7 @@ class AsymmetricEllipsoidalLJPotential:
         max_energy = 1e+10
         print("rand_search")
         for i in range(self.rand_search_iteration):
-            tmp_rot_angle_list = []
-            for j in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])):
-                tmp_rot_angle_list.append(random.uniform(0, 2*math.pi))
-            
+            tmp_rot_angle_list = [random.uniform(0, 2*math.pi) for j in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"]))]
             tmp_rot_angle_list = torch.tensor([tmp_rot_angle_list], dtype=torch.float64, requires_grad=True)
             energy = self.calc_potential(geom_num_list, tmp_rot_angle_list, bias_pot_params)
             if energy < max_energy:
@@ -317,8 +309,6 @@ class AsymmetricEllipsoidalLJPotential:
         Opt.display_flag = False
         
         for j in range(self.micro_iteration):
-
-            
             rot_grad = torch.func.jacrev(self.calc_potential, argnums=1)(geom_num_list, self.rot_angle_list, bias_pot_params)
             if torch.linalg.norm(rot_grad) < self.threshold:
                 print("Converged!")
@@ -329,7 +319,7 @@ class AsymmetricEllipsoidalLJPotential:
             tmp_rot_angle_list = copy.copy(self.rot_angle_list.clone().detach().numpy())
             tmp_rot_grad = copy.copy(rot_grad.clone().detach().numpy())
             tmp_prev_rot_grad = copy.copy(prev_rot_grad.clone().detach().numpy())
-            move_vector = Opt.run(tmp_rot_angle_list[0], tmp_rot_grad[0], tmp_prev_rot_grad[0], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[])
+            move_vector = Opt.run(tmp_rot_angle_list[0], tmp_rot_grad[0], tmp_prev_rot_grad[0])
             move_vector = torch.tensor(move_vector, dtype=torch.float64)
             self.rot_angle_list = self.rot_angle_list - 1.0 * move_vector
             # update rot_angle_list
@@ -480,23 +470,23 @@ class AsymmetricEllipsoidalLJPotentialv2:
                 tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom])
 
                 if x > 0:
-                    x_sig = (asym_elip_sig_xp + tgt_atom_sig) * 2 ** (7 / 6) / 2
+                    x_sig = (asym_elip_sig_xp + tgt_atom_sig) ** (7 / 6) 
                     x_eps = asym_elip_eps 
                 else:
-                    x_sig = (asym_elip_sig_xm + tgt_atom_sig) * 2 ** (7 / 6) / 2
+                    x_sig = (asym_elip_sig_xm + tgt_atom_sig) ** (7 / 6) 
                     x_eps = asym_elip_eps 
                 
                 if y > 0:
-                    y_sig = (asym_elip_sig_yp + tgt_atom_sig) * 2 ** (7 / 6) / 2 
+                    y_sig = (asym_elip_sig_yp + tgt_atom_sig) ** (7 / 6) 
                     y_eps = asym_elip_eps 
                 else:
-                    y_sig = (asym_elip_sig_ym + tgt_atom_sig) * 2 ** (7 / 6) / 2 
+                    y_sig = (asym_elip_sig_ym + tgt_atom_sig) ** (7 / 6)  
                     y_eps = asym_elip_eps
                 if z > 0:
-                    z_sig = (asym_elip_sig_zp + tgt_atom_sig) * 2 ** (7 / 6) / 2
+                    z_sig = (asym_elip_sig_zp + tgt_atom_sig) ** (7 / 6) 
                     z_eps = asym_elip_eps
                 else:
-                    z_sig = (asym_elip_sig_zm + tgt_atom_sig) * 2 ** (7 / 6) / 2 
+                    z_sig = (asym_elip_sig_zm + tgt_atom_sig) ** (7 / 6)  
                     z_eps = asym_elip_eps
                 
                 r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
@@ -525,24 +515,28 @@ class AsymmetricEllipsoidalLJPotentialv2:
         # interaction between asymmetric ellipsoid and  asymmetric ellipsoid
         if len(bias_pot_params) > 1:
             for pot_i in range(len(bias_pot_params)):
+                asym_elip_eps_i = bias_pot_params[pot_i][0] / self.hartree2kjmol
+                asym_elip_sig_xp_i = bias_pot_params[pot_i][1] / self.bohr2angstroms
+                asym_elip_sig_xm_i = bias_pot_params[pot_i][2] / self.bohr2angstroms
+                asym_elip_sig_yp_i = bias_pot_params[pot_i][3] / self.bohr2angstroms
+                asym_elip_sig_ym_i = bias_pot_params[pot_i][4] / self.bohr2angstroms
+                asym_elip_sig_zp_i = bias_pot_params[pot_i][5] / self.bohr2angstroms
+                asym_elip_sig_zm_i = bias_pot_params[pot_i][6] / self.bohr2angstroms
+                asym_elip_dist_i = bias_pot_params[pot_i][7] / self.bohr2angstroms
+
+                root_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][0] - 1
+                LJ_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][1] - 1
+
+                # rotate the asymmetric ellipsoid
+                LJ_vec_i = geom_num_list[LJ_atom_i] - geom_num_list[root_atom_i]
+                LJ_vec_i = LJ_vec_i / torch.norm(LJ_vec_i)
+                LJ_center_i = geom_num_list[root_atom_i] + LJ_vec_i * asym_elip_dist_i
+
                 for pot_j in range(pot_i+1, len(bias_pot_params)):
                     if pot_i > pot_j:
                         continue
        
-                    root_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][0] - 1
-                    LJ_atom_i = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][1] - 1
-                    asym_elip_eps_i = bias_pot_params[pot_i][0] / self.hartree2kjmol
-                    asym_elip_sig_xp_i = bias_pot_params[pot_i][1] / self.bohr2angstroms
-                    asym_elip_sig_xm_i = bias_pot_params[pot_i][2] / self.bohr2angstroms
-                    asym_elip_sig_yp_i = bias_pot_params[pot_i][3] / self.bohr2angstroms
-                    asym_elip_sig_ym_i = bias_pot_params[pot_i][4] / self.bohr2angstroms
-                    asym_elip_sig_zp_i = bias_pot_params[pot_i][5] / self.bohr2angstroms
-                    asym_elip_sig_zm_i = bias_pot_params[pot_i][6] / self.bohr2angstroms
-                    asym_elip_dist_i = bias_pot_params[pot_i][7] / self.bohr2angstroms
-                    # rotate the asymmetric ellipsoid
-                    LJ_vec_i = geom_num_list[LJ_atom_i] - geom_num_list[root_atom_i]
-                    LJ_vec_i = LJ_vec_i / torch.norm(LJ_vec_i)
-                    LJ_center_i = geom_num_list[root_atom_i] + LJ_vec_i * asym_elip_dist_i
+
                     
                     root_atom_j = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_j][0] - 1
                     LJ_atom_j = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_j][1] - 1
@@ -658,10 +652,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
         max_energy = 1e+10
         print("rand_search")
         for i in range(self.rand_search_iteration):
-            tmp_rot_angle_list = []
-            for j in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])):
-                tmp_rot_angle_list.append(random.uniform(0, 2*math.pi))
-            
+            tmp_rot_angle_list = [random.uniform(0, 2*math.pi) for j in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"]))]
             tmp_rot_angle_list = torch.tensor([tmp_rot_angle_list], dtype=torch.float64, requires_grad=True)
             energy = self.calc_potential(geom_num_list, tmp_rot_angle_list, bias_pot_params)
             if energy < max_energy:
@@ -695,7 +686,7 @@ class AsymmetricEllipsoidalLJPotentialv2:
             tmp_rot_angle_list = copy.copy(self.rot_angle_list.clone().detach().numpy())
             tmp_rot_grad = copy.copy(rot_grad.clone().detach().numpy())
             tmp_prev_rot_grad = copy.copy(prev_rot_grad.clone().detach().numpy())
-            move_vector = Opt.run(tmp_rot_angle_list[0], tmp_rot_grad[0], tmp_prev_rot_grad[0], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[])
+            move_vector = Opt.run(tmp_rot_angle_list[0], tmp_rot_grad[0], tmp_prev_rot_grad[0])
             move_vector = torch.tensor(move_vector, dtype=torch.float64)
             self.rot_angle_list = self.rot_angle_list - 1.0 * move_vector
             # update rot_angle_list
