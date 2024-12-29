@@ -70,7 +70,7 @@ class Optimize:
         self.check_sub_basisset(args)
         self.Model_hess = None
         self.mFC_COUNT = args.calc_model_hess
-        self.DC_check_dist = 30.0
+        self.DC_check_dist = 300.0
         self.unrestrict = args.unrestrict
         self.NRO_analysis = args.NRO_analysis
         self.check_NRO_analysis(args)
