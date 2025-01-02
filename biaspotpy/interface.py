@@ -252,7 +252,7 @@ def mdparser(parser):
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
-
+    parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -263,169 +263,6 @@ def mdparser(parser):
     args.lagrange_constrain = []
   
     return args
-
-
-
-class BiasPotInterface:
-    def __init__(self):
-        self.linear_mechano_force_pot_v2 = []
-        self.linear_mechano_force_pot = []#['0.0', '1.0', '1,2,3,4']#add linear mechanochemical force (ex.) [[force(pN)] [atoms1(ex. 1,2)] [atoms2(ex. 3,4s)] ...]
-        self.manual_AFIR = []#['0.0', '1', '2'] #manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]
-        self.repulsive_potential = []#['0.0','1.0', '1', '2', 'scale'] #Add LJ repulsive_potential based on UFF (ex.) [[well_scale] [dist_scale] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] [scale or value (ang. kJ/mol)] ...]
-        self.repulsive_potential_v2 = []#['0.0','1.0','0.0','1','2','12','6', '1,2', '1-2', 'scale']#Add LJ repulsive_potential based on UFF (ver.2) (eq. V = ε[A * (σ/r)^(rep) - B * (σ/r)^(attr)]) (ex.) [[well_scale] [dist_scale] [length (ang.)] [const. (rep)] [const. (attr)] [order (rep)] [order (attr)] [LJ center atom (1,2)] [target atoms (3-5,8)] [scale or value (ang. kJ/mol)] ...]
-        self.cone_potential = []#['0.0','1.0','90','1', '2,3,4', '5-9']#'Add cone type LJ repulsive_potential based on UFF (ex.) [[well_value (epsilon) (kJ/mol)] [dist (sigma) (ang.)] [cone angle (deg.)] [LJ center atom (1)] [three atoms (2,3,4) ] [target atoms (5-9)] ...]')
-        
-        self.keep_pot = []#['0.0', '1.0', '1,2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
-        self.keep_pot_v2 = []#['0.0', '1.0', '1','2']#keep potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
-
-        
-        self.universal_potential = []
-        self.anharmonic_keep_pot = []#['0.0', '1.0', '1.0', '1,2']#Morse potential  De*[1-exp(-((k/2*De)^0.5)*(r - r0))]^2 (ex.) [[potential well depth (a.u.)] [spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2] ...]
-        self.keep_angle = []#['0.0', '90', '1,2,3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
-        self.keep_angle_v2 = []#['0.0', '90', '1','2','3']#keep angle 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [atom1,atom2,atom3] ...]
-        self.atom_distance_dependent_keep_angle = []#['0.0', '90', "120", "1.4", "5", "1", '2,3,4']#'atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] '
-
-        self.flux_potential = []#['0.0', '1.0', '1,2,3,4']#flux potential 0.5*k*(r - r0)^2 (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [atom1,atom2,atom3,atom4] ...]
-        self.keep_dihedral_angle = []#['0.0', '90', '1,2,3,4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
-        self.keep_out_of_plain_angle = []#['0.0', '90', '1,2,3,4']#keep out_of_plain angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out_of_plain angle (degrees)] [atom1,atom2,atom3,atom4] ...]
-        self.keep_dihedral_angle_v2 = []#['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
-        self.keep_dihedral_angle_cos = []
-        self.keep_out_of_plain_angle_v2 = []#['0.0', '90', '1','2','3','4']#keep dihedral angle 0.5*k*(φ - φ0)^2 (-180 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...]
-        self.void_point_pot = []#['0.0', '1.0', '0.0,0.0,0.0', '1',"2.0"]#void point keep potential (ex.) [[spring const.(a.u.)] [keep distance (ang.)] [void_point (x,y,z) (ang.)] [atoms(ex. 1,2,3-5)] [order p "(1/p)*k*(r - r0)^p"] ...]
-
-        self.bond_range_potential = []
-        self.well_pot = []#['0.0','1','2','0.5,0.6,1.5,1.6']
-        self.wall_well_pot = []#['0.0','x','0.5,0.6,1.5,1.6', '1']#Add potential to limit atoms movement. (sandwich) (ex.) [[wall energy (kJ/mol)] [direction (x,y,z)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
-        self.void_point_well_pot = []#['0.0','0.0,0.0,0.0','0.5,0.6,1.5,1.6', '1']#"Add potential to limit atom movement. (sphere) (ex.) [[wall energy (kJ/mol)] [coordinate (x,y,z) (ang.)] [a,b,c,d (a<b<c<d) (ang.)] [target atoms (1,2,3-5)] ...]")
-        self.around_well_pot = []#['0.0','1','0.5,0.6,1.5,1.6',"2"] #Add potential to limit atom movement. (like sphere around 1 atom) (ex.) [[wall energy (kJ/mol)] [1 atom (1)] [a,b,c,d (a<b<c<d) (ang.)]  [target atoms (2,3-5)] ...]")
-        self.spacer_model_potential = []#['0.0',"1.0",'1.0','5',"1,2"]
-        self.asymmetric_ellipsoidal_repulsive_potential = []#['0.0','1.0,1.0,1.0,1.0,1.0,1.0', '2.0', '1,2','3-5']#add ovoid repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]
-        self.asymmetric_ellipsoidal_repulsive_potential_v2 = []#['0.0','1.0,1.0,1.0,1.0,1.0,1.0', '2.0', '1,2','3-5']#add ovoid repulsive potential (ex.) [[well_value (epsilon) (kJ/mol)] [dist_value (sigma) (a1,a2,b1,b2,c1,c2) (ang.)] [dist_value (distance) (ang.)] [target atom (1,2)] [off target atoms (3-5)] ...]
-        self.metadynamics = []
-        self.nano_reactor_potential = []#['1.0','2.0','1.0','1.0']#add nano reactor potential (ex.) [[inner wall (ang.)] [outer wall (ang.)] [contraction time (ps)] [expansion time (ps)]]
-
-class iEIPInterface(BiasPotInterface):# inheritance is not good for readable code.
-    def __init__(self, folder_name=""):
-        super().__init__()
-        self.INPUT = folder_name
-        self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
-        self.functional = 'b3lyp'#functional(ex. b3lyp)
-        self.sub_basisset = '' #sub_basisset (ex. I LanL2DZ)
-        self.excited_state = [0, 0]
-        self.N_THREAD = 8  # threads
-        self.SET_MEMORY = '1GB'  # use mem(ex. 1GB)
-
-        self.usextb = "None"  # use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB
-        self.usedxtb = "None"
-        self.model_function_mode = "None"
-        self.pyscf = False
-        self.electronic_charge = [0, 0]
-        self.spin_multiplicity = [1, 1]  # 'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
-
-        self.fix_atoms = []  
-        self.geom_info = []
-        self.opt_method = ["FIRE"]
-        self.opt_fragment = []
-        self.NSTEP = "999"
-        self.lagrange_constrain = []
-        self.projection_constrain = []
-        self.cpcm_solv_model = None
-        self.alpb_solv_model = None
-        return
-
-class NEBInterface(BiasPotInterface):# inheritance is not good for readable code.
-    def __init__(self, folder_name=""):
-        super().__init__()
-        self.INPUT = folder_name
-        self.basisset = '6-31G(d)'
-        self.sub_basisset = ''
-        self.functional = 'b3lyp'
-        self.excited_state = 0
-        self.NSTEP = "10"
-        self.unrestrict = False
-        self.OM = False
-        self.LUP = False
-        self.DNEB = False
-        self.NSEB = False
-        self.partition = "0"
-        self.N_THREAD = "8"
-        self.SET_MEMORY = "1GB"
-        self.apply_CI_NEB = '99999'
-        self.steepest_descent = '99999'
-        self.QUASI_NEWTOM_METHOD = False
-        self.GLOBAL_QUASI_NEWTOM_METHOD = False
-        self.ANEB_num = "0"
-        self.usextb = "None"
-        self.usedxtb = "None"
-        self.fix_atoms = []  
-        self.geom_info = []
-        self.opt_method = ""
-        self.opt_fragment = []
-        self.fixedges = 0
-        self.lagrange_constrain = []
-        self.projection_constrain = []
-        self.pyscf = False
-        self.cpcm_solv_model = None
-        self.alpb_solv_model = None
-        return
-    
-class OptimizeInterface(BiasPotInterface):# inheritance is not good for readable code.
-    def __init__(self, input_file=""):
-        super().__init__()
-        self.INPUT = input_file
-        self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
-        self.functional = 'b3lyp'#functional(ex. b3lyp)
-        self.sub_basisset = '' #sub_basisset (ex. I LanL2DZ)
-
-        self.NSTEP = 300 #iter. number
-        self.N_THREAD = 8 #threads
-        self.SET_MEMORY = '1GB' #use mem(ex. 1GB)
-        self.DELTA = 'x'
-        self.excited_state = 0
-        self.fix_atoms = ""#fix atoms (ex.) [atoms (ex.) 1,2,3-6]
-        self.geom_info = "1"#calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]
-        self.opt_method = ["AdaBelief"]#optimization method for QM calclation (default: AdaBelief) (mehod_list:(steepest descent method) RADAM, AdaBelief, AdaDiff, EVE, AdamW, Adam, Adadelta, Adafactor, Prodigy, NAdam, AdaMax, FIRE third_order_momentum_Adam (quasi-Newton method) mBFGS, mFSB, RFO_mBFGS, RFO_mFSB, FSB, RFO_FSB, BFGS, RFO_BFGS, TRM_FSB, TRM_BFGS) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]
-        self.calc_exact_hess = -1#calculate exact hessian per steps (ex.) [steps per one hess calculation]
-        self.usextb = "None"#use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB 
-        self.usedxtb = "None"
-        self.DS_AFIR = False
-        self.pyscf = False
-        self.electronic_charge = 0
-        self.spin_multiplicity = 1#'spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]'
-        self.saddle_order = 0
-        self.opt_fragment = []
-        self.constraint_condition = []
-        self.othersoft = "None"
-        self.NRO_analysis = False
-        self.intrinsic_reaction_coordinate = []
-       
-        self.tight_convergence_criteria = False
-        self.loose_convergence_criteria = False
-
-        self.shape_conditions = []
-        self.use_model_hessian = False
-        self.cpcm_solv_model = None
-        self.alpb_solv_model = None
-        self.cmds = False
-        self.pca = False
-        self.lagrange_constrain = []
-        self.projection_constrain = []
-        return
- 
- 
-class MDInterface(BiasPotInterface):
-    def __init__(self, input_file=""):
-        # UNDER CONSTRACTION
-        super().__init__()
-        self.INPUT = input_file
-        self.basisset = '6-31G(d)'#basisset (ex. 6-31G*)
-        
-        self.lagrange_constrain = []
-        self.projection_constrain = []
-        self.timestep = 0.1
-        self.cpcm_solv_model = None
-        self.alpb_solv_model = None
-        return
 
 
 def force_data_parser(args):
@@ -452,6 +289,9 @@ def force_data_parser(args):
         force_data["nano_reactor_potential"].append([float(args.nano_reactor_potential[6*i]), float(args.nano_reactor_potential[6*i+1]), float(args.nano_reactor_potential[6*i+2]), float(args.nano_reactor_potential[6*i+3]), float(args.nano_reactor_potential[6*i+4]), float(args.nano_reactor_potential[6*i+5])])
     
     #---------------------
+    force_data["projection_constraint_constant"] = []
+    force_data["projection_constraint_condition_list"] = []
+    force_data["projection_constraint_atoms"] = []
     if len(args.projection_constrain) > 0:
         if args.projection_constrain[0] == "manual":
             if len(args.projection_constrain) % 4 != 0:
