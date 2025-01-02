@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 
 from bond_connectivity import BondConnectivity
-from parameter import UnitValueLib, number_element, element_number, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, atomic_mass, D2_VDW_radii_lib, D2_C6_coeff_lib, D2_S6_parameter
+from parameter import UnitValueLib, number_element, element_number, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, atomic_mass, D2_VDW_radii_lib, D2_C6_coeff_lib, D2_S6_parameter, double_covalent_radii_lib, triple_covalent_radii_lib
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
 
@@ -1013,26 +1013,26 @@ class Lindh2007D2ApproxHessian:
         self.bohr2angstroms = UnitValueLib().bohr2angstroms
         self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
         self.kd = 2.00
-        
+        self.bond_threshold_scale = 1.0
         self.kr = 0.45
         self.kf = 0.10
         self.kt = 0.0025
         self.ko = 0.16
         self.kd = 0.05
-        self.cutoff = 70.0
+        self.cutoff = 50.0
         self.eps = 1.0e-12
         
-        self.rAv = [[1.3500,   2.1000,   2.5300],
+        self.rAv = np.array([[1.3500,   2.1000,   2.5300],
                     [2.1000,   2.8700,   3.8000],
-                    [2.5300,   3.8000,   4.5000]]
+                    [2.5300,   3.8000,   4.5000]]) 
         
-        self.aAv = [[1.0000,   0.3949,   0.3949],
+        self.aAv = np.array([[1.0000,   0.3949,   0.3949],
                     [0.3949,   0.2800,   0.1200],
-                    [0.3949,   0.1200,   0.0600]]
+                    [0.3949,   0.1200,   0.0600]]) 
         
-        self.dAv = [[0.0000,   3.6000,   3.6000],
+        self.dAv = np.array([[0.0000,   3.6000,   3.6000],
                     [3.6000,   5.3000,   5.3000],
-                    [3.6000,   5.3000,   5.3000]]
+                    [3.6000,   5.3000,   5.3000]])
         
         #self.s6 = 20.0
         return
@@ -1087,7 +1087,18 @@ class Lindh2007D2ApproxHessian:
                 d_0 = self.dAv[i_idx][j_idx]
                 alpha = self.aAv[i_idx][j_idx]
                 
-                covalent_length = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[j])
+                triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[j])
+                
+                #if self.bond_threshold_scale * triple_bond > r_ij:
+                #    covalent_length = triple_bond
+                #elif self.bond_threshold_scale * double_bond > r_ij:
+
+                #    covalent_length = double_bond
+                #else:
+                covalent_length = single_bond
+               
                 vdw_length = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[j])
                 
                 C6_param_i = D2_C6_coeff_lib(element_list[i])
@@ -1148,8 +1159,21 @@ class Lindh2007D2ApproxHessian:
                 z_ij = coord[i][2] - coord[j][2]
                 r_ij_2 = x_ij**2 + y_ij**2 + z_ij**2
                 r_ij = np.sqrt(r_ij_2)
-                covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+
+                single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[j])
+                triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[j])
+                
+                #if self.bond_threshold_scale * triple_bond > r_ij:
+                #    covalent_length_ij = triple_bond
+                #elif self.bond_threshold_scale * double_bond > r_ij:
+                #    covalent_length_ij = double_bond
+                #else:
+                covalent_length_ij = single_bond
+
                 vdw_length_ij = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[j])
+                #covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                    
                 r_ij_0 = self.rAv[i_idx][j_idx]
                 d_ij_0 = self.dAv[i_idx][j_idx]
                 alpha_ij = self.aAv[i_idx][j_idx]
@@ -1168,7 +1192,21 @@ class Lindh2007D2ApproxHessian:
                     z_ik = coord[i][2] - coord[k][2]
                     r_ik_2 = x_ik**2 + y_ik**2 + z_ik**2
                     r_ik = np.sqrt(r_ik_2)
-                    covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+
+
+                    single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                    double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[k])
+                    triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[k])
+                    
+                    #if self.bond_threshold_scale * triple_bond > r_ik:
+                    #    covalent_length_ik = triple_bond
+                    #elif self.bond_threshold_scale * double_bond > r_ik:
+                    #    covalent_length_ik = double_bond
+                    #else:
+                    covalent_length_ik = single_bond
+
+                    #covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                    
                     vdw_length_ik = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[k])
                     
                     error_check = x_ij * x_ik + y_ij * y_ik + z_ij * z_ik
@@ -1398,19 +1436,55 @@ class Lindh2007D2ApproxHessian:
                         t_xyz_4 = coord[l]
                         r_ij = coord[i] - coord[j]
                         vdw_length_ij = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[j])
-                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+
+                        single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[j])
+                        triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[j])
+                        
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_ij):
+                        #    covalent_length_ij = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_ij):
+                        #    covalent_length_ij = double_bond
+                        #else:
+                        covalent_length_ij = single_bond
+
+                        #covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
                         
                         r_jk = coord[j] - coord[k]
                         vdw_length_jk = UFF_VDW_distance_lib(element_list[j]) + UFF_VDW_distance_lib(element_list[k])
-                        covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
+
+                        #single_bond = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[j])
+                        #double_bond = double_covalent_radii_lib(element_list[k]) + double_covalent_radii_lib(element_list[j])
+                        #triple_bond = triple_covalent_radii_lib(element_list[k]) + triple_covalent_radii_lib(element_list[j])
                         
-                        r_jk = coord[j] - coord[k]
-                        vdw_length_jk = UFF_VDW_distance_lib(element_list[j]) + UFF_VDW_distance_lib(element_list[k])
-                        covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_jk):
+                        #    covalent_length_jk = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_jk):
+                        #    covalent_length_jk = double_bond
+                        #else:
+                        covalent_length_jk = single_bond
+
+                        #covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
+                        
+                        #r_jk = coord[j] - coord[k]
+                        #vdw_length_jk = UFF_VDW_distance_lib(element_list[j]) + UFF_VDW_distance_lib(element_list[k])
+                        #covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
                         
                         r_kl = coord[k] - coord[l]
+
+                        #single_bond = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[l])
+                        #double_bond = double_covalent_radii_lib(element_list[k]) + double_covalent_radii_lib(element_list[l])
+                        #triple_bond = triple_covalent_radii_lib(element_list[k]) + triple_covalent_radii_lib(element_list[l])
+                        
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_kl):
+                        #    covalent_length_kl = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_kl):
+                        #    covalent_length_kl = double_bond
+                        #else:
+                        covalent_length_kl = single_bond
+
                         vdw_length_kl = UFF_VDW_distance_lib(element_list[k]) + UFF_VDW_distance_lib(element_list[l])
-                        covalent_length_kl = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[l])
+                        #covalent_length_kl = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[l])
                         
                         r_ij_2 = np.sum(r_ij ** 2)
                         r_jk_2 = np.sum(r_jk ** 2)
@@ -1487,15 +1561,51 @@ class Lindh2007D2ApproxHessian:
                         
                         r_ij = coord[i] - coord[j]
                         vdw_length_ij = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[j])
-                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+
+                        single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[j])
+                        triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[j])
+                        
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_ij):
+                        #    covalent_length_ij = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_ij):
+                        #    covalent_length_ij = double_bond
+                        #else:
+                        covalent_length_ij = single_bond
+
+                        #covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
                         
                         r_ik = coord[i] - coord[k]
                         vdw_length_ik = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[k])
-                        covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+
+                        single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[k])
+                        triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[k])
+                        
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_ik):
+                        #    covalent_length_ik = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_ik):
+                        #    covalent_length_ik = double_bond
+                        #else:
+                        covalent_length_ik = single_bond
+
+                        #covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
                         
                         r_il = coord[i] - coord[l]
                         vdw_length_il = UFF_VDW_distance_lib(element_list[i]) + UFF_VDW_distance_lib(element_list[l])
-                        covalent_length_il = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[l])
+
+                        #single_bond = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[l])
+                        #double_bond = double_covalent_radii_lib(element_list[i]) + double_covalent_radii_lib(element_list[l])
+                        #triple_bond = triple_covalent_radii_lib(element_list[i]) + triple_covalent_radii_lib(element_list[l])
+                        
+                        #if self.bond_threshold_scale * triple_bond > np.linalg.norm(r_il):
+                        #    covalent_length_il = triple_bond
+                        #elif self.bond_threshold_scale * double_bond > np.linalg.norm(r_il):
+                        #    covalent_length_il = double_bond
+                        #else:
+                        covalent_length_il = single_bond
+
+                        #covalent_length_il = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[l])
                         
                         idx_i = self.select_idx(element_list[i])
                         idx_j = self.select_idx(element_list[j])
@@ -1572,10 +1682,12 @@ class Lindh2007D2ApproxHessian:
         return
 
     def main(self, coord, element_list, cart_gradient):
+        norm_grad = np.linalg.norm(cart_gradient)
+        scale = 0.1
+        eigval_scale = scale * np.exp(-1 * norm_grad ** 2.0)
         #coord: Bohr
         print("generating Lindh's (2007) approximate hessian...")
         self.cart_hess = np.zeros((len(coord)*3, len(coord)*3), dtype="float64")
-        
         self.lindh2007_bond(coord, element_list)
         self.lindh2007_angle(coord, element_list)
         self.lindh2007_dihedral_angle(coord, element_list)
@@ -1588,6 +1700,9 @@ class Lindh2007D2ApproxHessian:
                     self.cart_hess[i][j] = self.cart_hess[j][i]
         
         hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.cart_hess, element_list, coord)
+        eigenvalues, eigenvectors = np.linalg.eigh(hess_proj)
+        hess_proj = np.dot(np.dot(eigenvectors, np.diag(np.abs(eigenvalues) * eigval_scale)), np.linalg.inv(eigenvectors))
+        
         return hess_proj#cart_hess
 
 
@@ -1660,13 +1775,6 @@ class SimpleApproxHessianv1:
         return hess_proj
 
 
-class SimpleApproxHessianv2:
-    def __init__(self):
-        self.bohr2angstroms = UnitValueLib().bohr2angstroms
-        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
-        return
-    
-    
 
 
 class ApproxHessian:
