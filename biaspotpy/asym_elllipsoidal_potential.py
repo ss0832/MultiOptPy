@@ -1,4 +1,4 @@
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
+from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, GNB_VDW_radii_lib, GNB_VDW_well_depth_lib
 from calc_tools import torch_rotate_around_axis, torch_align_vector_with_z
 from Optimizer.fire import FIRE
 
@@ -18,16 +18,17 @@ class AsymmetricEllipsoidalLJPotential:
         self.element_list = self.config["element_list"]
         self.file_directory = self.config["file_directory"]
         self.rot_angle_list = []
-        for i in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])):
+        npot = len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        for i in range(npot):
             self.rot_angle_list.append(random.uniform(0, 2*math.pi))
-        self.nangle = len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        self.nangle = npot
         self.rot_angle_list = torch.tensor([self.rot_angle_list], dtype=torch.float64, requires_grad=True)
         
         self.lj_repulsive_order = 12.0
         self.lj_attractive_order = 6.0
         
-        self.micro_iteration = 15000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
-        self.rand_search_iteration = 1000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        self.micro_iteration = 15000 * npot
+        self.rand_search_iteration = 1000 * npot
         self.threshold = 1e-7
         self.init = True
 
@@ -100,8 +101,8 @@ class AsymmetricEllipsoidalLJPotential:
             
 
             tgt_atom_pos = rotated_z_axis_adjusted_tmp_geom_num_list[tgt_atom_list] - z_axis_adjusted_LJ_center[0]
-            tgt_atom_eps = torch.tensor([UFF_VDW_well_depth_lib(self.element_list[tgt_atom]) for tgt_atom in tgt_atom_list], dtype=torch.float64)
-            tgt_atom_sig = torch.tensor([UFF_VDW_distance_lib(self.element_list[tgt_atom]) / 2.0 for tgt_atom in tgt_atom_list], dtype=torch.float64)
+            tgt_atom_eps = torch.tensor([GNB_VDW_well_depth_lib(self.element_list[tgt_atom]) for tgt_atom in tgt_atom_list], dtype=torch.float64)
+            tgt_atom_sig = torch.tensor([GNB_VDW_radii_lib(self.element_list[tgt_atom]) / 2.0 for tgt_atom in tgt_atom_list], dtype=torch.float64)
 
            
             x, y, z = tgt_atom_pos[:, 0], tgt_atom_pos[:, 1], tgt_atom_pos[:, 2]
@@ -286,6 +287,7 @@ class AsymmetricEllipsoidalLJPotential:
             tmp_rot_angle_list = torch.tensor([tmp_rot_angle_list], dtype=torch.float64, requires_grad=True)
             energy = self.calc_potential(geom_num_list, tmp_rot_angle_list, bias_pot_params)
             if energy < max_energy:
+                print("energy: ", energy.item())
                 max_energy = energy
                 self.rot_angle_list = tmp_rot_angle_list
         print("rand_search done")

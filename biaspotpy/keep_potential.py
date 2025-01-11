@@ -43,17 +43,11 @@ class StructKeepPotentialv2:
         bias_pot_params[0] : keep_pot_v2_spring_const
         bias_pot_params[1] : keep_pot_v2_distance    
         """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_pot_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["keep_pot_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_pot_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_pot_v2_fragm2"])     
+        fragm_1_indices = torch.tensor(self.config["keep_pot_v2_fragm1"]) - 1
+        fragm_2_indices = torch.tensor(self.config["keep_pot_v2_fragm2"]) - 1
+
+        fragm_1_center = torch.mean(geom_num_list[fragm_1_indices], dim=0)
+        fragm_2_center = torch.mean(geom_num_list[fragm_2_indices], dim=0)
         
         distance = torch.linalg.norm(fragm_1_center - fragm_2_center, ord=2)
         if len(bias_pot_params) == 0:
