@@ -95,6 +95,7 @@ def conformation_search(parser):
     parser.add_argument("-nr", "--number_of_rank",  type=int, default=10, help='termination condition of calculation for making list (default: 10)')
     parser.add_argument("-tgta", "--target_atoms", nargs="*", type=str, help='the atom to add bias force to perform conformational search (ex.) 1,2,3 or 1-3', default=None)
     parser.add_argument("-st", "--sampling_temperature", type=float, help='set temperature to select conformer using Boltzmann distribution (default) 298.15 (K)', default=298.15)
+    parser.add_argument("-nost", "--no_stochastic", action="store_true", help='no switching EQ structure during conformation sampling')
     return parser
 
 def return_pair_idx(i, j):
@@ -160,7 +161,8 @@ def make_tgt_atom_pair(geom_num_list, element_list, target_atoms):
         
         pair_idx = return_pair_idx(i, j)
         if bool_tgt_atom_list[pair_idx]:
-            updated_target_atom_pairs.append([i, j])
+            updated_target_atom_pairs.append([[i, j], "p"])
+            updated_target_atom_pairs.append([[i, j], "m"])
     
     return updated_target_atom_pairs
 
@@ -200,8 +202,9 @@ def switch_conformer(energy_list, temperature=298.15):
 if __name__ == '__main__':
     parser = biaspotpy.interface.init_parser()
     parser = conformation_search(parser)
-    args = biaspotpy.interface.optimizeparser(parser)
     
+    args = biaspotpy.interface.optimizeparser(parser)
+    no_stochastic = args.no_stochastic
     init_geom_num_list, init_element_list = read_xyz(args.INPUT)
     sampling_temperature = args.sampling_temperature
     folder_name = os.path.splitext(args.INPUT)[0]+"_"+str(int(args.base_force))+"KJ_CS_REPORT"
@@ -216,6 +219,10 @@ if __name__ == '__main__':
         
     else:
         energy_list = []
+    
+    with open(folder_name+"/input.txt", "a") as f:
+        f.write(str(vars(args))+"\n")
+    
     
     if args.target_atoms is not None:
         target_atoms = [i-1 for i in num_parse(args.target_atoms[0])]
@@ -259,7 +266,7 @@ if __name__ == '__main__':
     else:
         with open(folder_name+"/search_atom_pairs.log", 'a') as f:
             for atom_pair in atom_pair_list:
-                f.write(str(atom_pair)+"\n")
+                f.write(str(atom_pair[0])+" "+str(atom_pair[1])+"\n")
             
     for i in range(args.max_samples):
         if os.path.exists(folder_name+"/end.txt"):
@@ -275,9 +282,11 @@ if __name__ == '__main__':
         print("Sampling conformation: ", i)
         
         
-        atom_pair = atom_pair_list[i]
-        
-        args.manual_AFIR = init_AFIR_CONFIG + [str(args.base_force), str(atom_pair[0]+1), str(atom_pair[1]+1)]
+        atom_pair = atom_pair_list[i][0]
+        if atom_pair_list[i][1] == "p":
+            args.manual_AFIR = init_AFIR_CONFIG + [str(args.base_force), str(atom_pair[0]+1), str(atom_pair[1]+1)]
+        else:
+            args.manual_AFIR = init_AFIR_CONFIG + [str(-args.base_force), str(atom_pair[0]+1), str(atom_pair[1]+1)]
         
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
@@ -290,6 +299,7 @@ if __name__ == '__main__':
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
         optimized_flag = bpa.optimized_flag
+        DC_check_flag = bpa.DC_check_flag
         energy = bpa.final_energy
         conformer = bpa.final_geometry #Bohr
         conformer = conformer * bohr2ang #Angstrom
@@ -297,7 +307,7 @@ if __name__ == '__main__':
         bool_identical = is_identical(conformer, energy, energy_list, folder_name, init_INPUT)
         
         
-        if bool_identical or not optimized_flag:
+        if bool_identical or not optimized_flag or DC_check_flag:
             if not optimized_flag:
                 print("Optimization is failed...")
         
@@ -338,10 +348,14 @@ if __name__ == '__main__':
         
         # Switch conformer
         if len(energy_list) > 1:
-            if i % 5 == 0:
-                idx = switch_conformer(energy_list, sampling_temperature*10)
+            if no_stochastic:
+                idx = 0
             else:
-                idx = switch_conformer(energy_list, sampling_temperature)
+                if i % 5 == 0:
+                    idx = switch_conformer(energy_list, sampling_temperature*10)
+                else:
+                    idx = switch_conformer(energy_list, sampling_temperature)
+            
             no_ext_init_INPUT = os.path.splitext(init_INPUT)[0]
             args.INPUT = folder_name + "/" + no_ext_init_INPUT + "_EQ" + str(idx) + ".xyz"
             print("Switch conformer: EQ"+str(idx))
