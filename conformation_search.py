@@ -290,26 +290,31 @@ if __name__ == '__main__':
         
         bpa = biaspotpy.optimization.Optimize(args)
         bpa.run()
-        
-        bias_opted_geom_num_list = bpa.final_geometry #Bohr
-        bias_opted_geom_num_list = bias_opted_geom_num_list * bohr2ang #Angstrom
-        sample_file_name = save_xyz_file(bias_opted_geom_num_list, init_element_list, init_INPUT, "tmp")
-        args.INPUT = sample_file_name
-        args.manual_AFIR = init_AFIR_CONFIG
-        bpa = biaspotpy.optimization.Optimize(args)
-        bpa.run()
-        optimized_flag = bpa.optimized_flag
         DC_check_flag = bpa.DC_check_flag
-        energy = bpa.final_energy
-        conformer = bpa.final_geometry #Bohr
-        conformer = conformer * bohr2ang #Angstrom
-        # Check identical
-        bool_identical = is_identical(conformer, energy, energy_list, folder_name, init_INPUT)
-        
+        if not DC_check_flag:
+            bias_opted_geom_num_list = bpa.final_geometry #Bohr
+            bias_opted_geom_num_list = bias_opted_geom_num_list * bohr2ang #Angstrom
+            sample_file_name = save_xyz_file(bias_opted_geom_num_list, init_element_list, init_INPUT, "tmp")
+            args.INPUT = sample_file_name
+            args.manual_AFIR = init_AFIR_CONFIG
+            bpa = biaspotpy.optimization.Optimize(args)
+            bpa.run()
+            optimized_flag = bpa.optimized_flag
+            energy = bpa.final_energy
+            conformer = bpa.final_geometry #Bohr
+            conformer = conformer * bohr2ang #Angstrom
+            # Check identical
+            bool_identical = is_identical(conformer, energy, energy_list, folder_name, init_INPUT)
+        else:
+            optimized_flag = False
+            bool_identical = True
+          
         
         if bool_identical or not optimized_flag or DC_check_flag:
             if not optimized_flag:
                 print("Optimization is failed...")
+            if DC_check_flag:    
+                print("DC is detected...")
         
         else:
             count += 1
