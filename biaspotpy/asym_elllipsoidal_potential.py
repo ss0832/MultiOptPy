@@ -1,4 +1,4 @@
-from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib
+from parameter import UnitValueLib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, GNB_VDW_radii_lib, GNB_VDW_well_depth_lib
 from calc_tools import torch_rotate_around_axis, torch_align_vector_with_z
 from Optimizer.fire import FIRE
 
@@ -18,16 +18,17 @@ class AsymmetricEllipsoidalLJPotential:
         self.element_list = self.config["element_list"]
         self.file_directory = self.config["file_directory"]
         self.rot_angle_list = []
-        for i in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])):
+        npot = len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        for i in range(npot):
             self.rot_angle_list.append(random.uniform(0, 2*math.pi))
-        self.nangle = len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        self.nangle = npot
         self.rot_angle_list = torch.tensor([self.rot_angle_list], dtype=torch.float64, requires_grad=True)
         
         self.lj_repulsive_order = 12.0
         self.lj_attractive_order = 6.0
         
-        self.micro_iteration = 15000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
-        self.rand_search_iteration = 500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"])
+        self.micro_iteration = 15000 * npot
+        self.rand_search_iteration = 1000 * npot
         self.threshold = 1e-7
         self.init = True
 
@@ -99,46 +100,39 @@ class AsymmetricEllipsoidalLJPotential:
             rotated_z_axis_adjusted_tmp_geom_num_list_for_save = torch.matmul(rot_mat, z_axis_adjusted_tmp_geom_num_list_for_save.T).T  
             
 
-            for tgt_atom in tgt_atom_list:
-                tgt_atom_pos = rotated_z_axis_adjusted_tmp_geom_num_list[tgt_atom]
-                tgt_atom_pos = tgt_atom_pos - z_axis_adjusted_LJ_center[0]
-                x = tgt_atom_pos[0]
-                y = tgt_atom_pos[1]
-                z = tgt_atom_pos[2]
-                
-                tgt_atom_eps = UFF_VDW_well_depth_lib(self.element_list[tgt_atom])
-                tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom]) / 2.0
+            tgt_atom_pos = rotated_z_axis_adjusted_tmp_geom_num_list[tgt_atom_list] - z_axis_adjusted_LJ_center[0]
+            tgt_atom_eps = torch.tensor([GNB_VDW_well_depth_lib(self.element_list[tgt_atom]) for tgt_atom in tgt_atom_list], dtype=torch.float64)
+            tgt_atom_sig = torch.tensor([GNB_VDW_radii_lib(self.element_list[tgt_atom]) / 2.0 for tgt_atom in tgt_atom_list], dtype=torch.float64)
 
-                if x > 0:
-                    x_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xp * tgt_atom_sig)
-                    x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                else:
-                    x_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xm * tgt_atom_sig)
-                    x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                
-                if y > 0:
-                    y_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_yp * tgt_atom_sig)
-                    y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                else:
-                    y_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_ym * tgt_atom_sig)
-                    y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                
-                if z > 0:
-                    z_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zp * tgt_atom_sig)
-                    z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                else:
-                    z_sig = torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zm * tgt_atom_sig)
-                    z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
-                
-                r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
-                r_ell_norm = torch.linalg.norm(r_ell)
-                lj_eps = 1 / torch.sqrt((x / r_ell_norm / x_eps) ** 2 + (y / r_ell_norm / y_eps) ** 2 + (z / r_ell_norm / z_eps) ** 2 )
-                eps = torch.sqrt(lj_eps * tgt_atom_eps) 
-                tmp_ene = eps * (((1/r_ell) ** self.lj_repulsive_order) -2 * ((1/r_ell) ** self.lj_attractive_order)) 
-                if self.energy_save_flag:
-                    self.energy_analysis_dict["ell_"+str(pot_i)+"_atom"+str(tgt_atom+1)] = tmp_ene.item()
+           
+            x, y, z = tgt_atom_pos[:, 0], tgt_atom_pos[:, 1], tgt_atom_pos[:, 2]
 
-                energy = energy + tmp_ene
+          
+            x_sig = torch.where(x > 0, torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xp * tgt_atom_sig), torch.sqrt(2 ** (14 / 6) * asym_elip_sig_xm * tgt_atom_sig))
+            y_sig = torch.where(y > 0, torch.sqrt(2 ** (14 / 6) * asym_elip_sig_yp * tgt_atom_sig), torch.sqrt(2 ** (14 / 6) * asym_elip_sig_ym * tgt_atom_sig))
+            z_sig = torch.where(z > 0, torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zp * tgt_atom_sig), torch.sqrt(2 ** (14 / 6) * asym_elip_sig_zm * tgt_atom_sig))
+
+            x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+            y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+            z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+
+            
+            r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
+            r_ell_norm = torch.linalg.norm(r_ell, dim=-1)
+
+            lj_eps = 1 / torch.sqrt((x / r_ell_norm / x_eps) ** 2 + (y / r_ell_norm / y_eps) ** 2 + (z / r_ell_norm / z_eps) ** 2)
+            eps = torch.sqrt(lj_eps * tgt_atom_eps)
+
+            
+            r_ell_inv = 1 / r_ell
+            tmp_ene = eps * ((r_ell_inv ** self.lj_repulsive_order) - 2 * (r_ell_inv ** self.lj_attractive_order))
+
+            
+            if self.energy_save_flag:
+                for i, tgt_atom in enumerate(tgt_atom_list):
+                    self.energy_analysis_dict["ell_" + str(pot_i) + "_atom" + str(tgt_atom + 1)] = tmp_ene[i].item()
+
+            energy = energy + torch.sum(tmp_ene)
             
             
             #--------------
@@ -287,11 +281,13 @@ class AsymmetricEllipsoidalLJPotential:
     def rand_search(self, geom_num_list, bias_pot_params):
         max_energy = 1e+10
         print("rand_search")
+        
         for i in range(self.rand_search_iteration):
             tmp_rot_angle_list = [random.uniform(0, 2*math.pi) for j in range(len(self.config["asymmetric_ellipsoidal_repulsive_potential_eps"]))]
             tmp_rot_angle_list = torch.tensor([tmp_rot_angle_list], dtype=torch.float64, requires_grad=True)
             energy = self.calc_potential(geom_num_list, tmp_rot_angle_list, bias_pot_params)
             if energy < max_energy:
+                print("energy: ", energy.item())
                 max_energy = energy
                 self.rot_angle_list = tmp_rot_angle_list
         print("rand_search done")
@@ -396,9 +392,10 @@ class AsymmetricEllipsoidalLJPotentialv2:
         self.lj_attractive_order = 6.0
         
         self.micro_iteration = 15000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
-        self.rand_search_iteration = 500 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
+        self.rand_search_iteration = 1000 * len(self.config["asymmetric_ellipsoidal_repulsive_potential_v2_eps"])
         self.threshold = 1e-7
         self.init = True
+        self.save_flag = False
         return
     
     def save_state(self):      
@@ -424,7 +421,6 @@ class AsymmetricEllipsoidalLJPotentialv2:
         
         # interaction between substrate and asymmetric ellipsoid
         for pot_i in range(len(bias_pot_params)):
-           
             tgt_atom_list = [i for i in range(len(geom_num_list)) if not i+1 in self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i] + self.config["asymmetric_ellipsoidal_repulsive_potential_v2_offtgt"][pot_i]]
             root_atom = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][0] - 1
             LJ_atom = self.config["asymmetric_ellipsoidal_repulsive_potential_v2_atoms"][pot_i][1] - 1
@@ -448,70 +444,56 @@ class AsymmetricEllipsoidalLJPotentialv2:
          
             rot_mat = torch_rotate_around_axis(rot_angle_list[pot_i], axis="z")
             rotated_z_axis_adjusted_tmp_geom_num_list = torch.matmul(rot_mat, z_axis_adjusted_tmp_geom_num_list.T).T
-            
- 
-            LJ_vec_for_save = tmp_geom_num_list_for_save[LJ_atom] - tmp_geom_num_list_for_save[root_atom]
-            LJ_vec_for_save = LJ_vec_for_save / torch.norm(LJ_vec_for_save)
-            LJ_center_for_save = tmp_geom_num_list_for_save[root_atom] + LJ_vec_for_save * asym_elip_dist * self.bohr2angstroms
-            z_axis_adjust_rot_mat_for_save = torch_align_vector_with_z(LJ_vec_for_save)
-            z_axis_adjusted_tmp_geom_num_list_for_save = torch.matmul(z_axis_adjust_rot_mat_for_save, (tmp_geom_num_list_for_save - tmp_geom_num_list_for_save[root_atom]).T).T
-            z_axis_adjusted_LJ_center_for_save = torch.matmul(z_axis_adjust_rot_mat_for_save, (LJ_center_for_save - tmp_geom_num_list_for_save[root_atom]).reshape(3, 1)).T
-            rotated_z_axis_adjusted_tmp_geom_num_list_for_save = torch.matmul(rot_mat, z_axis_adjusted_tmp_geom_num_list_for_save.T).T  
-            
 
-            for tgt_atom in tgt_atom_list:
-                tgt_atom_pos = rotated_z_axis_adjusted_tmp_geom_num_list[tgt_atom]
-                tgt_atom_pos = tgt_atom_pos - z_axis_adjusted_LJ_center[0]
-                x = tgt_atom_pos[0]
-                y = tgt_atom_pos[1]
-                z = tgt_atom_pos[2]
+            if self.save_flag:
+                LJ_vec_for_save = tmp_geom_num_list_for_save[LJ_atom] - tmp_geom_num_list_for_save[root_atom]
+                LJ_vec_for_save = LJ_vec_for_save / torch.norm(LJ_vec_for_save)
+                LJ_center_for_save = tmp_geom_num_list_for_save[root_atom] + LJ_vec_for_save * asym_elip_dist * self.bohr2angstroms
+                z_axis_adjust_rot_mat_for_save = torch_align_vector_with_z(LJ_vec_for_save)
+                z_axis_adjusted_tmp_geom_num_list_for_save = torch.matmul(z_axis_adjust_rot_mat_for_save, (tmp_geom_num_list_for_save - tmp_geom_num_list_for_save[root_atom]).T).T
+                z_axis_adjusted_LJ_center_for_save = torch.matmul(z_axis_adjust_rot_mat_for_save, (LJ_center_for_save - tmp_geom_num_list_for_save[root_atom]).reshape(3, 1)).T
+                rotated_z_axis_adjusted_tmp_geom_num_list_for_save = torch.matmul(rot_mat, z_axis_adjusted_tmp_geom_num_list_for_save.T).T  
                 
-                tgt_atom_eps = UFF_VDW_well_depth_lib(self.element_list[tgt_atom])
-                tgt_atom_sig = UFF_VDW_distance_lib(self.element_list[tgt_atom]) / 2.0
+            tgt_atom_pos = rotated_z_axis_adjusted_tmp_geom_num_list[tgt_atom_list] - z_axis_adjusted_LJ_center[0]
+            tgt_atom_eps = torch.tensor([UFF_VDW_well_depth_lib(self.element_list[tgt_atom]) for tgt_atom in tgt_atom_list], dtype=torch.float64)
+            tgt_atom_sig = torch.tensor([UFF_VDW_distance_lib(self.element_list[tgt_atom]) / 2.0 for tgt_atom in tgt_atom_list], dtype=torch.float64)
 
-                if x > 0:
-                    x_sig = (asym_elip_sig_xp + tgt_atom_sig) ** (7 / 6) 
-                    x_eps = asym_elip_eps 
-                else:
-                    x_sig = (asym_elip_sig_xm + tgt_atom_sig) ** (7 / 6) 
-                    x_eps = asym_elip_eps 
-                
-                if y > 0:
-                    y_sig = (asym_elip_sig_yp + tgt_atom_sig) ** (7 / 6) 
-                    y_eps = asym_elip_eps 
-                else:
-                    y_sig = (asym_elip_sig_ym + tgt_atom_sig) ** (7 / 6)  
-                    y_eps = asym_elip_eps
-                if z > 0:
-                    z_sig = (asym_elip_sig_zp + tgt_atom_sig) ** (7 / 6) 
-                    z_eps = asym_elip_eps
-                else:
-                    z_sig = (asym_elip_sig_zm + tgt_atom_sig) ** (7 / 6)  
-                    z_eps = asym_elip_eps
-                
-                r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
-                r_ell_norm = torch.linalg.norm(r_ell)
-                lj_eps = 1 / torch.sqrt((x / r_ell_norm / x_eps) ** 2 + (y / r_ell_norm / y_eps) ** 2 + (z / r_ell_norm / z_eps) ** 2 )
-                eps = torch.sqrt(lj_eps * tgt_atom_eps) 
-                energy = energy + eps * (((1/r_ell) ** self.lj_repulsive_order) -2 * ((1/r_ell) ** self.lj_attractive_order)) 
+            x, y, z = tgt_atom_pos[:, 0], tgt_atom_pos[:, 1], tgt_atom_pos[:, 2]
+
+            x_sig = torch.where(x > 0, (asym_elip_sig_xp + tgt_atom_sig) ** (7 / 6), (asym_elip_sig_xm + tgt_atom_sig) ** (7 / 6))
+            y_sig = torch.where(y > 0, (asym_elip_sig_yp + tgt_atom_sig) ** (7 / 6), (asym_elip_sig_ym + tgt_atom_sig) ** (7 / 6))
+            z_sig = torch.where(z > 0, (asym_elip_sig_zp + tgt_atom_sig) ** (7 / 6), (asym_elip_sig_zm + tgt_atom_sig) ** (7 / 6))
+
+            x_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+            y_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+            z_eps = torch.sqrt(asym_elip_eps * tgt_atom_eps)
+
+            r_ell = torch.sqrt((x / x_sig) ** 2 + (y / y_sig) ** 2 + (z / z_sig) ** 2)
+            r_ell_norm = torch.linalg.norm(r_ell, dim=-1)
+
+            lj_eps = 1 / torch.sqrt((x / r_ell_norm / x_eps) ** 2 + (y / r_ell_norm / y_eps) ** 2 + (z / r_ell_norm / z_eps) ** 2)
+            eps = torch.sqrt(lj_eps * tgt_atom_eps)
             
+            r_ell_inv = 1 / r_ell
+            tmp_ene = eps * ((r_ell_inv ** self.lj_repulsive_order) - 2 * (r_ell_inv ** self.lj_attractive_order))
+          
+            energy = energy + torch.sum(tmp_ene)
             
             #--------------
-            tmp_geom_num_list_for_save = torch.cat([rotated_z_axis_adjusted_tmp_geom_num_list_for_save, z_axis_adjusted_LJ_center_for_save], dim=0)
+            if self.save_flag:
+                tmp_geom_num_list_for_save = torch.cat([rotated_z_axis_adjusted_tmp_geom_num_list_for_save, z_axis_adjusted_LJ_center_for_save], dim=0)
          
-            ellipsoid_list = torch.tensor([[asym_elip_sig_xp, 0.0, 0.0+asym_elip_dist],
+                ellipsoid_list = torch.tensor([[asym_elip_sig_xp, 0.0, 0.0+asym_elip_dist],
                                             [-1*asym_elip_sig_xm, 0.0, 0.0+asym_elip_dist],
                                             [0.0, asym_elip_sig_yp, 0.0+asym_elip_dist],
                                             [0.0, -1*asym_elip_sig_ym, 0.0+asym_elip_dist],
                                             [0.0, 0.0,  asym_elip_sig_zp+asym_elip_dist],
                                             [0.0, 0.0,  -1*asym_elip_sig_zm+asym_elip_dist]], dtype=torch.float64) * self.bohr2angstroms    
-            tmp_geom_num_list_for_save = torch.cat((tmp_geom_num_list_for_save, ellipsoid_list), dim=0)
-            tmp_element_list_for_save = tmp_element_list_for_save + ["x", "X", "X", "X", "X", "X", "X"]
+                tmp_geom_num_list_for_save = torch.cat((tmp_geom_num_list_for_save, ellipsoid_list), dim=0)
+                tmp_element_list_for_save = tmp_element_list_for_save + ["x", "X", "X", "X", "X", "X", "X"]
             
             #--------------
-          
-            
-        
+
         # interaction between asymmetric ellipsoid and  asymmetric ellipsoid
         if len(bias_pot_params) > 1:
             for pot_i in range(len(bias_pot_params)):
@@ -604,9 +586,6 @@ class AsymmetricEllipsoidalLJPotentialv2:
                     r_ell_i = torch.sqrt((x_j / x_i_sig) ** 2 + (y_j / y_i_sig) ** 2 + (z_j / z_i_sig) ** 2)
                     r_ell_i_norm = torch.linalg.norm(r_ell_i)
                     lj_eps_i = 1 / torch.sqrt((x_j / r_ell_i_norm / x_i_eps) ** 2 + (y_j / r_ell_i_norm / y_i_eps) ** 2 + (z_j / r_ell_i_norm / z_i_eps) ** 2 )
-
-
-                    
                     
                     pos_i = rotated_z_axis_adjusted_LJ_center_i_j[0] - z_axis_adjusted_LJ_center_j[0]
                   
@@ -674,13 +653,13 @@ class AsymmetricEllipsoidalLJPotentialv2:
         Opt.display_flag = False
         
         for j in range(self.micro_iteration):
-
-            
             rot_grad = torch.func.jacrev(self.calc_potential, argnums=1)(geom_num_list, self.rot_angle_list, bias_pot_params)
             if torch.linalg.norm(rot_grad) < self.threshold:
                 print("Converged!")
                 print("M. itr: ", j)
-                print("energy: ", self.calc_potential(geom_num_list, self.rot_angle_list, bias_pot_params).item())
+                self.save_flag = True
+                energy = self.calc_potential(geom_num_list, self.rot_angle_list, bias_pot_params)
+                print("energy: ", energy.item())
                 break
             
             tmp_rot_angle_list = copy.copy(self.rot_angle_list.clone().detach().numpy())
@@ -696,13 +675,13 @@ class AsymmetricEllipsoidalLJPotentialv2:
                 print("rot_angle_list: ", self.rot_angle_list.detach().numpy())
                 print("rot_grad: ", rot_grad.detach().numpy())
             
-
             prev_rot_grad = rot_grad
         else:
             print("Not converged...")
+            energy = None
             raise
         
-        energy = self.calc_potential(geom_num_list, self.rot_angle_list, bias_pot_params)
+        
         return energy
     
     

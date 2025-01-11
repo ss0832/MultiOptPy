@@ -51,29 +51,10 @@ class StructKeepDihedralAnglePotentialv2:
         bias_pot_params[0] : keep_dihedral_angle_v2_spring_const
         bias_pot_params[1] : keep_dihedral_angle_v2_angle                  
         """
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
-        
-        fragm_1_center = fragm_1_center / len(self.config["keep_dihedral_angle_v2_fragm1"])
-        
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_dihedral_angle_v2_fragm2"]) 
-            
-        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm3"]:
-            fragm_3_center = fragm_3_center + geom_num_list[i-1]
-        
-        fragm_3_center = fragm_3_center / len(self.config["keep_dihedral_angle_v2_fragm3"])   
-
-        fragm_4_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_v2_fragm4"]:
-            fragm_4_center = fragm_4_center + geom_num_list[i-1]
-        
-        fragm_4_center = fragm_4_center / len(self.config["keep_dihedral_angle_v2_fragm4"])  
+        fragm_1_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_v2_fragm1"]) - 1], dim=0)
+        fragm_2_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_v2_fragm2"]) - 1], dim=0)
+        fragm_3_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_v2_fragm3"]) - 1], dim=0)
+        fragm_4_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_v2_fragm4"]) - 1], dim=0)
               
         a1 = fragm_2_center - fragm_1_center
         a2 = fragm_3_center - fragm_2_center
@@ -107,30 +88,13 @@ class StructKeepDihedralAnglePotentialCos:
         """
         potential_const = float(self.config["keep_dihedral_angle_cos_potential_const"])
         angle_const = float(self.config["keep_dihedral_angle_cos_angle_const"])
-        fragm_1_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_cos_fragm1"]:
-            fragm_1_center = fragm_1_center + geom_num_list[i-1]
         
-        fragm_1_center = fragm_1_center / len(self.config["keep_dihedral_angle_cos_fragm1"])
         
-        fragm_2_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_cos_fragm2"]:
-            fragm_2_center = fragm_2_center + geom_num_list[i-1]
-        
-        fragm_2_center = fragm_2_center / len(self.config["keep_dihedral_angle_cos_fragm2"]) 
+        fragm_1_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_cos_fragm1"]) - 1], dim=0)
+        fragm_2_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_cos_fragm2"]) - 1], dim=0)
+        fragm_3_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_cos_fragm3"]) - 1], dim=0)
+        fragm_4_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_dihedral_angle_cos_fragm4"]) - 1], dim=0)
             
-        fragm_3_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_cos_fragm3"]:
-            fragm_3_center = fragm_3_center + geom_num_list[i-1]
-        
-        fragm_3_center = fragm_3_center / len(self.config["keep_dihedral_angle_cos_fragm3"])   
-
-        fragm_4_center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float64, requires_grad=True)
-        for i in self.config["keep_dihedral_angle_cos_fragm4"]:
-            fragm_4_center = fragm_4_center + geom_num_list[i-1]
-        
-        fragm_4_center = fragm_4_center / len(self.config["keep_dihedral_angle_cos_fragm4"])  
-              
         a1 = fragm_2_center - fragm_1_center
         a2 = fragm_3_center - fragm_2_center
         a3 = fragm_4_center - fragm_3_center
