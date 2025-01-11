@@ -5,7 +5,7 @@ import numpy as np
 
 """
     BiasPotPy
-    Copyright (C) 2023-2024 ss0832
+    Copyright (C) 2023-2025 ss0832
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -97,6 +97,7 @@ def optimizeparser(parser):
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
+    parser.add_argument("-dc", "--dissociate_check", nargs="*",  type=str, default="100", help='Terminate calculation if distance between two fragments is exceed this value. (default) 100 [ang.]')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser = parser_for_biasforce(parser)
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
