@@ -70,7 +70,7 @@ class Optimize:
         self.check_sub_basisset(args)
         self.Model_hess = None
         self.mFC_COUNT = args.calc_model_hess
-        self.DC_check_dist = 300.0
+        self.DC_check_dist = 100.0
         self.unrestrict = args.unrestrict
         self.NRO_analysis = args.NRO_analysis
         self.check_NRO_analysis(args)
@@ -86,6 +86,7 @@ class Optimize:
         self.shape_conditions = args.shape_conditions
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
+        self.DC_check_flag = False
 
     def check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -440,6 +441,7 @@ class Optimize:
             #dissociation check
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
             if DC_exit_flag:
+                self.DC_check_flag = True
                 break
            
             #Save previous gradient, movestep, and energy.
@@ -699,7 +701,7 @@ class Optimize:
             
             if min(fragm_dist_list) > self.DC_check_dist:
                 print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.DC_check_dist)
-                print("This molecules are dissociated.")
+                print("These molecules are dissociated.")
                 DC_exit_flag = True
             else:
                 DC_exit_flag = False
