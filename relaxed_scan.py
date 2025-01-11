@@ -13,6 +13,7 @@ import biaspotpy
 def relaxed_scan_perser(parser):
     parser.add_argument("-nsample", "--number_of_samples", type=int, default=10, help='the number of sampling relaxed scan coordinates')
     parser.add_argument("-scan", "--scan_tgt", nargs="*", type=str, help='scan target (ex.) [[bond, angle, or dihedral etc.] [atom_num] [(value_1(ex. 1.0 ang.)),(value_2(ex. 1.5 ang.))] ...] ', default=None)
+    parser.add_argument("-fo", "--first_only", action="store_true", help='use only input structure for relax scan ')
     return parser
 
 
@@ -58,6 +59,7 @@ if __name__ == '__main__':
     parser = biaspotpy.interface.init_parser()
     parser = relaxed_scan_perser(parser)
     args = biaspotpy.interface.optimizeparser(parser)
+    first_only_flag = args.first_only
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     directory = os.path.splitext(args.INPUT)[0]+"_RScan_"+date+"/"
     os.makedirs(directory, exist_ok=True)   
@@ -87,7 +89,8 @@ if __name__ == '__main__':
 
     shutil.copyfile(original_input_file, directory + os.path.splitext(original_input_file)[0]+"_RelaxedScan_0.xyz")
     shutil.copyfile(original_input_file, os.path.splitext(original_input_file)[0]+"_RelaxedScan_0.xyz")
-    args.INPUT = os.path.splitext(original_input_file)[0]+"_RelaxedScan_0.xyz"
+    init_input_file = os.path.splitext(original_input_file)[0]+"_RelaxedScan_0.xyz"
+    args.INPUT = init_input_file
 
     with open(directory + "input.txt", 'w') as f:
         f.write(str(vars(args)))
@@ -111,7 +114,10 @@ if __name__ == '__main__':
         next_input_file_for_save = directory + save_xyz_file(opted_geometry, element_list, original_input_file, i+1, directory)
         next_input_file = save_xyz_file(opted_geometry, element_list, original_input_file, i+1, "")
         args = original_args
-        args.INPUT = next_input_file
+        if first_only_flag:
+            args.INPUT = init_input_file
+        else:
+            args.INPUT = next_input_file
         print("Done.")
         
         with open(ene_profile_filepath, "a") as f:
