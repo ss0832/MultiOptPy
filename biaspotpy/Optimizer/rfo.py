@@ -90,6 +90,43 @@ class RationalFunctionOptimization:
             raise "method error"
         return delta_hess
     
+    def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("RFOv1")
+        if self.Initialization:
+            self.Initialization = False
+            return self.DELTA*B_g
+        print("saddle order:", self.saddle_order)
+        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
+        DELTA_for_QNM = self.DELTA
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
+            # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
+            new_hess = self.hessian + delta_hess + self.bias_hessian
+        else:
+            new_hess = self.hessian + self.bias_hessian
+        
+        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
+        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
+        
+        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue = np.sort(eigenvalue)
+        lambda_for_calc = float(eigenvalue[self.saddle_order])
+        print("lambda   : ",lambda_for_calc)
+        print("step size: ",DELTA_for_QNM)
+
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
+
+        if np.linalg.norm(move_vector) < 1e-6:
+            print("Warning: The step size is too small!!!")
+            self.iter += 1
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+            
+        return move_vector#Bohr.
     
     def normal_v2(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv2")
@@ -135,8 +172,8 @@ class RationalFunctionOptimization:
         print("step size: ",DELTA_for_QNM)
 
         
-        if abs(lambda_for_calc) > 1e+5:
-            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
+        if np.linalg.norm(move_vector) < 1e-6:
+            print("Warning: The step size is too small!!!")
             self.iter += 1
         else:
             self.hessian += delta_hess 
@@ -202,8 +239,8 @@ class RationalFunctionOptimization:
         print("step size: ",DELTA_for_QNM)
         
         
-        if abs(lambda_for_calc) > 1e+5:
-            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
+        if np.linalg.norm(move_vector) < 1e-6:
+            print("Warning: The step size is too small!!!")
             self.iter += 1
         else:
             self.hessian += delta_hess 
@@ -212,44 +249,7 @@ class RationalFunctionOptimization:
      
         return move_vector#Bohr.
     
-    def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
-        print("RFOv1")
-        if self.Initialization:
-            self.Initialization = False
-            return self.DELTA*B_g
-        print("saddle order:", self.saddle_order)
-        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
-        DELTA_for_QNM = self.DELTA
-        
-        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            delta_hess = self.hessian_update(displacement, delta_grad)
-            # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
-            new_hess = self.hessian + delta_hess + self.bias_hessian
-        else:
-            new_hess = self.hessian + self.bias_hessian
-        
-        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
-        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
-        
-        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
-        eigenvalue = np.sort(eigenvalue)
-        lambda_for_calc = float(eigenvalue[self.saddle_order])
-        print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
-
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
-
-        if abs(lambda_for_calc) > 1e+5:
-            print("Warning: lambda is too large. The step size is too small or the Hessian matrix is singular.")
-            self.iter += 1
-        else:
-            self.hessian += delta_hess 
-            self.iter += 1
-            
-        return move_vector
-        
+  
     def moment(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("moment mode")
         print("saddle order:", self.saddle_order)
@@ -308,6 +308,8 @@ class RationalFunctionOptimization:
         self.momentum_grad = new_momentum_grad
         self.iter += 1
         return move_vector#Bohr.   
+
+
 
     def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
         if "mrfo" in self.config["method"].lower():
