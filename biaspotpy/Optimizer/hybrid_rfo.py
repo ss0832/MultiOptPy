@@ -21,7 +21,7 @@ class HybridCoordinateAugmentedRFO:
         self.natom = len(self.element_list) #
         self.iter = 0 #
         self.beta = 0.10
-        self.covalent_radii_scale = 1.2
+        self.covalent_radii_scale = 3.0
         self.initilization = True
         self.hybrid_hessian = None
         self.prev_hybrid_B_g = None
@@ -81,8 +81,6 @@ class HybridCoordinateAugmentedRFO:
 
     def hybrid(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         # use hybrid coordinate which contains cartesian coordinate and internal coordinate
-        
-        ### Under construction ###
         print("Hybrid-coordinate-augmented RFO method")     
         if self.initilization:
             self.initilization = False
@@ -92,13 +90,6 @@ class HybridCoordinateAugmentedRFO:
             n_tot = ncart + nint
             self.hybrid_hessian = np.ones((n_tot, n_tot))
             return self.DELTA*B_g
-        
-        if self.iter % self.FC_COUNT == 0 and not self.initilization:
-            self.bond_connectivity = self.save_bond_connectivity(geom_num_list)
-            ncart = len(geom_num_list)
-            nint = len(self.bond_connectivity)
-            n_tot = ncart + nint
-            self.hybrid_hessian = np.ones((n_tot, n_tot))
         
         ncart = len(geom_num_list)
         nint = len(self.bond_connectivity)
@@ -143,24 +134,25 @@ class HybridCoordinateAugmentedRFO:
         print("step size: ",DELTA_for_QNM)
 
         hybrid_move_vector = DELTA_for_QNM * np.linalg.solve(new_hybrid_hess - 0.1*lambda_for_calc*(np.eye(n_tot)), hybrid_B_g)
-
+        cart_move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(ncart)), B_g)
         self.hybrid_hessian += hybrid_delta_hess
         self.iter += 1
             
         self.hessian = new_hess   
-         
+        int_B_mat = calc_B_mat_int(geom_num_list, self.bond_connectivity)
+        inv_int_B_mat = calc_inv_B_mat(int_B_mat, np.dot(int_B_mat, int_B_mat.T))
         # fitting hybrid_move_vector to the only cartesian coordinate
-        ric_geom_num_list = np.dot(B_mat, geom_num_list)
-        q_tgt = hybrid_move_vector + ric_geom_num_list
+        ric_geom_num_list = np.dot(int_B_mat, geom_num_list)
+        q_tgt = hybrid_move_vector[ncart:] + ric_geom_num_list
         tmp_geom_num_list = copy.copy(geom_num_list)
         
         move_vector = np.zeros((len(geom_num_list), 1))
-        ric_diff = hybrid_move_vector
+        ric_diff = hybrid_move_vector[ncart:]
         
         for jiter in range(self.nonlinear_iter):
-            cart_diff = np.dot(inv_B_mat.T, ric_diff)
+            cart_diff = np.dot(inv_int_B_mat.T, ric_diff)
             tmp_geom_num_list = tmp_geom_num_list + cart_diff
-            current_ric_geom_num_list = np.dot(B_mat, tmp_geom_num_list)
+            current_ric_geom_num_list = np.dot(int_B_mat, tmp_geom_num_list)
             ric_diff = q_tgt - current_ric_geom_num_list
             move_vector += cart_diff
             if np.linalg.norm(cart_diff) < 1e-10:
@@ -168,14 +160,44 @@ class HybridCoordinateAugmentedRFO:
                 break 
         else:
             print("Warning: The nonlinear iteration is not converged!!!")
-      
-        return move_vector
+            
+        radii = np.linalg.norm(hybrid_move_vector)
+        int_move_vector = radii * 0.5 * move_vector / np.linalg.norm(move_vector)
+        cart_move_vector = radii * 0.5 * cart_move_vector / np.linalg.norm(cart_move_vector)
+        move_vec = int_move_vector + cart_move_vector
+        return move_vec
 
 
     def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
         move_vector = self.hybrid(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         return move_vector
  
+
+def calc_B_mat_int(geometry, bond_connectivity):#geometry: cartesian coordinate (3N, 1), bond_connectivity: bond connectivity matrix (M, 2)
+    int_B_mat = np.zeros((len(bond_connectivity), len(geometry)))
+    for i, bond in enumerate(bond_connectivity):
+        i_idx = bond[0]
+        j_idx = bond[1]
+        
+        ij_vec = geometry[3*i_idx:3*i_idx+2] - geometry[3*j_idx:3*j_idx+2]
+        norm = np.linalg.norm(ij_vec)
+        
+        dr_dxi = (geometry[3*i_idx] - geometry[3*j_idx]) / norm  
+        dr_dyi = (geometry[3*i_idx+1] - geometry[3*j_idx+1]) / norm  
+        dr_dzi = (geometry[3*i_idx+2] - geometry[3*j_idx+2]) / norm  
+        
+        dr_dxj = -dr_dxi
+        dr_dyj = -dr_dyi
+        dr_dzj = -dr_dzi
+        int_B_mat[i, 3*i_idx] = float(dr_dxi)
+        int_B_mat[i, 3*i_idx+1] = float(dr_dyi)
+        int_B_mat[i, 3*i_idx+2] = float(dr_dzi)
+        int_B_mat[i, 3*j_idx] = float(dr_dxj)
+        int_B_mat[i, 3*j_idx+1] = float(dr_dyj)
+        int_B_mat[i, 3*j_idx+2] = float(dr_dzj)
+    
+    B_mat = int_B_mat
+    return B_mat # (3N+M, 3N)
 
 
 def calc_B_mat(geometry, bond_connectivity):#geometry: cartesian coordinate (3N, 1), bond_connectivity: bond connectivity matrix (M, 2)
