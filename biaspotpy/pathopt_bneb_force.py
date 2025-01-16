@@ -11,10 +11,10 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
         total_force_list = []
         for i in range(nnode):
             if i == 0:
-                total_force_list.append((-1)*np.array(gradient_list[0], dtype = "float64"))
+                total_force_list.append(-1*np.array(gradient_list[0], dtype = "float64"))
                 continue
             elif i == nnode-1:
-                total_force_list.append((-1)*np.array(gradient_list[nnode-1], dtype = "float64"))
+                total_force_list.append(-1*np.array(gradient_list[nnode-1], dtype = "float64"))
                 continue
             tmp_grad = copy.copy(gradient_list[i]).reshape(-1, 1)
             force = self.calc_project_out_grad(geometry_num_list[i-1], geometry_num_list[i], geometry_num_list[i+1], tmp_grad)
@@ -38,7 +38,7 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
 
     def calc_B_matrix_for_NEB(self, coord_1, coord_2, coord_3):
         natom = len(coord_2)
-        B_mat = np.zeros((2*natom, 3*natom))
+        B_mat = np.zeros((3*natom, 3*natom))
         
         for i in range(natom):
             norm_12 = np.linalg.norm(coord_1[i] - coord_2[i]) + 1e-15
@@ -57,6 +57,15 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
             B_mat[natom+i][3*i] = dr32_dx2
             B_mat[natom+i][3*i+1] = dr32_dy2
             B_mat[natom+i][3*i+2] = dr32_dz2
+        
+        for i in range(natom):
+            norm_13 = np.linalg.norm(coord_3[i] - coord_1[i]) + 1e-15
+            dr13_dx2 = (coord_3[i][0] - coord_1[i][0]) / norm_13
+            dr13_dy2 = (coord_3[i][1] - coord_1[i][1]) / norm_13
+            dr13_dz2 = (coord_3[i][2] - coord_1[i][2]) / norm_13
+            B_mat[2*natom+i][3*i] = dr13_dx2
+            B_mat[2*natom+i][3*i+1] = dr13_dy2
+            B_mat[2*natom+i][3*i+2] = dr13_dz2
         
             
         return B_mat
