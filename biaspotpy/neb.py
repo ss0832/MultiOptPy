@@ -36,7 +36,7 @@ from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
 from pathopt_neb_force import CaluculationNEB, CaluculationNEB2
 
-color_list = ["g"] #use for matplotlib
+color_list = ["b"] #use for matplotlib
 
 
 class NEB:
@@ -193,7 +193,7 @@ class NEB:
         return geometry_list
 
     def make_psi4_input_file(self, geometry_list, optimize_num):
-        file_directory = self.NEB_FOLDER_DIRECTORY+"samples_"+str(optimize_num)+"_"+str(self.start_folder)+"_"+str(time.time())
+        file_directory = self.NEB_FOLDER_DIRECTORY+"path_ITR_"+str(optimize_num)+"_"+str(self.start_folder)
         try:
             os.mkdir(file_directory)
         except:
@@ -215,7 +215,7 @@ class NEB:
         ax.set_xlabel(axis_name_1)
         ax.set_ylabel(axis_name_2)
         fig.tight_layout()
-        fig.savefig(self.NEB_FOLDER_DIRECTORY+"Plot_"+name+"_"+str(optimize_num)+"_"+str(time.time())+".png", format="png", dpi=200)
+        fig.savefig(self.NEB_FOLDER_DIRECTORY+"Plot_"+name+"_"+str(optimize_num)+".png", format="png", dpi=200)
         plt.close()
         #del fig, ax
 
