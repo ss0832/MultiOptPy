@@ -34,7 +34,6 @@ from pathopt_dneb_force import CaluculationDNEB
 from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
-from pathopt_neb_force import CaluculationNEB, CaluculationNEB2
 
 color_list = ["b"] #use for matplotlib
 
@@ -107,9 +106,8 @@ class NEB:
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
         self.args = args
         os.mkdir(self.NEB_FOLDER_DIRECTORY)
-        self.ANEB_num = args.ANEB_num
+       
         if args.fixedges <= 0:
-        
             self.fix_init_edge = False
             self.fix_end_edge = False
         elif args.fixedges == 1:
@@ -656,178 +654,6 @@ class NEB:
         return new_geometry
     
 
-    def adaptic_method(self, energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list):
-        print("ANEB (Adaptic NEB)")#J. Chem. Phys. 117, 4651–4658 (2002) https://doi.org/10.1063/1.1495401
-        image_num = 1
-        part_num = 2
- 
-        for adaptic_num in range(self.ANEB_num):
-            print("Adaptic NEB cycle:", adaptic_num)
-            idx_max_ene = np.argmax(energy_list)
-            
-            if idx_max_ene == 0 or idx_max_ene == len(energy_list)-1:
-                print("maximun energy is not found. exit...")
-                break
-            node_num = len(energy_list)
-            print(max(idx_max_ene-image_num, 0), min(idx_max_ene+1+image_num, node_num-1))
-            energy_list = copy.copy(energy_list[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
-            new_geometry = copy.copy(new_geometry[max(idx_max_ene-image_num, 0):min(idx_max_ene+1+image_num, node_num)])
-           
-            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-            
-            
-            
-            file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
-            geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(file_directory, part_num)
-            new_geometry = []
-            for geom in geometry_list:
-                tmp_list = []
-                for g in geom[1:]:
-                    tmp_list.append(g[1:4])
-                new_geometry.append(tmp_list)
-            new_geometry = np.array(new_geometry, dtype="float64")
-           
-            
-            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-            
-            
-            
-            file_directory = self.make_psi4_input_file(geometry_list, self.NEB_NUM*(adaptic_num+1))
-            pre_total_velocity = [[[]]]
-            force_data = force_data_parser(self.args)
-            if len(force_data["projection_constraint_condition_list"]) > 0:
-                projection_constraint_flag = True
-            else:
-                projection_constraint_flag = False  
-            #prepare for FIRE method 
-            dt = 0.5
-            n_reset = 0
-            a = self.FIRE_a_start
-
-           
-            if self.args.usextb == "None":
-                pass
-            else:
-                element_number_list = []
-                for elem in element_list:
-                    element_number_list.append(element_number(elem))
-                element_number_list = np.array(element_number_list, dtype="int")
-            exit_flag = False
-            with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
-                f.write(str(vars(self.args)))
-            
-            init_num = self.NEB_NUM*(adaptic_num+1)+1
-            
-        
-            if self.om:
-                STRING_FORCE_CALC = CaluculationOM(self.APPLY_CI_NEB)
-            elif self.lup:
-                STRING_FORCE_CALC = CaluculationLUP(self.APPLY_CI_NEB)
-            elif self.dneb:
-                STRING_FORCE_CALC = CaluculationDNEB(self.APPLY_CI_NEB)
-            elif self.nesb:
-                STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
-            elif self.bneb:
-                STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
-            else:
-                STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
-            
-            for optimize_num in range(self.NEB_NUM*(adaptic_num+1)+1, self.NEB_NUM*(adaptic_num+2)+1):
-                
-                exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
-
-                if exit_file_detect:
-                    if psi4:
-                        psi4.core.clean()
-                    break
-                print("\n\n\n  NEB: ITR. "+str(optimize_num)+" \n\n\n")
-                self.xyz_file_make(file_directory)
-                #------------------
-                #get energy and gradient
-                if self.args.usextb == "None":
-                    if self.pyscf:
-                        energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
-                    else:
-                        energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
-                else:
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
-                #--------------
-                if optimize_num == init_num:
-                    init_geometry_num_list = geometry_num_list
-
-
-                #-------------
-                biased_energy_list = []
-                biased_gradient_list = []
-                for i in range(len(energy_list)):
-                    _, B_e, B_g, _ = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
-                    biased_energy_list.append(B_e)
-                    biased_gradient_list.append(B_g)
-                biased_energy_list = np.array(biased_energy_list ,dtype="float64")
-                biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
-                #------------------
-
-                if projection_constraint_flag and optimize_num == init_num:
-                    PC_list = []
-                    for i in range(len(energy_list)):
-                        PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
-                        PC_list[i].initialize(geometry_num_list[i])
-
-                if projection_constraint_flag:
-                    for i in range(len(energy_list)):
-                        biased_gradient_list[i] = PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i])   
-
-                #calculate force
-                total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-
-                #------------------
-                cos_list = []
-                for i in range(len(total_force)):
-                    cos = np.sum(total_force[i]*biased_gradient_list[i])/(np.linalg.norm(total_force[i])*np.linalg.norm(biased_gradient_list[i]))
-                    cos_list.append(cos)
-                
-                self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
-                
-                #------------------
-                #relax path
-                if optimize_num < self.sd:
-                    total_velocity = self.force2velocity(total_force, element_list)
-                    new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
-                    
-                else:
-                    new_geometry = self.SD_calc(geometry_num_list, total_force)
-                
-                #------------------
-                #fix atoms
-                if len(force_data["fix_atoms"]) > 0:
-                    for k in range(len(new_geometry)):
-                        for j in force_data["fix_atoms"]:
-                            new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
-                #-------------    
-                
-                if projection_constraint_flag:
-                    for x in range(len(new_geometry)):
-                        tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
-                        tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
-                        new_geometry[x] = copy.copy(tmp_new_geometry)
-            
-
-
-                pre_geom = geometry_num_list
-                geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-                file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
-                pre_total_force = total_force
-                pre_total_velocity = total_velocity
-                pre_biased_energy_list = biased_energy_list
-                #------------------
-                with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
-                    f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
-                    
-            if exit_file_detect:
-                break
-        return
-
-
     def run(self):
         
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
@@ -867,7 +693,7 @@ class NEB:
         elif self.bneb:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
         else:
-            STRING_FORCE_CALC = CaluculationNEB(self.APPLY_CI_NEB)
+            STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
                 
         for optimize_num in range(self.NEB_NUM):
             
@@ -991,9 +817,9 @@ class NEB:
         geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
         energy_list = energy_list
         
-        if self.ANEB_num > 0:
-            #Adaptic NEB
-            self.adaptic_method(energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list)
+        #if self.ANEB_num > 0:
+        #    #Adaptic NEB
+        #    self.adaptic_method(energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list)
         
         
         print("Complete...")
