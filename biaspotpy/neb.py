@@ -31,9 +31,11 @@ from parameter import element_number
 from potential import BiasPotentialCalculation
 from pathopt_bneb_force import CaluculationBNEB
 from pathopt_dneb_force import CaluculationDNEB
+from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
 from pathopt_neb_force import CaluculationNEB, CaluculationNEB2
+
 color_list = ["g"] #use for matplotlib
 
 
@@ -831,7 +833,7 @@ class NEB:
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
         
         self.element_list = element_list
-        file_directory = self.make_psi4_input_file(geometry_list,0)
+        file_directory = self.make_psi4_input_file(geometry_list, 0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
         if len(force_data["projection_constraint_condition_list"]) > 0:
@@ -889,6 +891,9 @@ class NEB:
             
             if optimize_num == 0:
                 init_geometry_num_list = geometry_num_list
+               
+               
+                
             
             biased_energy_list = []
             biased_gradient_list = []
@@ -919,23 +924,25 @@ class NEB:
 
             #------------------
             cos_list = []
+            tot_force_rms_list = []
             for i in range(len(total_force)):
                 cos = np.sum(total_force[i]*biased_gradient_list[i])/(np.linalg.norm(total_force[i])*np.linalg.norm(biased_gradient_list[i]))
                 cos_list.append(cos)
+                tot_force_rms = np.sqrt(np.mean(total_force[i]**2))
+                tot_force_rms_list.append(tot_force_rms)
+                
             
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
-            
-
-
-
-
+            self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_gradient")
+          
 
             #------------------
             #relax path
             if optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
                 
+                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
+             
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
             
