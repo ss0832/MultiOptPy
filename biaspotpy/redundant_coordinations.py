@@ -146,8 +146,6 @@ class RedundantInternalCoordinates:
         return cart_hessian
 
 
-def stack_B_matrix():
-    return
 
 def partial_stretch_B_matirx(coord, atom_label_1, atom_label_2):#coord:Bohr
     partial_B = []
@@ -228,7 +226,6 @@ def partial_bend_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3):#coor
     
     partial_B = np.array([partial_B], dtype="float64")
     return partial_B # radian/Bohr
-
 
 def partial_torsion_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3, atom_label_4):
     partial_B = []
@@ -322,7 +319,6 @@ def partial_torsion_B_matrix(coord, atom_label_1, atom_label_2, atom_label_3, at
     partial_B = np.array([partial_B], dtype="float64")
     return partial_B # radian/Bohr
 
-
 def torch_calc_distance(coord, atom_label_1, atom_label_2):#coord:Bohr
     vec_1 = coord[atom_label_1 - 1]
     vec_2 = coord[atom_label_2 - 1]
@@ -365,7 +361,6 @@ def torch_calc_dihedral_angle(coord, atom_label_1, atom_label_2, atom_label_3, a
     norm_v2 = torch.linalg.norm(v2) + 1e-15
     cos_theta = torch.sum(v1 * v2) / (norm_v1 * norm_v2)
     angle = torch.acos(cos_theta)
-    
     return angle
 
 
@@ -396,7 +391,6 @@ def calc_inv_G_mat(Gmat, threshold=1e-6):
     s_inv = np.array(s_inv, dtype="float64")
     s_inv = np.diag(s_inv)
     Gmat_inv = np.dot(VT.T, np.dot(s_inv, U.T))
-    
     return Gmat_inv
 
 def calc_inv_B_mat(Bmat):
@@ -555,10 +549,6 @@ def cartesian_to_z_matrix(cart_coords):
         z_matrix.append([torsion_angle])
     z_matrix = np.array(z_matrix)
     return z_matrix
-
-
-
-
 
 
 if __name__ == "__main__":#test

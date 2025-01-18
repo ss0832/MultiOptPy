@@ -34,6 +34,8 @@ from pathopt_dneb_force import CaluculationDNEB
 from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
+from calc_tools import Calculationtools
+from idpp import IDPP
 
 color_list = ["b"] #use for matplotlib
 
@@ -96,6 +98,7 @@ class NEB:
         self.dneb = args.DNEB
         self.nesb = args.NESB
         self.bneb = args.BNEB
+        self.IDPP_flag = args.use_image_dependent_pair_potential
         self.excited_state = args.excited_state
         self.usextb = args.usextb
         self.sd = args.steepest_descent
@@ -128,52 +131,46 @@ class NEB:
         return np.array(velocity_list, dtype="float64")
 
     def make_geometry_list(self, start_folder, partition_function):
-        #print(partition_function)
-        start_file_list = glob.glob(start_folder+"/*_[0-9].xyz") + glob.glob(start_folder+"/*_[0-9][0-9].xyz") + glob.glob(start_folder+"/*_[0-9][0-9][0-9].xyz") + glob.glob(start_folder+"/*_[0-9][0-9][0-9][0-9].xyz")
+        start_file_list = glob.glob(start_folder + "/*_[0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9][0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9][0-9][0-9].xyz")
         loaded_geometry_list = []
-        geometry_list = []
-        for start_file in start_file_list:
-            with open(start_file,"r") as f:
-                reader = csv.reader(f, delimiter=' ')
-                pre_start_data = [row for row in reader]
-                start_data = []
-                for i in pre_start_data:
-                    start_data.append([row.strip() for row in i if row != "" and row != "\t"])    
-                loaded_geometry_list.append(start_data)
-        #print(len(loaded_geometry_list))
-        
-        electric_charge_and_multiplicity = start_data[0]
-        element_list = []
-        loaded_geometry_num_list = []
 
-        for i in range(1, len(start_data)):
-            element_list.append(start_data[i][0])
-            #start_num_list.append(start_data[i][1:4])
-            #end_num_list.append(end_data[i][1:4])
-        for geom_list in loaded_geometry_list:
-            num_list = []
-            for i in range(1, len(start_data)):
-                num_list.append(geom_list[i][1:4])
-            loaded_geometry_num_list.append(num_list)
-        geometry_list.append(loaded_geometry_list[0])
-        for k in range(len(loaded_geometry_list)-1):    
-            delta_num_geom = (np.array(loaded_geometry_num_list[k+1], dtype = "float64") - np.array(loaded_geometry_num_list[k], dtype = "float64")) / (partition_function+1)
-            frame_geom = np.array(loaded_geometry_num_list[k], dtype = "float64")
-            for i in range(0, partition_function+1):
+        for start_file in start_file_list:
+            with open(start_file, "r") as f:
+                lines = f.read().splitlines()
+            tmp_data = []
+            for line in lines:
+                tmp_data.append(line.split())
+            loaded_geometry_list.append(tmp_data)
+       
+        electric_charge_and_multiplicity = loaded_geometry_list[0][0]
+        element_list = [row[0] for row in loaded_geometry_list[0][1:]]
+        
+        loaded_geometry_num_list = [[list(map(float, row[1:4])) for row in geometry[1:]] for geometry in loaded_geometry_list]
+
+        geometry_list = [loaded_geometry_list[0]] 
+
+        tmp_data = [loaded_geometry_num_list[0]]
+        
+        
+        for k in range(len(loaded_geometry_list) - 1):
+            delta_num_geom = (np.array(loaded_geometry_num_list[k + 1], dtype="float64") - 
+                            np.array(loaded_geometry_num_list[k], dtype="float64")) / (partition_function + 1)
+            
+     
+            for i in range(partition_function + 1):
+                frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
+                tmp_data.append(frame_geom)
                 
-                for j in range(1, len(start_data)):
-                    frame_geom = np.array(loaded_geometry_num_list[k], dtype = "float64") + delta_num_geom*i
-                    frame_file = [start_data[0]]+[[]*n for n in range(len(start_data)-1)]
-                    for x in range(0, len(start_data)-1):
-                        frame_file[x+1].append(element_list[x])
-                        frame_file[x+1].extend(frame_geom[x].tolist())
-                geometry_list.append(frame_file)
+        tmp_data.append(loaded_geometry_num_list[-1])
+        tmp_data = np.array(tmp_data, dtype="float64")
+        if self.IDPP_flag:
+            IDPP_obj = IDPP()
+            tmp_data = IDPP_obj.opt_path(tmp_data)
         
-        geometry_list.append(loaded_geometry_list[-1])
-        
-        #print(len(geometry_list))
-        print("\n geometry datas are loaded. \n")
-        
+        for data in tmp_data:
+            geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(data)])        
+
+        print("\n geometry data are loaded. \n")
         return geometry_list, element_list, electric_charge_and_multiplicity
 
     def make_geometry_list_2(self, new_geometry, element_list, electric_charge_and_multiplicity):
@@ -550,15 +547,12 @@ class NEB:
             total_delta = dt*(total_velocity+pre_total_velocity)
         else:
             total_delta = dt*(total_velocity)
-       
-        total_delta_average = np.nanmean(total_delta)
-        print("total_delta_average:",str(total_delta_average))
-        
+    
         #---------------------
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
-            move_vector = [total_delta[0]]
+            move_vector = [total_force_list[0]*0.1]
         trust_radii_1_list = []
         trust_radii_2_list = []
         
@@ -614,9 +608,9 @@ class NEB:
             f.write(",".join(trust_radii_2_list)+"\n")
         
         if self.fix_end_edge:
-            move_vector.append(total_delta[-1]*0.0)
+            move_vector.append(total_force_list[-1]*0.0)
         else:
-            move_vector.append(total_delta[-1])
+            move_vector.append(total_force_list[-1]*0.1)
         #--------------------
         
         
@@ -650,15 +644,14 @@ class NEB:
             move_vector.append(total_delta[-1])
         #--------------------
         new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
-
         return new_geometry
     
-
     def run(self):
-        
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
-        
         self.element_list = element_list
+        
+        
+        
         file_directory = self.make_psi4_input_file(geometry_list, 0)
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
@@ -694,15 +687,22 @@ class NEB:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
         else:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
-                
+        
+        if len(force_data["fix_atoms"]) > 0:
+            fix_atom_flag = True
+        else:
+            fix_atom_flag = False
+        
+        
+        
+        #------------------
         for optimize_num in range(self.NEB_NUM):
-            
             exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
-
             if exit_file_detect:
                 if psi4:
                     psi4.core.clean()
                 break
+            
             print("\n\n\n NEB: ITR.  "+str(optimize_num)+"  \n\n\n")
             self.xyz_file_make(file_directory)
             #------------------
@@ -715,11 +715,9 @@ class NEB:
             else:
                 energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
+            
             if optimize_num == 0:
                 init_geometry_num_list = geometry_num_list
-               
-               
-                
             
             biased_energy_list = []
             biased_gradient_list = []
@@ -741,12 +739,9 @@ class NEB:
                 for i in range(len(energy_list)):
                     biased_gradient_list[i] = copy.copy(PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i]))            
 
-
-
             #------------------
             #calculate force
             total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
-
 
             #------------------
             cos_list = []
@@ -761,7 +756,6 @@ class NEB:
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_gradient")
           
-
             #------------------
             #relax path
             if optimize_num < self.sd:
@@ -774,7 +768,7 @@ class NEB:
             
             #------------------
             #fix atoms
-            if len(force_data["fix_atoms"]) > 0:
+            if fix_atom_flag:
                 for k in range(len(new_geometry)):
                     for j in force_data["fix_atoms"]:
                         new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
@@ -785,8 +779,12 @@ class NEB:
                     tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
                     new_geometry[x] = copy.copy(tmp_new_geometry)
             
-
-
+            if not fix_atom_flag:
+                for k in range(len(new_geometry)-1):
+                    tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
+                    new_geometry[k] = copy.copy(tmp_new_geometry)
+            
+       
             #------------------
             pre_geom = geometry_num_list
             
@@ -799,29 +797,7 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
                 f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
             
-            #------------------
-    
-
-        
-        print("\n\n\nNEB: final\n\n\n")
         self.xyz_file_make(file_directory) 
-        if self.args.usextb == "None":
-            if self.pyscf:
-                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
-            else:
-                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
-        else:
-            energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
-            
-        pre_total_velocity = np.array(total_velocity, dtype="float64")
-        geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-        energy_list = energy_list
-        
-        #if self.ANEB_num > 0:
-        #    #Adaptic NEB
-        #    self.adaptic_method(energy_list, gradient_list, new_geometry, pre_total_velocity, file_directory, electric_charge_and_multiplicity, element_list)
-        
-        
         print("Complete...")
         return
 
