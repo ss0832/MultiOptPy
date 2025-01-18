@@ -90,6 +90,15 @@ class RationalFunctionOptimization:
         elif "bofill" in self.config["method"].lower():
             print("RFO_Bofill_quasi_newton_method")
             delta_hess = self.hess_update.Bofill_hessian_update(self.hessian, displacement, delta_grad)
+        elif "sr1" in self.config["method"].lower():
+            print("RFO_SR1_quasi_newton_method")
+            delta_hess = self.hess_update.SR1_hessian_update(self.hessian, displacement, delta_grad)
+        elif "psb" in self.config["method"].lower():
+            print("RFO_PSB_quasi_newton_method")
+            delta_hess = self.hess_update.PSB_hessian_update(self.hessian, displacement, delta_grad)
+        elif "flowchart" in self.config["method"].lower():
+            print("RFO_flowchart_quasi_newton_method")
+            delta_hess = self.hess_update.flowchart_hessian_update(self.hessian, displacement, delta_grad, self.config["method"])
         else:
             raise "method error"
         return delta_hess
