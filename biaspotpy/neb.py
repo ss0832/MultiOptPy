@@ -99,6 +99,7 @@ class NEB:
         self.nesb = args.NESB
         self.bneb = args.BNEB
         self.IDPP_flag = args.use_image_dependent_pair_potential
+        self.align_distances = args.align_distances
         self.excited_state = args.excited_state
         self.usextb = args.usextb
         self.sd = args.steepest_descent
@@ -156,20 +157,25 @@ class NEB:
             delta_num_geom = (np.array(loaded_geometry_num_list[k + 1], dtype="float64") - 
                             np.array(loaded_geometry_num_list[k], dtype="float64")) / (partition_function + 1)
             
-     
             for i in range(partition_function + 1):
                 frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
                 tmp_data.append(frame_geom)
                 
         tmp_data.append(loaded_geometry_num_list[-1])
         tmp_data = np.array(tmp_data, dtype="float64")
+        
+        
         if self.IDPP_flag:
             IDPP_obj = IDPP()
             tmp_data = IDPP_obj.opt_path(tmp_data)
+  
+        if self.align_distances:
+            tmp_data = distribute_geometry(tmp_data)
         
         for data in tmp_data:
             geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(data)])        
-
+        
+        
         print("\n geometry data are loaded. \n")
         return geometry_list, element_list, electric_charge_and_multiplicity
 
@@ -784,7 +790,10 @@ class NEB:
                     tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
                     new_geometry[k] = copy.copy(tmp_new_geometry)
             
-       
+            if self.align_distances and optimize_num > 0:
+                tmp_new_geometry = distribute_geometry(np.array(new_geometry))
+                for k in range(len(new_geometry)):
+                    new_geometry[k] = copy.copy(tmp_new_geometry[k])
             #------------------
             pre_geom = geometry_num_list
             
@@ -802,4 +811,24 @@ class NEB:
         return
 
 
-
+def distribute_geometry(geometry_list):
+    nnode = len(geometry_list)
+ 
+    path_length_list = [0.0]
+    for i in range(nnode-1):
+        path_length = path_length_list[-1] + np.linalg.norm(geometry_list[i+1] - geometry_list[i])
+        path_length_list.append(path_length)
+    total_length = path_length_list[-1]
+    node_dist = total_length / (nnode-1)
+    
+    new_geometry_list = [geometry_list[0]]
+    for i in range(1, nnode-1):
+        dist = i * node_dist
+        for j in range(nnode-1):
+            if path_length_list[j] <= dist and dist <= path_length_list[j+1]:
+                break
+        delta_t = (dist - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
+        new_geometry = geometry_list[j] + (geometry_list[j+1] - geometry_list[j]) * delta_t
+        new_geometry_list.append(new_geometry)
+    new_geometry_list.append(geometry_list[-1])
+    return new_geometry_list
