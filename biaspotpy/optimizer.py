@@ -24,6 +24,7 @@ from Optimizer.prodigy import Prodigy
 #from Optimizer.adabound import AdaBound
 from Optimizer.adadelta import Adadelta
 from Optimizer.conjugate_gradient import ConjgateGradient
+from Optimizer.hybrid_rfo import HybridCoordinateAugmentedRFO 
 from Optimizer.rfo import RationalFunctionOptimization 
 from Optimizer.newton import Newton 
 from Optimizer.rmspropgrave import RMSpropGrave
@@ -45,7 +46,6 @@ optimizer_mapping = {
     "adamw": AdamW,
     "adadiff": AdaDiff,
     "adafactor": Adafactor,
-    #"adabound": AdaBound,
     "eve": EVE,
     "prodigy": Prodigy,
     "adamax": AdaMax,
@@ -71,18 +71,38 @@ quasi_newton_mapping = {
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
     "rfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    "rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    "rfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    "rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
     "rfo2_bfgs": {"delta": 0.50, "rfo_type": 2},
     "rfo2_fsb": {"delta": 0.50, "rfo_type": 2},
     "rfo2_bofill": {"delta": 0.50, "rfo_type": 2},
     "rfo2_msp": {"delta": 0.50, "rfo_type": 2},
+    "rfo2_sr1": {"delta": 0.50, "rfo_type": 2},
+    "rfo2_psb": {"delta": 0.50, "rfo_type": 2},
+    "rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
+    
+    "hybrid_rfo_fsb": {"delta": 0.05, "rfo_type": 1},
+    "hybrid_rfo_bofill": {"delta": 0.05, "rfo_type": 1},
+    "hybrid_rfo_msp": {"delta": 0.05, "rfo_type": 1},
+    "hybrid_rfo_bfgs": {"delta": 0.05, "rfo_type": 1},
+    
     "mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
     "mrfo_fsb": {"delta": 0.30, "rfo_type": 1},
     "mrfo_bofill": {"delta": 0.30, "rfo_type": 1},
     "mrfo_msp": {"delta": 0.30, "rfo_type": 1},
+    "mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
+    "mrfo_psb": {"delta": 0.30, "rfo_type": 1},
+    "mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
+    
     "rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rfo_fsb": {"delta": 0.50, "rfo_type": 1},
     "rfo_bofill": {"delta": 0.50, "rfo_type": 1},
     "rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    
     "bfgs": {"delta": 0.10, "linesearch": False},
     "fsb": {"delta": 0.10, "linesearch": False},
     "bofill": {"delta": 0.10, "linesearch": False},
@@ -152,7 +172,9 @@ class CalculateMoveVector:
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
                         print(key)
-                        if "rfo" in key:
+                        if "hybrid_rfo" in key:
+                            optimizer_instances.append(HybridCoordinateAugmentedRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
+                        elif "rfo" in key:
                             optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
                         else:
                             optimizer_instances.append(Newton(method=m))
