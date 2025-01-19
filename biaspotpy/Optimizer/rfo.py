@@ -73,6 +73,10 @@ class RationalFunctionOptimization:
         self.bias_hessian = bias_hessian
         return
     
+    def reset_hessian(self, geometry):
+        self.hessian = np.eye((len(geometry)))
+        return
+    
     def hessian_update(self, displacement, delta_grad):
         if "msp" in self.config["method"].lower():
             print("RFO_MSP_quasi_newton_method")
@@ -86,6 +90,15 @@ class RationalFunctionOptimization:
         elif "bofill" in self.config["method"].lower():
             print("RFO_Bofill_quasi_newton_method")
             delta_hess = self.hess_update.Bofill_hessian_update(self.hessian, displacement, delta_grad)
+        elif "sr1" in self.config["method"].lower():
+            print("RFO_SR1_quasi_newton_method")
+            delta_hess = self.hess_update.SR1_hessian_update(self.hessian, displacement, delta_grad)
+        elif "psb" in self.config["method"].lower():
+            print("RFO_PSB_quasi_newton_method")
+            delta_hess = self.hess_update.PSB_hessian_update(self.hessian, displacement, delta_grad)
+        elif "flowchart" in self.config["method"].lower():
+            print("RFO_flowchart_quasi_newton_method")
+            delta_hess = self.hess_update.flowchart_hessian_update(self.hessian, displacement, delta_grad, self.config["method"])
         else:
             raise "method error"
         return delta_hess
@@ -118,10 +131,11 @@ class RationalFunctionOptimization:
         print("step size: ",DELTA_for_QNM)
 
         move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
-
-        if np.linalg.norm(move_vector) < 1e-6:
+        
+        if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
             self.iter += 1
+        
         else:
             self.hessian += delta_hess 
             self.iter += 1
@@ -172,7 +186,7 @@ class RationalFunctionOptimization:
         print("step size: ",DELTA_for_QNM)
 
         
-        if np.linalg.norm(move_vector) < 1e-6:
+        if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
             self.iter += 1
         else:
@@ -239,7 +253,7 @@ class RationalFunctionOptimization:
         print("step size: ",DELTA_for_QNM)
         
         
-        if np.linalg.norm(move_vector) < 1e-6:
+        if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
             self.iter += 1
         else:
