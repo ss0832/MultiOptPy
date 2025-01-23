@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import csv
 import sys
 import glob
 import time
@@ -13,6 +12,7 @@ from constraint_condition import ProjectOutConstrain
 try:
     import psi4
 except:
+    psi4 = None
     print("You can't use psi4.")
 try:
     from tblite.interface import Calculator
@@ -36,6 +36,7 @@ from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
 from calc_tools import Calculationtools
 from idpp import IDPP
+from Optimizer.rfo import RationalFunctionOptimization 
 
 color_list = ["b"] #use for matplotlib
 
@@ -101,6 +102,7 @@ class NEB:
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances
         self.excited_state = args.excited_state
+        self.FC_COUNT = args.calc_exact_hess
         self.usextb = args.usextb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
@@ -235,6 +237,9 @@ class NEB:
         except:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        
+        hess_count = 0
+        
         for num, input_file in enumerate(file_list):
             try:
                 print("\n",input_file,"\n")
@@ -271,6 +276,28 @@ class NEB:
                 energy_list.append(e)
                 num_list.append(num)
                 geometry_num_list.append(input_data_for_display)
+                
+                
+                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                    pass
+                
+                elif optimize_num % self.FC_COUNT == 0:
+                    """exact hessian"""
+                    _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
+                    exact_hess = np.array(wfn.hessian())
+                    freqs = np.array(wfn.frequencies())
+                    print("frequencies: \n",freqs)
+                    eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    print("=== hessian (before add bias potential) ===")
+                    print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
+                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
+                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "w") as f:
+                        f.write("frequency,"+",".join(map(str, freqs))+"\n")
+                
+                hess_count += 1    
+
+
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")
@@ -320,6 +347,9 @@ class NEB:
         except:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        
+        hess_count = 0
+        
         for num, input_file in enumerate(file_list):
             try:
             
@@ -357,20 +387,15 @@ class NEB:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
                             mf = mol.UHF().density_fit().run()
-
                         else:
                             mf = mol.RHF().density_fit().run()
-
                     else:
                         if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
                             mf = mol.UKS().x2c().density_fit().run()
                             mf.xc = self.FUNCTIONAL
-
                         else:
                             mf = mol.RKS().density_fit().run()
                             mf.xc = self.FUNCTIONAL
-                            
-
                     ground_e = float(vars(mf)["e_tot"])
                     mf = tdscf.TDA(mf)
                     g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
@@ -378,13 +403,31 @@ class NEB:
                     e += ground_e
 
                 g = np.array(g, dtype = "float64")
-
                 print("\n")
                 energy_list.append(e)
                 gradient_list.append(g)
                 gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))#RMS
                 geometry_num_list.append(input_data_for_display)
                 num_list.append(num)
+                
+                
+                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                    pass
+                
+                elif optimize_num % self.FC_COUNT == 0:
+                    """exact hessian"""
+                    exact_hess = mf.Hessian().kernel()
+                    freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
+                    exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
+                    print("frequencies: \n",freqs["freq_wavenumber"])
+                    eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    print("=== hessian (before add bias potential) ===")
+                    print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
+                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
+                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "w") as f:
+                        f.write("frequency,"+",".join(map(str, freqs["freq_wavenumber"]))+"\n")
+                hess_count += 1
                 
             except Exception as error:
                 print(error)
@@ -500,9 +543,8 @@ class NEB:
     def xyz_file_make(self, file_directory):
         print("\ngeometry integration processing...\n")
         file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
-        #print(file_list,"\n")
+       
         for m, file in enumerate(file_list):
-            #print(file,m)
             with open(file,"r") as f:
                 sample = f.readlines()
                 with open(file_directory+"/"+self.start_folder+"_integration.xyz","a") as w:
@@ -554,7 +596,14 @@ class NEB:
         else:
             total_delta = dt*(total_velocity)
     
-        #---------------------
+        #--------------------
+        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta)
+        
+        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
+         
+        return new_geometry, dt, n_reset, a
+
+    def TR_calc(self, geometry_num_list, total_force_list, total_delta):
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
@@ -589,6 +638,7 @@ class NEB:
                         print("DEBUG: TR radii 2 (considered cos_2)")
                     else:
                         move_vector.append(total_delta[i])
+                        print("DEBUG: no TR")
                 elif (cos_1 < 0 and cos_2 < 0):
                     move_vector.append(total_delta[i])
                     print("DEBUG: no TR")
@@ -617,12 +667,47 @@ class NEB:
             move_vector.append(total_force_list[-1]*0.0)
         else:
             move_vector.append(total_force_list[-1]*0.1)
-        #--------------------
         
+        return move_vector        
         
-        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
-         
-        return new_geometry, dt, n_reset, a
+    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC):
+        natoms = len(geometry_num_list[0])
+        
+        total_delta = []
+        for num, total_force in enumerate(total_force_list):
+            hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
+            if num == 0 or num == len(total_force_list) - 1:
+                OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0)
+            else:
+                OPT = RationalFunctionOptimization(method="rfo3_bofill", saddle_order=1)
+
+            OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
+            OPT.set_hessian(hessian)
+            if optimize_num == 0:
+                OPT.Initialization = True
+                pre_B_g = None
+                pre_geom = None
+            else:
+                OPT.Initialization = False
+                OPT.lambda_clip_flag = True
+                pre_B_g = -1 * prev_total_force_list[num].reshape(-1, 1)
+                pre_geom = prev_geometry_num_list[num].reshape(-1, 1)        
+            geom_num_list = geometry_num_list[num].reshape(-1, 1)
+           
+            B_g = -1 * total_force.reshape(-1, 1)
+            
+            move_vec = -1 * OPT.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
+          
+            total_delta.append(move_vec.reshape(-1, 3))
+            hessian = OPT.get_hessian()
+            np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
+        
+        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta)
+       
+        new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
+        
+        return new_geometry_list
+
 
     def SD_calc(self, geometry_num_list, total_force_list):
         total_delta = []
@@ -655,8 +740,6 @@ class NEB:
     def run(self):
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
         self.element_list = element_list
-        
-        
         
         file_directory = self.make_psi4_input_file(geometry_list, 0)
         pre_total_velocity = [[[]]]
@@ -699,8 +782,10 @@ class NEB:
         else:
             fix_atom_flag = False
         
-        
-        
+        pre_geom = None
+        pre_total_force = None
+        pre_total_velocity = []
+        total_velocity = []
         #------------------
         for optimize_num in range(self.NEB_NUM):
             exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -715,7 +800,7 @@ class NEB:
             #get energy and gradient
             if self.args.usextb == "None":
                 if self.pyscf:
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num,pre_total_velocity, electric_charge_and_multiplicity)
+                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num, pre_total_velocity, electric_charge_and_multiplicity)
                 else:
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
             else:
@@ -728,9 +813,12 @@ class NEB:
             biased_energy_list = []
             biased_gradient_list = []
             for i in range(len(energy_list)):
-                _, B_e, B_g, _ = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
+                _, B_e, B_g, B_hess = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
+                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy")
                 biased_energy_list.append(B_e)
                 biased_gradient_list.append(B_g)
+                np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", B_hess + hess)
+                
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
@@ -764,9 +852,11 @@ class NEB:
           
             #------------------
             #relax path
-            if optimize_num < self.sd:
+            if self.FC_COUNT != -1:
+                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC)
+            
+            elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                
                 new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
              
             else:

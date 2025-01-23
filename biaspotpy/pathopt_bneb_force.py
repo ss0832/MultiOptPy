@@ -79,5 +79,7 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
             B_mat[i][3*i+1] = dr13_dy2
             B_mat[i][3*i+2] = dr13_dz2
         
-            
         return B_mat
+    
+
+    
