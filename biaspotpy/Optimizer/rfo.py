@@ -24,6 +24,7 @@ class RationalFunctionOptimization:
         self.lambda_s_scale = 0.1
         self.lambda_clip = 10.0
         self.lambda_clip_flag = False
+        self.projection_eigenvector_flag = False
 
         return
     
@@ -242,6 +243,8 @@ class RationalFunctionOptimization:
         for i in range(len(hess_eigenvalue)):
             tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
             if i < self.saddle_order:
+                if self.projection_eigenvector_flag:
+                    continue
                 step_scaling = 1.0
                 tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
