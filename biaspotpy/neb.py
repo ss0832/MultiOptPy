@@ -424,6 +424,7 @@ class NEB:
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
+                    exact_hess = np.eye(len(input_data_for_display)*3)
                     np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
                     with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "w") as f:
                         f.write("frequency,"+",".join(map(str, freqs["freq_wavenumber"]))+"\n")
@@ -670,8 +671,13 @@ class NEB:
         
         return move_vector        
         
-    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC):
+    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list):
         natoms = len(geometry_num_list[0])
+        if optimize_num % self.FC_COUNT == 0:
+            for num in range(1, len(total_force_list)-1):
+                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
+                proj_hess = STRING_FORCE_CALC.projection_hessian(geometry_num_list[num-1], geometry_num_list[num], geometry_num_list[num+1], biased_gradient_list[num-1:num+2], hess, biased_energy_list[num-1:num+2])
+                np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", proj_hess)
         
         total_delta = []
         for num, total_force in enumerate(total_force_list):
@@ -690,6 +696,7 @@ class NEB:
             else:
                 OPT.Initialization = False
                 OPT.lambda_clip_flag = True
+                
                 pre_B_g = -1 * prev_total_force_list[num].reshape(-1, 1)
                 pre_geom = prev_geometry_num_list[num].reshape(-1, 1)        
             geom_num_list = geometry_num_list[num].reshape(-1, 1)
@@ -853,7 +860,7 @@ class NEB:
             #------------------
             #relax path
             if self.FC_COUNT != -1:
-                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC)
+                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list)
             
             elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)

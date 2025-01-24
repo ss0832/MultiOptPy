@@ -81,5 +81,47 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
         
         return B_mat
     
+    
+    def calc_B_matrix_for_NEB_tangent_plus(self, coord_1, coord_2, coord_3):
+        return
+    
+    def calc_B_matrix_for_NEB_tangent_minus(self, coord_1, coord_2, coord_3):
+        return
+    
+    def projection_hessian(self, coord_1, coord_2, coord_3, gradient_list, hessian_2, energy_list):
+        #ref.: J. Chem. Theory. Comput. 2013, 9, 3498−3504
+        natom = len(coord_2)
+        gradient_2 = gradient_list[1].reshape(-1, 1)
+        gradient_1 = gradient_list[0].reshape(-1, 1)
+        gradient_3 = gradient_list[2].reshape(-1, 1)
+        if energy_list[0] < energy_list[1] and energy_list[1] < energy_list[2]:
+            tangent = coord_3.reshape(-1, 1) - coord_2.reshape(-1, 1)
+            grad_tangent = np.dot(np.eye(3*natom, k=1) - np.eye(3*natom, k=0), np.ones((3*natom, 3*natom)))
+        elif energy_list[0] > energy_list[1] and energy_list[1] > energy_list[2]:
+            tangent = coord_2.reshape(-1, 1) - coord_1.reshape(-1, 1)
+            
+            grad_tangent = np.dot(np.eye(3*natom, k=0) - np.eye(3*natom, k=-1), np.ones((3*natom, 3*natom)))
+        else:
+            ene_max = max(abs(energy_list[2] - energy_list[1]), abs(energy_list[1] - energy_list[0]))
+            ene_min = min(abs(energy_list[2] - energy_list[1]), abs(energy_list[1] - energy_list[0]))
+            tangent_plus = coord_3.reshape(-1, 1) - coord_2.reshape(-1, 1)
+            tangent_minus = coord_2.reshape(-1, 1) - coord_1.reshape(-1, 1)
+            if energy_list[0] < energy_list[2]:
+                tangent = tangent_plus * ene_max + tangent_minus * ene_min
+            else:
+                tangent = tangent_plus * ene_min + tangent_minus * ene_max
+            
+            a = np.linalg.norm(coord_3 - coord_2)
+            b = np.linalg.norm(coord_2 - coord_1)
+            grad_a = np.sign(energy_list[2] - energy_list[1]) * (np.dot(np.eye(3*natom, k=1), gradient_3) - np.dot(np.eye(3*natom, k=0), gradient_2))
+            grad_b = np.sign(energy_list[0] - energy_list[1]) * (np.dot(np.eye(3*natom, k=-1), gradient_1) - np.dot(np.eye(3*natom, k=0), gradient_2))
+            grad_tangent = np.dot((a * np.eye(3*natom, k=1) + (b - a) * np.eye(3*natom, k=0) - b * np.eye(3*natom, k=-1)), np.ones((3*natom, 3*natom))) + np.dot(tangent_plus, grad_a.T) + np.dot(tangent_minus, grad_b.T)
+        
+        
+        unit_tangent = tangent / (np.linalg.norm(tangent) + 1e-15)
+        A = np.sum(gradient_2 * unit_tangent) * np.ones((3*natom, 3*natom)) + np.dot(unit_tangent, gradient_2.T) * (np.ones((3*natom, 3*natom)) - np.dot(unit_tangent, unit_tangent.T)) / (np.linalg.norm(tangent) + 1e-15)
+        hessian_2 = np.dot(hessian_2, np.eye(3*natom)) -1 * np.dot(np.dot(unit_tangent, np.dot(hessian_2, unit_tangent).T), np.eye(3*natom)) + np.eye(3*natom) * 1e-10 + np.dot(A, grad_tangent)
+        return hessian_2
+    
 
     
