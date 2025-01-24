@@ -821,11 +821,11 @@ class NEB:
             biased_gradient_list = []
             for i in range(len(energy_list)):
                 _, B_e, B_g, B_hess = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
-                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy")
+                if self.FC_COUNT > 0:
+                    hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy")
+                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", B_hess + hess)
                 biased_energy_list.append(B_e)
                 biased_gradient_list.append(B_g)
-                np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", B_hess + hess)
-                
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
