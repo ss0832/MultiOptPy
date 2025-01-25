@@ -22,7 +22,7 @@ class RationalFunctionOptimization:
         self.combine_eigen_vec_num = 3
         self.combine_eigvec_flag = False
         self.lambda_s_scale = 0.1
-        self.lambda_clip = 10.0
+        self.lambda_clip = 1000.0
         self.lambda_clip_flag = False
         self.projection_eigenvector_flag = False
 
