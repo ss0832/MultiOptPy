@@ -310,7 +310,8 @@ class NEB:
 
 
         try:
-            self.sinple_plot(num_list, np.array(energy_list, dtype="float64")*self.hartree2kcalmol, file_directory, optimize_num)
+            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
             print("energy graph plotted.")
         except Exception as e:
             print(e)
@@ -437,7 +438,8 @@ class NEB:
                     delete_pre_total_velocity.append(num)
             
         try:
-            self.sinple_plot(num_list, np.array(energy_list, dtype="float64")*self.hartree2kcalmol, file_directory, optimize_num)
+            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
             print("energy graph plotted.")
         except Exception as e:
             print(e)
@@ -518,7 +520,8 @@ class NEB:
                     delete_pre_total_velocity.append(num)
             
         try:
-            self.sinple_plot(num_list, np.array(energy_list, dtype="float64")*self.hartree2kcalmol, file_directory, optimize_num)
+            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
             print("energy graph plotted.")
         except Exception as e:
             print(e)
@@ -696,6 +699,7 @@ class NEB:
             else:
                 OPT.Initialization = False
                 OPT.lambda_clip_flag = True
+                OPT.lambda_s_scale = 0.1 * 1.0 / (1.0 + np.exp(np.linalg.norm(total_force) - 5.0))
                 
                 pre_B_g = -1 * prev_total_force_list[num].reshape(-1, 1)
                 pre_geom = prev_geometry_num_list[num].reshape(-1, 1)        
@@ -847,15 +851,19 @@ class NEB:
             #------------------
             cos_list = []
             tot_force_rms_list = []
+            tot_force_max_list = []
             for i in range(len(total_force)):
                 cos = np.sum(total_force[i]*biased_gradient_list[i])/(np.linalg.norm(total_force[i])*np.linalg.norm(biased_gradient_list[i]))
                 cos_list.append(cos)
                 tot_force_rms = np.sqrt(np.mean(total_force[i]**2))
                 tot_force_rms_list.append(tot_force_rms)
+                tot_force_max = np.max(total_force[i])
+                tot_force_max_list.append(tot_force_max)
                 
             
             self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
-            self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_gradient")
+            self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
+            self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
           
             #------------------
             #relax path
