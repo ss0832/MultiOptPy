@@ -21,6 +21,10 @@ class RationalFunctionOptimization:
         self.tight_grad_rms_threshold = 0.0002 
         self.combine_eigen_vec_num = 3
         self.combine_eigvec_flag = False
+        self.lambda_s_scale = 0.1
+        self.lambda_clip = 1000.0
+        self.lambda_clip_flag = False
+        self.projection_eigenvector_flag = False
 
         return
     
@@ -76,6 +80,9 @@ class RationalFunctionOptimization:
     def reset_hessian(self, geometry):
         self.hessian = np.eye((len(geometry)))
         return
+
+    def get_hessian(self):
+        return self.hessian
     
     def hessian_update(self, displacement, delta_grad):
         if "msp" in self.config["method"].lower():
@@ -115,7 +122,6 @@ class RationalFunctionOptimization:
         
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
             delta_hess = self.hessian_update(displacement, delta_grad)
-            # delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
@@ -130,7 +136,7 @@ class RationalFunctionOptimization:
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM)
 
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
         
         if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
@@ -224,6 +230,9 @@ class RationalFunctionOptimization:
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
         lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order-1, 0)])
 
+        if self.lambda_clip_flag:
+            lambda_for_calc = np.clip(lambda_for_calc, -self.lambda_clip, self.lambda_clip)
+
         hess_eigenvalue, hess_eigenvector = np.linalg.eigh(new_hess)
         hess_eigenvector = hess_eigenvector.T
         hess_eigenval_indices = np.argsort(hess_eigenvalue)
@@ -234,6 +243,8 @@ class RationalFunctionOptimization:
         for i in range(len(hess_eigenvalue)):
             tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
             if i < self.saddle_order:
+                if self.projection_eigenvector_flag:
+                    continue
                 step_scaling = 1.0
                 tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
@@ -313,7 +324,7 @@ class RationalFunctionOptimization:
         
 
         #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list)))), B_g.reshape(len(geom_num_list), 1)))
-        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
+        move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
     
         print("lambda   : ",lambda_for_calc)
         print("step size: ",DELTA_for_QNM,"\n")
