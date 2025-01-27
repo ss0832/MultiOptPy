@@ -27,18 +27,18 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
         natom = len(coord_2)
         tmp_grad = copy.copy(grad_2)
         if energy_list[0] < energy_list[1] and energy_list[1] < energy_list[2]:
-            B_mat = self.calc_B_matrix_for_NEB_tangent_plus(coord_2, coord_3)
+            B_mat = self.calc_B_matrix_for_NEB_tangent(coord_2, coord_3)
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
             projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
         elif energy_list[0] > energy_list[1] and energy_list[1] > energy_list[2]:
-            B_mat = self.calc_B_matrix_for_NEB_tangent_minus(coord_1, coord_2)
+            B_mat = self.calc_B_matrix_for_NEB_tangent(coord_1, coord_2)
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
             projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
         else:
-            B_mat_plus = self.calc_B_matrix_for_NEB_tangent_plus(coord_2, coord_3)
-            B_mat_minus = self.calc_B_matrix_for_NEB_tangent_minus(coord_1, coord_2)
+            B_mat_plus = self.calc_B_matrix_for_NEB_tangent(coord_2, coord_3)
+            B_mat_minus = self.calc_B_matrix_for_NEB_tangent(coord_1, coord_2)
             int_grad_plus = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat_plus)
             int_grad_minus = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat_minus)
             max_ene = max(abs(energy_list[2] - energy_list[1]), abs(energy_list[1] - energy_list[0]))
@@ -54,27 +54,11 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
                 projection_grad_plus = calc_cart_grad_from_pBmat(-b*int_grad_plus, B_mat_plus)
                 projection_grad_minus = calc_cart_grad_from_pBmat(-a*int_grad_minus, B_mat_minus)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad_plus + projection_grad_minus
-            
+        
         return proj_grad
 
     
-    def calc_B_matrix_for_NEB_tangent_plus(self, coord_2, coord_3):
-        natom = len(coord_2)
-        B_mat = np.zeros((natom, 3*natom))
-        
-            
-        for i in range(natom):
-            norm_23 = np.linalg.norm(coord_2[i] - coord_3[i]) + 1e-15
-            dr32_dx2 = (coord_3[i][0] - coord_2[i][0]) / norm_23
-            dr32_dy2 = (coord_3[i][1] - coord_2[i][1]) / norm_23
-            dr32_dz2 = (coord_3[i][2] - coord_2[i][2]) / norm_23
-            B_mat[i][3*i] = dr32_dx2
-            B_mat[i][3*i+1] = dr32_dy2
-            B_mat[i][3*i+2] = dr32_dz2
-
-        return B_mat
-    
-    def calc_B_matrix_for_NEB_tangent_minus(self, coord_1, coord_2):
+    def calc_B_matrix_for_NEB_tangent(self, coord_1, coord_2):
         natom = len(coord_2)
         B_mat = np.zeros((natom, 3*natom))
         
