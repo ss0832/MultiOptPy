@@ -127,6 +127,10 @@ class NEB:
             self.fix_end_edge = True
         
         self.force_const_for_cineb = 0.01
+        if self.FC_COUNT > 0 and args.usextb != "None":
+            print("Currently, you can't use exact hessian calculation with extended tight binding method.")
+            self.FC_COUNT = -1
+            
         return
 
     def force2velocity(self, gradient_list, element_list):
