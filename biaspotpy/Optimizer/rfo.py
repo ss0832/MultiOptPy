@@ -228,7 +228,7 @@ class RationalFunctionOptimization:
         matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
         RFO_eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
-        lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order-1, 0)])
+        lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order, 0)])
 
         if self.lambda_clip_flag:
             lambda_for_calc = np.clip(lambda_for_calc, -self.lambda_clip, self.lambda_clip)
@@ -274,6 +274,80 @@ class RationalFunctionOptimization:
      
         return move_vector#Bohr.
     
+
+        
+    def neb(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("RFO4neb")
+        #ref.:Culot, P., Dive, G., Nguyen, V.H. et al. A quasi-Newton algorithm for first-order saddle-point location. Theoret. Chim. Acta 82, 189–205 (1992). https://doi.org/10.1007/BF01113492
+        if self.Initialization:
+            self.Initialization = False
+            return self.DELTA*B_g
+        print("saddle order:", self.saddle_order)
+        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
+        DELTA_for_QNM = self.DELTA
+        
+
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
+            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
+            new_hess = self.hessian + delta_hess + self.bias_hessian
+        else:
+            new_hess = self.hessian + self.bias_hessian
+        
+        
+        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
+        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
+        
+        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+        RFO_eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
+        RFO_eigenvalue = np.sort(RFO_eigenvalue)
+        lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order-1, 0)])
+
+        if self.lambda_clip_flag:
+            lambda_for_calc = np.clip(lambda_for_calc, -self.lambda_clip, self.lambda_clip)
+
+        hess_eigenvalue, hess_eigenvector = np.linalg.eigh(new_hess)
+        hess_eigenvector = hess_eigenvector.T
+        hess_eigenval_indices = np.argsort(hess_eigenvalue)
+        
+        move_vector = np.zeros((len(geom_num_list), 1))
+        DELTA_for_QNM = self.DELTA
+        
+        for i in range(len(hess_eigenvalue)):
+            tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
+            if i < self.saddle_order:
+                if self.projection_eigenvector_flag:
+                    continue
+                step_scaling = 1.0
+                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
+                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
+            else:
+                step_scaling = 1.0
+                if self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and hess_eigenvalue[i] < -1e-9 and self.combine_eigvec_flag:
+                    print(f"To locate geometry away from unwanted saddle point, combine {self.combine_eigen_vec_num} other eigenvectors ...")# Gaussian 16 Rev.C 01
+                    for j in range(self.saddle_order + 1, min(self.saddle_order + 1 + self.combine_eigen_vec_num, len(hess_eigenvalue))):
+                       
+                        tmp_vector += np.array([hess_eigenvector[hess_eigenval_indices[j+i]].T], dtype="float64")
+                    tmp_vector /= self.combine_eigen_vec_num * (1 / (step_scaling))
+                
+
+                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
+                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
+        print("lambda   : ",lambda_for_calc)
+        print("step size: ",DELTA_for_QNM)
+        
+        
+        if np.linalg.norm(move_vector) < 1e-10:
+            print("Warning: The step size is too small!!!")
+            self.iter += 1
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+
+     
+        return move_vector#Bohr.
+
   
     def moment(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("moment mode")
@@ -343,6 +417,8 @@ class RationalFunctionOptimization:
             move_vector = self.normal_v2(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         elif "rfo3" in self.config["method"].lower():
             move_vector = self.normal_v3(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
+        elif "rfo_neb" in self.config["method"].lower():
+            move_vector = self.neb(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         else:
             move_vector = self.normal(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         return move_vector
