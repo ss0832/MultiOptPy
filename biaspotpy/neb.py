@@ -296,7 +296,7 @@ class NEB:
                     print("eigenvalues: ", eigenvalues)
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
                     np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
-                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "w") as f:
+                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "a") as f:
                         f.write("frequency,"+",".join(map(str, freqs))+"\n")
                 
                 hess_count += 1    
@@ -431,7 +431,7 @@ class NEB:
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
                     exact_hess = np.eye(len(input_data_for_display)*3)
                     np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
-                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "w") as f:
+                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "a") as f:
                         f.write("frequency,"+",".join(map(str, freqs["freq_wavenumber"]))+"\n")
                 hess_count += 1
                 
@@ -692,8 +692,7 @@ class NEB:
             if num == 0 or num == len(total_force_list) - 1:
                 OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0)
             else:
-                OPT = RationalFunctionOptimization(method="rfo3_bofill", saddle_order=1)
-
+                OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1)
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             OPT.set_hessian(hessian)
             if optimize_num == 0:
