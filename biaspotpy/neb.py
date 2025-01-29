@@ -695,6 +695,8 @@ class NEB:
                 OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1)
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             OPT.set_hessian(hessian)
+            OPT.iter = optimize_num
+            
             if optimize_num == 0:
                 OPT.Initialization = True
                 pre_B_g = None
