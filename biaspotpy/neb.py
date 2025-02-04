@@ -29,7 +29,7 @@ except:
 from interface import force_data_parser
 from parameter import element_number
 from potential import BiasPotentialCalculation
-from pathopt_bneb_force import CaluculationBNEB
+from pathopt_bneb_force import CaluculationBNEB, CaluculationBNEB2
 from pathopt_dneb_force import CaluculationDNEB
 from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
@@ -573,7 +573,7 @@ class NEB:
         return
 
 
-    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list):
+    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom):
         velocity_neb = []
         
         for num, each_velocity in enumerate(total_velocity):
@@ -611,13 +611,13 @@ class NEB:
             total_delta = dt*(total_velocity)
     
         #--------------------
-        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list)
+        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
         
         new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
          
         return new_geometry, dt, n_reset, a
 
-    def TR_calc(self, geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list):
+    def TR_calc(self, geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom):
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
@@ -626,9 +626,9 @@ class NEB:
         trust_radii_2_list = []
         
         for i in range(1, len(total_delta)-1):
-            if biased_energy_list[i] > pre_biased_energy_list[i]:
-                total_delta[i] = total_delta[i] * 1e-5
-                print("Energy increased. almost zero move vec")
+            #if biased_energy_list[i] > pre_biased_energy_list[i] and pre_geom is not None:
+            #    total_delta[i] = pre_geom[i] - geometry_num_list[i]
+            #    print("Energy increased... ")
             
             trust_radii_1 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1]) / 2.0
             trust_radii_2 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i+1]) / 2.0
@@ -727,7 +727,7 @@ class NEB:
             hessian = OPT.get_hessian()
             np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
         
-        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list)
+        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
         
         new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
         
@@ -907,7 +907,7 @@ class NEB:
             
             elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list)
+                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
              
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
