@@ -67,6 +67,14 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {
+    "rfo4_bfgs": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_fsb": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_bofill": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_msp": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_sr1": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_psb": {"delta": 0.50, "rfo_type": 4},
+    "rfo4_flowchart": {"delta": 0.50, "rfo_type": 4},
+    
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -74,6 +82,7 @@ quasi_newton_mapping = {
     "rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
     "rfo3_psb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
+    
     "rfo2_bfgs": {"delta": 0.50, "rfo_type": 2},
     "rfo2_fsb": {"delta": 0.50, "rfo_type": 2},
     "rfo2_bofill": {"delta": 0.50, "rfo_type": 2},
@@ -249,7 +258,7 @@ class CalculateMoveVector:
         #-------------------------------------------------------------
         # update trust radii
         #-------------------------------------------------------------
-
+        
         if self.FC_COUNT == -1 and not self.model_hess_flag:
             pass
 
@@ -266,6 +275,7 @@ class CalculateMoveVector:
                 pass
             
             else:
+                
                 self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii)
             
         if self.saddle_order > 0:
@@ -277,7 +287,7 @@ class CalculateMoveVector:
         
         if projection_constrain:
             self.trust_radii = min(self.trust_radii, 0.1)
-
+        
         #---------------------------------
         #calculate move vector
         #---------------------------------
