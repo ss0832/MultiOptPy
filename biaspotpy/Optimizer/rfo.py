@@ -1,6 +1,7 @@
 from .hessian_update import ModelHessianUpdate
 import numpy as np
 
+
 """
 RFO method
  The Journal of Physical Chemistry, Vol. 89, No. 1, 1985
@@ -239,15 +240,18 @@ class RationalFunctionOptimization:
         
         move_vector = np.zeros((len(geom_num_list), 1))
         DELTA_for_QNM = self.DELTA
-        
+        saddle_order_count = 0
         for i in range(len(hess_eigenvalue)):
             tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
-            if i < self.saddle_order:
+            if saddle_order_count < self.saddle_order:
                 if self.projection_eigenvector_flag:
+                    continue
+                if np.abs(hess_eigenvalue[hess_eigenval_indices[i]]) < 1e-10:
                     continue
                 step_scaling = 1.0
                 tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
+                saddle_order_count += 1
             else:
                 step_scaling = 1.0
                 if self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and hess_eigenvalue[i] < -1e-9 and self.combine_eigvec_flag:
@@ -274,6 +278,55 @@ class RationalFunctionOptimization:
      
         return move_vector#Bohr.
     
+    
+    def normal_v4(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
+        print("RFOv4")
+        self.lambda_s_scale = 10.0
+        if self.Initialization:
+            self.Initialization = False
+            return self.DELTA*B_g
+        print("saddle order:", self.saddle_order)
+        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
+        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
+        
+        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+            delta_hess = self.hessian_update(displacement, delta_grad)
+            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
+            new_hess = self.hessian + delta_hess + self.bias_hessian
+        else:
+            new_hess = self.hessian + self.bias_hessian
+        
+        eigval, eigvec = np.linalg.eigh(new_hess)
+        argsort_eigval = np.argsort(eigval)
+        modified_eigval = eigval
+        
+        saddle_order_count = 0
+        count = 0
+        
+        
+        while saddle_order_count < self.saddle_order:
+            idx = argsort_eigval[count]
+            if abs(eigval[idx]) < 1e-10:
+                pass                
+            else:
+                saddle_order_count += 1
+                modified_eigval[idx] = -1.0 * np.abs(modified_eigval[idx])
+            count += 1
+      
+        modified_hess = np.dot(eigvec, np.dot(np.diag(modified_eigval), np.linalg.inv(eigvec)))
+        lambda_for_calc = (2.0 * np.dot(B_g.T, displacement) + np.dot(displacement.T, np.dot(modified_hess, displacement))) / (1.0 + self.lambda_s_scale*np.dot(displacement.T, displacement))
+        
+        print("lambda   : ",lambda_for_calc)
+        move_vector = np.linalg.solve(modified_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
+        if np.linalg.norm(move_vector) < 1e-10:
+            print("Warning: The step size is too small!!!")
+            self.iter += 1
+        
+        else:
+            self.hessian += delta_hess 
+            self.iter += 1
+            
+        return move_vector#Bohr.
 
         
     def neb(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
@@ -417,6 +470,8 @@ class RationalFunctionOptimization:
             move_vector = self.normal_v2(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         elif "rfo3" in self.config["method"].lower():
             move_vector = self.normal_v3(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
+        elif "rfo4" in self.config["method"].lower():
+            move_vector = self.normal_v4(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)       
         elif "rfo_neb" in self.config["method"].lower():
             move_vector = self.neb(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         else:

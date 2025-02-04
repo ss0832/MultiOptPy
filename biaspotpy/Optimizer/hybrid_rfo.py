@@ -21,7 +21,7 @@ class HybridCoordinateAugmentedRFO:
         self.natom = len(self.element_list) #
         self.iter = 0 #
         self.beta = 0.10
-        self.covalent_radii_scale = 3.0
+        self.covalent_radii_scale = 10.0
         self.initilization = True
         self.hybrid_hessian = None
         self.prev_hybrid_B_g = None
@@ -41,19 +41,19 @@ class HybridCoordinateAugmentedRFO:
         return
     
     
-    def hessian_update(self, displacement, delta_grad):
+    def hessian_update(self, displacement, delta_grad, hess):
         if "msp" in self.config["method"].lower():
             print("RFO_MSP_quasi_newton_method")
-            delta_hess = self.hess_update.MSP_hessian_update(self.hybrid_hessian, displacement, delta_grad)
+            delta_hess = self.hess_update.MSP_hessian_update(hess, displacement, delta_grad)
         elif "bfgs" in self.config["method"].lower():
             print("RFO_BFGS_quasi_newton_method")
-            delta_hess = self.hess_update.BFGS_hessian_update(self.hybrid_hessian, displacement, delta_grad)
+            delta_hess = self.hess_update.BFGS_hessian_update(hess, displacement, delta_grad)
         elif "fsb" in self.config["method"].lower():
             print("RFO_FSB_quasi_newton_method")
-            delta_hess = self.hess_update.FSB_hessian_update(self.hybrid_hessian, displacement, delta_grad)
+            delta_hess = self.hess_update.FSB_hessian_update(hess, displacement, delta_grad)
         elif "bofill" in self.config["method"].lower():
             print("RFO_Bofill_quasi_newton_method")
-            delta_hess = self.hess_update.Bofill_hessian_update(self.hybrid_hessian, displacement, delta_grad)
+            delta_hess = self.hess_update.Bofill_hessian_update(hess, displacement, delta_grad)
         else:
             raise "method error"
         return delta_hess
@@ -85,86 +85,92 @@ class HybridCoordinateAugmentedRFO:
         if self.initilization:
             self.initilization = False
             self.bond_connectivity = self.save_bond_connectivity(geom_num_list)
-            ncart = len(geom_num_list)
-            nint = len(self.bond_connectivity)
-            n_tot = ncart + nint
-            self.hybrid_hessian = np.ones((n_tot, n_tot))
             return self.DELTA*B_g
         
-        ncart = len(geom_num_list)
-        nint = len(self.bond_connectivity)
-        n_tot = ncart + nint
+
         print("saddle order:", self.saddle_order)
         
         # calculate B matrix and G matrix
-        B_mat = calc_B_mat(geom_num_list, self.bond_connectivity)
+        prim_B_mat = calc_B_mat(geom_num_list, self.bond_connectivity)
+        prim_G_mat = calc_G_mat(prim_B_mat)
+        B_mat = calc_delocalized_B_mat(prim_B_mat, prim_G_mat)
         G_mat = calc_G_mat(B_mat)
         inv_B_mat = calc_inv_B_mat(B_mat, G_mat)
-        
+        ncart = len(geom_num_list)
+        nint = len(G_mat)
+        n_tot = ncart + nint
+        if self.iter == 0:
+            self.int_hessian = np.ones((nint, nint))
+            
         # calculate hybrid-coordinate geometry and gradient
-        hybrid_g = np.dot(inv_B_mat, g)
-        hybrid_pre_g = np.dot(inv_B_mat, pre_g)
-        hybrid_B_g = np.dot(inv_B_mat, B_g)
-        hybrid_pre_geom = np.dot(B_mat, pre_geom)
-        hybrid_geom_num_list = np.dot(B_mat, geom_num_list)
-        
-        hybrid_delta_grad = hybrid_g - hybrid_pre_g.reshape(n_tot, 1)
-        hybrid_displacement = (hybrid_geom_num_list - hybrid_pre_geom).reshape(n_tot, 1)
+        int_g = np.dot(inv_B_mat, g)
+        int_pre_g = np.dot(inv_B_mat, pre_g)
+        int_B_g = np.dot(inv_B_mat, B_g)
+        int_pre_B_g = np.dot(inv_B_mat, pre_B_g)
+        int_pre_geom = np.dot(B_mat, pre_geom)
+        int_geom_num_list = np.dot(B_mat, geom_num_list)
+       
+        int_delta_grad = int_B_g.reshape(nint, 1) - int_pre_B_g.reshape(nint, 1)
+        int_displacement = (int_geom_num_list - int_pre_geom).reshape(nint, 1)
         
         DELTA_for_QNM = self.DELTA
     
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            hybrid_delta_hess = self.hessian_update(hybrid_displacement, hybrid_delta_grad)
-            new_hess = self.hessian + hybrid_delta_hess[:ncart, :ncart] + self.bias_hessian
-            new_hybrid_hess = self.hybrid_hessian + hybrid_delta_hess
-            new_hybrid_hess[:ncart, :ncart] += self.bias_hessian
+            int_delta_hess = self.hessian_update(int_displacement, int_delta_grad, self.int_hessian)
+            cart_delta_hess = self.hessian_update(geom_num_list, g, self.hessian)
+            new_hess = self.hessian + self.bias_hessian + cart_delta_hess
+            new_int_hess = self.int_hessian + int_delta_hess
         else:
             new_hess = self.hessian + self.bias_hessian
-            new_hybrid_hess = self.hybrid_hessian
-            new_hybrid_hess[:ncart, :ncart] = self.bias_hessian + self.hessian
-            self.hybrid_hessian = new_hybrid_hess
-
-        matrix_for_RFO = np.append(new_hybrid_hess, hybrid_B_g, axis=1)
-        tmp = np.array([np.append(hybrid_B_g.T, 0.0)], dtype="float64")
+            
+        matrix_for_RFO = np.append(new_hess, B_g, axis=1)
+        tmp = np.array([np.append(B_g.T, 0.0)], dtype="float64")
         matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
         eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
-        print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
+        print("lambda    (cart.) : ",lambda_for_calc)
+        print("step size (cart.) : ",DELTA_for_QNM)
 
-        hybrid_move_vector = DELTA_for_QNM * np.linalg.solve(new_hybrid_hess - 0.1*lambda_for_calc*(np.eye(n_tot)), hybrid_B_g)
         cart_move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - 0.1*lambda_for_calc*(np.eye(ncart)), B_g)
-        self.hybrid_hessian += hybrid_delta_hess
+       
+        matrix_for_RFO = np.append(new_int_hess, int_B_g, axis=1)
+        tmp = np.array([np.append(int_B_g.T, 0.0)], dtype="float64")
+        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
+        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue = np.sort(eigenvalue)
+        lambda_for_calc = float(eigenvalue[self.saddle_order])
+        print("lambda    (int.) : ",lambda_for_calc)
+        print("step size (int.) : ",DELTA_for_QNM)
+        int_move_vector = DELTA_for_QNM * np.linalg.solve(new_int_hess - 0.1*lambda_for_calc*(np.eye(nint)), int_B_g)
+        
+       
+        self.int_hessian += int_delta_hess
         self.iter += 1
-            
-        self.hessian = new_hess   
-        int_B_mat = calc_B_mat_int(geom_num_list, self.bond_connectivity)
-        inv_int_B_mat = calc_inv_B_mat(int_B_mat, np.dot(int_B_mat, int_B_mat.T))
+        self.hessian += cart_delta_hess  
+        
         # fitting hybrid_move_vector to the only cartesian coordinate
-        ric_geom_num_list = np.dot(int_B_mat, geom_num_list)
-        q_tgt = hybrid_move_vector[ncart:] + ric_geom_num_list
+        ric_geom_num_list = np.dot(B_mat, geom_num_list)
+        q_tgt = int_move_vector + ric_geom_num_list
         tmp_geom_num_list = copy.copy(geom_num_list)
         
-        move_vector = np.zeros((len(geom_num_list), 1))
-        ric_diff = hybrid_move_vector[ncart:]
+        RRIC_move_vector = np.zeros((len(geom_num_list), 1))
+        ric_diff = int_move_vector
         
         for jiter in range(self.nonlinear_iter):
-            cart_diff = np.dot(inv_int_B_mat.T, ric_diff)
+            cart_diff = np.dot(inv_B_mat.T, ric_diff)
             tmp_geom_num_list = tmp_geom_num_list + cart_diff
-            current_ric_geom_num_list = np.dot(int_B_mat, tmp_geom_num_list)
+            current_ric_geom_num_list = np.dot(B_mat, tmp_geom_num_list)
             ric_diff = q_tgt - current_ric_geom_num_list
-            move_vector += cart_diff
+            RRIC_move_vector += cart_diff
             if np.linalg.norm(cart_diff) < 1e-10:
                 print("The nonlinear iteration is converged!!!: ITR.", jiter)
                 break 
         else:
             print("Warning: The nonlinear iteration is not converged!!!")
-            
-        radii = np.linalg.norm(hybrid_move_vector)
-        int_move_vector = radii * 0.5 * move_vector / np.linalg.norm(move_vector)
-        cart_move_vector = radii * 0.5 * cart_move_vector / np.linalg.norm(cart_move_vector)
-        move_vec = int_move_vector + cart_move_vector
+        
+        
+        move_vec = -cart_move_vector / 2 + RRIC_move_vector / 2
         return move_vec
 
 
@@ -233,6 +239,18 @@ def calc_B_mat(geometry, bond_connectivity):#geometry: cartesian coordinate (3N,
 def calc_G_mat(B_mat):
     G_mat = np.dot(B_mat, B_mat.T)
     return G_mat
+
+def calc_delocalized_B_mat(B_mat, G_mat):
+    #ref.:J. Chem. Phys. 105, 192–212 (1996)
+    Geigenval, Geigenvec = np.linalg.eigh(G_mat)
+    
+    nonzero_indices = np.where(np.abs(Geigenval) > 1e-10)[0]
+    nonzero_eigvec = Geigenvec[:, nonzero_indices]
+    delocalized_B_mat = np.dot(nonzero_eigvec.T, B_mat)
+    
+    return delocalized_B_mat
+    
+    
 
 def calc_inv_B_mat(B_mat, G_mat):
     inv_B_mat = np.dot(np.linalg.pinv(G_mat), B_mat)
