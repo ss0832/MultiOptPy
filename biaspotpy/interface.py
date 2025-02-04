@@ -208,7 +208,7 @@ def nebparser(parser):
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
-
+    parser.add_argument("-spng", "--save_pict",  action='store_true', help='Save picture for visualization.')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 

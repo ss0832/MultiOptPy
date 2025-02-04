@@ -106,6 +106,7 @@ class NEB:
         self.usextb = args.usextb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
+        self.save_pict = args.save_pict
         if args.usextb == "None":
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
@@ -314,17 +315,18 @@ class NEB:
 
 
         try:
-            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-            print("energy graph plotted.")
+            if self.save_pict:
+                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
+                print("energy graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot energy graph.")
 
         try:
-            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="RMS Gradient [a.u.]", name="gradient")
-          
-            print("gradient graph plotted.")
+            if self.save_pict:
+                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="RMS Gradient [a.u.]", name="gradient")
+                print("gradient graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot gradient graph.")
@@ -442,17 +444,19 @@ class NEB:
                     delete_pre_total_velocity.append(num)
             
         try:
-            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-            print("energy graph plotted.")
+            if self.save_pict:
+                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
+                print("energy graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot energy graph.")
 
         try:
-            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
-          
-            print("gradient graph plotted.")
+            if self.save_pict:
+                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
+            
+                print("gradient graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot gradient graph.")
@@ -524,17 +528,19 @@ class NEB:
                     delete_pre_total_velocity.append(num)
             
         try:
-            tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-            self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-            print("energy graph plotted.")
+            if self.save_pict:
+                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
+                print("energy graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot energy graph.")
 
         try:
-            self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
+            if self.save_pict:
+                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
           
-            print("gradient graph plotted.")
+                print("gradient graph plotted.")
         except Exception as e:
             print(e)
             print("Can't plot gradient graph.")
@@ -567,7 +573,7 @@ class NEB:
         return
 
 
-    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list):
+    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list):
         velocity_neb = []
         
         for num, each_velocity in enumerate(total_velocity):
@@ -605,13 +611,13 @@ class NEB:
             total_delta = dt*(total_velocity)
     
         #--------------------
-        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta)
+        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list)
         
         new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
          
         return new_geometry, dt, n_reset, a
 
-    def TR_calc(self, geometry_num_list, total_force_list, total_delta):
+    def TR_calc(self, geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list):
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
@@ -620,7 +626,10 @@ class NEB:
         trust_radii_2_list = []
         
         for i in range(1, len(total_delta)-1):
-            #total_delta[i] *= (abs(cos_list[i]) ** 0.1 + 0.1)
+            if biased_energy_list[i] > pre_biased_energy_list[i]:
+                total_delta[i] = total_delta[i] * 1e-5
+                print("Energy increased. almost zero move vec")
+            
             trust_radii_1 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1]) / 2.0
             trust_radii_2 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i+1]) / 2.0
             
@@ -678,7 +687,7 @@ class NEB:
         
         return move_vector        
         
-    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list):
+    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list):
         natoms = len(geometry_num_list[0])
         if optimize_num % self.FC_COUNT == 0:
             for num in range(1, len(total_force_list)-1):
@@ -718,8 +727,8 @@ class NEB:
             hessian = OPT.get_hessian()
             np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
         
-        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta)
-       
+        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list)
+        
         new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
         
         return new_geometry_list
@@ -789,7 +798,7 @@ class NEB:
         elif self.nesb:
             STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
         elif self.bneb:
-            STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
+            STRING_FORCE_CALC = CaluculationBNEB2(self.APPLY_CI_NEB)
         else:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
         
@@ -836,6 +845,8 @@ class NEB:
                 biased_energy_list.append(B_e)
                 biased_gradient_list.append(B_g)
             biased_energy_list = np.array(biased_energy_list ,dtype="float64")
+            if optimize_num == 0:
+                pre_biased_energy_list = copy.copy(biased_energy_list)
             biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
 
@@ -857,6 +868,7 @@ class NEB:
             cos_list = []
             tot_force_rms_list = []
             tot_force_max_list = []
+            bias_force_rms_list = []
             for i in range(len(total_force)):
                 cos = np.sum(total_force[i]*biased_gradient_list[i])/(np.linalg.norm(total_force[i])*np.linalg.norm(biased_gradient_list[i]))
                 cos_list.append(cos)
@@ -864,20 +876,38 @@ class NEB:
                 tot_force_rms_list.append(tot_force_rms)
                 tot_force_max = np.max(total_force[i])
                 tot_force_max_list.append(tot_force_max)
+                bias_force_rms = np.sqrt(np.mean(biased_gradient_list[i]**2))
+                bias_force_rms_list.append(bias_force_rms)
                 
+            with open(self.NEB_FOLDER_DIRECTORY+"bias_force_rms.csv", "a") as f:
+                f.write(",".join(list(map(str,bias_force_rms_list)))+"\n")
             
-            self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
-            self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
-            self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
+            if self.save_pict:
+                self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
+            
+            with open(self.NEB_FOLDER_DIRECTORY+"orthogonality.csv", "a") as f:
+                f.write(",".join(list(map(str,cos_list)))+"\n")
+            
+            if self.save_pict:
+                self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
+            
+            with open(self.NEB_FOLDER_DIRECTORY+"perp_rms_gradient.csv", "a") as f:
+                f.write(",".join(list(map(str,tot_force_rms_list)))+"\n")
+            
+            if self.save_pict:
+                self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
+            
+            with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
+                f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
           
             #------------------
             #relax path
             if self.FC_COUNT != -1:
-                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list)
+                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list)
             
             elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list)
+                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list)
              
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
