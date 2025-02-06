@@ -107,6 +107,7 @@ class NEB:
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
+        self.apply_convergence_criteria = args.apply_convergence_criteria
         if args.usextb == "None":
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
@@ -617,11 +618,36 @@ class NEB:
          
         return new_geometry, dt, n_reset, a
 
+    def check_convergence(self, total_force_list, move_vec_list):
+        threshold_max_force = 0.00045
+        threshold_rms_force = 0.00030
+        threshold_max_displacement = 0.0018
+        threshold_rms_displacement = 0.0012
+        
+        for i in range(1, len(total_force_list)-1):
+            max_grad = np.max(total_force_list[i])
+            rms_grad = np.sqrt(np.sum(total_force_list[i]**2)/(len(total_force_list[i])*3))
+            max_move = np.max(move_vec_list[i])
+            rms_move = np.sqrt(np.sum(move_vec_list[i]**2)/(len(move_vec_list[i])*3))
+            print("--------------------")
+            print("NODE #"+str(i))
+            print("MAXIMUM NEB FORCE: ", max_grad)
+            print("RMS NEB FORCE: ", rms_grad)
+            print("MAXIMUM DISPLACEMENT: ", max_move)
+            print("RMS DISPLACEMENT: ", rms_move)
+            if max_grad < threshold_max_force and rms_grad < threshold_rms_force and max_move < threshold_max_displacement and rms_move < threshold_rms_displacement:
+                print("Converged?: YES")
+                move_vec_list[i] = move_vec_list[i]*0.0
+            else:
+                print("Converged?: NO")
+        print("--------------------")
+        return move_vec_list
+
     def TR_calc(self, geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom):
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
-            move_vector = [total_force_list[0]*0.1]
+            move_vector = [total_force_list[0]]
         trust_radii_1_list = []
         trust_radii_2_list = []
         
@@ -642,34 +668,34 @@ class NEB:
             
             cos_1 = np.sum(normalized_vec_1 * normalized_delta) 
             cos_2 = np.sum(normalized_vec_2 * normalized_delta)
-            print("DEBUG:  vector (cos_1, cos_2)", cos_1, cos_2)
+            
             force_move_vec_cos = np.sum(total_force_list[i] * total_delta[i]) / (np.linalg.norm(total_force_list[i]) * np.linalg.norm(total_delta[i])) 
             
             if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
                 if (cos_1 > 0 and cos_2 < 0) or (cos_1 < 0 and cos_2 > 0):
                     if np.linalg.norm(total_delta[i]) > trust_radii_1 and cos_1 > 0:
                         move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                        print("DEBUG: TR radii 1 (considered cos_1)")
+                        
                     elif np.linalg.norm(total_delta[i]) > trust_radii_2 and cos_2 > 0:
                         move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                        print("DEBUG: TR radii 2 (considered cos_2)")
+                        
                     else:
                         move_vector.append(total_delta[i])
-                        print("DEBUG: no TR")
+                        
                 elif (cos_1 < 0 and cos_2 < 0):
                     move_vector.append(total_delta[i])
-                    print("DEBUG: no TR")
+                    
                 else:
                     if np.linalg.norm(total_delta[i]) > trust_radii_1:
                         move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                        print("DEBUG: TR radii 1")
+                        
                     elif np.linalg.norm(total_delta[i]) > trust_radii_2:
                         move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                        print("DEBUG: TR radii 2")
+                        
                     else:
                         move_vector.append(total_delta[i])      
             else:
-                print("zero move vec (Projected velocity-verlet algorithm)")
+                print("no displacements (Projected velocity-verlet algorithm)")
                 move_vector.append(total_delta[i] * 0.0) 
             
             print("---")
@@ -683,7 +709,10 @@ class NEB:
         if self.fix_end_edge:
             move_vector.append(total_force_list[-1]*0.0)
         else:
-            move_vector.append(total_force_list[-1]*0.1)
+            move_vector.append(total_force_list[-1])
+        
+        if self.apply_convergence_criteria:
+            move_vector = self.check_convergence(total_force_list, move_vector)
         
         return move_vector        
         
