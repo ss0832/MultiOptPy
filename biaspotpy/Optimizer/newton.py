@@ -15,6 +15,47 @@ class Newton:
         self.iter = 0 #
         self.beta = 0.5
         return
+            
+    def project_out_hess_tr_and_rot_for_coord(self, hessian, geomerty):#do not consider atomic mass
+        natoms = len(geomerty)
+       
+        geomerty -= self.calc_center(geomerty)
+        
+    
+        tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
+        tr_y = (np.tile(np.array([0, 1, 0]), natoms)).reshape(-1, 3)
+        tr_z = (np.tile(np.array([0, 0, 1]), natoms)).reshape(-1, 3)
+
+        rot_x = np.cross(geomerty, tr_x).flatten()
+        rot_y = np.cross(geomerty, tr_y).flatten() 
+        rot_z = np.cross(geomerty, tr_z).flatten()
+        tr_x = tr_x.flatten()
+        tr_y = tr_y.flatten()
+        tr_z = tr_z.flatten()
+
+        TR_vectors = np.vstack([tr_x, tr_y, tr_z, rot_x, rot_y, rot_z])
+        
+        Q, R = np.linalg.qr(TR_vectors.T)
+        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
+        TR_vectors = Q.T[keep_indices]
+        n_tr = len(TR_vectors)
+
+        P = np.identity(natoms * 3)
+        for vector in TR_vectors:
+            P -= np.outer(vector, vector)
+
+        hess_proj = np.dot(np.dot(P.T, hessian), P)
+
+        return hess_proj    
+    
+    def calc_center(self, geomerty, element_list=[]):#geomerty:Bohr
+        center = np.array([0.0, 0.0, 0.0], dtype="float64")
+        for i in range(len(geomerty)):
+            
+            center += geomerty[i] 
+        center /= float(len(geomerty))
+        
+        return center
     
     def set_hessian(self, hessian):
         self.hessian = hessian
@@ -25,16 +66,16 @@ class Newton:
         return
     
     def hessian_update(self, displacement, delta_grad):
-        if "MSP" in self.config["method"]:
+        if "msp" in self.config["method"].lower():
             print("MSP_quasi_newton_method")
             delta_hess = self.hess_update.MSP_hessian_update(self.hessian, displacement, delta_grad)
-        elif "BFGS" in self.config["method"]:
+        elif "bfgs" in self.config["method"].lower():
             print("BFGS_quasi_newton_method")
             delta_hess = self.hess_update.BFGS_hessian_update(self.hessian, displacement, delta_grad)
-        elif "FSB" in self.config["method"]:
+        elif "fsb" in self.config["method"].lower():
             print("FSB_quasi_newton_method")
             delta_hess = self.hess_update.FSB_hessian_update(self.hessian, displacement, delta_grad)
-        elif "Bofill" in self.config["method"]:
+        elif "bofill" in self.config["method"].lower():
             print("Bofill_quasi_newton_method")
             delta_hess = self.hess_update.Bofill_hessian_update(self.hessian, displacement, delta_grad)
         else:
@@ -42,9 +83,11 @@ class Newton:
         return delta_hess
     
     def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
-        print("normal mode")
+        
         if self.linesearchflag:
             print("linesearch mode")
+        else:
+            print("normal mode")
         if self.Initialization:
             self.Initialization = False
             return self.DELTA*B_g
@@ -63,12 +106,14 @@ class Newton:
             
         DELTA_for_QNM = self.DELTA
         
-        
-        #move_vector = (DELTA_for_QNM*np.dot(np.linalg.inv(new_hess), B_g.reshape(len(geom_num_list), 1))).reshape(len(geom_num_list), 3)
         move_vector = DELTA_for_QNM * np.linalg.solve(new_hess, B_g.reshape(len(geom_num_list), 1))
         
         if self.iter > 1 and self.linesearchflag:
-            LS = LineSearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e)
+            if self.FC_COUNT != -1:
+                tmp_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list.reshape(-1, 3))  
+            else:
+                tmp_hess = None
+            LS = LineSearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e, tmp_hess)
             new_move_vector, optimal_step_flag = LS.linesearch()
         else:
             new_move_vector = move_vector
