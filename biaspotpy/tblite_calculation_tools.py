@@ -8,6 +8,7 @@ from tblite.interface import Calculator
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
+from fileio import xyz2list
 
 class Calculation:
     def __init__(self, **kwarg):
@@ -94,23 +95,15 @@ class Calculation:
             try:
                 if geom_num_list is None:
                     print("\n",input_file,"\n")
-
-                    with open(input_file,"r") as f:
-                        input_data = f.readlines()
+                    positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                     
-                    positions = []
-                    if iter == 0:
-                        for word in input_data[2:]:
-                            positions.append(word.split()[1:4])
-                    else:
-                        for word in input_data[1:]:
-                            positions.append(word.split()[1:4])
                 else:
                     positions = geom_num_list        
-            
+             
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 max_scf_iteration = len(element_number_list) * 50 + 1000 
                 if int(electric_charge_and_multiplicity[1]) > 1:
+                                 
                     calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
                 else:
                     calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))
@@ -162,11 +155,6 @@ class Calculation:
                     
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions)
                     self.Model_hess = exact_hess
-                   
-                                 
-                
-                
-
 
             except Exception as error:
                 print(error)

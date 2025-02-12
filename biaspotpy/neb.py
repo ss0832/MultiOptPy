@@ -99,6 +99,7 @@ class NEB:
         self.dneb = args.DNEB
         self.nesb = args.NESB
         self.bneb = args.BNEB
+        self.mix = args.MIX
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances
         self.excited_state = args.excited_state
@@ -312,7 +313,7 @@ class NEB:
                 
                 
             psi4.core.clean()
-        print("data sampling completed...")
+        print("data sampling was completed...")
 
 
         try:
@@ -556,7 +557,7 @@ class NEB:
         return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
 
     def xyz_file_make(self, file_directory):
-        print("\ngeometry integration processing...\n")
+        print("\nprocessing geometry collecting ...\n")
         file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
        
         for m, file in enumerate(file_list):
@@ -570,7 +571,7 @@ class NEB:
                 for i in sample:
                     with open(file_directory+"/"+self.start_folder+"_integration.xyz","a") as w2:
                         w2.write(i)
-        print("\ngeometry integration complete...\n")
+        print("\ncollecting geometry integration was complete...\n")
         return
 
 
@@ -933,6 +934,9 @@ class NEB:
             STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
         elif self.bneb:
             STRING_FORCE_CALC = CaluculationBNEB2(self.APPLY_CI_NEB)
+        elif self.mix:
+            STRING_FORCE_CALC_1 = CaluculationBNEB(self.APPLY_CI_NEB)
+            STRING_FORCE_CALC_2 = CaluculationOM(self.APPLY_CI_NEB)
         else:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
         
@@ -996,7 +1000,12 @@ class NEB:
 
             #------------------
             #calculate force
-            total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+            if self.mix:
+                total_force_1 = STRING_FORCE_CALC_1.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list) / 2
+                total_force_2 = STRING_FORCE_CALC_2.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list) / 2
+                total_force =  total_force_1 + total_force_2
+            else:
+                total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
 
             #------------------
             cos_list = []

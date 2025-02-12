@@ -286,9 +286,6 @@ class Optimize:
             else:
                 pass
             
-            print("=== Eigenvalue (Before Adding Bias potential) ===")
-            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess, element_list, geom_num_list)
-            
             print("=== Eigenvalue (After Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
             
@@ -586,8 +583,7 @@ class Optimize:
             BASIS_SET=self.BASIS_SET,
             spin_multiplicity=self.spin_multiplicity,
             electronic_charge=self.electronic_charge,
-            excited_state=self.excited_state
-        )
+            excited_state=self.excited_state)
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model
         return SP
@@ -609,8 +605,6 @@ class Optimize:
         self.element_list = element_list
         self.Model_hess = np.eye(len(element_list) * 3)
         return file_directory, electric_charge_and_multiplicity, element_list
-
-
 
     def save_tmp_energy_profiles(self, iter, e, g, B_g):
         if iter == 0:
@@ -689,8 +683,6 @@ class Optimize:
             for j in tmp_fragm_list:
                 atom_label_list.remove(j)
             fragm_atom_num_list.append(tmp_fragm_list)
-        
-        print("\nfragm_list:", fragm_atom_num_list)
         
         if len(fragm_atom_num_list) > 1:
             fragm_dist_list = []
@@ -771,5 +763,5 @@ class Optimize:
                     hessian = None
                 EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
                 EXEC_IRC.run()
-            print(f"Optimization of {file} is completed.")
+            print(f"Geometry optimization of {file} was completed.")
         return

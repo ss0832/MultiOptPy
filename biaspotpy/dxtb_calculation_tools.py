@@ -9,6 +9,7 @@ import dxtb
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
+from fileio import xyz2list
 
 """
 ref:
@@ -58,17 +59,7 @@ class Calculation:
                 
                 if geom_num_list is None:
                     print("\n",input_file,"\n")
-
-                    with open(input_file,"r") as f:
-                        input_data = f.readlines()
-                    
-                    positions = []
-                    if iter == 0:
-                        for word in input_data[2:]:
-                            positions.append(word.split()[1:4])
-                    else:
-                        for word in input_data[1:]:
-                            positions.append(word.split()[1:4])
+                    positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
                     positions = geom_num_list        
             

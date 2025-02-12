@@ -5,6 +5,7 @@ import os
 import numpy as np
 
 from calc_tools import Calculationtools
+from fileio import xyz2list
 
 class Calculation:
     def __init__(self, **kwarg):
@@ -41,7 +42,7 @@ class Calculation:
                 if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 logfile = file_directory+"/"+self.START_FILE[:-4]+'_'+str(num)+'.log'
-                psi4.set_options({"MAXITER": 700})
+                psi4.set_options({"MAXITER": 1000})
                 if len(self.SUB_BASIS_SET) > 0:
                     psi4.basis_helper(self.SUB_BASIS_SET, name='User_Basis_Set', set_option=False)
                     psi4.set_options({"basis":'User_Basis_Set'})
@@ -58,16 +59,12 @@ class Calculation:
                 psi4.set_options({"cubeprop_tasks": ["esp"],'cubeprop_filepath': file_directory})
                 
                 if geom_num_list is None:
-                    with open(input_file,"r") as f:
-                        read_data = f.readlines()
                     input_data = ""
-                    if iter == 0:
-                        input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
-                        for data in read_data[2:]:
-                            input_data += data
-                    else:
-                        for data in read_data:
-                            input_data += data
+                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
+                    for j in range(len(positions)):
+                        input_data += element_list[j]+" "+" ".join(positions[j])+"\n"
+             
                 else:
                     input_data = ""
                     if iter == 0:
@@ -82,10 +79,6 @@ class Calculation:
                 input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
                             
                 g, wfn = psi4.gradient(self.FUNCTIONAL, molecule=input_data, return_wfn=True)
-
-
-
-
 
                 e = float(wfn.energy())
                 g = np.array(g, dtype = "float64")

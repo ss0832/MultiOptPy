@@ -143,9 +143,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             BPC_1 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             BPC_2 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             
-            _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
-            _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
+            _, bias_energy_1, bias_gradient_1, error_flag_1 = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
+            _, bias_energy_2, bias_gradient_2, error_flag_2 = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
             
+            if error_flag_1 or error_flag_2:
+                print("Error in QM calculation.")
+                with open(self.iEIP_FOLDER_DIRECTORY+"end.txt", "w") as f:
+                    f.write("Error in QM calculation.")
+                break
 
             
             N_1 = self.norm_dist_2imgs(geom_num_list_1, prev_geom_num_list_1)
@@ -250,9 +255,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 break
             print("# ITR. "+str(iter))
             
-            energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
-            energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_1, gradient_1, geom_num_list_1, error_flag_1 = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_2, gradient_2, geom_num_list_2, error_flag_2 = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
             geom_num_list_1, geom_num_list_2 = Calculationtools().kabsch_algorithm(geom_num_list_1, geom_num_list_2)
+            
+            if error_flag_1 or error_flag_2:
+                print("Error in QM calculation.")
+                with open(self.iEIP_FOLDER_DIRECTORY+"end.txt", "w") as f:
+                    f.write("Error in QM calculation.")
+                break
+            
             if iter == 0:
                 m_1 = gradient_1 * 0.0
                 m_2 = gradient_1 * 0.0
@@ -269,6 +281,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         
             if self.microiter_num > 0 and iter > 0:
                 energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2 = self.microiteration(SP1, SP2, FIO1, FIO2, file_directory_1, file_directory_2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter)
+                if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
+                    break
             
         
             if energy_2 > energy_1:
