@@ -8,7 +8,7 @@ import random
 import copy
 
 
-from constraint_condition import ProjectOutConstrain
+
 try:
     import psi4
 except:
@@ -37,6 +37,8 @@ from pathopt_om_force import CaluculationOM
 from calc_tools import Calculationtools
 from idpp import IDPP
 from Optimizer.rfo import RationalFunctionOptimization 
+from interpolation import spline_interpolation
+from constraint_condition import ProjectOutConstrain
 
 color_list = ["b"] #use for matplotlib
 
@@ -108,6 +110,8 @@ class NEB:
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
+        self.climbing_image_start = args.climbing_image[0]
+        self.climbing_image_interval = args.climbing_image[1]
         self.apply_convergence_criteria = args.apply_convergence_criteria
         if args.usextb == "None":
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
@@ -225,7 +229,7 @@ class NEB:
         ax.set_xlabel(axis_name_1)
         ax.set_ylabel(axis_name_2)
         fig.tight_layout()
-        fig.savefig(self.NEB_FOLDER_DIRECTORY+"Plot_"+name+"_"+str(optimize_num)+".png", format="png", dpi=200)
+        fig.savefig(self.NEB_FOLDER_DIRECTORY+"plot_"+name+"_"+str(optimize_num)+".png", format="png", dpi=200)
         plt.close()
         #del fig, ax
 
@@ -908,7 +912,6 @@ class NEB:
             projection_constraint_flag = True
         else:
             projection_constraint_flag = False        
-
         #prepare for FIRE method 
         dt = 0.5
         n_reset = 0
@@ -1042,7 +1045,8 @@ class NEB:
             
             with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
-          
+            
+
             #------------------
             #relax path
             if self.global_quasi_newton:
@@ -1058,6 +1062,9 @@ class NEB:
              
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
+                
+            if optimize_num > self.climbing_image_start and (optimize_num - self.climbing_image_start) % self.climbing_image_interval == 0:
+                new_geometry = apply_climbing_image(new_geometry, biased_energy_list)
             
             #------------------
             #fix atoms
@@ -1097,14 +1104,34 @@ class NEB:
         print("Complete...")
         return
 
+def calc_path_length_list(geometry_list):
+    path_length_list = [0.0]
+    for i in range(len(geometry_list)-1):
+        path_length = path_length_list[-1] + np.linalg.norm(geometry_list[i+1] - geometry_list[i])
+        path_length_list.append(path_length)
+    return path_length_list
+
+def apply_climbing_image(geometry_list, energy_list):
+    path_length_list = calc_path_length_list(geometry_list)
+    total_length = path_length_list[-1]
+    local_maxima, local_minima = spline_interpolation(path_length_list, energy_list)
+    print(local_maxima)
+    for distance, energy in local_maxima:
+        print("Local maximum at distance: ", distance)
+        for i in range(2, len(path_length_list)-2):
+            if path_length_list[i] >= distance or distance >= path_length_list[i+1]:
+                continue
+            delta_t = (distance - path_length_list[i]) / (path_length_list[i+1] - path_length_list[i])
+            tmp_geometry = geometry_list[i] + (geometry_list[i+1] - geometry_list[i]) * delta_t
+            tmp_geom_list = [geometry_list[i], tmp_geometry, geometry_list[i+1]]
+            idpp_instance = IDPP()
+            tmp_geom_list = idpp_instance.opt_path(tmp_geom_list)
+            geometry_list[i] = tmp_geom_list[1]
+    return geometry_list
 
 def distribute_geometry(geometry_list):
     nnode = len(geometry_list)
- 
-    path_length_list = [0.0]
-    for i in range(nnode-1):
-        path_length = path_length_list[-1] + np.linalg.norm(geometry_list[i+1] - geometry_list[i])
-        path_length_list.append(path_length)
+    path_length_list = calc_path_length_list(geometry_list)
     total_length = path_length_list[-1]
     node_dist = total_length / (nnode-1)
     
