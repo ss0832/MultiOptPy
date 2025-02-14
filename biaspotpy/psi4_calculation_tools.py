@@ -34,7 +34,6 @@ class Calculation:
             os.mkdir(file_directory)
         except:
             pass
-        
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
             try:
@@ -64,7 +63,6 @@ class Calculation:
                     input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
                     for j in range(len(positions)):
                         input_data += element_list[j]+" "+" ".join(positions[j])+"\n"
-             
                 else:
                     input_data = ""
                     if iter == 0:
@@ -77,7 +75,7 @@ class Calculation:
                 
                 input_data = psi4.geometry(input_data)#ang.
                 input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
-                            
+                
                 g, wfn = psi4.gradient(self.FUNCTIONAL, molecule=input_data, return_wfn=True)
 
                 e = float(wfn.energy())
@@ -108,16 +106,13 @@ class Calculation:
                 #    for i in range(len(np.array(wfn.variable('WIBERG LOWDIN INDICES')).tolist())):
                 #        f.write(",".join(list(map(str,np.array(wfn.variable('WIBERG LOWDIN INDICES')).tolist()[i])))+"\n")           
                         
-
                 print("\n")
-
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    
-                    """exact hessian"""
+                    # calculate an exact hessian
                     _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
                     exact_hess = np.array(wfn.hessian())
                     
@@ -128,12 +123,8 @@ class Calculation:
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
-
                     self.Model_hess = exact_hess
                 
-                
-
-
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")

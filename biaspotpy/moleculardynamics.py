@@ -531,10 +531,10 @@ class MD:
             pre_geom = geom_num_list#Bohr
             if self.args.pyscf:
                 geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry*self.bohr2angstroms, element_list)
-                file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
+            
             else:
                 geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-                file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
             #----------------------------
 
             #----------------------------

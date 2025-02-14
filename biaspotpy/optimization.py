@@ -9,8 +9,6 @@ import time
 import numpy as np
 
 from optimizer import CalculateMoveVector
-
-
 from visualization import Graph
 from fileio import FileIO
 from parameter import UnitValueLib, element_number
@@ -176,7 +174,7 @@ class Optimize:
         self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
         self.NUM_LIST = [] #
         force_data = force_data_parser(self.args)
-        finish_frag = False
+        exit_flag = False
         geom_num_list = None#Bohr
         e = None #Hartree
         B_e = None #Hartree
@@ -237,20 +235,21 @@ class Optimize:
 
 
         for iter in range(self.NSTEP):
-            self.iter = iter
-            finish_frag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
-            if finish_frag:
-                break
 
-            finish_frag = judge_shape_condition(geom_num_list, self.shape_conditions)
-            if finish_frag:
+            self.iter = iter
+            
+            exit_flag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+            if exit_flag:
+                break
+            exit_flag = judge_shape_condition(geom_num_list, self.shape_conditions)
+            if exit_flag:
                 break
 
             print("\n# ITR. "+str(iter)+"\n")
-
             SP.Model_hess = copy.copy(self.Model_hess)
-            e, g, geom_num_list, finish_frag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
-            if finish_frag:
+            e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
+            
+            if exit_flag:
                 break
                 
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
@@ -304,7 +303,6 @@ class Optimize:
                 combined_hessian = LC.make_combined_lagrangian_hess(self.Model_hess, tmp_zero_mat)
                 e += float(lagrange_constraint_energy)
                 B_e += float(lagrange_constraint_energy)
-                
             else:
                 pass
             
@@ -319,7 +317,6 @@ class Optimize:
                 tmp_fix_bias_hess = BPA_hessian[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
                 inv_tmp_fix_bias_hess = np.linalg.pinv(tmp_fix_bias_hess)
                 BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
-
             
             for i in range(len(optimizer_instances)):
                 if lagrange_constrain:
@@ -352,18 +349,15 @@ class Optimize:
             #energy profile 
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             
-
             if projection_constrain:
                 g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
                 proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
                 B_g = copy.copy(g + proj_d_B_g)
                 
-                       
             if not allactive_flag:
                 for j in force_data["fix_atoms"]:
                     g[j-1] = copy.copy(g[j-1]*0.0)
                     B_g[j-1] = copy.copy(B_g[j-1]*0.0)
-
 
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list,
                                                                                   B_g, pre_B_g, pre_geom, B_e, pre_B_e,
@@ -391,7 +385,7 @@ class Optimize:
             if lagrange_constrain:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = LC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
-             
+            
             
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -405,6 +399,7 @@ class Optimize:
                 displacement_vector = move_vector
             else:
                 displacement_vector = geom_num_list - pre_geom
+
             converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
             
             
@@ -422,7 +417,6 @@ class Optimize:
             if self.NRO_analysis:
                 NRO.run(SP, geom_num_list, move_vector)
             
- 
             if converge_flag:
                 if projection_constrain and iter == 0:
                     pass
@@ -452,13 +446,12 @@ class Optimize:
             lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
             lagrange_constraint_prev_energy = lagrange_constraint_energy
             
-          
             if self.args.pyscf:
                 geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry, element_list)
-                file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
             else:
                 geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-                file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
 
 
 
@@ -477,9 +470,6 @@ class Optimize:
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
 
-        
-
-  
     def calculate_orthogonal_gradients(self, pre_move_vector, B_g, g):
         norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector) * 3, 1)
         orthogonal_bias_grad = B_g.reshape(len(B_g) * 3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
@@ -538,8 +528,6 @@ class Optimize:
             return True, max_displacement_threshold, rms_displacement_threshold
         return False, max_displacement_threshold, rms_displacement_threshold
     
- 
-    
     def import_calculation_module(self):
         xtb_method = None
         if self.args.pyscf:
@@ -589,19 +577,13 @@ class Optimize:
         return SP
 
     def write_input_files(self, FIO):
-        if self.args.pyscf:
-            if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
-                geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
-            else:
-                geometry_list, element_list = FIO.make_geometry_list_for_pyscf()
-            file_directory = FIO.make_pyscf_input_file(geometry_list, 0)
-            electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
+        if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
         else:
-            if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
-                geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
-            else:
-                geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        if self.args.pyscf:
+            electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
         self.element_list = element_list
         self.Model_hess = np.eye(len(element_list) * 3)
         return file_directory, electric_charge_and_multiplicity, element_list
@@ -654,7 +636,6 @@ class Optimize:
                 f.write(str(i)+","+str(self.ENERGY_LIST_FOR_PLOTTING[i] - self.ENERGY_LIST_FOR_PLOTTING[0])+"\n")
         return
 
-    
     def geom_info_extract(self, force_data, file_directory, B_g, g):
         if len(force_data["geom_info"]) > 1:
             CSI = CalculationStructInfo()
@@ -671,7 +652,6 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"geometry_info.csv","a") as f:    
                 f.write(",".join(list(map(str,data_list)))+"\n")                 
         return
-    
     
     def dissociation_check(self, new_geometry, element_list):
         #dissociation check
@@ -702,7 +682,6 @@ class Optimize:
             
         return DC_exit_flag
     
-    
     def print_info(self, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
         print("caluculation results (unit a.u.):")
         print("                         Value                         Threshold ")
@@ -715,7 +694,6 @@ class Optimize:
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
-    
     
     def calc_fragement_grads(self, gradient, fragment_list):
         calced_gradient = gradient
