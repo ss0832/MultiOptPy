@@ -1202,7 +1202,9 @@ class NEB:
                     tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
                     new_geometry[k] = copy.copy(tmp_new_geometry)
             
-            if optimize_num % self.align_distances == 0 and optimize_num > 0:
+            if self.align_distances < 1:
+                pass
+            elif optimize_num % self.align_distances == 0 and optimize_num > 0:
                 print("Aligning geometries...")
                 tmp_new_geometry = distribute_geometry(np.array(new_geometry))
                 for k in range(len(new_geometry)):
