@@ -106,13 +106,11 @@ class Calculation:
                 #with open(self.BPA_FOLDER_DIRECTORY+"charges.csv" ,"a") as f:
                 #    f.write(",".join(tmp)+"\n")
                 
-                
-
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    """exact numerical hessian"""
+                    """exact autograd hessian"""
                     
                     pos = torch_positions.clone().requires_grad_(True)
                     if int(electric_charge_and_multiplicity[1]) > 1:

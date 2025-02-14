@@ -25,6 +25,15 @@ try:
 except:
     print("You can't use pyscf.")
 #reference about LUP method:J. Chem. Phys. 94, 751–760 (1991) https://doi.org/10.1063/1.460343
+try:
+    import dxtb
+except:
+    print("You can't use dxtb.")
+    
+try:
+    import torch
+except:
+    print("You can't use pytorch.")
 
 from interface import force_data_parser
 from parameter import element_number
@@ -39,6 +48,7 @@ from idpp import IDPP
 from Optimizer.rfo import RationalFunctionOptimization 
 from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
+from fileio import xyz2list
 
 color_list = ["b"] #use for matplotlib
 
@@ -103,20 +113,24 @@ class NEB:
         self.bneb = args.BNEB
         self.mix = args.MIX
         self.IDPP_flag = args.use_image_dependent_pair_potential
-        self.align_distances = args.align_distances
+        self.align_distances = args.align_distances #integer
         self.excited_state = args.excited_state
         self.FC_COUNT = args.calc_exact_hess
         self.usextb = args.usextb
+        self.usedxtb = args.usedxtb
         self.sd = args.steepest_descent
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
         self.climbing_image_start = args.climbing_image[0]
         self.climbing_image_interval = args.climbing_image[1]
         self.apply_convergence_criteria = args.apply_convergence_criteria
-        if args.usextb == "None":
+        if args.usextb == "None" and args.usedxtb == "None":
             self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
         else:
-            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
+            if self.usextb != "None":
+                self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
+            else:
+                self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
         self.args = args
         os.mkdir(self.NEB_FOLDER_DIRECTORY)
        
@@ -137,7 +151,7 @@ class NEB:
         if self.FC_COUNT > 0 and args.usextb != "None":
             print("Currently, you can't use exact hessian calculation with extended tight binding method.")
             self.FC_COUNT = -1
-            
+        
         return
 
     def force2velocity(self, gradient_list, element_list):
@@ -182,7 +196,7 @@ class NEB:
             IDPP_obj = IDPP()
             tmp_data = IDPP_obj.opt_path(tmp_data)
   
-        if self.align_distances:
+        if self.align_distances > 0:
             tmp_data = distribute_geometry(tmp_data)
         
         for data in tmp_data:
@@ -243,14 +257,13 @@ class NEB:
         geometry_num_list = []
         num_list = []
         delete_pre_total_velocity = []
-        try:
-            os.mkdir(file_directory)
-        except:
-            pass
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
         
+        os.makedirs(file_directory, exist_ok=True)
+        
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+       
         hess_count = 0
-        
+       
         for num, input_file in enumerate(file_list):
             try:
                 print("\n",input_file,"\n")
@@ -260,21 +273,20 @@ class NEB:
                 #psi4.pcm_helper(pcm)
                 
                 psi4.set_output_file(logfile)
-                
-                
                 psi4.set_num_threads(nthread=self.N_THREAD)
                 psi4.set_memory(self.SET_MEMORY)
                 if self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
-                with open(input_file,"r") as f:
-                    input_data = f.read()
-                    input_data = psi4.geometry(input_data)
-                    input_data_for_display = np.array(input_data.geometry(), dtype = "float64")
-                if np.nanmean(np.nanmean(input_data_for_display)) > 1e+5:
-                    raise Exception("geometry is abnormal.")
-                    #print('geometry:\n'+str(input_data_for_display))            
-            
-               
+                
+                geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                
+                input_data = str(electric_charge_and_multiplicity[0])+" "+str(electric_charge_and_multiplicity[1])+"\n"
+                for j in range(len(geometry_list)):
+                    input_data += element_list[j]+"  "+geometry_list[j][0]+"  "+geometry_list[j][1]+"  "+geometry_list[j][2]+"\n"
+                
+                input_data = psi4.geometry(input_data)
+                input_data_for_display = np.array(input_data.geometry(), dtype = "float64")
+                   
                 g, wfn = psi4.gradient(self.basic_set_and_function, molecule=input_data, return_wfn=True)
                 g = np.array(g, dtype = "float64")
                 e = float(wfn.energy())
@@ -355,11 +367,8 @@ class NEB:
         num_list = []
         finish_frag = False
         
-        try:
-            os.mkdir(file_directory)
-        except:
-            pass
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
         
         hess_count = 0
         
@@ -367,16 +376,15 @@ class NEB:
             try:
             
                 print("\n",input_file,"\n")
-
-                with open(input_file, "r") as f:
-                    words = f.readlines()
-                input_data_for_display = []
-                for word in words[1:]:
-                    input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
-                input_data_for_display = np.array(input_data_for_display, dtype="float64")
+                geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                words = []
+                for i in range(len(geometry_list)):
+                    words.append([element_list[i], geometry_list[i][0], geometry_list[i][1], geometry_list[i][2]])
+                
+                input_data_for_display = np.array(geometry_list, dtype="float64") / self.bohr2angstroms
                 
                 print("\n",input_file,"\n")
-                mol = pyscf.gto.M(atom = words[1:],
+                mol = pyscf.gto.M(atom = words,
                                   charge = int(electric_charge_and_multiplicity[0]),
                                   spin = int(electric_charge_and_multiplicity[1])-1,
                                   basis = self.SUB_BASIS_SET,
@@ -423,7 +431,6 @@ class NEB:
                 geometry_num_list.append(input_data_for_display)
                 num_list.append(num)
                 
-                
                 if self.FC_COUNT == -1 or type(optimize_num) is str:
                     pass
                 
@@ -437,7 +444,7 @@ class NEB:
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
                     exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
-                    exact_hess = np.eye(len(input_data_for_display)*3)
+                 
                     np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
                     with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "a") as f:
                         f.write("frequency,"+",".join(map(str, freqs["freq_wavenumber"]))+"\n")
@@ -487,21 +494,15 @@ class NEB:
         num_list = []
         finish_frag = False
         method = self.args.usextb
-        try:
-            os.mkdir(file_directory)
-        except:
-            pass
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        
         for num, input_file in enumerate(file_list):
             try:
                 print("\n",input_file,"\n")
 
-                with open(input_file,"r") as f:
-                    input_data = f.readlines()
                     
-                positions = []
-                for word in input_data[1:]:
-                    positions.append(word.split()[1:4])
+                positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
                         
                 positions = np.array(positions, dtype="float64") / self.bohr2angstroms
                 if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
@@ -559,6 +560,121 @@ class NEB:
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
         return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+
+    
+    def dxtb_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity):
+        #execute extended tight binding method calclation.
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        gradient_norm_list = []
+        delete_pre_total_velocity = []
+        num_list = []
+        finish_frag = False
+        method = self.usedxtb
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        torch_element_number_list = torch.tensor(element_number_list)
+        hess_count = 0
+        for num, input_file in enumerate(file_list):
+            try:
+                print("\n",input_file,"\n")
+                positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                
+                
+                positions = np.array(positions, dtype="float64") / self.bohr2angstroms
+                torch_positions = torch.tensor(positions, requires_grad=True, dtype=torch.float32)
+                
+                max_scf_iteration = len(element_number_list) * 50 + 1000
+                settings = {"maxiter": max_scf_iteration}
+                
+                
+                if method == "GFN1-xTB":
+                    calc = dxtb.calculators.GFN1Calculator(torch_element_number_list, opts=settings)
+                elif method == "GFN2-xTB":
+                    calc = dxtb.calculators.GFN2Calculator(torch_element_number_list, opts=settings)
+                else:
+                    print("method error")
+                    raise
+
+                if int(electric_charge_and_multiplicity[1]) > 1:
+
+                    pos = torch_positions.clone().requires_grad_(True)
+                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1])) # hartree
+                    calc.reset()
+                    pos = torch_positions.clone().requires_grad_(True)
+                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1])) #hartree/Bohr
+                    calc.reset()
+                else:
+                    pos = torch_positions.clone().requires_grad_(True)
+                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0])) # hartree
+                    calc.reset()
+                    pos = torch_positions.clone().requires_grad_(True)
+                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0])) #hartree/Bohr
+                    calc.reset()
+                    
+                return_e = e.to('cpu').detach().numpy().copy()
+                return_g = g.to('cpu').detach().numpy().copy()
+                
+                energy_list.append(return_e)
+                gradient_list.append(return_g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(return_g)**2/(len(return_g)*3)))#RMS
+                geometry_num_list.append(positions)
+                num_list.append(num)
+                
+                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                    pass
+                
+                elif optimize_num % self.FC_COUNT == 0:
+                    """exact autograd hessian"""
+                    pos = torch_positions.clone().requires_grad_(True)
+                    if int(electric_charge_and_multiplicity[1]) > 1:
+                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
+                    else:
+                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]))
+                    exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
+                    return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
+                    
+                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
+                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", return_exact_hess)
+                   
+                    calc.reset()
+                hess_count += 1
+                
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+            
+        try:
+            if self.save_pict:
+                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
+                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
+                print("energy graph plotted.")
+        except Exception as e:
+            print(e)
+            print("Can't plot energy graph.")
+
+        try:
+            if self.save_pict:
+                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
+          
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(e)
+            print("Can't plot gradient graph.")
+
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+
+        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+
+
 
     def xyz_file_make(self, file_directory):
         print("\nprocessing geometry collecting ...\n")
@@ -916,13 +1032,12 @@ class NEB:
         dt = 0.5
         n_reset = 0
         a = self.FIRE_a_start
-        if self.args.usextb == "None":
-            pass
-        else:
-            element_number_list = []
-            for elem in element_list:
-                element_number_list.append(element_number(elem))
-            element_number_list = np.array(element_number_list, dtype="int")
+        
+        
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
         
         with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
@@ -964,13 +1079,16 @@ class NEB:
             self.xyz_file_make(file_directory)
             #------------------
             #get energy and gradient
-            if self.args.usextb == "None":
+            if self.args.usextb == "None" and self.usedxtb == "None":
                 if self.pyscf:
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num, pre_total_velocity, electric_charge_and_multiplicity)
                 else:
                     energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
             else:
-                energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
+                if self.usedxtb == "None":
+                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
+                else:
+                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.dxtb_calculation(file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
             
             if optimize_num == 0:
@@ -1084,7 +1202,8 @@ class NEB:
                     tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
                     new_geometry[k] = copy.copy(tmp_new_geometry)
             
-            if self.align_distances and optimize_num > 0:
+            if optimize_num % self.align_distances == 0 and optimize_num > 0:
+                print("Aligning geometries...")
                 tmp_new_geometry = distribute_geometry(np.array(new_geometry))
                 for k in range(len(new_geometry)):
                     new_geometry[k] = copy.copy(tmp_new_geometry[k])

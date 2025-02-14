@@ -180,7 +180,6 @@ def parser_for_biasforce(parser):
 
 def nebparser(parser):
     parser.add_argument("INPUT", help='input folder')
-    
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -196,7 +195,7 @@ def nebparser(parser):
     parser.add_argument("-mix", "--MIX", action='store_true', help='Mixed Nudged elastic band method (OM+BNEB)')
     
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
-    parser.add_argument("-ad", "--align_distances", action='store_true', help='distribute images at equal intervals linearly')
+    parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals linearly')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
@@ -205,6 +204,7 @@ def nebparser(parser):
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-gqnt", "--global_quasi_newton",  action='store_true', help='use global quasi-Newton method') 
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
