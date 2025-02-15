@@ -816,10 +816,9 @@ class NEB:
                     else:
                         move_vector.append(total_delta[i])      
             else:
-                print("no displacements (Projected velocity-verlet algorithm)")
+                print("no displacements (Projected velocity-verlet algorithm): # NODE "+str(i))
                 move_vector.append(total_delta[i] * 0.0) 
             
-            print("---")
             
         with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
             f.write(",".join(trust_radii_1_list)+"\n")

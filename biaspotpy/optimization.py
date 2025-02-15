@@ -201,17 +201,7 @@ class Optimize:
         element_number_list = np.array(element_number_list, dtype="int")
         natom = len(element_list)
 
-        lagrange_lambda_movestep = [] #(M, 1)
-        lagrange_lambda_prev_movestep = [] #(M, 1)
-        lagrange_lambda_list = [] #(M, 1)
-        lagrange_prev_lambda_list = [] #(M, 1)
-        lagrange_lambda_grad_list = [] #(M, 1)
-        lagrange_lambda_prev_grad_list = [] #(M, 1)
-        init_lagrange_lambda_list = [] #(M, 1)
-        
-        lagrange_constraint_energy = 0.0 
-        lagrange_constraint_prev_energy = 0.0
-        LC = LagrangeConstrain(force_data["lagrange_constraint_condition_list"], force_data["lagrange_constraint_atoms"])
+ 
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
         
         projection_constrain, lagrange_constrain, allactive_flag = self.constrain_flag_check(force_data)
@@ -267,15 +257,6 @@ class Optimize:
             _, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
             
             if iter == 0:
-                if lagrange_constrain:
-                    LC.initialize(geom_num_list)
-                    lagrange_lambda_list = LC.lagrange_init_lambda_calc(B_g.reshape(3*natom, 1), geom_num_list)
-                    init_lagrange_lambda_list = copy.copy(lagrange_lambda_list)
-                    lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
-                    lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
-                    lagrange_lambda_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
-                    lagrange_lambda_prev_movestep = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
-                    lagrange_lambda_prev_grad_list = np.array([0.0 for i in range(len(lagrange_lambda_list))], dtype="float64")
                 if projection_constrain:
                     PC.initialize(geom_num_list)
             else:
@@ -283,24 +264,7 @@ class Optimize:
             
             print("=== Eigenvalue (After Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
-            
-            if lagrange_constrain:
-                lagrange_constraint_atom_addgrad = LC.lagrange_constraint_grad_calc(geom_num_list, lagrange_lambda_list)
-                B_g += lagrange_constraint_atom_addgrad
-                g += lagrange_constraint_atom_addgrad
-                lagrange_lambda_grad_list = LC.lagrange_lambda_grad_calc(geom_num_list)
-                lagrange_constraint_energy = LC.calc_lagrange_constraint_energy(geom_num_list, lagrange_lambda_list)
-                lagrange_constraint_atom_addhess = LC.lagrange_constraint_atom_hess_calc(geom_num_list, lagrange_lambda_list)
-                lagrange_constraint_coupling_hessian = LC.lagrange_constraint_couple_hess_calc(geom_num_list)
-                
-                BPA_hessian += lagrange_constraint_atom_addhess
-                tmp_zero_mat = LC.make_couple_zero_hess(geom_num_list)
-                combined_BPA_hessian = LC.make_combined_lagrangian_hess(BPA_hessian, lagrange_constraint_coupling_hessian)
-                combined_hessian = LC.make_combined_lagrangian_hess(self.Model_hess, tmp_zero_mat)
-                e += float(lagrange_constraint_energy)
-                B_e += float(lagrange_constraint_energy)
-            else:
-                pass
+          
             
             if not allactive_flag:
                 fix_num = []
@@ -356,14 +320,9 @@ class Optimize:
 
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list,
                                                                                   B_g, pre_B_g, pre_geom, B_e, pre_B_e,
-                                                                                  pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lagrange_lambda_list, lagrange_prev_lambda_list, lagrange_lambda_grad_list,
-                                                                                  lagrange_lambda_prev_grad_list, lagrange_lambda_prev_movestep,
-                                                                                  init_lagrange_lambda_list, projection_constrain)
+                                                                                  pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain)
             
-            lagrange_prev_lambda_list = copy.copy(lagrange_lambda_list)
-            lagrange_lambda_prev_movestep = copy.copy(lagrange_lambda_movestep)
-            lagrange_lambda_list = copy.copy(CMV.new_lambda_list)
-            lagrange_lambda_movestep = copy.copy(CMV.lambda_movestep)
+        
             
             ##------------
             ## project out translation and rotation
@@ -377,10 +336,7 @@ class Optimize:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
             
-            if lagrange_constrain:
-                tmp_new_geometry = new_geometry / self.bohr2angstroms
-                new_geometry = LC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
-            
+        
             
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -438,8 +394,7 @@ class Optimize:
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
             
-            lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
-            lagrange_constraint_prev_energy = lagrange_constraint_energy
+
             
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
            
