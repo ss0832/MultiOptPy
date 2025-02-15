@@ -379,11 +379,11 @@ class NEB:
                 geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 words = []
                 for i in range(len(geometry_list)):
-                    words.append([element_list[i], geometry_list[i][0], geometry_list[i][1], geometry_list[i][2]])
+                    words.append([element_list[i], float(geometry_list[i][0]), float(geometry_list[i][1]), float(geometry_list[i][2])])
                 
                 input_data_for_display = np.array(geometry_list, dtype="float64") / self.bohr2angstroms
                 
-                print("\n",input_file,"\n")
+                
                 mol = pyscf.gto.M(atom = words,
                                   charge = int(electric_charge_and_multiplicity[0]),
                                   spin = int(electric_charge_and_multiplicity[1])-1,
