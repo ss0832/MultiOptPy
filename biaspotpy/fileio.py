@@ -68,7 +68,7 @@ class FileIO:
         self.is_save_gjf_file = True
         return
     
-    def make_geometry_list(self, args_electric_charge_and_multiplicity):#numbering name of function is not good. (ex. function_1, function_2, ...) 
+    def make_geometry_list(self, args_electric_charge_and_multiplicity):
         """Load initial structure"""
         geometry_list = []
         element_list = []
@@ -82,18 +82,8 @@ class FileIO:
         geometry_list.append(start_data)
         return geometry_list, element_list, electric_charge_and_multiplicity
 
-    def make_geometry_list_for_pyscf(self):#numbering name of function is not good. (ex. function_1, function_2, ...) 
-        """Load initial structure"""
-        geometry_list = []
-        element_list = []
-        start_data = []
-        tmp_geometry_list, element_list, _ = xyz2list(self.START_FILE, None)
-        for j in range(len(tmp_geometry_list)):
-            start_data.append([element_list[j]] + tmp_geometry_list[j])
-        geometry_list.append(start_data)
-        return geometry_list, element_list
 
-    def make_geometry_list_2(self, new_geometry, element_list, electric_charge_and_multiplicity):#numbering name of function is not good. (ex. function_1, function_2, ...) 
+    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
         """load structure updated geometry for next QM calculation"""
         new_geometry = new_geometry.tolist()
         geometry_list = []
@@ -103,25 +93,13 @@ class FileIO:
             geometry = list(map(str, geometry))
             geometry = [element_list[num]] + geometry
             new_data.append(geometry)
-            print(" ".join(geometry))
+            print(f"{geometry[0]:2} {float(geometry[1]):>17.12f} {float(geometry[2]):>17.12f} {float(geometry[3]):>17.12f}")
+            
         geometry_list.append(new_data)
         print("")
+        
         return geometry_list
         
-    def make_geometry_list_2_for_pyscf(self, new_geometry, element_list):#numbering name of function is not good. (ex. function_1, function_2, ...) 
-        """load structure updated geometry for next QM calculation"""
-        new_geometry = new_geometry.tolist()
-        print("\n")
-        geometry_list = []
-        new_data = []
-        for num, geometry in enumerate(new_geometry):
-            geometry = list(map(str, geometry))
-            geometry = [element_list[num]] + geometry
-            new_data.append(geometry)
-            print(" ".join(geometry))
-        geometry_list.append(new_data)
-        print("")
-        return geometry_list
     
     def make_psi4_input_file(self, geometry_list, iter):#geometry_list: ang.
         """structure updated geometry is saved."""
@@ -147,20 +125,6 @@ class FileIO:
                     w.write("\n")
         return file_directory
 
-    def make_pyscf_input_file(self, geometry_list, iter):#geometry_list: ang.
-        """structure updated geometry is saved."""
-        file_directory = self.work_directory+"samples_"+self.NOEXT_START_FILE+"_"+str(iter)
-        os.makedirs(file_directory, exist_ok=True)
-        for y, geometry in enumerate(geometry_list):
-            with open(file_directory+"/"+self.NOEXT_START_FILE+"_"+str(y)+".xyz","w") as w:
-                w.write(str(len(geometry))+"\n\n")
-                for rows in geometry:   
-                    for row in rows:
-                        w.write(str(row))
-                        w.write(" ")
-                    w.write("\n")
-        return file_directory
-    
     def read_gjf_file(self, args_electric_charge_and_multiplicity):        
         geometry_list = []
         element_list = []
@@ -199,49 +163,8 @@ class FileIO:
             f.write("\n\n\n")
         return 
     
-    def xyz_file_make_for_pyscf(self, name=""):
-        """optimized path is saved."""
-        print("\nprocessing geometry collection ...\n")
-        if name == "":
-            file_list = sum([sorted(glob.glob(os.path.join(self.work_directory, f"samples_*_" + "[0-9]" * i, "*.xyz"))) for i in range(1, 7)], [])
-        else:    
-            file_list = sum([sorted(glob.glob(os.path.join(self.work_directory, f"samples_*_{name}_" + "[0-9]" * i, "*.xyz"))) for i in range(1, 7)], [])
 
-        step_num = len(file_list)
-        for m, file in enumerate(file_list):
-
-            sample = []
-            tmp_geometry_list, element_list, _ = xyz2list(file, None)
-
-            for j in range(len(element_list)):
-                sample.append(element_list[j]+" "+" ".join(tmp_geometry_list[j]))
-
-            with open(self.work_directory+self.NOEXT_START_FILE+"_collection.xyz","a") as w:
-                atom_num = len(sample)
-                w.write(str(atom_num)+"\n")
-                w.write("Frame "+str(m)+"\n")
-            
-            for i in sample:
-                with open(self.work_directory+self.NOEXT_START_FILE+"_collection.xyz","a") as w2:
-                    if "\n" == i or "" == i:
-                        continue
-                    w2.write(i+"\n")
-            if m == step_num - 1:
-                if self.is_save_gjf_file:
-                    self.save_gjf_file(sample)
-                
-                with open(self.work_directory+self.NOEXT_START_FILE+"_optimized.xyz","a") as w2:
-                    w2.write(str(atom_num)+"\n")
-                    w2.write("OptimizedStructure\n")
-                    for i in sample:
-                        if "\n" == i or "" == i:
-                            continue
-                        w2.write(i+"\n")
-            
-        print("\ngeometry collection was completed...\n")
-        return
-        
-    def xyz_file_make(self, name=""):
+    def make_traj_file(self, name=""):
         """optimized path is saved."""
         print("\nprocessing geometry collection ...\n")
         if name == "":
@@ -292,7 +215,7 @@ class FileIO:
         print("\ngeometry collection for IRC was completed...\n")
         return
 
-    def xyz_file_make_for_DM(self, img_1="reactant", img_2="product"):
+    def make_traj_file_for_DM(self, img_1="reactant", img_2="product"):
         """optimized path is saved."""
         print("\nprocessing geometry collection ...\n")
         file_list = sum(

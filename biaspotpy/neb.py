@@ -206,7 +206,7 @@ class NEB:
         print("\n Geometries are loaded. \n")
         return geometry_list, element_list, electric_charge_and_multiplicity
 
-    def make_geometry_list_2(self, new_geometry, element_list, electric_charge_and_multiplicity):
+    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
         new_geometry = new_geometry.tolist()
         #print(new_geometry)
         geometry_list = []
@@ -676,7 +676,7 @@ class NEB:
 
 
 
-    def xyz_file_make(self, file_directory):
+    def make_traj_file(self, file_directory):
         print("\nprocessing geometry collecting ...\n")
         file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
        
@@ -1076,7 +1076,7 @@ class NEB:
                 break
             
             print("\n\n\n NEB: ITR.  "+str(optimize_num)+"  \n\n\n")
-            self.xyz_file_make(file_directory)
+            self.make_traj_file(file_directory)
             #------------------
             #get energy and gradient
             if self.args.usextb == "None" and self.usedxtb == "None":
@@ -1212,7 +1212,7 @@ class NEB:
             #------------------
             pre_geom = geometry_num_list
             
-            geometry_list = self.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
+            geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
             pre_total_force = total_force
             pre_total_velocity = total_velocity
@@ -1221,7 +1221,7 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
                 f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
             
-        self.xyz_file_make(file_directory) 
+        self.make_traj_file(file_directory) 
         print("Complete...")
         return
 

@@ -233,18 +233,14 @@ class Optimize:
 
         optimized_flag = False
 
-
         for iter in range(self.NSTEP):
-
             self.iter = iter
-            
             exit_flag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
             if exit_flag:
                 break
             exit_flag = judge_shape_condition(geom_num_list, self.shape_conditions)
             if exit_flag:
                 break
-
             print("\n# ITR. "+str(iter)+"\n")
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
@@ -341,7 +337,6 @@ class Optimize:
                         else:
                             optimizer_instances[i].set_hessian(self.Model_hess)
                      
-           
             if not allactive_flag:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
                 g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
@@ -446,14 +441,9 @@ class Optimize:
             lagrange_lambda_prev_grad_list = copy.copy(lagrange_lambda_grad_list)
             lagrange_constraint_prev_energy = lagrange_constraint_energy
             
-            if self.args.pyscf:
-                geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry, element_list)
-            else:
-                geometry_list = FIO.make_geometry_list_2(new_geometry, element_list, electric_charge_and_multiplicity)
-
+            geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
+           
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
-
-
 
         self.finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    orthogonal_bias_grad_list, orthogonal_grad_list,
@@ -491,11 +481,7 @@ class Optimize:
             for num, i in enumerate(force_data["geom_info"]):
                 G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
 
-        if self.args.pyscf:
-            FIO.xyz_file_make_for_pyscf()
-        else:
-            FIO.xyz_file_make()
-
+        FIO.make_traj_file()
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
@@ -582,6 +568,7 @@ class Optimize:
         else:
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        
         if self.args.pyscf:
             electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
         self.element_list = element_list
@@ -742,4 +729,5 @@ class Optimize:
                 EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
                 EXEC_IRC.run()
             print(f"Geometry optimization of {file} was completed.")
+        print("All calculations are completed.")
         return
