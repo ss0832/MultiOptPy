@@ -19,7 +19,7 @@ from pca_analysis import PCAPathAnalysis
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
 from MO_analysis import NROAnalysis
-from constraint_condition import LagrangeConstrain, ProjectOutConstrain
+from constraint_condition import ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
 

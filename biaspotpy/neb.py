@@ -98,12 +98,15 @@ class NEB:
         self.hartree2kcalmol = 627.509
         #parameter_for_FIRE_method
         self.FIRE_dt = 0.1
+        self.dt = 0.5
+        self.a = 0.10
+        self.n_reset = 0
         self.FIRE_N_accelerate = 5
         self.FIRE_f_inc = 1.10
         self.FIRE_f_accelerate = 0.99
         self.FIRE_f_decelerate = 0.5
         self.FIRE_a_start = 0.1
-        self.FIRE_dt_max = 3.0
+        self.FIRE_dt_max = 1.0
         self.APPLY_CI_NEB = args.apply_CI_NEB
         self.start_folder = args.INPUT
         self.om = args.OM
@@ -695,49 +698,49 @@ class NEB:
         return
 
 
-    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom):
+    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom):
         velocity_neb = []
-        
+
         for num, each_velocity in enumerate(total_velocity):
             part_velocity_neb = []
             for i in range(len(total_force_list[0])):
-                 
-                part_velocity_neb.append((1.0-a)*total_velocity[num][i]+a*np.sqrt(np.dot(total_velocity[num][i],total_velocity[num][i])/np.dot(total_force_list[num][i],total_force_list[num][i]))*total_force_list[num][i])
+                force_norm = np.linalg.norm(total_force_list[num][i])
+                velocity_norm = np.linalg.norm(total_velocity[num][i])
+                part_velocity_neb.append((1.0 - self.a) * total_velocity[num][i] + self.a * (velocity_norm / force_norm) * total_force_list[num][i])
             velocity_neb.append(part_velocity_neb)
-           
-        
+
         velocity_neb = np.array(velocity_neb)
-        
-        np_dot_param = 0
+
+        np_dot_param = 0.0
         if optimize_num != 0 and len(pre_total_velocity) > 1:
-            for num_1, total_force in enumerate(total_force_list):
-                for num_2, total_force_num in enumerate(total_force):
-                    np_dot_param += (np.dot(pre_total_velocity[num_1][num_2] ,total_force_num.T))
+            np_dot_param = np.sum([np.dot(pre_total_velocity[num_1][num_2], total_force_num.T) for num_1, total_force in enumerate(total_force_list) for num_2, total_force_num in enumerate(total_force)])
             print(np_dot_param)
-        else:
-            pass
+
         if optimize_num > 0 and np_dot_param > 0 and len(pre_total_velocity) > 1:
-            if n_reset > self.FIRE_N_accelerate:
-                dt = min(dt*self.FIRE_f_inc, self.FIRE_dt_max)
-                a = a*self.FIRE_N_accelerate
-            n_reset += 1
+            if self.n_reset > self.FIRE_N_accelerate:
+                self.dt = min(self.dt * self.FIRE_f_inc, self.FIRE_dt_max)
+                self.a *= self.FIRE_f_inc
+            self.n_reset += 1
         else:
-            velocity_neb = velocity_neb*0
-            a = self.FIRE_a_start
-            dt = dt*self.FIRE_f_decelerate
-            n_reset = 0
-        total_velocity = velocity_neb + dt*(total_force_list)
+            velocity_neb *= 0
+            self.a = self.FIRE_a_start
+            self.dt *= self.FIRE_f_decelerate
+            self.n_reset = 0
+
+        total_velocity = velocity_neb + self.dt * total_force_list
+
         if optimize_num != 0 and len(pre_total_velocity) > 1:
-            total_delta = dt*(total_velocity+pre_total_velocity)
+            total_delta = self.dt * (total_velocity + pre_total_velocity)
         else:
-            total_delta = dt*(total_velocity)
-    
-        #--------------------
+            total_delta = self.dt * total_velocity
+
+        # Calculate the movement vector using TR_calc
         move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
-        
-        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
-         
-        return new_geometry, dt, n_reset, a
+
+        # Update geometry using the move vector
+        new_geometry = (geometry_num_list + move_vector) * self.bohr2angstroms
+
+        return new_geometry
 
     def check_convergence(self, total_force_list, move_vec_list):
         threshold_max_force = 0.00045
@@ -1028,9 +1031,7 @@ class NEB:
         else:
             projection_constraint_flag = False        
         #prepare for FIRE method 
-        dt = 0.5
-        n_reset = 0
-        a = self.FIRE_a_start
+    
         
         
         element_number_list = []
@@ -1175,7 +1176,7 @@ class NEB:
             
             elif optimize_num < self.sd:
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometry, dt, n_reset, a = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, dt, n_reset, a, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+                new_geometry  = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
              
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
