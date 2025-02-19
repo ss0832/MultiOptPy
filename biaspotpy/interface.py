@@ -75,13 +75,10 @@ def ieipparser(parser):
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
-
-    
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
-    args.lagrange_constrain = []
     args.projection_constrain = []
     args.opt_fragment = []
     args.oniom_method = []
@@ -134,7 +131,7 @@ def optimizeparser(parser):
     if len(args.INPUT) < 2:
         args.INPUT = args.INPUT[0]
     args.constraint_condition = []
-    args.lagrange_constrain = []
+   
     return args
 
 def parser_for_biasforce(parser):
@@ -221,7 +218,6 @@ def nebparser(parser):
     args.opt_method = ""
     args.opt_fragment = []
     
-    args.lagrange_constrain = []
    
     return args
 
@@ -268,8 +264,6 @@ def mdparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-    
-    args.lagrange_constrain = []
   
     return args
 
@@ -325,17 +319,7 @@ def force_data_parser(args):
                 force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
                 force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
 
-    #---------------------
-    force_data["lagrange_constraint_condition_list"] = []
-    force_data["lagrange_constraint_atoms"] = []
-    if len(args.lagrange_constrain) % 2 != 0:
-        print("invaild input (-lc) ")
-        sys.exit(0)
-
-    for i in range(int(len(args.lagrange_constrain)/2)):
-        force_data["lagrange_constraint_condition_list"].append(str(args.lagrange_constrain[2*i]))
-        force_data["lagrange_constraint_atoms"].append(num_parse(args.lagrange_constrain[2*i+1]))
-
+    
     #---------------------
     force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"] = []
     force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"] = []

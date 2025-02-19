@@ -148,11 +148,6 @@ class Optimize:
             projection_constrain = True
         else:
             projection_constrain = False
-
-        if len(force_data["lagrange_constraint_condition_list"]) > 0:
-            lagrange_constrain = True
-        else:
-            lagrange_constrain = False
             
         if len(force_data["fix_atoms"]) == 0:
             allactive_flag = True
@@ -162,7 +157,7 @@ class Optimize:
         if "x" in force_data["projection_constraint_condition_list"] or "y" in force_data["projection_constraint_condition_list"] or "z" in force_data["projection_constraint_condition_list"]:
             allactive_flag = False
         
-        return projection_constrain, lagrange_constrain, allactive_flag
+        return projection_constrain, allactive_flag
 
 
     def optimize(self):
@@ -204,7 +199,7 @@ class Optimize:
  
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
         
-        projection_constrain, lagrange_constrain, allactive_flag = self.constrain_flag_check(force_data)
+        projection_constrain, allactive_flag = self.constrain_flag_check(force_data)
             
         self.CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
 
@@ -279,27 +274,23 @@ class Optimize:
                 BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
             
             for i in range(len(optimizer_instances)):
-                if lagrange_constrain:
-                    optimizer_instances[i].set_bias_hessian(combined_BPA_hessian)
+                
+                if projection_constrain:
+                    proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
+                    optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
                 else:
-                    if projection_constrain:
-                        proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
-                        optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
-                    else:
-                        optimizer_instances[i].set_bias_hessian(BPA_hessian)
+                    optimizer_instances[i].set_bias_hessian(BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and iter % self.mFC_COUNT == 0):
                     if not allactive_flag:
                         self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
                     
-                    if lagrange_constrain:
-                        optimizer_instances[i].set_hessian(combined_hessian)
+                    
+                    if projection_constrain:
+                        proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
+                        optimizer_instances[i].set_hessian(proj_model_hess)
                     else:
-                        if projection_constrain:
-                            proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
-                            optimizer_instances[i].set_hessian(proj_model_hess)
-                        else:
-                            optimizer_instances[i].set_hessian(self.Model_hess)
+                        optimizer_instances[i].set_hessian(self.Model_hess)
                      
             if not allactive_flag:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
@@ -394,10 +385,8 @@ class Optimize:
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
             
-
             
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
-           
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
 
         self.finalize_optimization(FIO, G, grad_list, bias_grad_list,
