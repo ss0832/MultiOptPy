@@ -66,7 +66,7 @@ class LQA:#local quadratic approximation method
                 break
              
             e, g, geom_num_list, finish_frag = self.CE.single_point(self.final_directory, self.element_list, iter, self.electric_charge_and_multiplicity, self.xtb_method,  UnitValueLib().bohr2angstroms*geom_num_list)
-            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, self.element_list, self.force_data, g, iter, geom_num_list)
+            _, B_e, B_g, BPA_hessian = CalcBiaspot.main(e, g, geom_num_list, self.element_list, self.force_data, g, iter-1, geom_num_list)
             
             
             if finish_frag:
@@ -110,15 +110,11 @@ class LQA:#local quadratic approximation method
                 delta_hess = self.ModelHessianUpdate.FSB_hessian_update(mw_hessian, delta_x, delta_g)
                 mw_hessian += delta_hess
 
-                eigenvalues, eigenvectors = np.linalg.eig(mw_hessian+mw_BPA_hessian)
-                eigenvalues = eigenvalues.astype(np.float64)
-                eigenvectors = eigenvectors.astype(np.float64)
-                small_eigvals = np.abs(eigenvalues) < 1e-8
+                eigenvalues, eigenvectors = np.linalg.eigh(mw_hessian+mw_BPA_hessian)
+                
+                small_eigvals = np.abs(eigenvalues) < 1e-10
                 eigenvalues = eigenvalues[~small_eigvals]
                 eigenvectors = eigenvectors[:,~small_eigvals]
-
-                #for j in range(len(eigenvectors.T)):
-                #     eigenvectors[:, j] = eigenvectors[:, j] / np.linalg.norm(eigenvectors[:, j])
                 
                 dt = 1 / self.N_euler * tmp_step_size / np.linalg.norm(mw_B_g)
 
@@ -138,7 +134,7 @@ class LQA:#local quadratic approximation method
                 alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
                 A = np.dot(eigenvectors, np.dot(np.diag(alphas), eigenvectors.T))
                 step = np.dot(A, mw_B_g.reshape(len(geom_num_list)*3, 1))
-                trust_radius = max(min(np.linalg.norm(step), tmp_step_size), 1e-8)
+                trust_radius = max(min(np.linalg.norm(step), tmp_step_size), 1e-10)
                 
                 step = step / np.linalg.norm(step) * trust_radius
                 geom_num_list = geom_num_list + step.reshape(len(geom_num_list), 3)
@@ -151,10 +147,14 @@ class LQA:#local quadratic approximation method
             else:
                 geom_num_list = geom_num_list - mw_B_g * tmp_step_size * 0.1 / np.linalg.norm(mw_B_g)
                 geom_num_list -= Calculationtools().calc_center_of_mass(geom_num_list, self.element_list)
-            
-            for i in range(len(geom_num_list)):
-                print(self.element_list[i]+" "+str(geom_num_list[i][0]*UnitValueLib().bohr2angstroms)+" "+str(geom_num_list[i][1]*UnitValueLib().bohr2angstroms)+" "+str(geom_num_list[i][2]*UnitValueLib().bohr2angstroms))
-            
+            print()
+            for i in range(len(geom_num_list)):    
+                x = geom_num_list[i][0] * UnitValueLib().bohr2angstroms
+                y = geom_num_list[i][1] * UnitValueLib().bohr2angstroms
+                z = geom_num_list[i][2] * UnitValueLib().bohr2angstroms
+                print(f"{self.element_list[i]:<3} {x:17.12f} {y:17.12f} {z:17.12f}")
+              
+            print()
             if iter > 2:
                 bend_angle = Calculationtools().calc_multi_dim_vec_angle(self.irc_mw_coords[-3]-self.irc_mw_coords[-2], self.irc_mw_coords[-1]-self.irc_mw_coords[-2])
                 self.path_bending_angle_list.append(np.degrees(bend_angle))
@@ -223,7 +223,10 @@ class IRC:
         self.hessian = self.QM_interface.Model_hess
         self.QM_interface.hessian_flag = False
         CalcBiaspot = BiasPotentialCalculation(self.final_directory)
-        _, init_B_e, init_B_g, BPA_hessian = CalcBiaspot.main(init_e, init_g, geom_num_list, self.element_list, self.force_data, init_g, iter, geom_num_list)#new_geometry:ang.
+        _, init_B_e, init_B_g, BPA_hessian = CalcBiaspot.main(init_e, init_g, geom_num_list, self.element_list, self.force_data, init_g, 0, geom_num_list)#new_geometry:ang.
+        #_, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
+            
+        
         self.hessian += BPA_hessian
         
         self.hessian = Calculationtools().project_out_hess_tr_and_rot(self.hessian, self.element_list, geom_num_list)
