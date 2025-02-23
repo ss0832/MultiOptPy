@@ -6,6 +6,9 @@ def update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_
 
     Sc = 2.0
     Ce = (np.dot(pre_B_g.reshape(1, len(geom_num_list)), pre_move_vector.reshape(len(geom_num_list), 1)) + 0.5 * np.dot(np.dot(pre_move_vector.reshape(1, len(geom_num_list)), model_hess), pre_move_vector.reshape(len(geom_num_list), 1)))
+    if abs(Ce) < 1e-10:
+        Ce += 1e-10
+        
     r = (pre_B_e - B_e) / (Ce)
     print("reference_value_of_trust_radius: ", r)
     r_min = 0.25
