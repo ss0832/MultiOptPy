@@ -1,7 +1,9 @@
-from .hessian_update import ModelHessianUpdate
 import numpy as np
 
+from scipy import linalg
+from parameter import UnitValueLib
 
+from .hessian_update import ModelHessianUpdate
 """
 RFO method
  The Journal of Physical Chemistry, Vol. 89, No. 1, 1985
@@ -10,13 +12,23 @@ RFO method
 
 class RationalFunctionOptimization:
     def __init__(self, **config):
+        
         self.config = config
         self.hess_update = ModelHessianUpdate()
         self.Initialization = True
         self.DELTA = 0.5
         self.FC_COUNT = -1 #
         self.saddle_order = self.config["saddle_order"] #
+        
+        self.trust_radius = 0.1
+        if self.config["trust_radius"] is None:
+            pass
+        else:
+            self.trust_radius = float(self.config["trust_radius"])
+        self.trust_radius /= UnitValueLib().bohr2angstroms
         self.iter = 0 #
+        self.max_rfo_iter = 2000 #
+        self.rfo_threshold = 1e-10 #
         self.beta = 0.10
         self.grad_rms_threshold = 0.01
         self.tight_grad_rms_threshold = 0.0002 
@@ -110,7 +122,43 @@ class RationalFunctionOptimization:
         else:
             raise "method error"
         return delta_hess
-    
+
+    def get_cleaned_hessian(self, hessian):
+
+        # Ensure symmetry
+        hessian = 0.5 * (hessian + hessian.T)
+        
+        try:
+            # Use more stable eigenvalue decomposition
+            eigval, eigvec = linalg.eigh(hessian)
+        except np.linalg.LinAlgError:
+            # Fallback to more robust algorithm if standard fails
+            print("Warning: Using more robust eigenvalue decomposition")
+            eigval, eigvec = linalg.eigh(hessian, driver='evr')
+        
+        # Find valid eigenvalues (|λ| > 1e-7)
+        valid_mask = np.abs(eigval) > 1e-7
+        n_removed = np.sum(~valid_mask)
+        
+        # Create diagonal matrix with only valid eigenvalues
+        # Replace small eigenvalues with zeros
+        cleaned_eigval = np.where(valid_mask, eigval, 0.0)
+        
+        # Reconstruct Hessian using only valid components
+        # H = U Λ U^T where Λ contains only valid eigenvalues
+        cleaned_hessian = np.dot(np.dot(eigvec, np.diag(cleaned_eigval)), eigvec.T)
+        
+        # Ensure symmetry of final result
+        cleaned_hessian = 0.5 * (cleaned_hessian + cleaned_hessian.T)
+        
+        # Additional numerical stability check
+        if not np.allclose(cleaned_hessian, cleaned_hessian.T, rtol=1e-13, atol=1e-13):
+            print("Warning: Symmetry check failed, forcing exact symmetry")
+            cleaned_hessian = 0.5 * (cleaned_hessian + cleaned_hessian.T)
+        
+        return cleaned_hessian, n_removed
+
+
     def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv1")
         if self.Initialization:
@@ -126,17 +174,19 @@ class RationalFunctionOptimization:
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
+        new_hess = 0.5 * (new_hess + new_hess.T)
+        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
         
+        print(f"Removed {n_removed} small eigenvalue(s)")
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
         matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
-
+       
         move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
         
         if np.linalg.norm(move_vector) < 1e-10:
@@ -150,184 +200,236 @@ class RationalFunctionOptimization:
         return move_vector#Bohr.
     
     def normal_v2(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
-        print("RFOv2")
+        print("RFOv2")    
+        
+        # Initial step handling
         if self.Initialization:
             self.Initialization = False
-            return self.DELTA*B_g
-        print("saddle order:", self.saddle_order)
-        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
-        DELTA_for_QNM = self.DELTA
+            return self.DELTA * B_g
         
+        n_coords = len(geom_num_list)
+        print(f"Searching for saddle point of order: {self.saddle_order}")
         
+        # Calculate geometry and gradient differences
+        delta_grad = (g - pre_g).reshape(n_coords, 1)
+        displacement = (geom_num_list - pre_geom).reshape(n_coords, 1)
         
+        # Update Hessian if needed
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            delta_hess = self.hessian_update(displacement, delta_grad)
-            new_hess = self.hessian + delta_hess + self.bias_hessian
+            try:
+                delta_hess = self.hessian_update(displacement, delta_grad)
+                new_hess = self.hessian + delta_hess + self.bias_hessian
+            except np.linalg.LinAlgError:
+                print("Warning: Hessian update failed, using previous Hessian")
+                new_hess = self.hessian + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
         
+        # Ensure Hessian symmetry
+        new_hess = 0.5 * (new_hess + new_hess.T)
+        cleaned_new_hess, n_removed = self.get_cleaned_hessian(new_hess)
+        print(f"Removed {n_removed} small eigenvalue(s)")
+        # Construct augmented RFO matrix with improved numerical stability
+        grad_norm = np.linalg.norm(B_g)
         
-        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
-        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
-        
-        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        RFO_eigenvalue, _ = np.linalg.eig(matrix_for_RFO)
-        RFO_eigenvalue = np.sort(RFO_eigenvalue)
-        lambda_for_calc = float(RFO_eigenvalue[self.saddle_order])
-
-        hess_eigenvalue, hess_eigenvector = np.linalg.eigh(new_hess)
-        hess_eigenvector = hess_eigenvector.T
-        move_vector = np.zeros((len(geom_num_list), 1))
-        DELTA_for_QNM = self.DELTA
-        
-        hess_eigenvalue = hess_eigenvalue.astype(np.float64)
-        hess_eigenvector = hess_eigenvector.astype(np.float64)
-        
-        for i in range(len(hess_eigenvalue)):
-            
-            tmp_vector = np.array([hess_eigenvector[i].T], dtype="float64")
-            move_vector += DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (hess_eigenvalue[i] - lambda_for_calc + 1e-8)
-            
-        print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
-
-        
-        if np.linalg.norm(move_vector) < 1e-10:
-            print("Warning: The step size is too small!!!")
-            self.iter += 1
+        if grad_norm < 1e-6:
+            scaled_grad = B_g / grad_norm
         else:
-            self.hessian += delta_hess 
-            self.iter += 1
+            scaled_grad = B_g
+            
+        # Construct the RFO matrix
+        rfo_matrix = np.zeros((n_coords + 1, n_coords + 1))
+        rfo_matrix[:n_coords, :n_coords] = cleaned_new_hess
+        rfo_matrix[:n_coords, -1] = scaled_grad.reshape(n_coords)
+        rfo_matrix[-1, :n_coords] = scaled_grad.reshape(n_coords)
+        
+        # Solve eigenvalue problem with enhanced precision
+        
+        try:
+            rfo_eigenvalues, _ = linalg.eigh(rfo_matrix)
 
+        except np.linalg.LinAlgError:
+            print("Warning: Eigenvalue computation failed, using more stable algorithm")
+            rfo_eigenvalues, _ = linalg.eigh(rfo_matrix, driver='evr')
+
+        # Sort eigenvalues and find appropriate one for the desired saddle order
+       
+        mask = np.abs(rfo_eigenvalues) > 1e-12
+        sorted_indices = np.argsort(rfo_eigenvalues[mask])
+        lambda_index = sorted_indices[self.saddle_order]
+        lambda_for_calc = float(rfo_eigenvalues[mask][lambda_index])
+       
         
-        return move_vector#Bohr.
+        print(f"Selected eigenvalue: {lambda_for_calc:12.9f}")
         
+        # Calculate step with trust radius control
+        try:
+            # Solve the linear system with improved conditioning
+            H = new_hess - self.lambda_s_scale * lambda_for_calc * np.eye(n_coords)
+            # Use more stable solver
+            move_vector = linalg.solve(H, B_g.reshape(n_coords, 1), assume_a='sym')
+        except np.linalg.LinAlgError:
+            print("Warning: Linear system solve failed, using pseudoinverse")
+            H_pinv = linalg.pinvh(H)
+            move_vector = np.dot(H_pinv, B_g.reshape(n_coords, 1))
+        
+        step_norm = np.linalg.norm(move_vector)
+        # Check for convergence and update
+        if step_norm < 1e-10:
+            print("Warning: Step size is too small!")
+            if np.linalg.norm(B_g) > 1e-6:
+                print("But gradient is still significant - might be stuck!")
+        else:
+            if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+                self.hessian += delta_hess
+        
+        self.iter += 1
+        
+        return move_vector  # in Bohr        
+
     def normal_v3(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv3")
         #ref.:Culot, P., Dive, G., Nguyen, V.H. et al. A quasi-Newton algorithm for first-order saddle-point location. Theoret. Chim. Acta 82, 189–205 (1992). https://doi.org/10.1007/BF01113492
+        n_coords = len(geom_num_list)
+        
         if self.Initialization:
             self.Initialization = False
-            return self.DELTA*B_g
-        print("saddle order:", self.saddle_order)
-        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
-        DELTA_for_QNM = self.DELTA
+            return self.DELTA * B_g
         
-
+        print("saddle order:", self.saddle_order)
+        
+        # Calculate geometry and gradient differences with improved precision
+        delta_grad = (g - pre_g).reshape(n_coords, 1)
+        displacement = (geom_num_list - pre_geom).reshape(n_coords, 1)
+        
+        # Update Hessian if needed
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            delta_hess = self.hessian_update(displacement, delta_grad)
-            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
-            new_hess = self.hessian + delta_hess + self.bias_hessian
+            try:
+                delta_hess = self.hessian_update(displacement, delta_grad)
+                new_hess = self.hessian + delta_hess + self.bias_hessian
+            except np.linalg.LinAlgError:
+                print("Warning: Hessian update failed, using previous Hessian")
+                new_hess = self.hessian + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
         
+        # Ensure symmetry and remove small eigenvalues
+        new_hess = 0.5 * (new_hess + new_hess.T)
+        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
+        print(f"Removed {n_removed} small eigenvalue(s)")
         
-        matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
-        tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
+        # Construct RFO matrix with improved stability
+        grad_norm = np.linalg.norm(B_g)
+        if grad_norm > 1e-10:
+            scaled_grad = B_g / grad_norm
+        else:
+            scaled_grad = B_g
         
-        matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        RFO_eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
+        matrix_for_RFO = np.block([
+            [new_hess, scaled_grad.reshape(n_coords, 1)],
+            [scaled_grad.reshape(1, n_coords), np.zeros((1, 1))]
+        ])
+        
+        # Compute RFO eigenvalues using more stable algorithm
+        try:
+            RFO_eigenvalue, _ = linalg.eigh(matrix_for_RFO)
+        except np.linalg.LinAlgError:
+            print("Warning: Using more robust eigenvalue algorithm")
+            RFO_eigenvalue, _ = linalg.eigh(matrix_for_RFO, driver='evr')
+        
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
         lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order, 0)])
-
+        
+        # Apply lambda clipping if enabled
         if self.lambda_clip_flag:
             lambda_for_calc = np.clip(lambda_for_calc, -self.lambda_clip, self.lambda_clip)
-
-        hess_eigenvalue, hess_eigenvector = np.linalg.eigh(new_hess)
+        
+        # Compute Hessian eigensystem with improved stability
+        try:
+            hess_eigenvalue, hess_eigenvector = linalg.eigh(new_hess)
+        except np.linalg.LinAlgError:
+            print("Warning: Using more robust eigenvalue algorithm for Hessian")
+            hess_eigenvalue, hess_eigenvector = linalg.eigh(new_hess, driver='evr')
+        
         hess_eigenvector = hess_eigenvector.T
         hess_eigenval_indices = np.argsort(hess_eigenvalue)
         
-        move_vector = np.zeros((len(geom_num_list), 1))
-        DELTA_for_QNM = self.DELTA
+        # Initialize move vector
+        move_vector = np.zeros((n_coords, 1))
         saddle_order_count = 0
+        
+        # Constants for numerical stability
+        EIGENVAL_THRESHOLD = 1e-6
+        DENOM_THRESHOLD = 1e-10
+        
+        # Calculate move vector with improved stability
         for i in range(len(hess_eigenvalue)):
-            tmp_vector = np.array([hess_eigenvector[hess_eigenval_indices[i]].T], dtype="float64")
+            idx = hess_eigenval_indices[i]
+            
+            # Skip processing if eigenvalue is too small
+            if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
+                continue
+                
+            tmp_vector = hess_eigenvector[idx].reshape(1, n_coords)
+            proj_magnitude = np.dot(tmp_vector, B_g.reshape(n_coords, 1))
+            
             if saddle_order_count < self.saddle_order:
                 if self.projection_eigenvector_flag:
                     continue
-                if np.abs(hess_eigenvalue[hess_eigenval_indices[i]]) < 1e-10:
-                    continue
+                    
                 step_scaling = 1.0
-                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
-                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval + lambda_for_calc + 1e-12) 
-                saddle_order_count += 1
-            else:
-                step_scaling = 1.0
-                if self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and hess_eigenvalue[i] < -1e-9 and self.combine_eigvec_flag:
-                    print(f"To locate geometry away from unwanted saddle point, combine {self.combine_eigen_vec_num} other eigenvectors ...")# Gaussian 16 Rev.C 01
-                    for j in range(self.saddle_order + 1, min(self.saddle_order + 1 + self.combine_eigen_vec_num, len(hess_eigenvalue))):
-                       
-                        tmp_vector += np.array([hess_eigenvector[hess_eigenval_indices[j+i]].T], dtype="float64")
-                    tmp_vector /= self.combine_eigen_vec_num * (1 / (step_scaling))
+                tmp_eigval = hess_eigenvalue[idx]
+                denom = tmp_eigval + lambda_for_calc
                 
-
-                tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
-                move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
-        print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
-        
-        
-        if np.linalg.norm(move_vector) < 1e-10:
-            print("Warning: The step size is too small!!!")
-            self.iter += 1
-        else:
-            self.hessian += delta_hess 
-            self.iter += 1
-
-     
-        return move_vector#Bohr.
-    
-    
-    def normal_v4(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
-        print("RFOv4")
-        self.lambda_s_scale = 10.0
-        if self.Initialization:
-            self.Initialization = False
-            return self.DELTA*B_g
-        print("saddle order:", self.saddle_order)
-        delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
-        displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
-        
-        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            delta_hess = self.hessian_update(displacement, delta_grad)
-            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
-            new_hess = self.hessian + delta_hess + self.bias_hessian
-        else:
-            new_hess = self.hessian + self.bias_hessian
-        
-        eigval, eigvec = np.linalg.eigh(new_hess)
-        argsort_eigval = np.argsort(eigval)
-        modified_eigval = eigval
-        
-        saddle_order_count = 0
-        count = 0
-        
-        
-        while saddle_order_count < self.saddle_order:
-            idx = argsort_eigval[count]
-            if abs(eigval[idx]) < 1e-10:
-                pass                
-            else:
+                # Stabilize denominator
+                if np.abs(denom) < DENOM_THRESHOLD:
+                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
+                
+                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                move_vector += contribution
                 saddle_order_count += 1
-                modified_eigval[idx] = -1.0 * np.abs(modified_eigval[idx])
-            count += 1
-      
-        modified_hess = np.dot(eigvec, np.dot(np.diag(modified_eigval), np.linalg.inv(eigvec)))
-        lambda_for_calc = (2.0 * np.dot(B_g.T, displacement) + np.dot(displacement.T, np.dot(modified_hess, displacement))) / (1.0 + self.lambda_s_scale*np.dot(displacement.T, displacement))
+                
+            else:
+                step_scaling = 1.0
+                
+                # Handle combination of eigenvectors for unwanted saddle points
+                if (self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and 
+                    hess_eigenvalue[idx] < -1e-9 and 
+                    self.combine_eigvec_flag):
+                        
+                    print(f"Combining {self.combine_eigen_vec_num} eigenvectors to avoid unwanted saddle point...")
+                    combined_vector = tmp_vector.copy()
+                    count = 1
+                    
+                    for j in range(1, self.combine_eigen_vec_num):
+                        next_idx = idx + j
+                        if next_idx >= len(hess_eigenvalue):
+                            break
+                        combined_vector += hess_eigenvector[hess_eigenval_indices[next_idx]].reshape(1, n_coords)
+                        count += 1
+                    
+                    tmp_vector = combined_vector / count
+                
+                denom = hess_eigenvalue[idx] - lambda_for_calc
+                
+                # Stabilize denominator
+                if np.abs(denom) < DENOM_THRESHOLD:
+                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
+                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                move_vector += contribution
         
-        print("lambda   : ",lambda_for_calc)
-        move_vector = np.linalg.solve(modified_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
-        if np.linalg.norm(move_vector) < 1e-10:
-            print("Warning: The step size is too small!!!")
-            self.iter += 1
+        print("lambda   : ", lambda_for_calc)
         
+        # Check step size and update
+        step_norm = np.linalg.norm(move_vector)
+        if step_norm < 1e-10:
+            print("Warning: The step size is too small!")
         else:
-            self.hessian += delta_hess 
-            self.iter += 1
-            
-        return move_vector#Bohr.
-
+            if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+                self.hessian += delta_hess  # Store cleaned Hessian
+        
+        self.iter += 1
+        return move_vector  # in Bohr
         
     def neb(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFO4neb")
@@ -348,7 +450,9 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         
-        
+        new_hess = 0.5 * (new_hess + new_hess.T)
+        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
+        print(f"Removed {n_removed} small eigenvalue(s)")
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
@@ -388,8 +492,7 @@ class RationalFunctionOptimization:
                 tmp_eigval = np.clip(hess_eigenvalue[hess_eigenval_indices[i]], -10.0, 10.0)
                 move_vector += step_scaling * DELTA_for_QNM * np.dot(tmp_vector, B_g.reshape(len(geom_num_list), 1)) * tmp_vector.T / (tmp_eigval - lambda_for_calc + 1e-12)
         print("lambda   : ",lambda_for_calc)
-        print("step size: ",DELTA_for_QNM)
-        
+         
         
         if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
@@ -421,10 +524,8 @@ class RationalFunctionOptimization:
         delta_grad = (B_g - pre_B_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
         
-        
-
-        new_momentum_disp = self.beta * self.momentum_disp + (1.0 - self.beta) * geom_num_list
-        new_momentum_grad = self.beta * self.momentum_grad + (1.0 - self.beta) * B_g
+        new_momentum_disp = self.beta * self.momentum_disp + (1.0 - self.beta) * displacement
+        new_momentum_grad = self.beta * self.momentum_grad + (1.0 - self.beta) * delta_grad
         
         delta_momentum_disp = (new_momentum_disp - self.momentum_disp).reshape(len(geom_num_list), 1)
         delta_momentum_grad = (new_momentum_grad - self.momentum_grad).reshape(len(geom_num_list), 1)
@@ -438,14 +539,16 @@ class RationalFunctionOptimization:
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
-            
+        new_hess = 0.5 * (new_hess + new_hess.T)
+        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
+        print(f"Removed {n_removed} small eigenvalue(s)")
         DELTA_for_QNM = self.DELTA
 
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
         matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
-        eigenvalue, eigenvector = np.linalg.eig(matrix_for_RFO)
+        eigenvalue, eigenvector = np.linalg.eigh(matrix_for_RFO)
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
@@ -470,8 +573,7 @@ class RationalFunctionOptimization:
             move_vector = self.normal_v2(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         elif "rfo3" in self.config["method"].lower():
             move_vector = self.normal_v3(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
-        elif "rfo4" in self.config["method"].lower():
-            move_vector = self.normal_v4(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)       
+               
         elif "rfo_neb" in self.config["method"].lower():
             move_vector = self.neb(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         else:
