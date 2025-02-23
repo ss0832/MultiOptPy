@@ -42,9 +42,9 @@ python optmain.py SN2.xyz -ma 150 1 6
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
 ```
-For SADDLE calculation (Not well tested)
+For SADDLE calculation 
 ```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RFO3_Bofill -order 1 -fc 5
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rfo3_bofill_lars -order 1 -fc 5
 ```
 
 For NEB method
