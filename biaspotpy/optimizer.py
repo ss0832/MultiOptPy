@@ -66,15 +66,7 @@ specific_cases = {
     "adamlookaheadlars": {"optimizer": Adam, "lookahead": LookAhead(), "lars": LARS()},
 }
 
-quasi_newton_mapping = {
-    "rfo4_bfgs": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_fsb": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_bofill": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_msp": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_sr1": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_psb": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_flowchart": {"delta": 0.50, "rfo_type": 4},
-    
+quasi_newton_mapping = {    
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -184,7 +176,7 @@ class CalculateMoveVector:
                         if "hybrid_rfo" in key:
                             optimizer_instances.append(HybridCoordinateAugmentedRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
                         elif "rfo" in key:
-                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
+                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii))
                         else:
                             optimizer_instances.append(Newton(method=m))
                         optimizer_instances[i].DELTA = settings["delta"]
@@ -223,11 +215,157 @@ class CalculateMoveVector:
         print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
         return
 
-  
-    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, lambda_list=[], prev_lambda_list=[], lambda_grad_list=[], lambda_prev_grad_list=[], lambda_prev_movestep=[], init_lambda_list=[], projection_constrain=False):#geom_num_list:Bohr
-        natom = len(geom_num_list)
-        nconstrain = len(lambda_list)
+    def update_trust_radius_conditionally(self, optimizer_instances, B_e, pre_B_e, pre_B_g, pre_move_vector, geom_num_list):
+        """
+        Refactored method to handle trust radius updates and conditions.
+        """
+        # Early exit if no full-coordinate count and no Hessian flag
+        if self.FC_COUNT == -1 and not self.model_hess_flag:
+            return
+
+        # Determine if there's a model Hessian to use
+        model_hess = None
+        for i in range(len(optimizer_instances)):
+            if self.newton_tag[i]:
+                model_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
+                break
+
+        # Update trust radii only if we have a Hessian or if FC_COUNT is not -1
+        if not (model_hess is None and self.FC_COUNT == -1):
+            self.trust_radii = update_trust_radii(
+                B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii
+            )
+
+        # If saddle order is positive, constrain the trust radii
+        if self.saddle_order > 0:
+            self.trust_radii = min(self.trust_radii, 0.1)
+
+        # If this is the first iteration but not full-coordinate -1 check
+        if self.iter == 0 and self.FC_COUNT != -1:
+            if self.saddle_order > 0:
+                self.trust_radii = min(self.trust_radii, 0.1)
+
+    def handle_projection_constraint(self, projection_constrain):
+        """
+        Constrain the trust radii if projection constraint is enabled.
+        """
+        if projection_constrain:
+            self.trust_radii = min(self.trust_radii, 0.1)
+
+
+
+    def switch_move_vector(self,
+        B_g,
+        move_vector_list,
+        method_list=None,
+        max_rms_force_switching_threshold=0.5,
+        min_rms_force_switching_threshold=0.1,
+        steepness=10.0,
+        offset=0.5):
         
+
+        if len(method_list) == 1:
+            return copy.copy(move_vector_list[0]), method_list
+
+        rms_force = abs(np.sqrt(np.square(B_g).mean()))
+
+        if rms_force > max_rms_force_switching_threshold:
+
+            print(f"Switching to {method_list[0]}")
+            return copy.copy(move_vector_list[0]), method_list
+        elif min_rms_force_switching_threshold < rms_force <= max_rms_force_switching_threshold:
+
+            x_j = (rms_force - min_rms_force_switching_threshold) / (
+                max_rms_force_switching_threshold - min_rms_force_switching_threshold
+            )
+
+            f_val = 1 / (1 + np.exp(-steepness * (x_j - offset)))
+            combined_vector = (
+                np.array(move_vector_list[0], dtype="float64") * f_val
+                + np.array(move_vector_list[1], dtype="float64") * (1.0 - f_val)
+            )
+            print(f"Weighted switching: {f_val:.3f} {method_list[0]} {method_list[1]}")
+            return combined_vector, method_list
+        else:
+
+            print(f"Switching to {method_list[1]}")
+            return copy.copy(move_vector_list[1]), method_list
+    
+    def update_move_vector_list(
+        self,
+        optimizer_instances,
+        B_g,
+        pre_B_g,
+        pre_geom,
+        B_e,
+        pre_B_e,
+        pre_move_vector,
+        initial_geom_num_list,
+        g,
+        pre_g):
+        """
+        Refactored method to update a list of move vectors from multiple optimizer instances,
+        including optional LARS and LookAhead adjustments.
+        """
+        move_vector_list = []
+
+        for i, optimizer_instance in enumerate(optimizer_instances):
+            # Obtain initial move vector
+            tmp_move_vector = optimizer_instance.run(
+                self.geom_num_list,
+                B_g,
+                pre_B_g,
+                pre_geom,
+                B_e,
+                pre_B_e,
+                pre_move_vector,
+                initial_geom_num_list,
+                g,
+                pre_g
+            )
+            tmp_move_vector = np.array(tmp_move_vector, dtype="float64")
+
+            # Apply LARS adjustment if available
+            if self.lars_instances[i] is not None:
+                trust_delta = self.lars_instances[i].run(
+                    self.geom_num_list,
+                    B_g,
+                    pre_B_g,
+                    pre_geom,
+                    B_e,
+                    pre_B_e,
+                    pre_move_vector,
+                    initial_geom_num_list,
+                    g,
+                    pre_g,
+                    tmp_move_vector
+                )
+                tmp_move_vector *= trust_delta
+
+            # Apply LookAhead adjustment if available
+            if self.lookahead_instances[i] is not None:
+                tmp_move_vector = self.lookahead_instances[i].run(
+                    self.geom_num_list,
+                    B_g,
+                    pre_B_g,
+                    pre_geom,
+                    B_e,
+                    pre_B_e,
+                    pre_move_vector,
+                    initial_geom_num_list,
+                    g,
+                    pre_g,
+                    tmp_move_vector
+                )
+
+            move_vector_list.append(tmp_move_vector)
+
+        return move_vector_list
+
+
+    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain=False):#geom_num_list:Bohr
+        natom = len(geom_num_list)
+    
         ###
         #-------------------------------------------------------------
         geom_num_list = geom_num_list.reshape(natom*3, 1)
@@ -242,96 +380,38 @@ class CalculateMoveVector:
         ###
         self.iter = iter
         self.geom_num_list = geom_num_list
-        move_vector_list = []
-        if nconstrain > 0:
-            self.geom_num_list = np.vstack((geom_num_list, lambda_list))
-            geom_num_list = np.vstack((geom_num_list, lambda_list))
-            B_g = np.vstack((B_g, lambda_grad_list))
-            pre_B_g = np.vstack((pre_B_g, lambda_prev_grad_list))
-            g = np.vstack((g, lambda_grad_list))
-            pre_g = np.vstack((pre_g, lambda_prev_grad_list))
-            pre_move_vector = np.vstack((pre_move_vector, lambda_prev_movestep))
-            pre_geom = np.vstack((pre_geom, prev_lambda_list))
-            
-
 
         #-------------------------------------------------------------
         # update trust radii
         #-------------------------------------------------------------
-        
-        if self.FC_COUNT == -1 and not self.model_hess_flag:
-            pass
-
-        else:
-           
-            for i in range(len(optimizer_instances)):
-                if self.newton_tag[i]:
-                    model_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
-                    break
-            else:
-                model_hess = None
-                    
-            if model_hess is None and self.FC_COUNT == -1:
-                pass
-            
-            else:
-                
-                self.trust_radii = update_trust_radii(B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii)
-            
-        if self.saddle_order > 0:
-            self.trust_radii = min(self.trust_radii, 0.1)
-        
-        if self.iter == 0 and self.FC_COUNT != -1:
-            if self.saddle_order > 0:
-                self.trust_radii = min(self.trust_radii, 0.1)
-        
-        if projection_constrain:
-            self.trust_radii = min(self.trust_radii, 0.1)
+        self.update_trust_radius_conditionally(optimizer_instances, B_e, pre_B_e, pre_B_g, pre_move_vector, geom_num_list)
+        self.handle_projection_constraint(projection_constrain)
         
         #---------------------------------
         #calculate move vector
         #---------------------------------
-        for i in range(len(optimizer_instances)):
-            tmp_move_vector = optimizer_instances[i].run(self.geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g)
-           
-            tmp_move_vector = np.array(tmp_move_vector, dtype="float64")
-            if self.lars_instances[i] is not None:
-                trust_delta = self.lars_instances[i].run(self.geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, tmp_move_vector)
-                
-                tmp_move_vector = tmp_move_vector * trust_delta
-                
-            if self.lookahead_instances[i] is not None:
-                tmp_move_vector = self.lookahead_instances[i].run(self.geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, tmp_move_vector)
-            
-            move_vector_list.append(tmp_move_vector)
-            
+
+        move_vector_list = self.update_move_vector_list(optimizer_instances,
+        B_g,
+        pre_B_g,
+        pre_geom,
+        B_e,
+        pre_B_e,
+        pre_move_vector,
+        initial_geom_num_list,
+        g,
+        pre_g)
         
         #---------------------------------
         # switch step update method
         #---------------------------------
-        if len(move_vector_list) > 1:
-            if abs(np.sqrt(np.square(B_g).mean())) > self.MAX_RMS_FORCE_SWITCHING_THRESHOLD:
-                move_vector = copy.copy(move_vector_list[0])
-                print("Chosen method:", self.method[0])
-
-            elif abs(np.sqrt(np.square(B_g).mean())) <= self.MAX_RMS_FORCE_SWITCHING_THRESHOLD and abs(np.sqrt(np.square(B_g).mean())) > self.MIN_RMS_FORCE_SWITCHING_THRESHOLD: 
-                x_i = abs(np.sqrt(np.square(B_g).mean()))
-                x_max = self.MAX_RMS_FORCE_SWITCHING_THRESHOLD
-                x_min = self.MIN_RMS_FORCE_SWITCHING_THRESHOLD
-
-                x_j = (x_i - x_min) / (x_max - x_min)
-                
-                f_val = 1 / (1 + np.exp(-10.0 * (x_j - 0.5)))
-                move_vector = np.array(move_vector_list[0], dtype="float64") * f_val + np.array(move_vector_list[1], dtype="float64") * (1.0 - f_val)
-                print(f_val, x_j)
-
-            
-            else:
-                move_vector = copy.copy(move_vector_list[1])
-                print("Chosen method:", self.method[1])
-        else:
-            move_vector = copy.copy(move_vector_list[0])
-
+        move_vector, optimizer_instances = self.switch_move_vector(B_g,
+        move_vector_list,
+        optimizer_instances,
+        max_rms_force_switching_threshold=0.5,
+        min_rms_force_switching_threshold=0.1
+        )
+        
         #-------------------------------------------------------------
         #display trust radii
         #-------------------------------------------------------------
@@ -345,16 +425,7 @@ class CalculateMoveVector:
         print("Optimizer instances: ", optimizer_instances)
         ###
         #-------------------------------------------------------------
-        if nconstrain > 0:
-            new_geometry = new_geometry[:-nconstrain]
-            new_lambda_list = new_geometry[-nconstrain:] / self.unitval.bohr2angstroms
-            move_vector = move_vector[:-nconstrain]
-            lambda_movestep = move_vector[-nconstrain:]
-            self.new_lambda_list = copy.copy(new_lambda_list)
-            self.lambda_movestep = copy.copy(lambda_movestep)
-        else:
-            self.new_lambda_list = []
-            self.lambda_movestep = []
+   
         new_geometry = new_geometry.reshape(natom, 3)
         move_vector = move_vector.reshape(natom, 3)
         #-------------------------------------------------------------

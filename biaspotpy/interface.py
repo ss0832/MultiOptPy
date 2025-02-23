@@ -75,18 +75,14 @@ def ieipparser(parser):
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
-
-    
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
-    args.lagrange_constrain = []
     args.projection_constrain = []
     args.opt_fragment = []
     args.oniom_method = []
     return args
-
 
 
 def optimizeparser(parser):
@@ -134,7 +130,7 @@ def optimizeparser(parser):
     if len(args.INPUT) < 2:
         args.INPUT = args.INPUT[0]
     args.constraint_condition = []
-    args.lagrange_constrain = []
+   
     return args
 
 def parser_for_biasforce(parser):
@@ -180,7 +176,6 @@ def parser_for_biasforce(parser):
 
 def nebparser(parser):
     parser.add_argument("INPUT", help='input folder')
-    
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -193,15 +188,19 @@ def nebparser(parser):
     parser.add_argument("-bneb", "--BNEB", action='store_true', help="NEB using Wilson's B matrix for calculating the perpendicular force.")
     parser.add_argument("-dneb", "--DNEB", action='store_true', help='J. Chem. Phys. 120, 2082–2094 (2004) doi:https://doi.org/10.1063/1.1636455 doubly NEB method (DNEB) method')
     parser.add_argument("-nesb", "--NESB", action='store_true', help='J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169 Nudged elastic stiffness band (NESB) method')
+    parser.add_argument("-mix", "--MIX", action='store_true', help='Mixed Nudged elastic band method (OM+BNEB)')
+    
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
-    parser.add_argument("-ad", "--align_distances", action='store_true', help='distribute images at equal intervals linearly')
+    parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals linearly')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
     parser.add_argument("-cineb", "--apply_CI_NEB",  type=int, default='99999', help='apply CI_NEB method')
     parser.add_argument("-sd", "--steepest_descent",  type=int, default='99999', help='apply steepest_descent method')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
+    parser.add_argument("-gqnt", "--global_quasi_newton",  action='store_true', help='use global quasi-Newton method') 
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -209,6 +208,8 @@ def nebparser(parser):
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
     parser.add_argument("-spng", "--save_pict",  action='store_true', help='Save picture for visualization.')
+    parser.add_argument("-aconv", "--apply_convergence_criteria",  action='store_true', help='Apply convergence criteria for NEB calculation.')
+    parser.add_argument("-ci", "--climbing_image", type=int, default=[999999, 999999], nargs="*", help='climbing image for NEB calculation. (start of ITR., interval) The default setting is not using climbing image.')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 
@@ -216,7 +217,6 @@ def nebparser(parser):
     args.opt_method = ""
     args.opt_fragment = []
     
-    args.lagrange_constrain = []
    
     return args
 
@@ -263,8 +263,6 @@ def mdparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-    
-    args.lagrange_constrain = []
   
     return args
 
@@ -320,17 +318,7 @@ def force_data_parser(args):
                 force_data["projection_constraint_condition_list"].append(str(args.projection_constrain[2*i]))
                 force_data["projection_constraint_atoms"].append(num_parse(args.projection_constrain[2*i+1]))
 
-    #---------------------
-    force_data["lagrange_constraint_condition_list"] = []
-    force_data["lagrange_constraint_atoms"] = []
-    if len(args.lagrange_constrain) % 2 != 0:
-        print("invaild input (-lc) ")
-        sys.exit(0)
-
-    for i in range(int(len(args.lagrange_constrain)/2)):
-        force_data["lagrange_constraint_condition_list"].append(str(args.lagrange_constrain[2*i]))
-        force_data["lagrange_constraint_atoms"].append(num_parse(args.lagrange_constrain[2*i+1]))
-
+    
     #---------------------
     force_data["asymmetric_ellipsoidal_repulsive_potential_v2_eps"] = []
     force_data["asymmetric_ellipsoidal_repulsive_potential_v2_sig"] = []

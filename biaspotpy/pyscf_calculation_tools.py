@@ -9,6 +9,7 @@ from pyscf.hessian import thermo
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib
+from fileio import xyz2list
 
 class Calculation:
     def __init__(self, **kwarg):
@@ -44,15 +45,10 @@ class Calculation:
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
             try:
-            
                 pyscf.lib.num_threads(self.N_THREAD)
                 if geom_num_list is None:
-                    with open(input_file, "r") as f:
-                        words = f.readlines()
-                    input_data_for_display = []
-                    for word in words[2:]:
-                        input_data_for_display.append(np.array(word.split()[1:4], dtype="float64")/self.bohr2angstroms)
-                    input_data_for_display = np.array(input_data_for_display, dtype="float64")
+                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
                 else:
                     geom_num_list = np.array(geom_num_list, dtype="float64")
                     input_data_for_display = geom_num_list / self.bohr2angstroms
@@ -119,10 +115,10 @@ class Calculation:
                     freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
                     exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
                     print("frequencies: \n",freqs["freq_wavenumber"])
-                    eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
+                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
 
                     self.Model_hess = exact_hess
 

@@ -330,8 +330,6 @@ class MD:
         return new_geometry
 
 
-
-
     def md(self):
         if self.args.othersoft != "None":
             self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().date())+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
@@ -525,18 +523,15 @@ class MD:
             if projection_constrain_flag:
                 tmp_new_geometry = new_geometry / self.bohr2angstroms
                 new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
+                
             #----------------------------
             pre_B_g = B_g#Hartree/Bohr
-           
             pre_geom = geom_num_list#Bohr
-            if self.args.pyscf:
-                geometry_list = FIO.make_geometry_list_2_for_pyscf(new_geometry*self.bohr2angstroms, element_list)
-                file_directory = FIO.make_pyscf_input_file(geometry_list, iter+1)
-            else:
-                geometry_list = FIO.make_geometry_list_2(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
-                file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
-            #----------------------------
-
+            
+            geometry_list = FIO.print_geometry_list(new_geometry*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
+            
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+           
             #----------------------------
         #plot graph
         G = Graph(self.BPA_FOLDER_DIRECTORY)
@@ -550,17 +545,11 @@ class MD:
             for num, i in enumerate(force_data["geom_info"]):
                 self.single_plot(self.NUM_LIST, cos_list[num], file_directory, i)
         
-        #
-        if self.args.pyscf:
-            FIO.xyz_file_make_for_pyscf()
-        else:
-            FIO.xyz_file_make()
-        
+       
+        FIO.make_traj_file()
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "maximum_value", "max")
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "minimum_value", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
-        
-        
         
         
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:

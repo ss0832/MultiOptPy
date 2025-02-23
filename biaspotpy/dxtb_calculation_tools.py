@@ -9,6 +9,7 @@ import dxtb
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
+from fileio import xyz2list
 
 """
 ref:
@@ -58,17 +59,7 @@ class Calculation:
                 
                 if geom_num_list is None:
                     print("\n",input_file,"\n")
-
-                    with open(input_file,"r") as f:
-                        input_data = f.readlines()
-                    
-                    positions = []
-                    if iter == 0:
-                        for word in input_data[2:]:
-                            positions.append(word.split()[1:4])
-                    else:
-                        for word in input_data[1:]:
-                            positions.append(word.split()[1:4])
+                    positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
                     positions = geom_num_list        
             
@@ -115,13 +106,11 @@ class Calculation:
                 #with open(self.BPA_FOLDER_DIRECTORY+"charges.csv" ,"a") as f:
                 #    f.write(",".join(tmp)+"\n")
                 
-                
-
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    """exact numerical hessian"""
+                    """exact autograd hessian"""
                     
                     pos = torch_positions.clone().requires_grad_(True)
                     if int(electric_charge_and_multiplicity[1]) > 1:
@@ -131,11 +120,11 @@ class Calculation:
                     exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
                     return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
                     
-                    eigenvalues, _ = np.linalg.eigh(return_exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
+                    #eigenvalues, _ = np.linalg.eigh(return_exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
                     
-                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
+                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions, display_eigval=False))
                     self.Model_hess = copy.copy(return_exact_hess)
                     calc.reset()
                    

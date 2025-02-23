@@ -223,8 +223,6 @@ def judge_shape_condition(geom_num_list, shape_condition_list):
             print("Error: shape_condition_list")
             return True
 
-
-    print(finish_flag)
     return finish_flag
 
 
@@ -257,7 +255,10 @@ if __name__ == "__main__":#test
     
     b_c_mat = BC.bond_connect_matrix(elements, coord)
     print(b_c_mat)
-    print(BC.bond_connect_table(b_c_mat))
-    print(BC.angle_connect_table(b_c_mat))
-    print(BC.dihedral_angle_connect_table(b_c_mat))
+    #print(BC.bond_connect_table(b_c_mat))
+    print(np.array(BC.bond_connect_table(b_c_mat), dtype=np.int32)+1)
+    #print(BC.angle_connect_table(b_c_mat))
+    print(np.array(BC.angle_connect_table(b_c_mat), dtype=np.int32)+1)
+    #print(BC.dihedral_angle_connect_table(b_c_mat))
+    print(np.array(BC.dihedral_angle_connect_table(b_c_mat), dtype=np.int32)+1)
     

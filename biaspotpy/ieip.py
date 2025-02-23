@@ -143,9 +143,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             BPC_1 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             BPC_2 = BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY)
             
-            _, bias_energy_1, bias_gradient_1, _ = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
-            _, bias_energy_2, bias_gradient_2, _ = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
+            _, bias_energy_1, bias_gradient_1, error_flag_1 = BPC_1.main(energy_1, gradient_1, geom_num_list_1, element_list, self.force_data)
+            _, bias_energy_2, bias_gradient_2, error_flag_2 = BPC_2.main(energy_2, gradient_2, geom_num_list_2, element_list, self.force_data)
             
+            if error_flag_1 or error_flag_2:
+                print("Error in QM calculation.")
+                with open(self.iEIP_FOLDER_DIRECTORY+"end.txt", "w") as f:
+                    f.write("Error in QM calculation.")
+                break
 
             
             N_1 = self.norm_dist_2imgs(geom_num_list_1, prev_geom_num_list_1)
@@ -207,17 +212,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 new_geom_num_list_1_tolist[i].insert(0, elem)
                 new_geom_num_list_2_tolist[i].insert(0, elem)
            
-            if self.args.pyscf:
-                
-                file_directory_1 = FIO1.make_pyscf_input_file([new_geom_num_list_1_tolist], iter) 
-                file_directory_2 = FIO2.make_pyscf_input_file([new_geom_num_list_2_tolist], iter) 
             
-            else:
-                new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
-                new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
+            new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
+            new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
                 
-                file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter)
-                file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter)
+            file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter)
+            file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter)
             
             if self.RMS(perp_force_1) < 0.01 and self.RMS(perp_force_2) < 0.01:
                 print("enough to relax.")
@@ -250,9 +250,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 break
             print("# ITR. "+str(iter))
             
-            energy_1, gradient_1, geom_num_list_1, _ = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
-            energy_2, gradient_2, geom_num_list_2, _ = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_1, gradient_1, geom_num_list_1, error_flag_1 = SP1.single_point(file_directory_1, element_list, iter, init_electric_charge_and_multiplicity, self.force_data["xtb"])
+            energy_2, gradient_2, geom_num_list_2, error_flag_2 = SP2.single_point(file_directory_2, element_list, iter, final_electric_charge_and_multiplicity, self.force_data["xtb"])
             geom_num_list_1, geom_num_list_2 = Calculationtools().kabsch_algorithm(geom_num_list_1, geom_num_list_2)
+            
+            if error_flag_1 or error_flag_2:
+                print("Error in QM calculation.")
+                with open(self.iEIP_FOLDER_DIRECTORY+"end.txt", "w") as f:
+                    f.write("Error in QM calculation.")
+                break
+            
             if iter == 0:
                 m_1 = gradient_1 * 0.0
                 m_2 = gradient_1 * 0.0
@@ -269,6 +276,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         
             if self.microiter_num > 0 and iter > 0:
                 energy_1, gradient_1, bias_energy_1, bias_gradient_1, geom_num_list_1, energy_2, gradient_2, bias_energy_2, bias_gradient_2, geom_num_list_2 = self.microiteration(SP1, SP2, FIO1, FIO2, file_directory_1, file_directory_2, element_list, init_electric_charge_and_multiplicity, final_electric_charge_and_multiplicity, prev_geom_num_list_1, prev_geom_num_list_2, iter)
+                if os.path.isfile(self.iEIP_FOLDER_DIRECTORY+"end.txt"):
+                    break
             
         
             if energy_2 > energy_1:
@@ -384,17 +393,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 new_geom_num_list_2_tolist[i].insert(0, elem)
            
             
-            if self.args.pyscf:
-                
-                file_directory_1 = FIO1.make_pyscf_input_file([new_geom_num_list_1_tolist], iter+1) 
-                file_directory_2 = FIO2.make_pyscf_input_file([new_geom_num_list_2_tolist], iter+1) 
             
-            else:
-                new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
-                new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
+            new_geom_num_list_1_tolist.insert(0, init_electric_charge_and_multiplicity)
+            new_geom_num_list_2_tolist.insert(0, final_electric_charge_and_multiplicity)
                 
-                file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter+1)
-                file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter+1)
+            file_directory_1 = FIO1.make_psi4_input_file([new_geom_num_list_1_tolist], iter+1)
+            file_directory_2 = FIO2.make_psi4_input_file([new_geom_num_list_2_tolist], iter+1)
             
             BIAS_ENERGY_LIST_A.append(bias_energy_1*self.hartree2kcalmol)
             BIAS_ENERGY_LIST_B.append(bias_energy_2*self.hartree2kcalmol)
@@ -427,7 +431,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         G.single_plot(NUM_LIST, grad_list, file_directory_1, "gradient", axis_name_2="grad (RMS) [a.u.]", name="gradient")
         G.single_plot(NUM_LIST, bias_ene_list, file_directory_1, "bias_energy", axis_name_2="energy [kcal/mol]", name="energy")   
         G.single_plot(NUM_LIST, bias_grad_list, file_directory_1, "bias_gradient", axis_name_2="grad (RMS) [a.u.]", name="gradient")
-        FIO1.xyz_file_make_for_DM(img_1="A", img_2="B")
+        FIO1.make_traj_file_for_DM(img_1="A", img_2="B")
         
         FIO1.argrelextrema_txt_save(ene_list, "approx_TS", "max")
         FIO1.argrelextrema_txt_save(ene_list, "approx_EQ", "min")
@@ -507,12 +511,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         electric_charge_and_multiplicity_list = []
 
         for i in range(len(FIO_img_list)):
+        
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO_img_list[i].make_geometry_list(self.electric_charge_and_multiplicity_list[i])
+            
             if self.args.pyscf:
-                geometry_list, element_list = FIO_img_list[i].make_geometry_list_for_pyscf()
-                
                 electric_charge_and_multiplicity = [self.electronic_charge[i], self.spin_multiplicity[i]]
-            else:
-                geometry_list, element_list, electric_charge_and_multiplicity = FIO_img_list[i].make_geometry_list(self.electric_charge_and_multiplicity_list[i])
             
             geometry_list_list.append(geometry_list)
             element_list_list.append(element_list)
@@ -537,10 +540,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             
             SP_list[i].cpcm_solv_model = self.cpcm_solv_model
             SP_list[i].alpb_solv_model = self.alpb_solv_model
-            if self.args.pyscf:
-                file_directory = FIO_img_list[i].make_pyscf_input_file(geometry_list_list[i], 0)
-            else:
-                file_directory = FIO_img_list[i].make_psi4_input_file(geometry_list_list[i], 0)
+            
+            file_directory = FIO_img_list[i].make_psi4_input_file(geometry_list_list[i], 0)
             file_directory_list.append(file_directory)
        
        
@@ -748,16 +749,13 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 for i, elem in enumerate(element_list_list[j]):
                     tmp_new_geometry_list_to_list[j][i].insert(0, elem)
                 
-            if self.args.pyscf:
-                for j in range(len(SP_list)):
-                    file_directory_list[j] = FIO_img_list[j].make_pyscf_input_file([tmp_new_geometry_list_to_list[j]], iter+1)
-            else:
-                for j in range(len(SP_list)):
-                    tmp_new_geometry_list_to_list[j].insert(0, electric_charge_and_multiplicity_list[j])
+          
+            for j in range(len(SP_list)):
+                tmp_new_geometry_list_to_list[j].insert(0, electric_charge_and_multiplicity_list[j])
                 
-                for j in range(len(SP_list)):
+            for j in range(len(SP_list)):
                    
-                    file_directory_list[j] = FIO_img_list[j].make_psi4_input_file([tmp_new_geometry_list_to_list[j]], iter+1)
+                file_directory_list[j] = FIO_img_list[j].make_psi4_input_file([tmp_new_geometry_list_to_list[j]], iter+1)
                   
               
             PREV_GRAD_LIST = tmp_gradient_list
@@ -849,10 +847,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             FIO_img_list[j].argrelextrema_txt_save(ENERGY_LIST_LIST[j], "approx_TS_"+str(j+1), "max")
             FIO_img_list[j].argrelextrema_txt_save(ENERGY_LIST_LIST[j], "approx_EQ_"+str(j+1), "min")
             FIO_img_list[j].argrelextrema_txt_save(GRAD_LIST_LIST[j], "local_min_grad_"+str(j+1), "min")
-            if self.args.pyscf:
-                FIO_img_list[j].xyz_file_make_for_pyscf(name=alphabet[j])
-            else:
-                FIO_img_list[j].xyz_file_make(name=alphabet[j])
+            
+            FIO_img_list[j].make_traj_file(name=alphabet[j])
         
         return
     

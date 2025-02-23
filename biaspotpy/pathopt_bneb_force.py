@@ -1,14 +1,39 @@
 import numpy as np
 import copy
-from redundant_coordinations import calc_int_grad_from_pBmat, calc_cart_grad_from_pBmat, calc_inv_B_mat, calc_G_mat, calc_inv_G_mat
+from redundant_coordinations import calc_int_grad_from_pBmat, calc_cart_grad_from_pBmat
+from scipy.signal import argrelextrema
+
+def extremum_list_index(energy_list):
+    local_max_energy_list_index = argrelextrema(energy_list, np.greater)
+    inverse_energy_list = (-1)*energy_list
+    local_min_energy_list_index = argrelextrema(inverse_energy_list, np.greater)
+
+    local_max_energy_list_index = local_max_energy_list_index[0].tolist()
+    local_min_energy_list_index = local_min_energy_list_index[0].tolist()
+    local_max_energy_list_index.append(0)
+    local_min_energy_list_index.append(0)
+    local_max_energy_list_index.append(0)
+    local_min_energy_list_index.append(0)
+    return local_max_energy_list_index, local_min_energy_list_index
+
+
 
 class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
     def __init__(self, APPLY_CI_NEB=99999):
+        self.APPLY_CI_NEB = APPLY_CI_NEB
         return
+    
+    def calc_ci_neb_force(self, grad, tangent_grad):
+        #ref.: J. Chem. Phys. 113, 9901–9904 (2000)
+        #ref.: J. Chem. Phys. 142, 024106 (2015)
+        #available for optimizer using only first order differential 
+        ci_force = -2.0 * tangent_grad
+        return ci_force
     
     def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
         print("BNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEB")
         nnode = len(energy_list)
+        local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
         total_force_list = []
         for i in range(nnode):
             if i == 0:
@@ -18,10 +43,22 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
                 total_force_list.append(-1*np.array(gradient_list[nnode-1], dtype = "float64"))
                 continue
             tmp_grad = copy.copy(gradient_list[i]).reshape(-1, 1)
-            force = self.calc_project_out_grad(geometry_num_list[i-1], geometry_num_list[i], geometry_num_list[i+1], tmp_grad, energy_list[i-1:i+2]).reshape(-1, 3)
-            total_force_list.append(-1*force) 
+            force, tangent_grad = self.calc_project_out_grad(geometry_num_list[i-1], geometry_num_list[i], geometry_num_list[i+1], tmp_grad, energy_list[i-1:i+2])     
+            if optimize_num > self.APPLY_CI_NEB and (i + 1 in local_max_energy_list_index or i - 1 in local_max_energy_list_index) and (i != 1 and i != nnode-2):
+                force *= 0.001
+                print("Restrect step of # NODE", i, " for CI-NEB")
+            elif optimize_num > self.APPLY_CI_NEB and (i in local_max_energy_list_index) and (i != 1 or i != nnode-2):
+                force = self.calc_ci_neb_force(tmp_grad, tangent_grad)
+                print("CI-NEB was applied to # NODE", i)
+            else:
+                pass
+           
+            total_force_list.append(-1*force.reshape(-1, 3)) 
         
-        return np.array(total_force_list, dtype = "float64")
+        total_force_list = np.array(total_force_list, dtype = "float64")
+        
+            
+        return total_force_list
     
     def calc_project_out_grad(self, coord_1, coord_2, coord_3, grad_2, energy_list):# grad: (3N, 1), geom_num_list: (N, 3)
         natom = len(coord_2)
@@ -31,11 +68,13 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
             projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
+            tangent_grad = projection_grad
         elif energy_list[0] > energy_list[1] and energy_list[1] > energy_list[2]:
             B_mat = self.calc_B_matrix_for_NEB_tangent(coord_1, coord_2)
             int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
             projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
+            tangent_grad = projection_grad
         else:
             B_mat_plus = self.calc_B_matrix_for_NEB_tangent(coord_2, coord_3)
             B_mat_minus = self.calc_B_matrix_for_NEB_tangent(coord_1, coord_2)
@@ -43,8 +82,8 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
             int_grad_minus = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat_minus)
             max_ene = max(abs(energy_list[2] - energy_list[1]), abs(energy_list[1] - energy_list[0]))
             min_ene = min(abs(energy_list[2] - energy_list[1]), abs(energy_list[1] - energy_list[0]))
-            a = (max_ene + 1e-15) / (max_ene + min_ene + 1e-15)
-            b = (min_ene + 1e-15) / (max_ene + min_ene + 1e-15)
+            a = (max_ene) / (max_ene + min_ene + 1e-8)
+            b = (min_ene) / (max_ene + min_ene + 1e-8)
             
             if energy_list[0] < energy_list[2]:
                 projection_grad_plus = calc_cart_grad_from_pBmat(-a*int_grad_plus, B_mat_plus)
@@ -54,8 +93,8 @@ class CaluculationBNEB():# Wilson's B-matrix-constrained NEB
                 projection_grad_plus = calc_cart_grad_from_pBmat(-b*int_grad_plus, B_mat_plus)
                 projection_grad_minus = calc_cart_grad_from_pBmat(-a*int_grad_minus, B_mat_minus)
             proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad_plus + projection_grad_minus
-        
-        return proj_grad
+            tangent_grad = projection_grad_plus + projection_grad_minus
+        return proj_grad, tangent_grad
 
     
     def calc_B_matrix_for_NEB_tangent(self, coord_1, coord_2):
