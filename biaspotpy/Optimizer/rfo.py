@@ -49,38 +49,7 @@ class RationalFunctionOptimization:
         center /= float(len(geomerty))
         
         return center
-            
-    def project_out_hess_tr_and_rot_for_coord(self, hessian, geomerty):#do not consider atomic mass
-        natoms = len(geomerty)
-       
-        geomerty -= self.calc_center(geomerty)
-        
-    
-        tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
-        tr_y = (np.tile(np.array([0, 1, 0]), natoms)).reshape(-1, 3)
-        tr_z = (np.tile(np.array([0, 0, 1]), natoms)).reshape(-1, 3)
-
-        rot_x = np.cross(geomerty, tr_x).flatten()
-        rot_y = np.cross(geomerty, tr_y).flatten() 
-        rot_z = np.cross(geomerty, tr_z).flatten()
-        tr_x = tr_x.flatten()
-        tr_y = tr_y.flatten()
-        tr_z = tr_z.flatten()
-
-        TR_vectors = np.vstack([tr_x, tr_y, tr_z, rot_x, rot_y, rot_z])
-        
-        Q, R = np.linalg.qr(TR_vectors.T)
-        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
-        TR_vectors = Q.T[keep_indices]
-        n_tr = len(TR_vectors)
-
-        P = np.identity(natoms * 3)
-        for vector in TR_vectors:
-            P -= np.outer(vector, vector)
-
-        hess_proj = np.dot(np.dot(P.T, hessian), P)
-
-        return hess_proj    
+                
     
     def set_hessian(self, hessian):
         self.hessian = hessian
@@ -122,7 +91,7 @@ class RationalFunctionOptimization:
         else:
             raise "method error"
         return delta_hess
-
+    
     def get_cleaned_hessian(self, hessian):
 
         # Ensure symmetry
@@ -158,6 +127,74 @@ class RationalFunctionOptimization:
         
         return cleaned_hessian, n_removed
 
+    def project_out_hess_tr_and_rot_for_coord(self, hessian, geometry, display_eigval=True):#do not consider atomic mass
+        def gram_schmidt(vectors):
+            basis = []
+            for v in vectors:
+                w = v.copy()
+                for b in basis:
+                    w -= np.dot(v, b) * b
+                norm = np.linalg.norm(w)
+                if norm > 1e-10:
+                    basis.append(w / norm)
+            return np.array(basis)
+        
+        natoms = len(geometry) // 3
+        # Center the geometry
+        geometry = geometry - self.calc_center(geometry, element_list=[])
+        
+        # Initialize arrays for translation and rotation vectors
+        tr_vectors = np.zeros((3, 3 * natoms))
+        rot_vectors = np.zeros((3, 3 * natoms))
+        
+        # Create translation vectors (mass-weighted normalization is not used as specified)
+        for i in range(3):
+            tr_vectors[i, i::3] = 1.0
+        
+        # Create rotation vectors
+        for atom in range(natoms):
+            # Get atom coordinates
+            x, y, z = geometry[atom]
+            
+            # Rotation around x-axis: (0, -z, y)
+            rot_vectors[0, 3*atom:3*atom+3] = np.array([0.0, -z, y])
+            
+            # Rotation around y-axis: (z, 0, -x)
+            rot_vectors[1, 3*atom:3*atom+3] = np.array([z, 0.0, -x])
+            
+            # Rotation around z-axis: (-y, x, 0)
+            rot_vectors[2, 3*atom:3*atom+3] = np.array([-y, x, 0.0])
+
+        # Combine translation and rotation vectors
+        TR_vectors = np.vstack([tr_vectors, rot_vectors])
+        
+
+        
+        # Orthonormalize the translation and rotation vectors
+        TR_vectors = gram_schmidt(TR_vectors)
+        
+        # Calculate projection matrix
+        P = np.eye(3 * natoms)
+        for vector in TR_vectors:
+            P -= np.outer(vector, vector)
+        
+        # Project the Hessian
+        hess_proj = np.dot(np.dot(P.T, hessian), P)
+        
+        # Make the projected Hessian symmetric (numerical stability)
+        hess_proj = (hess_proj + hess_proj.T) / 2
+        
+        if display_eigval:
+            eigenvalues, _ = np.linalg.eigh(hess_proj)
+            eigenvalues = np.sort(eigenvalues)
+            # Filter out near-zero eigenvalues
+            idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-6)[0]
+            print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
+            for i in range(0, len(idx_eigenvalues), 6):
+                tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
+                print(" ".join(f"{val:12.8f}" for val in tmp_arr))
+         
+        return hess_proj    
 
     def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv1")
@@ -175,9 +212,8 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
-        
-        print(f"Removed {n_removed} small eigenvalue(s)")
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        new_hess, _ = self.get_cleaned_hessian(new_hess)
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
@@ -226,8 +262,8 @@ class RationalFunctionOptimization:
         
         # Ensure Hessian symmetry
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
-        print(f"Removed {n_removed} small eigenvalue(s)")
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        new_hess, _ = self.get_cleaned_hessian(new_hess)
         # Construct augmented RFO matrix with improved numerical stability
         grad_norm = np.linalg.norm(B_g)
         
@@ -250,7 +286,7 @@ class RationalFunctionOptimization:
 
         # Sort eigenvalues and find appropriate one for the desired saddle order
        
-        mask = np.abs(rfo_eigenvalues) > 1e-12
+        mask = np.abs(rfo_eigenvalues) > 1e-5
         sorted_indices = np.argsort(rfo_eigenvalues[mask])
         lambda_index = sorted_indices[self.saddle_order]
         lambda_for_calc = float(rfo_eigenvalues[mask][lambda_index])
@@ -310,9 +346,8 @@ class RationalFunctionOptimization:
         
         # Ensure symmetry and remove small eigenvalues
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
-        print(f"Removed {n_removed} small eigenvalue(s)")
-        
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        new_hess, _ = self.get_cleaned_hessian(new_hess)
         # Construct RFO matrix with improved stability
         grad_norm = np.linalg.norm(B_g)
         if grad_norm > 1e-10:
@@ -333,11 +368,6 @@ class RationalFunctionOptimization:
             RFO_eigenvalue, _ = linalg.eigh(matrix_for_RFO, driver='evr')
         
         RFO_eigenvalue = np.sort(RFO_eigenvalue)
-        lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order, 0)])
-        
-        # Apply lambda clipping if enabled
-        if self.lambda_clip_flag:
-            lambda_for_calc = np.clip(lambda_for_calc, -self.lambda_clip, self.lambda_clip)
         
         # Compute Hessian eigensystem with improved stability
         try:
@@ -348,13 +378,13 @@ class RationalFunctionOptimization:
         
         hess_eigenvector = hess_eigenvector.T
         hess_eigenval_indices = np.argsort(hess_eigenvalue)
-        
+        lambda_for_calc = float(RFO_eigenvalue[max(self.saddle_order, 0)])
         # Initialize move vector
         move_vector = np.zeros((n_coords, 1))
         saddle_order_count = 0
         
         # Constants for numerical stability
-        EIGENVAL_THRESHOLD = 1e-6
+        EIGENVAL_THRESHOLD = 1e-10
         DENOM_THRESHOLD = 1e-10
         
         # Calculate move vector with improved stability
@@ -386,7 +416,8 @@ class RationalFunctionOptimization:
                 
             else:
                 step_scaling = 1.0
-                
+                if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
+                    continue
                 # Handle combination of eigenvectors for unwanted saddle points
                 if (self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and 
                     hess_eigenvalue[idx] < -1e-9 and 
@@ -440,14 +471,13 @@ class RationalFunctionOptimization:
 
         if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
             delta_hess = self.hessian_update(displacement, delta_grad)
-            delta_hess = self.project_out_hess_tr_and_rot_for_coord(delta_hess, geom_num_list.reshape(int(len(geom_num_list)/3), 3))
             new_hess = self.hessian + delta_hess + self.bias_hessian
         else:
             new_hess = self.hessian + self.bias_hessian
         
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
-        print(f"Removed {n_removed} small eigenvalue(s)")
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        new_hess, _ = self.get_cleaned_hessian(new_hess)
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
@@ -535,8 +565,8 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
-        print(f"Removed {n_removed} small eigenvalue(s)")
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        new_hess, _ = self.get_cleaned_hessian(new_hess)
         DELTA_for_QNM = self.DELTA
 
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
