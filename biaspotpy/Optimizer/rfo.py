@@ -34,7 +34,7 @@ class RationalFunctionOptimization:
         self.tight_grad_rms_threshold = 0.0002 
         self.combine_eigen_vec_num = 3
         self.combine_eigvec_flag = False
-        self.lambda_s_scale = 0.1
+        self.lambda_s_scale = 1.0
         self.lambda_clip = 1000.0
         self.lambda_clip_flag = False
         self.projection_eigenvector_flag = False
@@ -191,11 +191,10 @@ class RationalFunctionOptimization:
         
         if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
-            self.iter += 1
-        
+           
         else:
             self.hessian += delta_hess 
-            self.iter += 1
+        self.iter += 1
             
         return move_vector#Bohr.
     
@@ -227,19 +226,16 @@ class RationalFunctionOptimization:
         
         # Ensure Hessian symmetry
         new_hess = 0.5 * (new_hess + new_hess.T)
-        cleaned_new_hess, n_removed = self.get_cleaned_hessian(new_hess)
+        new_hess, n_removed = self.get_cleaned_hessian(new_hess)
         print(f"Removed {n_removed} small eigenvalue(s)")
         # Construct augmented RFO matrix with improved numerical stability
         grad_norm = np.linalg.norm(B_g)
         
-        if grad_norm < 1e-6:
-            scaled_grad = B_g / grad_norm
-        else:
-            scaled_grad = B_g
+        scaled_grad = B_g / grad_norm
             
         # Construct the RFO matrix
         rfo_matrix = np.zeros((n_coords + 1, n_coords + 1))
-        rfo_matrix[:n_coords, :n_coords] = cleaned_new_hess
+        rfo_matrix[:n_coords, :n_coords] = new_hess
         rfo_matrix[:n_coords, -1] = scaled_grad.reshape(n_coords)
         rfo_matrix[-1, :n_coords] = scaled_grad.reshape(n_coords)
         
@@ -280,9 +276,8 @@ class RationalFunctionOptimization:
             if np.linalg.norm(B_g) > 1e-6:
                 print("But gradient is still significant - might be stuck!")
         else:
-            if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-                self.hessian += delta_hess
-        
+            self.hessian += delta_hess 
+            
         self.iter += 1
         
         return move_vector  # in Bohr        
@@ -425,8 +420,8 @@ class RationalFunctionOptimization:
         if step_norm < 1e-10:
             print("Warning: The step size is too small!")
         else:
-            if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-                self.hessian += delta_hess  # Store cleaned Hessian
+            
+            self.hessian += delta_hess  # Store cleaned Hessian
         
         self.iter += 1
         return move_vector  # in Bohr
