@@ -867,7 +867,7 @@ class NEB:
         
         # Opt for node 0
         min_hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_0.npy")
-        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0)
+        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
         OPTmin.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
         OPTmin.set_hessian(min_hess)
         if optimize_num == 0:
@@ -888,7 +888,7 @@ class NEB:
         np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_0.npy", min_hess)
         
         # Opt for node 1 to nnode-1
-        globalOPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1)
+        globalOPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1, trust_radius=0.1)
         globalOPT.set_bias_hessian(np.zeros((3*natoms*nnode_minus2, 3*natoms*nnode_minus2)))
         globalOPT.set_hessian(global_hess)
        
@@ -916,7 +916,7 @@ class NEB:
         # Opt for node nnode
         
         min_hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(nnode-1)+".npy")
-        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0)
+        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
         OPTmin.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
         OPTmin.set_hessian(min_hess)
         if optimize_num == 0:
@@ -956,9 +956,9 @@ class NEB:
         for num, total_force in enumerate(total_force_list):
             hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
             if num == 0 or num == len(total_force_list) - 1:
-                OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0)
+                OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
             else:
-                OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1)
+                OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1, trust_radius=0.1)
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             OPT.set_hessian(hessian)
             OPT.iter = optimize_num

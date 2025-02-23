@@ -119,10 +119,10 @@ class Calculation:
                     freqs = np.array(wfn.frequencies())
                     
                     print("frequencies: \n",freqs)
-                    eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
+                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
                     self.Model_hess = exact_hess
                 
             except Exception as error:

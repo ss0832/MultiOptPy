@@ -149,11 +149,11 @@ class Calculation:
                     """exact numerical hessian"""
                     exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
 
-                    eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
+                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
                     
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions, display_eigval=False)
                     self.Model_hess = exact_hess
 
             except Exception as error:

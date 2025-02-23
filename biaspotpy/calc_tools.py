@@ -163,91 +163,152 @@ class Calculationtools:
             mass_weighted_coord[i] = copy.copy(geomerty[i] * np.sqrt(elem_mass[i]))
         return mass_weighted_coord
     
-    def project_out_hess_tr_and_rot(self, hessian, element_list, geomerty):#covert coordination to mass-weighted coordination
+    def project_out_hess_tr_and_rot(self, hessian, element_list, geometry, display_eigval=True):#covert coordination to mass-weighted coordination
         natoms = len(element_list)
         
-        geomerty = geomerty - self.calc_center_of_mass(geomerty, element_list)
+        # Move to center of mass
+        geometry = geometry - self.calc_center_of_mass(geometry, element_list)
         
+        # Calculate atomic masses
         elem_mass = np.array([atomic_mass(elem) for elem in element_list], dtype="float64")
         
-        M = np.diag(np.repeat(elem_mass, 3))
-        #M_plus_sqrt = np.diag(np.repeat(elem_mass, 3) ** (0.5))
+        # Mass-weighting matrices
+        m_sqrt = np.repeat(elem_mass, 3) ** 0.5
         M_minus_sqrt = np.diag(np.repeat(elem_mass, 3) ** (-0.5))
-
-        m_plus_sqrt = np.repeat(elem_mass, 3) ** (0.5)
-        #m_minus_sqrt = np.repeat(elem_mass, 3) ** (-0.5)
-
-        mw_hessian = np.dot(np.dot(M_minus_sqrt, hessian), M_minus_sqrt)#mw = mass weighted
         
-        tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
-        tr_y = (np.tile(np.array([0, 1, 0]), natoms)).reshape(-1, 3)
-        tr_z = (np.tile(np.array([0, 0, 1]), natoms)).reshape(-1, 3)
-
-        mw_rot_x = np.cross(geomerty, tr_x).flatten() * m_plus_sqrt
-        mw_rot_y = np.cross(geomerty, tr_y).flatten() * m_plus_sqrt
-        mw_rot_z = np.cross(geomerty, tr_z).flatten() * m_plus_sqrt
-
-        mw_tr_x = tr_x.flatten() * m_plus_sqrt
-        mw_tr_y = tr_y.flatten() * m_plus_sqrt
-        mw_tr_z = tr_z.flatten() * m_plus_sqrt
-
-        TR_vectors = np.vstack([mw_tr_x, mw_tr_y, mw_tr_z, mw_rot_x, mw_rot_y, mw_rot_z])
+        # Convert to mass-weighted Hessian
+        mw_hessian = np.dot(np.dot(M_minus_sqrt, hessian), M_minus_sqrt)
         
-        Q, R = np.linalg.qr(TR_vectors.T)
-        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
-        TR_vectors = Q.T[keep_indices]
-        n_tr = len(TR_vectors)
-
-        P = np.identity(natoms * 3)
+        # Initialize arrays for translation and rotation vectors
+        tr_vectors = np.zeros((3, 3 * natoms))
+        rot_vectors = np.zeros((3, 3 * natoms))
+        
+        # Create mass-weighted translation vectors
+        for i in range(3):
+            tr_vectors[i, i::3] = m_sqrt[i::3]
+        
+        # Create mass-weighted rotation vectors
+        for atom in range(natoms):
+            x, y, z = geometry[atom]
+            mass_sqrt = m_sqrt[3*atom]
+            
+            # Rotation around x-axis: (0, -z, y)
+            rot_vectors[0, 3*atom:3*atom+3] = np.array([0.0, -z, y]) * mass_sqrt
+            
+            # Rotation around y-axis: (z, 0, -x)
+            rot_vectors[1, 3*atom:3*atom+3] = np.array([z, 0.0, -x]) * mass_sqrt
+            
+            # Rotation around z-axis: (-y, x, 0)
+            rot_vectors[2, 3*atom:3*atom+3] = np.array([-y, x, 0.0]) * mass_sqrt
+        
+        # Combine translation and rotation vectors
+        TR_vectors = np.vstack([tr_vectors, rot_vectors])
+        
+        # Gram-Schmidt orthonormalization with improved numerical stability
+        def gram_schmidt(vectors):
+            basis = []
+            for v in vectors:
+                w = v.copy()
+                for b in basis:
+                    w -= np.dot(v, b) * b
+                norm = np.linalg.norm(w)
+                if norm > 1e-10:  # Threshold for linear independence
+                    basis.append(w / norm)
+            return np.array(basis)
+        
+        # Orthonormalize the translation and rotation vectors
+        TR_vectors = gram_schmidt(TR_vectors)
+        
+        # Calculate projection matrix
+        P = np.eye(3 * natoms)
         for vector in TR_vectors:
             P -= np.outer(vector, vector)
-
+        
+        # Project the mass-weighted Hessian
         mw_hess_proj = np.dot(np.dot(P.T, mw_hessian), P)
-
-        eigenvalues, eigenvectors = np.linalg.eig(mw_hess_proj)
-        eigenvalues = eigenvalues.astype(np.float64)
-        eigenvalues = np.sort(eigenvalues)
-        idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
-        print("=== hessian projected out transition and rotation (mass-weighted coordination) ===")
-        print(f"eigenvalues (NUMBER OF VALUES: {len(eigenvalues[idx_eigenvalues])}): \n", eigenvalues[idx_eigenvalues])
+        
+        # Ensure symmetry (numerical stability)
+        mw_hess_proj = (mw_hess_proj + mw_hess_proj.T) / 2
+        
+        if display_eigval:
+            eigenvalues, _ = np.linalg.eigh(mw_hess_proj)
+            eigenvalues = np.sort(eigenvalues)
+            # Stricter threshold for eigenvalue filtering
+            idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-7)[0]
+            print(f"EIGENVALUES (MASS-WEIGHTED COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
+            for i in range(0, len(idx_eigenvalues), 6):
+                tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
+                print(" ".join(f"{val:12.8f}" for val in tmp_arr))
+        
         return mw_hess_proj
 
-    def project_out_hess_tr_and_rot_for_coord(self, hessian, element_list, geomerty):#do not consider atomic mass
+    def project_out_hess_tr_and_rot_for_coord(self, hessian, element_list, geometry, display_eigval=True):#do not consider atomic mass
+        def gram_schmidt(vectors):
+            basis = []
+            for v in vectors:
+                w = v.copy()
+                for b in basis:
+                    w -= np.dot(v, b) * b
+                norm = np.linalg.norm(w)
+                if norm > 1e-10:
+                    basis.append(w / norm)
+            return np.array(basis)
+        
         natoms = len(element_list)
-       
-        geomerty = geomerty - self.calc_center(geomerty, element_list)
+        # Center the geometry
+        geometry = geometry - self.calc_center(geometry, element_list)
         
-    
-        tr_x = (np.tile(np.array([1, 0, 0]), natoms)).reshape(-1, 3)
-        tr_y = (np.tile(np.array([0, 1, 0]), natoms)).reshape(-1, 3)
-        tr_z = (np.tile(np.array([0, 0, 1]), natoms)).reshape(-1, 3)
-
-        rot_x = np.cross(geomerty, tr_x).flatten()
-        rot_y = np.cross(geomerty, tr_y).flatten() 
-        rot_z = np.cross(geomerty, tr_z).flatten()
-        tr_x = tr_x.flatten()
-        tr_y = tr_y.flatten()
-        tr_z = tr_z.flatten()
-
-        TR_vectors = np.vstack([tr_x, tr_y, tr_z, rot_x, rot_y, rot_z])
+        # Initialize arrays for translation and rotation vectors
+        tr_vectors = np.zeros((3, 3 * natoms))
+        rot_vectors = np.zeros((3, 3 * natoms))
         
-        Q, R = np.linalg.qr(TR_vectors.T)
-        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
-        TR_vectors = Q.T[keep_indices]
-        n_tr = len(TR_vectors)
+        # Create translation vectors (mass-weighted normalization is not used as specified)
+        for i in range(3):
+            tr_vectors[i, i::3] = 1.0
+        
+        # Create rotation vectors
+        for atom in range(natoms):
+            # Get atom coordinates
+            x, y, z = geometry[atom]
+            
+            # Rotation around x-axis: (0, -z, y)
+            rot_vectors[0, 3*atom:3*atom+3] = np.array([0.0, -z, y])
+            
+            # Rotation around y-axis: (z, 0, -x)
+            rot_vectors[1, 3*atom:3*atom+3] = np.array([z, 0.0, -x])
+            
+            # Rotation around z-axis: (-y, x, 0)
+            rot_vectors[2, 3*atom:3*atom+3] = np.array([-y, x, 0.0])
 
-        P = np.identity(natoms * 3)
+        # Combine translation and rotation vectors
+        TR_vectors = np.vstack([tr_vectors, rot_vectors])
+        
+
+        
+        # Orthonormalize the translation and rotation vectors
+        TR_vectors = gram_schmidt(TR_vectors)
+        
+        # Calculate projection matrix
+        P = np.eye(3 * natoms)
         for vector in TR_vectors:
             P -= np.outer(vector, vector)
-
+        
+        # Project the Hessian
         hess_proj = np.dot(np.dot(P.T, hessian), P)
-
-        eigenvalues, eigenvectors = np.linalg.eig(hess_proj)
-        eigenvalues = eigenvalues.astype(np.float64)
-        eigenvalues = np.sort(eigenvalues)
-        idx_eigenvalues = np.where((eigenvalues > 1e-10) | (eigenvalues < -1e-10))
-        print("=== hessian projected out transition and rotation (normal coordination) ===")
-        print(f"eigenvalues (NUMBER OF VALUES: {len(eigenvalues[idx_eigenvalues])}): \n", eigenvalues[idx_eigenvalues])
+        
+        # Make the projected Hessian symmetric (numerical stability)
+        hess_proj = (hess_proj + hess_proj.T) / 2
+        
+        if display_eigval:
+            eigenvalues, _ = np.linalg.eigh(hess_proj)
+            eigenvalues = np.sort(eigenvalues)
+            # Filter out near-zero eigenvalues
+            idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-6)[0]
+            print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
+            for i in range(0, len(idx_eigenvalues), 6):
+                tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
+                print(" ".join(f"{val:12.8f}" for val in tmp_arr))
+         
         return hess_proj    
     
   

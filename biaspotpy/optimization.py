@@ -257,7 +257,6 @@ class Optimize:
             else:
                 pass
             
-            print("=== Eigenvalue (After Adding Bias potential) ===")
             _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
           
             

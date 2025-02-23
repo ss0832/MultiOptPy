@@ -66,15 +66,7 @@ specific_cases = {
     "adamlookaheadlars": {"optimizer": Adam, "lookahead": LookAhead(), "lars": LARS()},
 }
 
-quasi_newton_mapping = {
-    "rfo4_bfgs": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_fsb": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_bofill": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_msp": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_sr1": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_psb": {"delta": 0.50, "rfo_type": 4},
-    "rfo4_flowchart": {"delta": 0.50, "rfo_type": 4},
-    
+quasi_newton_mapping = {    
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -184,7 +176,7 @@ class CalculateMoveVector:
                         if "hybrid_rfo" in key:
                             optimizer_instances.append(HybridCoordinateAugmentedRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
                         elif "rfo" in key:
-                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order))
+                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii))
                         else:
                             optimizer_instances.append(Newton(method=m))
                         optimizer_instances[i].DELTA = settings["delta"]

@@ -120,11 +120,11 @@ class Calculation:
                     exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
                     return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
                     
-                    eigenvalues, _ = np.linalg.eigh(return_exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
+                    #eigenvalues, _ = np.linalg.eigh(return_exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
                     
-                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
+                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions, display_eigval=False))
                     self.Model_hess = copy.copy(return_exact_hess)
                     calc.reset()
                    
