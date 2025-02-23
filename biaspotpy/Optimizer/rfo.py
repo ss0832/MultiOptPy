@@ -212,8 +212,6 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess, _ = self.get_cleaned_hessian(new_hess)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
