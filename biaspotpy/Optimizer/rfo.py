@@ -111,7 +111,7 @@ class RationalFunctionOptimization:
         
         # Create diagonal matrix with only valid eigenvalues
         # Replace small eigenvalues with zeros
-        cleaned_eigval = np.where(valid_mask, eigval, 0.0)
+        cleaned_eigval = np.where(valid_mask, eigval, 1e-7)
         
         # Reconstruct Hessian using only valid components
         # H = U Λ U^T where Λ contains only valid eigenvalues
@@ -212,8 +212,9 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         new_hess, _ = self.get_cleaned_hessian(new_hess)
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
@@ -262,8 +263,9 @@ class RationalFunctionOptimization:
         
         # Ensure Hessian symmetry
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         new_hess, _ = self.get_cleaned_hessian(new_hess)
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        
         # Construct augmented RFO matrix with improved numerical stability
         grad_norm = np.linalg.norm(B_g)
         
@@ -346,8 +348,9 @@ class RationalFunctionOptimization:
         
         # Ensure symmetry and remove small eigenvalues
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        #new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         new_hess, _ = self.get_cleaned_hessian(new_hess)
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         # Construct RFO matrix with improved stability
         grad_norm = np.linalg.norm(B_g)
         if grad_norm > 1e-10:
@@ -384,7 +387,7 @@ class RationalFunctionOptimization:
         saddle_order_count = 0
         
         # Constants for numerical stability
-        EIGENVAL_THRESHOLD = 1e-10
+        EIGENVAL_THRESHOLD = 1e-7
         DENOM_THRESHOLD = 1e-10
         
         # Calculate move vector with improved stability
@@ -476,8 +479,9 @@ class RationalFunctionOptimization:
             new_hess = self.hessian + self.bias_hessian
         
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         new_hess, _ = self.get_cleaned_hessian(new_hess)
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
         tmp = np.array([np.append(B_g.reshape(1, len(geom_num_list)), 0.0)], dtype="float64")
         
@@ -565,8 +569,9 @@ class RationalFunctionOptimization:
         else:
             new_hess = self.hessian + self.bias_hessian
         new_hess = 0.5 * (new_hess + new_hess.T)
-        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         new_hess, _ = self.get_cleaned_hessian(new_hess)
+        new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
+        
         DELTA_for_QNM = self.DELTA
 
         matrix_for_RFO = np.append(new_hess, B_g.reshape(len(geom_num_list), 1), axis=1)
