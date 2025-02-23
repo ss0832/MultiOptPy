@@ -183,8 +183,8 @@ class CalculateMoveVector:
                         if "linesearch" in settings:
                             optimizer_instances[i].linesearchflag = True
                         newton_tag.append(True)
-                        lookahead_instances.append(None)
-                        lars_instances.append(None)
+                        lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
+                        lars_instances.append(LARS() if "lars" in lower_m else None)
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
