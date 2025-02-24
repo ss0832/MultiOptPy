@@ -681,20 +681,20 @@ class NEB:
 
     def make_traj_file(self, file_directory):
         print("\nprocessing geometry collecting ...\n")
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz")
+        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9][0-9].xyz")
        
         for m, file in enumerate(file_list):
             with open(file,"r") as f:
                 sample = f.readlines()
-                with open(file_directory+"/"+self.start_folder+"_integration.xyz","a") as w:
+                with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w:
                     atom_num = len(sample)-1
                     w.write(str(atom_num)+"\n")
                     w.write("Frame "+str(m)+"\n")
                 del sample[0]
                 for i in sample:
-                    with open(file_directory+"/"+self.start_folder+"_integration.xyz","a") as w2:
+                    with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w2:
                         w2.write(i)
-        print("\ncollecting geometry integration was complete...\n")
+        print("\ncollecting geometries was complete...\n")
         return
 
 
@@ -1146,20 +1146,29 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"bias_force_rms.csv", "a") as f:
                 f.write(",".join(list(map(str,bias_force_rms_list)))+"\n")
             
+            
+            
+            with open(self.NEB_FOLDER_DIRECTORY+"bias_energy.csv", "a") as f:
+                f.write(",".join(list(map(str,biased_energy_list)))+"\n")
             if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
+                biased_energy_list_for_save = (np.array(biased_energy_list, dtype="float64") - np.array(biased_energy_list, dtype="float64")[0])*self.hartree2kcalmol
+            
+                self.sinple_plot([x for x in range(len(biased_energy_list_for_save))], biased_energy_list_for_save, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Energy [kcal/mol]", name="bias_energy")
+            
+            if self.save_pict:
+                self.sinple_plot([x for x in range(len(cos_list))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             
             with open(self.NEB_FOLDER_DIRECTORY+"orthogonality.csv", "a") as f:
                 f.write(",".join(list(map(str,cos_list)))+"\n")
             
             if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
+                self.sinple_plot([x for x in range(len(tot_force_rms_list))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
             
             with open(self.NEB_FOLDER_DIRECTORY+"perp_rms_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_rms_list)))+"\n")
             
             if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
+                self.sinple_plot([x for x in range(len(tot_force_max_list))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
             
             with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
