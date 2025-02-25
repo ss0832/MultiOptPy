@@ -323,24 +323,25 @@ class RationalFunctionOptimization:
         
         if self.Initialization:
             self.Initialization = False
-            return self.DELTA * B_g
+            new_hess = self.hessian + self.bias_hessian
+        else:
+            # Calculate geometry and gradient differences with improved precision
+            delta_grad = (g - pre_g).reshape(n_coords, 1)
+            displacement = (geom_num_list - pre_geom).reshape(n_coords, 1)
+        
+            # Update Hessian if needed
+            if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
+                try:
+                    delta_hess = self.hessian_update(displacement, delta_grad)
+                    new_hess = self.hessian + delta_hess + self.bias_hessian
+                except np.linalg.LinAlgError:
+                    print("Warning: Hessian update failed, using previous Hessian")
+                    new_hess = self.hessian + self.bias_hessian
+            else:
+                new_hess = self.hessian + self.bias_hessian
+        
         
         print("saddle order:", self.saddle_order)
-        
-        # Calculate geometry and gradient differences with improved precision
-        delta_grad = (g - pre_g).reshape(n_coords, 1)
-        displacement = (geom_num_list - pre_geom).reshape(n_coords, 1)
-        
-        # Update Hessian if needed
-        if self.iter % self.FC_COUNT != 0 or self.FC_COUNT == -1:
-            try:
-                delta_hess = self.hessian_update(displacement, delta_grad)
-                new_hess = self.hessian + delta_hess + self.bias_hessian
-            except np.linalg.LinAlgError:
-                print("Warning: Hessian update failed, using previous Hessian")
-                new_hess = self.hessian + self.bias_hessian
-        else:
-            new_hess = self.hessian + self.bias_hessian
         
         # Ensure symmetry and remove small eigenvalues
         new_hess = 0.5 * (new_hess + new_hess.T)
@@ -446,9 +447,10 @@ class RationalFunctionOptimization:
         step_norm = np.linalg.norm(move_vector)
         if step_norm < 1e-10:
             print("Warning: The step size is too small!")
+        elif self.iter == 0:
+            pass
         else:
-            
-            self.hessian += delta_hess  # Store cleaned Hessian
+            self.hessian += delta_hess  
         
         self.iter += 1
         return move_vector  # in Bohr
@@ -518,11 +520,9 @@ class RationalFunctionOptimization:
         
         if np.linalg.norm(move_vector) < 1e-10:
             print("Warning: The step size is too small!!!")
-            self.iter += 1
         else:
             self.hessian += delta_hess 
-            self.iter += 1
-
+        self.iter += 1
      
         return move_vector#Bohr.
 
