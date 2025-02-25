@@ -264,10 +264,8 @@ class RationalFunctionOptimization:
         new_hess, _ = self.get_cleaned_hessian(new_hess)
         new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         
-        # Construct augmented RFO matrix with improved numerical stability
-        grad_norm = np.linalg.norm(B_g)
         
-        scaled_grad = B_g / grad_norm
+        scaled_grad = B_g 
             
         # Construct the RFO matrix
         rfo_matrix = np.zeros((n_coords + 1, n_coords + 1))
@@ -286,7 +284,7 @@ class RationalFunctionOptimization:
 
         # Sort eigenvalues and find appropriate one for the desired saddle order
        
-        mask = np.abs(rfo_eigenvalues) > 1e-5
+        mask = np.abs(rfo_eigenvalues) > 1e-7
         sorted_indices = np.argsort(rfo_eigenvalues[mask])
         lambda_index = sorted_indices[self.saddle_order]
         lambda_for_calc = float(rfo_eigenvalues[mask][lambda_index])
@@ -351,10 +349,8 @@ class RationalFunctionOptimization:
         new_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list, display_eigval=False)
         # Construct RFO matrix with improved stability
         grad_norm = np.linalg.norm(B_g)
-        if grad_norm > 1e-10:
-            scaled_grad = B_g / grad_norm
-        else:
-            scaled_grad = B_g
+        
+        scaled_grad = B_g
         
         matrix_for_RFO = np.block([
             [new_hess, scaled_grad.reshape(n_coords, 1)],
@@ -417,8 +413,7 @@ class RationalFunctionOptimization:
                 
             else:
                 step_scaling = 1.0
-                if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
-                    continue
+                
                 # Handle combination of eigenvectors for unwanted saddle points
                 if (self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and 
                     hess_eigenvalue[idx] < -1e-9 and 
