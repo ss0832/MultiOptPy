@@ -413,8 +413,7 @@ class RationalFunctionOptimization:
                 
             else:
                 step_scaling = 1.0
-                if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
-                    continue
+                
                 # Handle combination of eigenvectors for unwanted saddle points
                 if (self.grad_rms_threshold > np.sqrt(np.mean(B_g ** 2)) and 
                     hess_eigenvalue[idx] < -1e-9 and 
