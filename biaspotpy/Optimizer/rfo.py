@@ -440,8 +440,7 @@ class RationalFunctionOptimization:
         move_vector = np.zeros((n_coords, 1))
         saddle_order_count = 0
         
-        
-        lambda_for_calc = RFOSecularSolverIterative().calc_rfo_lambda_and_step(hess_eigenvector.T, hess_eigenvalue, lambda_for_calc, B_g, self.saddle_order) # consider non-linear effect
+        lambda_for_calc = RFOSecularSolverIterative().calc_rfo_lambda_and_step(hess_eigenvector, hess_eigenvalue, lambda_for_calc, B_g, self.saddle_order) # consider non-linear effect
         
         # Constants for numerical stability
         EIGENVAL_THRESHOLD = 1e-7
@@ -663,22 +662,20 @@ class RationalFunctionOptimization:
             move_vector = self.normal(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         return move_vector
  
+import numpy as np
 
 class RFOSecularSolverIterative:
     """
     Implements a robust iterative method for the Rational Function Optimization (RFO) secular equation:
-    F(λ) = ∑ (sigma_j / (scale*λ - eigval_j)) - λ = 0
-    where:
-      - eigval_j are the eigenvalues of the Hessian (or approximate Hessian),
-      - sigma_j = hess_eigvec[j] · gradient,
-      - scale is a user-provided factor applied to λ,
-      - λ is the unknown to be solved.
+    F(λ) = ∑ (sigma_j^2 / (scale*λ - eigval_j)) - λ = 0
+    
+    Fully vectorized implementation for high performance.
     """
     def __init__(self,
                  scale=1.0,
-                 max_iter=1000,
-                 tol=1e-5,
-                 delta=1e-5):
+                 max_iter=10000,
+                 tol=1e-10,
+                 delta=1e-4):
         """
         :param scale: Scalar factor applied to λ in the denominator (commonly 1.0).
         :param max_iter: Maximum number of iterations.
@@ -692,72 +689,107 @@ class RFOSecularSolverIterative:
 
     def calc_rfo_lambda_and_step(self, hess_eigvec, hess_eigval, init_lambda_val, B_g, order):
         """
-        Computes λ and the updated geometry step vector using an iterative approach.
+        Computes λ and the updated geometry step vector using a vectorized iterative approach.
+        
         :param hess_eigvec: Eigenvectors of the Hessian, shape (n, n).
         :param hess_eigval: Eigenvalues of the Hessian, length n.
         :param init_lambda_val: Initial guess for λ.
         :param B_g: Gradient vector in the chosen basis, shape (n, 1) or (n,).
+        :param order: Number of eigenvalues to treat with positive sign.
         :return: (final_lambda, move_vector)
         """
+        print("Perform lambda optimization to define appropriate step size...")
         # Flatten gradient vector for consistent operations
         b_g = B_g.ravel()
+        n = len(hess_eigval)
 
+        # Sort eigenvalues and eigenvectors
         sorted_indices = np.argsort(hess_eigval)
         hess_eigval = hess_eigval[sorted_indices]
-        hess_eigvec = hess_eigvec[sorted_indices]
-
-        # Iterative approach for solving the RFO secular equation
-        current_lambda = init_lambda_val
-        for iteration in range(self.max_iter):
-            # Evaluate secular function and derivative for Newton update
-            f_value = 0.0
-            f_grad = 0.0
-            for j in range(len(hess_eigval)):
-                if j < order:
-                    tmp_denom = (self.scale * current_lambda + hess_eigval[j])
-                    if tmp_denom < 1e-10:
-                        tmp_denom += 1e-10
-                    f_value += np.dot(hess_eigvec[j], b_g) ** 2 / tmp_denom
-                    f_grad += -np.dot(hess_eigvec[j], b_g) ** 2 / tmp_denom ** 2
+        hess_eigvec = hess_eigvec[:, sorted_indices]
+        
+        # Calculate sigma values: σⱼ = eigvecⱼᵀ · gradient
+        sigma_values = np.dot(hess_eigvec.T, b_g)
+        sigma_squared = sigma_values**2
+        
+        # Pre-compute sign array for eigenvalue terms
+        # +1 for j < order, -1 for j >= order
+        sign_array = np.ones(n)
+        sign_array[order:] = -1
+        
+        # Try multiple starting points to ensure global solution
+        lambda_candidates = np.linspace(init_lambda_val, init_lambda_val - 100.0, 10)
+        best_lambda = None
+        best_residual = float('inf')
+        
+        for lambda_start in lambda_candidates:
+            current_lambda = lambda_start
+            
+            for iteration in range(self.max_iter):
+                # Compute denominators for all terms vectorized
+                # scale*λ + eigval_j for j < order
+                # scale*λ - eigval_j for j >= order
+                denominators = self.scale * current_lambda + sign_array * hess_eigval
+                
+                # Add small value to avoid division by zero (vectorized)
+                safe_denom = np.where(np.abs(denominators) < 1e-10, 
+                                     np.sign(denominators) * 1e-10, 
+                                     denominators)
+                
+                # Evaluate secular function F(λ) = ∑(σ²/(scale*λ±eigval)) - λ
+                f_value = np.sum(sigma_squared / safe_denom) - current_lambda
+                
+                # First derivative: F'(λ) = -∑(scale*σ²/(scale*λ±eigval)²) - 1
+                f_prime = -np.sum(self.scale * sigma_squared / safe_denom**2) - 1.0
+                
+                # Second derivative (Hessian): F''(λ) = 2*∑(scale²*σ²/(scale*λ±eigval)³)
+                f_double_prime = 2.0 * np.sum(self.scale**2 * sigma_squared / safe_denom**3)
+                
+                # Check for convergence
+                if np.abs(f_value) < self.tol:
+                    if np.abs(f_value) < best_residual:
+                        best_residual = np.abs(f_value)
+                        best_lambda = current_lambda
+                        print(f"Converged in {iteration} iterations with λ = {current_lambda:.10f}, residual = {f_value:.10e}")
+                    break
+                
+                # Newton step using second derivative (Hessian)
+                if np.abs(f_prime) < 1e-12 or np.abs(f_double_prime) < 1e-12:
+                    # If derivatives are near zero, use a simple shift
+                    step = self.delta * np.sign(f_value)
                 else:
-                    tmp_denom += (self.scale * current_lambda - hess_eigval[j])
-                    if tmp_denom < 1e-10:
-                        tmp_denom += 1e-10
-                    f_value += np.dot(hess_eigvec[j], b_g) ** 2 / tmp_denom
-                    f_grad += np.dot(hess_eigvec[j], b_g) ** 2 / tmp_denom ** 2
+                    # Full Newton step with second derivative
+                    step = -f_value * f_prime / (f_prime**2 - f_value * f_double_prime)
+                    
+                    # If the Newton step is large or in the wrong direction, fall back to regular Newton
+                    if np.abs(step) > 1.0 or np.sign(step) != np.sign(-f_value / f_prime):
+                        step = -f_value / f_prime
+                
+                # Damping for large steps
+                if np.abs(step) > 0.1:
+                    step = 0.1 * np.sign(step)
+                
+                # Update lambda
+                new_lambda = current_lambda + step
+                
+                # Safety check for numerical issues
+                if np.isnan(new_lambda) or np.isinf(new_lambda):
+                    new_lambda = current_lambda + self.delta * np.sign(f_value)
+                
+                current_lambda = new_lambda
             
-
-            f_value -= current_lambda  # F(λ)
-            f_grad -= 1.0  # F'(λ)
-            if np.abs(f_value) < self.tol:
-                # Convergence
-                print(f"Converged in {iteration} iterations with λ = {current_lambda: 15.12f}")
-                break
-
-            # Compute derivative (Newton method): F'(λ) = ∑[ -sigma_j * (scale) / (scale*λ - eigval_j)^2 ] - 1
-            
-           
-            # Update λ with a Newton-like step
-            if np.abs(f_grad) < 1e-12:
-                # If derivative is near zero, fallback to a simple shift
-                step = self.delta * np.sign(f_value)
-            else:
-                step = -f_value / f_grad
-
-            # If the step is too large, reduce it (simple damping)
-            if np.abs(step) > 0.01:
-                step = np.sign(step) * 0.01
-
-            new_lambda = current_lambda + step
-            # Safety check to avoid stagnation or overshooting
-            if np.isnan(new_lambda) or np.isinf(new_lambda):
-                # Fall back to a smaller shift when encountering numeric issues
-                new_lambda = current_lambda + self.delta * np.sign(f_value)
-
-            current_lambda = new_lambda
-
+            # Store result if this is the best we've seen
+            if iteration < self.max_iter - 1 and (best_lambda is None or np.abs(f_value) < best_residual):
+                best_lambda = current_lambda
+                best_residual = np.abs(f_value)
+        
+        if best_lambda is None:
+            print(f"Warning: Failed to converge. Using initial value: {init_lambda_val:.10f}")
+            best_lambda = init_lambda_val
         else:
-            print(f"Warning: RFO did not converge within {self.max_iter} iterations. "
-                  f"Last λ: {current_lambda: .6f}, residual: {f_value: .6g}")
-
-        return current_lambda
+            print(f"Optimization result: {init_lambda_val:.10f} -> {best_lambda:.10f}")
+        
+        # Calculate the step vector using the optimal lambda (vectorized)
+        
+        return best_lambda
+   
