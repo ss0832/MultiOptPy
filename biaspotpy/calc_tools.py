@@ -486,16 +486,25 @@ def calc_bond_length_from_vec(vector1, vector2):
     return distance
 
 def torch_calc_angle_from_vec(vector1, vector2):
-    magnitude1 = torch.linalg.norm(vector1) + 1e-15
-    magnitude2 = torch.linalg.norm(vector2) + 1e-15
+    magnitude1 = torch.linalg.norm(vector1)
+    if torch.abs(magnitude1) < 1e-15:
+        magnitude1 = magnitude1 + 1e-15
+    magnitude2 = torch.linalg.norm(vector2)
+    if torch.abs(magnitude2) < 1e-15:
+        magnitude2 = magnitude2 + 1e-15
+
     dot_product = torch.matmul(vector1, vector2)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     theta = torch.arccos(cos_theta)
     return theta
 
 def calc_angle_from_vec(vector1, vector2):
-    magnitude1 = np.linalg.norm(vector1) + 1e-15
-    magnitude2 = np.linalg.norm(vector2) + 1e-15
+    magnitude1 = np.linalg.norm(vector1)
+    if np.abs(magnitude1) < 1e-15:
+        magnitude1 += 1e-15
+    magnitude2 = np.linalg.norm(vector2)
+    if np.abs(magnitude2) < 1e-15:
+        magnitude2 += 1e-15
     dot_product = np.matmul(vector1, vector2)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     theta = np.arccos(cos_theta)
@@ -504,8 +513,13 @@ def calc_angle_from_vec(vector1, vector2):
 def torch_calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
     v2 = torch.linalg.cross(vector2, vector3)
-    norm_v1 = torch.linalg.norm(v1) + 1e-15
-    norm_v2 = torch.linalg.norm(v2) + 1e-15
+    norm_v1 = torch.linalg.norm(v1)
+    if torch.abs(norm_v1) < 1e-15:
+        norm_v1 = norm_v1 + 1e-15
+    norm_v2 = torch.linalg.norm(v2)
+    if torch.abs(norm_v2) < 1e-15:
+        norm_v2 = norm_v2 + 1e-15
+ 
     cos_theta = torch.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = torch.arccos(cos_theta)
     sign = torch.sign(torch.sum(torch.linalg.cross(v1 / norm_v1, v2 / norm_v2) * vector2))
@@ -552,8 +566,12 @@ def change_bond_angle_both_side(coordinates, atom_idx1, atom_idx2, atom_idx3, ta
 def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     v1 = np.cross(vector1, vector2)
     v2 = np.cross(vector2, vector3)
-    norm_v1 = np.linalg.norm(v1) + 1e-15
-    norm_v2 = np.linalg.norm(v2) + 1e-15
+    norm_v1 = np.linalg.norm(v1)
+    if np.abs(norm_v1) < 1e-15:
+        norm_v1 += 1e-15 
+    if np.abs(norm_v2) < 1e-15:
+        norm_v2 += 1e-15
+    
     cos_theta = np.sum(v1*v2) / (norm_v1 * norm_v2)
     angle = np.abs(np.arccos(cos_theta))
     sign = np.sign(np.dot(np.cross(v1 / norm_v1, v2 / norm_v2), vector2))
@@ -578,8 +596,13 @@ def rotate_atom(coord, axis_point, axis_direction, angle):
 
 def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     v1 = torch.linalg.cross(vector1, vector2)
-    magnitude1 = torch.linalg.norm(v1) + 1e-15 
-    magnitude2 = torch.linalg.norm(vector3) + 1e-15
+    magnitude1 = torch.linalg.norm(v1)
+    if torch.abs(magnitude1) < 1e-15:
+        magnitude1 = magnitude1 + 1e-15
+    magnitude2 = torch.linalg.norm(vector3)
+    if torch.abs(magnitude2) < 1e-15:
+        magnitude2 = magnitude2 + 1e-15
+    
     dot_product = torch.matmul(v1, vector3)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     angle = torch.arccos(cos_theta)
@@ -587,8 +610,14 @@ def torch_calc_outofplain_angle_from_vec(vector1, vector2, vector3):
 
 def calc_outofplain_angle_from_vec(vector1, vector2, vector3):
     v1 = np.cross(vector1, vector2)
-    magnitude1 = np.linalg.norm(v1) + 1e-15 
-    magnitude2 = np.linalg.norm(vector3) + 1e-15
+    
+    magnitude1 = np.linalg.norm(v1)
+    if np.abs(magnitude1) < 1e-15:
+        magnitude1 += 1e-15
+    magnitude2 = np.linalg.norm(vector3)
+    if np.abs(magnitude2) < 1e-15:
+        magnitude2 += 1e-15
+    
     dot_product = np.matmul(v1, vector3)
     cos_theta = dot_product / (magnitude1 * magnitude2)
     angle = np.arccos(cos_theta)
@@ -734,10 +763,6 @@ def calc_bond_matrix(geom_num_list, element_list, threshold=1.2):
                 bond_matrix[j][i] = 1
     
     return bond_matrix
-
-
-
-
 
 
 def calc_RMS(data):
