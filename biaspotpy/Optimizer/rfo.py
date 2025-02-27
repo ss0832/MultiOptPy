@@ -698,7 +698,7 @@ class RFOSecularSolverIterative:
         :param order: Number of eigenvalues to treat with positive sign.
         :return: (final_lambda, move_vector)
         """
-        print("Perform lambda optimization to define appropriate step size...")
+        print("Perform lambda optimization to calculate appropriate step size...")
         # Flatten gradient vector for consistent operations
         b_g = B_g.ravel()
         n = len(hess_eigval)
@@ -718,7 +718,7 @@ class RFOSecularSolverIterative:
         sign_array[order:] = -1
         
         # Try multiple starting points to ensure global solution
-        lambda_candidates = np.linspace(init_lambda_val, init_lambda_val - 100.0, 10)
+        lambda_candidates = np.linspace(init_lambda_val, init_lambda_val - 1000.0, 20)
         best_lambda = None
         best_residual = float('inf')
         
