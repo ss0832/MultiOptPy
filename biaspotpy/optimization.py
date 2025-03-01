@@ -510,7 +510,7 @@ class Optimize:
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
         else:
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
-            file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
         
         if self.args.pyscf:
             electric_charge_and_multiplicity = self.electric_charge_and_multiplicity
