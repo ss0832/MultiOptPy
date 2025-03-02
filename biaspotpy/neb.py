@@ -6,7 +6,7 @@ import time
 import matplotlib.pyplot as plt
 import random
 import copy
-
+import re
 
 
 try:
@@ -154,6 +154,8 @@ class NEB:
         if self.FC_COUNT > 0 and args.usextb != "None":
             print("Currently, you can't use exact hessian calculation with extended tight binding method.")
             self.FC_COUNT = -1
+        self.electronic_charge = args.electronic_charge
+        self.spin_multiplicity = args.spin_multiplicity
         
         return
 
@@ -162,17 +164,18 @@ class NEB:
         return np.array(velocity_list, dtype="float64")
 
     def make_geometry_list(self, start_folder, partition_function):
-        start_file_list = glob.glob(start_folder + "/*_[0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9][0-9].xyz") + glob.glob(start_folder + "/*_[0-9][0-9][0-9][0-9].xyz")
+        start_file_list = sum([sorted(glob.glob(os.path.join(start_folder, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+
         loaded_geometry_list = []
 
         for start_file in start_file_list:
-            with open(start_file, "r") as f:
-                lines = f.read().splitlines()
-            tmp_data = []
-            for line in lines:
-                tmp_data.append(line.split())
+            tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(start_file, [self.electronic_charge, self.spin_multiplicity])
+            tmp_data = [electric_charge_and_multiplicity]
+
+            for i in range(len(tmp_geometry_list)):
+                tmp_data.append([element_list[i]] + list(map(str, tmp_geometry_list[i])))
             loaded_geometry_list.append(tmp_data)
-       
+        
         electric_charge_and_multiplicity = loaded_geometry_list[0][0]
         element_list = [row[0] for row in loaded_geometry_list[0][1:]]
         
@@ -229,13 +232,23 @@ class NEB:
             os.mkdir(file_directory)
         except:
             pass
+        tmp_cs = [self.electronic_charge, self.spin_multiplicity]
+        float_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
         for y, geometry in enumerate(geometry_list):
+            tmp_geometry = []
+            for geom in geometry:
+                if len(geom) == 4 and re.match(r"[A-Za-z]+", str(geom[0])) \
+                  and all(re.match(float_pattern, str(x)) for x in geom[1:]):
+                        tmp_geometry.append(geom)
+
+                if len(geom) == 2 and re.match(r"-*\d+", str(geom[0])) and re.match(r"-*\d+", str(geom[1])):
+                    tmp_cs = geom   
+                    
             with open(file_directory+"/"+self.start_folder+"_"+str(y)+".xyz","w") as w:
-                for rows in geometry:
-                    for row in rows:
-                        w.write(str(row))
-                        w.write(" ")
-                    w.write("\n")
+                w.write(str(len(tmp_geometry))+"\n")
+                w.write(str(tmp_cs[0])+" "+str(tmp_cs[1])+"\n")
+                for rows in tmp_geometry:
+                    w.write(f"{rows[0]:2}   {float(rows[1]):>17.12f}   {float(rows[2]):>17.12f}   {float(rows[3]):>17.12f}\n")
         return file_directory
         
     def sinple_plot(self, num_list, energy_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Electronic Energy [kcal/mol]", name="energy"):
@@ -646,6 +659,11 @@ class NEB:
                 
             except Exception as error:
                 print(error)
+                try:
+                    calc.reset()
+                except:
+                    pass
+                
                 print("This molecule could not be optimized.")
                 if optimize_num != 0:
                     delete_pre_total_velocity.append(num)
@@ -681,27 +699,24 @@ class NEB:
 
     def make_traj_file(self, file_directory):
         print("\nprocessing geometry collecting ...\n")
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9].xyz") + glob.glob(file_directory+"/*_[0-9][0-9][0-9][0-9][0-9].xyz")
-       
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        
         for m, file in enumerate(file_list):
-            with open(file,"r") as f:
-                sample = f.readlines()
-                with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w:
-                    atom_num = len(sample)-1
-                    w.write(str(atom_num)+"\n")
-                    w.write("Frame "+str(m)+"\n")
-                del sample[0]
-                for i in sample:
-                    with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w2:
-                        w2.write(i)
-        print("\ncollecting geometries was complete...\n")
+            tmp_geometry_list, element_list, _ = xyz2list(file, None)
+            atom_num = len(tmp_geometry_list)
+            with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w:
+                w.write(str(atom_num)+"\n")
+                w.write("Frame "+str(m)+"\n")
+                for i in range(len(tmp_geometry_list)):
+                    w.write(f"{element_list[i]:2}   {float(tmp_geometry_list[i][0]):17.12f}  {float(tmp_geometry_list[i][1]):17.12f}  {float(tmp_geometry_list[i][2]):17.12f}\n")
+        print("\ncollecting geometry was complete...\n")
         return
 
 
     def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom):
         velocity_neb = []
 
-        for num, each_velocity in enumerate(total_velocity):
+        for num in range(len(total_velocity)):
             part_velocity_neb = []
             for i in range(len(total_force_list[0])):
                 force_norm = np.linalg.norm(total_force_list[num][i])
@@ -755,10 +770,11 @@ class NEB:
             rms_move = np.sqrt(np.sum(move_vec_list[i]**2)/(len(move_vec_list[i])*3))
             print("--------------------")
             print("NODE #"+str(i))
-            print("MAXIMUM NEB FORCE: ", max_grad)
-            print("RMS NEB FORCE: ", rms_grad)
-            print("MAXIMUM DISPLACEMENT: ", max_move)
-            print("RMS DISPLACEMENT: ", rms_move)
+            print(f"MAXIMUM NEB FORCE    :    {float(max_grad):12.8f}")
+            print(f"RMS NEB FORCE        :    {float(rms_grad):12.8f}")
+            print(f"MAXIMUM DISPLACEMENT :    {float(max_move):12.8f}")
+            print(f"RMS DISPLACEMENT     :    {float(rms_move):12.8f}")
+            
             if max_grad < threshold_max_force and rms_grad < threshold_rms_force and max_move < threshold_max_displacement and rms_move < threshold_rms_displacement:
                 print("Converged?: YES")
                 move_vec_list[i] = move_vec_list[i]*0.0
@@ -1146,29 +1162,20 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"bias_force_rms.csv", "a") as f:
                 f.write(",".join(list(map(str,bias_force_rms_list)))+"\n")
             
-            
-            
-            with open(self.NEB_FOLDER_DIRECTORY+"bias_energy.csv", "a") as f:
-                f.write(",".join(list(map(str,biased_energy_list)))+"\n")
             if self.save_pict:
-                biased_energy_list_for_save = (np.array(biased_energy_list, dtype="float64") - np.array(biased_energy_list, dtype="float64")[0])*self.hartree2kcalmol
-            
-                self.sinple_plot([x for x in range(len(biased_energy_list_for_save))], biased_energy_list_for_save, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Energy [kcal/mol]", name="bias_energy")
-            
-            if self.save_pict:
-                self.sinple_plot([x for x in range(len(cos_list))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
+                self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
             
             with open(self.NEB_FOLDER_DIRECTORY+"orthogonality.csv", "a") as f:
                 f.write(",".join(list(map(str,cos_list)))+"\n")
             
             if self.save_pict:
-                self.sinple_plot([x for x in range(len(tot_force_rms_list))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
+                self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
             
             with open(self.NEB_FOLDER_DIRECTORY+"perp_rms_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_rms_list)))+"\n")
             
             if self.save_pict:
-                self.sinple_plot([x for x in range(len(tot_force_max_list))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
+                self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
             
             with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
