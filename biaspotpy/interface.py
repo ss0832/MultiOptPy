@@ -210,6 +210,8 @@ def nebparser(parser):
     parser.add_argument("-spng", "--save_pict",  action='store_true', help='Save picture for visualization.')
     parser.add_argument("-aconv", "--apply_convergence_criteria",  action='store_true', help='Apply convergence criteria for NEB calculation.')
     parser.add_argument("-ci", "--climbing_image", type=int, default=[999999, 999999], nargs="*", help='climbing image for NEB calculation. (start of ITR., interval) The default setting is not using climbing image.')
+    parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
+    parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 
