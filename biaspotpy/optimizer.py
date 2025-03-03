@@ -259,8 +259,8 @@ class CalculateMoveVector:
         B_g,
         move_vector_list,
         method_list=None,
-        max_rms_force_switching_threshold=0.5,
-        min_rms_force_switching_threshold=0.1,
+        max_rms_force_switching_threshold=0.05,
+        min_rms_force_switching_threshold=0.005,
         steepness=10.0,
         offset=0.5):
         
@@ -409,8 +409,8 @@ class CalculateMoveVector:
         move_vector, optimizer_instances = self.switch_move_vector(B_g,
         move_vector_list,
         optimizer_instances,
-        max_rms_force_switching_threshold=0.5,
-        min_rms_force_switching_threshold=0.1
+        max_rms_force_switching_threshold=0.05,
+        min_rms_force_switching_threshold=0.005
         )
 
         print("==================================================================================")
