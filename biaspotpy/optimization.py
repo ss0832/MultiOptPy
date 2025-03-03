@@ -248,7 +248,7 @@ class Optimize:
         if projection_constrain:
             tmp_new_geometry = new_geometry / self.bohr2angstroms
             adjusted_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms
-            return adjusted_geometry
+            return adjusted_geometry, PC
         
         return new_geometry, PC
 
