@@ -199,6 +199,7 @@ class RationalFunctionOptimization:
     def normal(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g):
         print("RFOv1")
         if self.Initialization:
+            self.lambda_s_scale = 0.1
             self.Initialization = False
             return self.DELTA*B_g
         print("saddle order:", self.saddle_order)
@@ -220,6 +221,7 @@ class RationalFunctionOptimization:
         eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
         eigenvalue = np.sort(eigenvalue)
         lambda_for_calc = float(eigenvalue[self.saddle_order])
+        
         print("lambda   : ",lambda_for_calc)
        
         move_vector = DELTA_for_QNM * np.linalg.solve(new_hess - self.lambda_s_scale*lambda_for_calc*(np.eye(len(geom_num_list))), B_g.reshape(len(geom_num_list), 1))
@@ -662,7 +664,6 @@ class RationalFunctionOptimization:
             move_vector = self.normal(geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_g, g)
         return move_vector
  
-import numpy as np
 
 class RFOSecularSolverIterative:
     """
@@ -718,7 +719,7 @@ class RFOSecularSolverIterative:
         sign_array[order:] = -1
         
         # Try multiple starting points to ensure global solution
-        lambda_candidates = np.linspace(init_lambda_val, init_lambda_val - 1000.0, 20)
+        lambda_candidates = np.linspace(init_lambda_val + 10, init_lambda_val - 100.0, 15)
         best_lambda = None
         best_residual = float('inf')
         
