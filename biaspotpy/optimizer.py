@@ -2,6 +2,7 @@ import numpy as np
 import copy
 
 from parameter import UnitValueLib, atomic_mass
+from calc_tools import Calculationtools
 
 from Optimizer.adabelief import Adabelief
 from Optimizer.fastadabelief import FastAdabelief
@@ -411,29 +412,31 @@ class CalculateMoveVector:
         max_rms_force_switching_threshold=0.5,
         min_rms_force_switching_threshold=0.1
         )
-        
-        #-------------------------------------------------------------
-        #display trust radii
-        #-------------------------------------------------------------
+
+        print("==================================================================================")
+ 
         if np.linalg.norm(move_vector) > self.trust_radii:
             move_vector = self.trust_radii * move_vector/np.linalg.norm(move_vector)
-        print("trust radii: ", self.trust_radii)
-        print("step  radii: ", np.linalg.norm(move_vector))
-
-        new_geometry = (geom_num_list - move_vector) * self.unitval.bohr2angstroms #Bohr -> ang.
-        #---------------------------------
-        print("Optimizer instances: ", optimizer_instances)
-        ###
-        #-------------------------------------------------------------
-   
+        print("trust radii (unit. ang.): ", self.trust_radii)
+        print("step  radii (unit. ang.): ", np.linalg.norm(move_vector))
+        new_geometry = (geom_num_list - move_vector)  
+        
         new_geometry = new_geometry.reshape(natom, 3)
         move_vector = move_vector.reshape(natom, 3)
-        #-------------------------------------------------------------
-      
-        
+    
+        for i in range(len(optimizer_instances)):
+            print(f"Optimizer instance {i}: ", optimizer_instances[i])
+            if self.newton_tag[i]:
+                _ = Calculationtools().project_out_hess_tr_and_rot_for_coord( #hessian, element_list, geometry
+                    optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian,
+                    self.element_list,
+                    new_geometry)
+        print("==================================================================================")
+        new_geometry *= self.unitval.bohr2angstroms #Bohr -> ang.
         #new_lambda_list : a.u.
         #new_geometry : angstrom
         #move_vector : bohr
         #lambda_movestep : a.u.
+        
         return new_geometry, np.array(move_vector, dtype="float64"), optimizer_instances
 

@@ -159,64 +159,308 @@ class Optimize:
         
         return projection_constrain, allactive_flag
 
+    def init_projection_constraint(self, PC, geom_num_list, iter, projection_constrain):
+        if iter == 0:
+            if projection_constrain:
+                PC.initialize(geom_num_list)
+            else:
+                pass
+            return PC
+        else:
+            return PC
 
-    def optimize(self):
+    def save_init_geometry(self, geom_num_list, element_list, allactive_flag):
+        
+        if allactive_flag:
+            initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
+            pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
+        else:
+            initial_geom_num_list = geom_num_list 
+            pre_geom = initial_geom_num_list 
+        
+        return initial_geom_num_list, pre_geom
+
+
+    def calc_eff_hess_for_fix_atoms_and_set_hess(self, allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC):
+        if not allactive_flag:
+            fix_num = []
+            for fnum in force_data["fix_atoms"]:
+                fix_num.extend([3*(fnum-1)+0, 3*(fnum-1)+1, 3*(fnum-1)+2])
+            fix_num = np.array(fix_num, dtype="int64")
+            #effective hessian
+            tmp_fix_hess = self.Model_hess[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
+            inv_tmp_fix_hess = np.linalg.pinv(tmp_fix_hess)
+            tmp_fix_bias_hess = BPA_hessian[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
+            inv_tmp_fix_bias_hess = np.linalg.pinv(tmp_fix_bias_hess)
+            BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
+        
+        for i in range(len(optimizer_instances)):
+                
+            if projection_constrain:
+                proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
+                optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
+            else:
+                optimizer_instances[i].set_bias_hessian(BPA_hessian)
+            
+            if self.iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and self.iter % self.mFC_COUNT == 0):
+                if not allactive_flag:
+                    self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
+                
+                
+                if projection_constrain:
+                    proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
+                    optimizer_instances[i].set_hessian(proj_model_hess)
+                else:
+                    optimizer_instances[i].set_hessian(self.Model_hess)
+        
+        return optimizer_instances
+        
+
+    def apply_projection_constraints(self, projection_constrain, PC, geom_num_list, g, B_g):
+        if projection_constrain:
+            g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
+            proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
+            B_g = copy.copy(g + proj_d_B_g)
+        
+        return g, B_g, PC
+
+    def zero_fixed_atom_gradients(self, allactive_flag, force_data, g, B_g):
+        if not allactive_flag:
+            for j in force_data["fix_atoms"]:
+                g[j-1] = copy.copy(g[j-1]*0.0)
+                B_g[j-1] = copy.copy(B_g[j-1]*0.0)
+        
+        return g, B_g
+
+    def project_out_translation_rotation(self, new_geometry, geom_num_list, allactive_flag):
+        
+        if allactive_flag:
+            # Convert to Bohr, apply Kabsch alignment algorithm, then convert back
+            aligned_geometry, _ = Calculationtools().kabsch_algorithm(
+                new_geometry/self.bohr2angstroms, geom_num_list)
+            aligned_geometry *= self.bohr2angstroms
+            return aligned_geometry
+        else:
+            # If not all atoms are active, return the original geometry
+            return new_geometry
+
+    def apply_projection_constraints_to_geometry(self, projection_constrain, PC, new_geometry):
+        if projection_constrain:
+            tmp_new_geometry = new_geometry / self.bohr2angstroms
+            adjusted_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms
+            return adjusted_geometry
+        
+        return new_geometry, PC
+
+    def reset_fixed_atom_positions(self, new_geometry, initial_geom_num_list, allactive_flag, force_data):
+        
+        if not allactive_flag:
+            for j in force_data["fix_atoms"]:
+                new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
+        
+        return new_geometry
+
+
+    def initialize_optimization_variables(self):
+        # Initialize return dictionary with categories
+        vars_dict = {
+            'calculation': {},  # Calculation modules and algorithms
+            'io': {},           # File input/output handlers
+            'energy': {},       # Energy-related variables
+            'geometry': {},     # Geometry and structure variables
+            'gradients': {},    # Gradient and force variables
+            'constraints': {},  # Constraint related variables
+            'optimization': {}, # Optimizer settings
+            'misc': {}          # Miscellaneous
+        }
+        
+        # Calculation modules and file I/O
         Calculation, xtb_method = self.import_calculation_module()
         self.save_input_data()
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         G = Graph(self.BPA_FOLDER_DIRECTORY)
-        self.ENERGY_LIST_FOR_PLOTTING = [] #
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = [] #
-        self.NUM_LIST = [] #
+        
+        # Initialize energy tracking arrays
+        self.ENERGY_LIST_FOR_PLOTTING = []
+        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
+        self.NUM_LIST = []
+        
+        # Force data and flags
         force_data = force_data_parser(self.args)
         exit_flag = False
-        geom_num_list = None#Bohr
-        e = None #Hartree
-        B_e = None #Hartree
+        
+        # Energy state variables
+        geom_num_list = None  # Bohr
+        e = None  # Hartree
+        B_e = None  # Hartree
+        
+        # Previous step information
         pre_B_e = 0.0
         pre_e = 0.0
         pre_B_g = []
         pre_g = []
+        
+        # Atom-related data
         n_fix = len(force_data["fix_atoms"])
         file_directory, electric_charge_and_multiplicity, element_list = self.write_input_files(FIO)
+        
+        # Initialize gradient arrays
         for i in range(len(element_list)):
-            pre_B_g.append([0,0,0])
+            pre_B_g.append([0, 0, 0])
         pre_B_g = np.array(pre_B_g, dtype="float64")
         pre_move_vector = pre_B_g
         pre_g = pre_B_g
+        
+        # Analysis data structures
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
         bias_grad_list = []
         orthogonal_bias_grad_list = []
         orthogonal_grad_list = []
         
-        element_number_list = []
-        for elem in element_list:
-            element_number_list.append(element_number(elem))
-        element_number_list = np.array(element_number_list, dtype="int")
+        # Element information
+        element_number_list = np.array([element_number(elem) for elem in element_list], dtype="int")
         natom = len(element_list)
-
- 
-        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"])
         
+        # Constraint setup
+        PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], 
+                                force_data["projection_constraint_atoms"], 
+                                force_data["projection_constraint_constant"])
         projection_constrain, allactive_flag = self.constrain_flag_check(force_data)
-            
+        
+        # Bias potential and calculation setup
         self.CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
-
-        SP = self.setup_calculation(Calculation)        
-        CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature, self.args.use_model_hessian)
+        SP = self.setup_calculation(Calculation)
+        
+        # Move vector calculation
+        CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, 
+                                self.FC_COUNT, self.temperature, self.args.use_model_hessian)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
+        
+        # Initialize optimizer instances
         for i in range(len(optimizer_instances)):
-            optimizer_instances[i].set_hessian(self.Model_hess) #hessian is None.
+            optimizer_instances[i].set_hessian(self.Model_hess)
             if self.DELTA != "x":
                 optimizer_instances[i].DELTA = self.DELTA
-
+        
+        # NRO analysis setup
         if self.NRO_analysis:
-            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, xtb=xtb_method, element_list=element_list, electric_charge_and_multiplicity=electric_charge_and_multiplicity)
+            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, 
+                            xtb=xtb_method, 
+                            element_list=element_list, 
+                            electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         else:
             NRO = None
-
+        
+        # Final status flag
         optimized_flag = False
+        
+        # Populate the dictionary with grouped variables
+        vars_dict['calculation'] = {
+            'Calculation': Calculation,
+            'xtb_method': xtb_method,
+            'SP': SP,
+            'CMV': CMV,
+            'optimizer_instances': optimizer_instances
+        }
+        
+        vars_dict['io'] = {
+            'FIO': FIO,
+            'G': G,
+            'file_directory': file_directory
+        }
+        
+        vars_dict['energy'] = {
+            'e': e,
+            'B_e': B_e,
+            'pre_e': pre_e,
+            'pre_B_e': pre_B_e
+        }
+        
+        vars_dict['geometry'] = {
+            'geom_num_list': geom_num_list,
+            'element_list': element_list,
+            'element_number_list': element_number_list,
+            'natom': natom,
+            'electric_charge_and_multiplicity': electric_charge_and_multiplicity
+        }
+        
+        vars_dict['gradients'] = {
+            'pre_g': pre_g,
+            'pre_B_g': pre_B_g,
+            'grad_list': grad_list,
+            'bias_grad_list': bias_grad_list,
+            'orthogonal_bias_grad_list': orthogonal_bias_grad_list,
+            'orthogonal_grad_list': orthogonal_grad_list,
+            'pre_move_vector': pre_move_vector
+        }
+        
+        vars_dict['constraints'] = {
+            'PC': PC,
+            'projection_constrain': projection_constrain,
+            'allactive_flag': allactive_flag,
+            'force_data': force_data,
+            'n_fix': n_fix
+        }
+        
+        vars_dict['misc'] = {
+            'exit_flag': exit_flag,
+            'optimized_flag': optimized_flag,
+            'NRO': NRO
+        }
+        
+        return vars_dict
+
+    def optimize(self):
+        # Initialize all variables needed for optimization
+        vars_dict = self.initialize_optimization_variables()
+        
+        # Extract variables from dictionary
+        # Calculation related
+        Calculation = vars_dict['calculation']['Calculation']
+        xtb_method = vars_dict['calculation']['xtb_method']
+        SP = vars_dict['calculation']['SP']
+        CMV = vars_dict['calculation']['CMV']
+        optimizer_instances = vars_dict['calculation']['optimizer_instances']
+        
+        # File I/O related
+        FIO = vars_dict['io']['FIO']
+        G = vars_dict['io']['G']
+        file_directory = vars_dict['io']['file_directory']
+        
+        # Energy related
+        e = vars_dict['energy']['e']
+        B_e = vars_dict['energy']['B_e']
+        pre_e = vars_dict['energy']['pre_e']
+        pre_B_e = vars_dict['energy']['pre_B_e']
+        
+        # Geometry related
+        geom_num_list = vars_dict['geometry']['geom_num_list']
+        element_list = vars_dict['geometry']['element_list']
+        element_number_list = vars_dict['geometry']['element_number_list']
+        natom = vars_dict['geometry']['natom']
+        electric_charge_and_multiplicity = vars_dict['geometry']['electric_charge_and_multiplicity']
+        
+        # Gradient related
+        pre_g = vars_dict['gradients']['pre_g']
+        pre_B_g = vars_dict['gradients']['pre_B_g']
+        grad_list = vars_dict['gradients']['grad_list']
+        bias_grad_list = vars_dict['gradients']['bias_grad_list']
+        orthogonal_bias_grad_list = vars_dict['gradients']['orthogonal_bias_grad_list']
+        orthogonal_grad_list = vars_dict['gradients']['orthogonal_grad_list']
+        pre_move_vector = vars_dict['gradients']['pre_move_vector']
+        
+        # Constraint related
+        PC = vars_dict['constraints']['PC']
+        projection_constrain = vars_dict['constraints']['projection_constrain']
+        allactive_flag = vars_dict['constraints']['allactive_flag']
+        force_data = vars_dict['constraints']['force_data']
+        n_fix = vars_dict['constraints']['n_fix']
+        
+        # Miscellaneous
+        exit_flag = vars_dict['misc']['exit_flag']
+        optimized_flag = vars_dict['misc']['optimized_flag']
+        NRO = vars_dict['misc']['NRO']
 
         for iter in range(self.NSTEP):
             self.iter = iter
@@ -229,68 +473,23 @@ class Optimize:
             print("\n# ITR. "+str(iter)+"\n")
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
+            self.Model_hess = copy.copy(SP.Model_hess)
             
             if exit_flag:
                 break
                 
-            if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian:
+            if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian and self.FC_COUNT < 1:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-            self.Model_hess = copy.copy(SP.Model_hess)
-            
-            #if self.args.usedxtb != "None":
-            #    common_freq, au_int = SP.ir(geom_num_list, element_list, electric_charge_and_multiplicity, xtb_method)
-            #    G.stem_plot(common_freq, au_int, "IR_spectra_iteration_"+str(iter))
             
             if iter == 0:
-                if allactive_flag:
-                    initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
-                    pre_geom = initial_geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
-                else:
-                    initial_geom_num_list = geom_num_list 
-                    pre_geom = initial_geom_num_list 
+                initial_geom_num_list, pre_geom = self.save_init_geometry(geom_num_list, element_list, allactive_flag)
 
             _, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
             
-            if iter == 0:
-                if projection_constrain:
-                    PC.initialize(geom_num_list)
-            else:
-                pass
+            PC = self.init_projection_constraint(PC, geom_num_list, iter, projection_constrain)
             
-            _ = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.Model_hess + BPA_hessian, element_list, geom_num_list)
-          
-            
-            if not allactive_flag:
-                fix_num = []
-                for fnum in force_data["fix_atoms"]:
-                    fix_num.extend([3*(fnum-1)+0, 3*(fnum-1)+1, 3*(fnum-1)+2])
-                fix_num = np.array(fix_num, dtype="int64")
-
-                tmp_fix_hess = self.Model_hess[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
-                inv_tmp_fix_hess = np.linalg.pinv(tmp_fix_hess)
-                tmp_fix_bias_hess = BPA_hessian[np.ix_(fix_num, fix_num)] + np.eye((3*n_fix)) * 1e-10
-                inv_tmp_fix_bias_hess = np.linalg.pinv(tmp_fix_bias_hess)
-                BPA_hessian -= np.dot(BPA_hessian[:, fix_num], np.dot(inv_tmp_fix_bias_hess, BPA_hessian[fix_num, :]))
-            
-            for i in range(len(optimizer_instances)):
-                
-                if projection_constrain:
-                    proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
-                    optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
-                else:
-                    optimizer_instances[i].set_bias_hessian(BPA_hessian)
-                
-                if iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and iter % self.mFC_COUNT == 0):
-                    if not allactive_flag:
-                        self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
+            optimizer_instances = self.calc_eff_hess_for_fix_atoms_and_set_hess(allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC)
                     
-                    
-                    if projection_constrain:
-                        proj_model_hess = PC.calc_project_out_hess(geom_num_list, g, self.Model_hess)
-                        optimizer_instances[i].set_hessian(proj_model_hess)
-                    else:
-                        optimizer_instances[i].set_hessian(self.Model_hess)
-                     
             if not allactive_flag:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
                 g = copy.copy(self.calc_fragement_grads(g, force_data["opt_fragment"]))
@@ -298,35 +497,18 @@ class Optimize:
             #energy profile 
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             
-            if projection_constrain:
-                g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
-                proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
-                B_g = copy.copy(g + proj_d_B_g)
+            g, B_g, PC = self.apply_projection_constraints(projection_constrain, PC, geom_num_list, g, B_g)
                 
-            if not allactive_flag:
-                for j in force_data["fix_atoms"]:
-                    g[j-1] = copy.copy(g[j-1]*0.0)
-                    B_g[j-1] = copy.copy(B_g[j-1]*0.0)
+            g, B_g = self.zero_fixed_atom_gradients(allactive_flag, force_data, g, B_g)
 
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list,
                                                                                   B_g, pre_B_g, pre_geom, B_e, pre_B_e,
                                                                                   pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain)
             
-        
+          
+            new_geometry = self.project_out_translation_rotation(new_geometry, geom_num_list, allactive_flag)
             
-            ##------------
-            ## project out translation and rotation
-            ##------------
-            if allactive_flag:
-                new_geometry -= Calculationtools().calc_center_of_mass(new_geometry/self.bohr2angstroms, element_list) * self.bohr2angstroms
-                new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry/self.bohr2angstroms, geom_num_list)
-                new_geometry *= self.bohr2angstroms
-            
-            if projection_constrain:
-                tmp_new_geometry = new_geometry / self.bohr2angstroms
-                new_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
-            
-        
+            new_geometry, PC = self.apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry)
             
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -335,17 +517,14 @@ class Optimize:
             #geometry info
             self.geom_info_extract(force_data, file_directory, B_g, g)   
             
-           
-            if iter == 0:
+            if self.iter == 0:
                 displacement_vector = move_vector
             else:
-                displacement_vector = geom_num_list - pre_geom
-
+                displacement_vector = new_geometry / self.bohr2angstroms - geom_num_list
+            
             converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
             
-            
             self.print_info(e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
-            
             
             grad_list.append(np.sqrt((g[g > 1e-10]**2).mean()))
             bias_grad_list.append(np.sqrt((B_g[B_g > 1e-10]**2).mean()))
@@ -365,13 +544,10 @@ class Optimize:
                     optimized_flag = True
                     break
 
-            if not allactive_flag:
-                for j in force_data["fix_atoms"]:
-                    new_geometry[j-1] = copy.copy(initial_geom_num_list[j-1]*self.bohr2angstroms)
-            
-                  
+            new_geometry = self.reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
             #dissociation check
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
+            
             if DC_exit_flag:
                 self.DC_check_flag = True
                 break
@@ -415,8 +591,7 @@ class Optimize:
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
-        G.single_plot(self.NUM_LIST[1:], (np.array(bias_grad_list[1:]) - np.array(orthogonal_bias_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal bias gradient diff (RMS) [a.u.]", name="orthogonal_bias_gradient_diff")
-        G.single_plot(self.NUM_LIST[1:], (np.array(grad_list[1:]) - np.array(orthogonal_grad_list)).tolist(), file_directory, "", axis_name_2="orthogonal gradient diff (RMS) [a.u.]", name="orthogonal_gradient_diff")
+        
         if self.NRO_analysis:
             NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
 
@@ -442,6 +617,7 @@ class Optimize:
     def check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
         max_force_threshold = self.MAX_FORCE_THRESHOLD
+        
         rms_force = abs(np.sqrt(np.mean(B_g[B_g > 1e-10]**2.0)))
         rms_force_threshold = self.RMS_FORCE_THRESHOLD
         
@@ -613,14 +789,18 @@ class Optimize:
         return DC_exit_flag
     
     def print_info(self, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
+        
+        rms_force = abs(np.sqrt((B_g[B_g > 1e-10]**2).mean())) + 1e-13
+        rms_displacement = abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean())) + 1e-13
+        
         print("caluculation results (unit a.u.):")
         print("                         Value                         Threshold ")
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
         print("Maximum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
-        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((B_g[B_g > 1e-10]**2).mean())), self.RMS_FORCE_THRESHOLD))
+        print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(rms_force, self.RMS_FORCE_THRESHOLD))
         print("Maximum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), max_displacement_threshold))
-        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean())), rms_displacement_threshold))
+        print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(rms_displacement, rms_displacement_threshold))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
         return
