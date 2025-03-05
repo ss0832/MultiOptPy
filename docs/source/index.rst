@@ -74,6 +74,9 @@ After ``git clone``,
     python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
     python optmain.py SN2.xyz -ma 150 1 6
 
+    python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -modelhess
+    python optmain.py SN2.xyz -ma 150 1 6 -modelhess
+
     # You can practice AFIR method to analyze other reactions by using .xyz files in "test" directory.
 
     # Orientation search 
