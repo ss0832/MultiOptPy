@@ -480,7 +480,7 @@ class Optimize:
                 
             if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian and self.FC_COUNT < 1:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
-            
+                self.Model_hess = SP.Model_hess 
             if iter == 0:
                 initial_geom_num_list, pre_geom = self.save_init_geometry(geom_num_list, element_list, allactive_flag)
 
