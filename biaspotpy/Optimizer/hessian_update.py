@@ -40,7 +40,14 @@ class ModelHessianUpdate:
     
     
     def BFGS_hessian_update(self, hess, displacement, delta_grad):
-        delta_hess = (np.dot(delta_grad, delta_grad.T) / np.dot(displacement.T, delta_grad)) - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ np.dot(np.dot(displacement.T, hess), displacement))
+        demon_1 = np.dot(displacement.T, delta_grad)
+        if np.abs(demon_1) < 1e-10:
+            demon_1 += 1e-10
+        demon_2 = np.dot(np.dot(displacement.T, hess), displacement)
+        if np.abs(demon_2) < 1e-10:
+            demon_2 += 1e-10
+        
+        delta_hess = (np.dot(delta_grad, delta_grad.T)) / demon_1 - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ demon_2)
         return delta_hess
     
     def FSB_hessian_update(self, hess, displacement, delta_grad):
