@@ -327,12 +327,10 @@ class RationalFunctionOptimization:
                 denom = tmp_eigval + lambda_for_calc
                 
                 # Stabilize denominator
-                if np.abs(denom) < DENOM_THRESHOLD:
-                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
-                
-                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
-                move_vector += contribution
-                saddle_order_count += 1
+                if np.abs(denom) > DENOM_THRESHOLD:
+                    contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                    move_vector += contribution
+                    saddle_order_count += 1
                 
             else:
                 step_scaling = 1.0
@@ -358,10 +356,9 @@ class RationalFunctionOptimization:
                 denom = hess_eigenvalue[idx] - lambda_for_calc
                 
                 # Stabilize denominator
-                if np.abs(denom) < DENOM_THRESHOLD:
-                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
-                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
-                move_vector += contribution
+                if np.abs(denom) > DENOM_THRESHOLD:
+                    contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                    move_vector += contribution
         
         print("lambda   : ", lambda_for_calc)
         
@@ -468,12 +465,10 @@ class RationalFunctionOptimization:
                 denom = tmp_eigval + lambda_for_calc
                 
                 # Stabilize denominator
-                if np.abs(denom) < DENOM_THRESHOLD:
-                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
-                
-                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
-                move_vector += contribution
-                saddle_order_count += 1
+                if np.abs(denom) > DENOM_THRESHOLD:
+                    contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                    move_vector += contribution
+                    saddle_order_count += 1
                 
             else:
                 step_scaling = 1.0
@@ -499,10 +494,9 @@ class RationalFunctionOptimization:
                 denom = hess_eigenvalue[idx] - lambda_for_calc
                 
                 # Stabilize denominator
-                if np.abs(denom) < DENOM_THRESHOLD:
-                    denom = np.sign(denom) * DENOM_THRESHOLD if denom != 0 else DENOM_THRESHOLD
-                contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
-                move_vector += contribution
+                if np.abs(denom) > DENOM_THRESHOLD:
+                    contribution = (step_scaling * self.DELTA * proj_magnitude * tmp_vector.T) / denom
+                    move_vector += contribution
         
         print("lambda   : ", lambda_for_calc)
         

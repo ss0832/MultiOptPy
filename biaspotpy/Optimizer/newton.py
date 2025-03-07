@@ -8,7 +8,7 @@ class Newton:
         self.hess_update = ModelHessianUpdate()
         self.Initialization = True
         self.linesearchflag = False
-        
+        self.optimal_step_flag = False
         self.DELTA = 0.5
         self.FC_COUNT = -1 #
         self.saddle_order = 0 #
@@ -113,18 +113,20 @@ class Newton:
                 tmp_hess = self.project_out_hess_tr_and_rot_for_coord(new_hess, geom_num_list.reshape(-1, 3))  
             else:
                 tmp_hess = None
-            LS = LineSearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e, tmp_hess)
-            new_move_vector, optimal_step_flag = LS.linesearch()
+            if self.optimal_step_flag or self.iter == 2:
+                self.LS = LineSearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e, tmp_hess)
+            
+            new_move_vector, self.optimal_step_flag = self.LS.linesearch(self.prev_move_vector, move_vector, B_g, pre_B_g, B_e, pre_B_e, tmp_hess)
         else:
             new_move_vector = move_vector
-            optimal_step_flag = True
+            self.optimal_step_flag = True
         
         print("step size: ",DELTA_for_QNM,"\n")
 
 
         if self.iter > 0 and self.linesearchflag:
             move_vector = new_move_vector
-            if optimal_step_flag or self.iter == 1:
+            if self.optimal_step_flag or self.iter == 1:
                 self.prev_move_vector = move_vector    
                 
         if not self.linesearchflag or np.linalg.norm(move_vector) > 1e-4:
