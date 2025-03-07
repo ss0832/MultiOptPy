@@ -337,7 +337,7 @@ class HybridRFO:
         # Check dimensions
         if n_cart != self.n_cart:
             print(f"Warning: Bias Hessian dimension ({n_cart}) doesn't match current system ({self.n_cart})")
-            # 必要に応じてサイズを調整するか、計算をスキップ
+         
             return np.zeros((n_int + self.n_cart, n_int + self.n_cart))
         
         # Internal coordinate part: B*H_cart*B^T
