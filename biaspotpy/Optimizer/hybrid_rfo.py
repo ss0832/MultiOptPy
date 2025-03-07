@@ -5,11 +5,6 @@ from .hessian_update import ModelHessianUpdate
 
 """
 Hybrid Internal-Cartesian Coordinate RFO implementation
-Based on:
-1. Baker, J. Comput. Chem. Sci. 1993, 34, 118-127
-2. Bakken and Helgaker, JCP 117, 9160 (2002)
-3. Lindh et al., Chem. Phys. Lett. 241, 423-428 (1995)
-
 Implementation combining redundant internal coordinates and Cartesian coordinates
 """
 
@@ -337,7 +332,6 @@ class HybridRFO:
         # Check dimensions
         if n_cart != self.n_cart:
             print(f"Warning: Bias Hessian dimension ({n_cart}) doesn't match current system ({self.n_cart})")
-            # 必要に応じてサイズを調整するか、計算をスキップ
             return np.zeros((n_int + self.n_cart, n_int + self.n_cart))
         
         # Internal coordinate part: B*H_cart*B^T
