@@ -125,7 +125,7 @@ class Optimize:
         """
         self.START_FILE = file
         timestamp = str(time.time()).replace(".", "_")
-        date = str(datetime.datetime.now().date())
+        date = datetime.datetime.now().strftime("%Y_%m_%d")
         base_dir = f"{date}/{self.START_FILE[:-4]}_OPT_"
 
         if self.args.othersoft != "None":

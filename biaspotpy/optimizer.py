@@ -31,8 +31,9 @@ from Optimizer.newton import Newton
 from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
-from Optimizer.trust_radius import update_trust_radii
+from Optimizer.trust_radius import TrustRadius
 from Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
+from Optimizer.gpmin import GPmin
 
 optimizer_mapping = {
     "adabelief": Adabelief,
@@ -56,6 +57,7 @@ optimizer_mapping = {
     "adaderivative": Adaderivative,
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
+    "gpmin": GPmin,
 }
 
 specific_cases = {
@@ -68,6 +70,7 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
+    
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -129,6 +132,7 @@ class CalculateMoveVector:
         self.MIN_MAX_FORCE_SWITCHING_THRESHOLD = 0.0010
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
+        self.CALC_TRUST_RADII = TrustRadius()
         self.trust_radii = 0.5
         self.saddle_order = saddle_order
         self.iter = 0
@@ -177,7 +181,8 @@ class CalculateMoveVector:
                         if "hybrid_rfo" in key:
                             optimizer_instances.append(HybridCoordinateAugmentedRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
                         elif "rfo" in key:
-                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii))
+                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
+                       
                         else:
                             optimizer_instances.append(Newton(method=m))
                         optimizer_instances[i].DELTA = settings["delta"]
@@ -207,15 +212,6 @@ class CalculateMoveVector:
         return optimizer_instances
             
 
-    def diag_hess_and_display(self, optimizer_instance):
-        #------------------------------------------------------------
-        # diagonilize hessian matrix and display eigenvalues
-        #-----------------------------------------------------------
-        hess_eigenvalue, _ = np.linalg.eig(optimizer_instance.hessian + optimizer_instance.bias_hessian)
-        hess_eigenvalue = hess_eigenvalue.astype(np.float64)#not display imagnary values 
-        print("NORMAL MODE EIGENVALUE:\n",np.sort(hess_eigenvalue),"\n")
-        return
-
     def update_trust_radius_conditionally(self, optimizer_instances, B_e, pre_B_e, pre_B_g, pre_move_vector, geom_num_list):
         """
         Refactored method to handle trust radius updates and conditions.
@@ -233,7 +229,7 @@ class CalculateMoveVector:
 
         # Update trust radii only if we have a Hessian or if FC_COUNT is not -1
         if not (model_hess is None and self.FC_COUNT == -1):
-            self.trust_radii = update_trust_radii(
+            self.trust_radii = self.CALC_TRUST_RADII.update_trust_radii(
                 B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii
             )
 
