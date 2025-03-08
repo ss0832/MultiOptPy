@@ -5,11 +5,6 @@ from .hessian_update import ModelHessianUpdate
 
 """
 Hybrid Internal-Cartesian Coordinate RFO implementation
-Based on:
-1. Baker, J. Comput. Chem. Sci. 1993, 34, 118-127
-2. Bakken and Helgaker, JCP 117, 9160 (2002)
-3. Lindh et al., Chem. Phys. Lett. 241, 423-428 (1995)
-
 Implementation combining redundant internal coordinates and Cartesian coordinates
 """
 
@@ -38,7 +33,7 @@ class HybridRFO:
         self.max_micro_cycles = 100
         self.gradient_rms_threshold = 1e-4
         self.FC_COUNT = self.config.get("FC_COUNT", -1)
-        self.backconv_method = self.config.get("backconv_method", "newton-diis").lower()
+        self.backconv_method = self.config.get("backconv_method", "scf").lower()
         # Initial weighting between coordinate systems
         self.internal_weight = self.config.get("internal_weight", 0.5)  # Default weight for internal coords
         self.cartesian_weight = 1.0 - self.internal_weight  # Weight for Cartesian coords
@@ -337,7 +332,7 @@ class HybridRFO:
         # Check dimensions
         if n_cart != self.n_cart:
             print(f"Warning: Bias Hessian dimension ({n_cart}) doesn't match current system ({self.n_cart})")
-         
+            
             return np.zeros((n_int + self.n_cart, n_int + self.n_cart))
         
         # Internal coordinate part: B*H_cart*B^T
@@ -391,195 +386,7 @@ class HybridRFO:
         print(f"Step norms - Internal: {int_norm:.6f}, Cartesian: {cart_norm:.6f}, Combined: {total_norm:.6f}")
         
         return total_cart_step
-        
-    def internal_to_cartesian_newton(self, step_int, geometry, use_diis=True, 
-                                    max_iterations=50, convergence_threshold=1e-8):
-        """
-        Enhanced Newton-Raphson method for internal to Cartesian coordinate conversion
-        with optional DIIS acceleration.
-        
-        Parameters:
-        -----------
-        step_int : ndarray
-            Target step in internal coordinates
-        geometry : ndarray
-            Starting geometry in Cartesian coordinates
-        use_diis : bool
-            Whether to use DIIS acceleration
-        max_iterations : int
-            Maximum number of iterations
-        convergence_threshold : float
-            Convergence criterion for RMS error
-            
-        Returns:
-        --------
-        ndarray
-            Step in Cartesian coordinates
-        """
-        # Initialize DIIS if requested
-        diis_subspace = 8  # Maximum size of DIIS subspace
-        diis_start = 3     # Start DIIS after this many steps
-        
-        if use_diis:
-            error_vectors = []
-            solution_vectors = []
-        
-        # Initialize tracking variables
-        reference_geom = geometry.copy()
-        current_geom = geometry.copy()
-        best_geom = current_geom.copy()
-        best_error = float('inf')
-        prev_error = float('inf')
-        
-        # Pre-condition step_int to avoid large steps
-        step_norm = np.linalg.norm(step_int)
-        if step_norm > 1.0:
-            print(f"Pre-conditioning large internal step (norm={step_norm:.3f})")
-            step_int = step_int * (1.0 / step_norm)
-        
-        # Iterative Newton-Raphson with line search and DIIS acceleration
-        for iteration in range(max_iterations):
-            # Build B matrix for current geometry
-            B = self.build_B_matrix(current_geom)
-            
-            # Calculate current internal coordinates relative to reference
-            current_q = np.dot(B, current_geom - reference_geom)
-            
-            # Calculate error vector (difference from target)
-            delta_q = step_int - current_q
-            error = np.linalg.norm(delta_q)
-            rms_error = error / np.sqrt(len(delta_q))
-            
-            # Debug output every few iterations
-            if iteration % 5 == 0 or iteration < 3:
-                print(f"Iteration {iteration}: RMS error = {rms_error:.3e}")
-            
-            # Save best solution
-            if error < best_error:
-                best_error = error
-                best_geom = current_geom.copy()
-            
-            # Check convergence
-            if rms_error < convergence_threshold:
-                print(f"Newton-Raphson converged after {iteration+1} iterations")
-                break
-                
-            # Early termination if we're not making progress
-            if iteration > 5 and abs(error - prev_error) < convergence_threshold * 1e-10:
-                print(f"Newton-Raphson: Early termination due to slow progress")
-                break
-            
-            # Calculate B+ (pseudoinverse of B) using SVD for stability
-            try:
-                U, s, Vh = np.linalg.svd(B, full_matrices=False)
-                s_inv = np.where(s > 1e-7, 1.0 / s, 0.0)
-                B_pinv = np.dot(np.dot(Vh.T, np.diag(s_inv)), U.T)
-            except np.linalg.LinAlgError:
-                print("Warning: SVD failed, using direct pseudoinverse")
-                B_pinv = np.linalg.pinv(B, rcond=1e-8)
-            
-            # Calculate Newton step
-            delta_x = np.dot(B_pinv, delta_q)
-            
-            # Apply trust region constraint
-            step_norm = np.linalg.norm(delta_x)
-            trust_radius = 0.2  # Maximum step size in Angstroms
-            
-            if step_norm > trust_radius:
-                delta_x = delta_x * (trust_radius / step_norm)
-                step_norm = trust_radius
-                
-            # Store current error and position for DIIS
-            if use_diis and iteration >= diis_start:
-                # Important: Ensure vectors are flattened to one dimension
-                error_vectors.append(delta_q.flatten())
-                solution_vectors.append(current_geom.copy())
-                
-                # Limit DIIS subspace size
-                if len(error_vectors) > diis_subspace:
-                    error_vectors.pop(0)
-                    solution_vectors.pop(0)
-            
-            # Regular Newton step by default
-            new_geom = current_geom + delta_x
-            
-            # Apply DIIS if we have enough vectors
-            if use_diis and iteration >= diis_start and len(error_vectors) >= 2:
-                try:
-                    # Build DIIS B matrix (Pulay method)
-                    n_vecs = len(error_vectors)
-                    B_diis = np.zeros((n_vecs + 1, n_vecs + 1))
-                    
-                    # Fill B matrix with error vector dot products
-                    # Fix: Use already flattened vectors
-                    for i in range(n_vecs):
-                        for j in range(n_vecs):
-                            # Explicitly check shapes to prevent errors
-                            e_i = error_vectors[i]
-                            e_j = error_vectors[j]
-                            B_diis[i, j] = np.dot(e_i, e_j)
-                    
-                    # Last row and column are for constraint sum(c) = 1
-                    B_diis[n_vecs, :n_vecs] = 1.0
-                    B_diis[:n_vecs, n_vecs] = 1.0
-                    B_diis[n_vecs, n_vecs] = 0.0
-                    
-                    # RHS vector [0,0,...,0,1]
-                    rhs = np.zeros(n_vecs + 1)
-                    rhs[n_vecs] = 1.0
-                    
-                    # Solve for DIIS coefficients
-                    try:
-                        c = np.linalg.solve(B_diis, rhs)
-                    except np.linalg.LinAlgError:
-                        c = np.linalg.lstsq(B_diis, rhs, rcond=1e-10)[0]
-                    
-                    # Form DIIS optimized geometry
-                    diis_geom = np.zeros_like(current_geom)
-                    for i in range(n_vecs):
-                        diis_geom += c[i] * solution_vectors[i]
-                    
-                    # Line search between Newton and DIIS steps
-                    newton_error = self._evaluate_error(new_geom, reference_geom, step_int)
-                    diis_error = self._evaluate_error(diis_geom, reference_geom, step_int)
-                    
-                    if diis_error < newton_error:
-                        print(f"DIIS correction applied at iteration {iteration+1}")
-                        new_geom = diis_geom
-                except Exception as e:
-                    print(f"DIIS calculation failed: {e}")
-                    # Add debug information
-                    if len(error_vectors) > 0:
-                        print(f"Error vector shape: {np.asarray(error_vectors[0]).shape}")
-                    pass  # Fall back to regular Newton step
-            
-            # Apply adaptive damping based on progress
-            if iteration > 0:
-                if error > prev_error:
-                    # We're getting worse, use more damping
-                    alpha = 0.5
-                    new_geom = current_geom + alpha * delta_x
-                else:
-                    # We're improving, can be more aggressive
-                    alpha = min(1.0, 0.6 + 0.4 * np.exp(-iteration/10.0))
-                    # If DIIS was used, alpha is already incorporated
-                    if not (use_diis and iteration >= diis_start and len(error_vectors) >= 2):
-                        new_geom = current_geom + alpha * delta_x
-            
-            # Update for next iteration
-            current_geom = new_geom
-            prev_error = error
-        
-        # If we didn't converge, warn and use best solution
-        if iteration == max_iterations - 1:
-            print(f"Warning: Newton-Raphson did not converge. Best RMS error = {best_error/np.sqrt(len(step_int)):.3e}")
-            current_geom = best_geom
-            
-        # Store error for diagnostics
-        self.last_backtransform_error = best_error
-        
-        # Return the total step from original geometry
-        return current_geom - reference_geom
+
 
     def _evaluate_error(self, geom, reference_geom, target_step):
         """
@@ -590,7 +397,315 @@ class HybridRFO:
         delta_q = target_step - current_q
         return np.linalg.norm(delta_q)
 
-    
+    def _evaluate_guess_error(self, geom, step_int, reference_geom):
+        """
+        Helper function to evaluate the quality of an initial guess
+        
+        Parameters:
+        -----------
+        geom : ndarray
+            Geometry to evaluate
+        step_int : ndarray
+            Target step in internal coordinates
+        reference_geom : ndarray
+            Reference geometry
+            
+        Returns:
+        --------
+        float
+            RMS error of the guess
+        """
+        B = self.build_B_matrix(geom)
+        q = np.dot(B, geom - reference_geom)
+        delta_q = step_int - q
+        error = np.linalg.norm(delta_q)
+        rms_error = error / np.sqrt(len(delta_q))
+        return rms_error
+
+    def internal_to_cartesian_scf(self, step_int, geometry, 
+                                max_iterations=100,
+                                convergence_threshold=1e-8):
+        """
+        SCF-inspired algorithm for internal to Cartesian coordinate conversion.
+        Uses techniques from electronic structure theory: line search when far from
+        convergence and Newton-Raphson near convergence, with DIIS acceleration.
+        
+        Parameters:
+        -----------
+        step_int : ndarray
+            Target step in internal coordinates
+        geometry : ndarray
+            Starting geometry in Cartesian coordinates
+        max_iterations : int
+            Maximum number of iterations
+        convergence_threshold : float
+            Convergence criterion for RMS error
+            
+        Returns:
+        --------
+        ndarray
+            Step in Cartesian coordinates
+        """
+        # Initialize variables
+        reference_geom = geometry.copy()
+        current_geom = geometry.copy()
+        best_geom = current_geom.copy()
+        best_error = float('inf')
+        
+        # DIIS parameters
+        diis_start = 3
+        diis_max = 8
+        diis_errors = []
+        diis_geometries = []
+        
+        # Dynamic algorithm control
+        use_newton = False  # Start with line search, switch to Newton later
+        damping_factor = 0.7  # Initial damping
+        level_shift = 0.0  # Level shifting parameter
+        
+        # Last iteration data for backtracks
+        prev_error = float('inf')
+        prev_geom = None
+        
+        # Calculate initial values
+        B = self.build_B_matrix(current_geom)
+        current_q = np.dot(B, current_geom - reference_geom)
+        delta_q = step_int - current_q
+        error = np.linalg.norm(delta_q)
+        rms_error = error / np.sqrt(len(delta_q))
+        
+        print(f"Starting SCF-like optimization: initial RMS error = {rms_error:.3e}")
+        
+        # Main iteration loop
+        for iteration in range(max_iterations):
+            # Save best solution
+            if error < best_error:
+                best_error = error
+                best_geom = current_geom.copy()
+            
+            # Report progress
+            if iteration % 20 == 0 or iteration < 2:
+                print(f"Iteration {iteration}: RMS error = {rms_error:.3e}, "
+                    f"{'Newton' if use_newton else 'LineSearch'}, damping={damping_factor:.2f}")
+            
+            # Check convergence
+            if rms_error < convergence_threshold:
+                print(f"Conversion converged in {iteration+1} iterations")
+                break
+            
+            # Prepare for this iteration
+            B = self.build_B_matrix(current_geom)
+            
+            # Calculate step based on current method
+            if use_newton:
+                # Calculate B+ (pseudoinverse of B) using SVD with level shifting
+                try:
+                    U, s, Vh = np.linalg.svd(B, full_matrices=False)
+                    
+                    # Apply level shifting to singular values (similar to SCF level shifting)
+                    s_inv = np.where(s > 1e-7, 1.0 / (s + level_shift), 0.0)
+                    
+                    B_pinv = np.dot(Vh.T * s_inv, U.T)
+                    
+                    # Calculate Newton step
+                    step = np.dot(B_pinv, delta_q)
+                except np.linalg.LinAlgError:
+                    # Fall back to a more stable approach
+                    print("SVD failed, using pinv with increased regularization")
+                    B_pinv = np.linalg.pinv(B, rcond=1e-6)
+                    step = np.dot(B_pinv, delta_q)
+            else:
+                # Line search along steepest descent direction
+                gradient = np.dot(B.T, delta_q)
+                grad_norm = np.linalg.norm(gradient)
+                
+                if grad_norm < 1e-10:
+                    # Gradient too small, try Newton step
+                    use_newton = True
+                    B_pinv = np.linalg.pinv(B, rcond=1e-7)
+                    step = np.dot(B_pinv, delta_q)
+                else:
+                    # Normalize gradient and scale by dynamic step size
+                    step_dir = gradient / grad_norm
+                    
+                    # Determine step size (larger when further from convergence)
+                    # Similar to trust radius in SCF
+                    step_size = min(0.2, 0.1 * (1.0 + 10.0 * rms_error))
+                    
+                    step = step_size * step_dir
+            
+            # Apply DIIS acceleration if we have enough iterations
+            diis_step = None
+            if iteration >= diis_start:
+                # Store current error and geometry for DIIS
+                diis_errors.append(delta_q.flatten())
+                diis_geometries.append(current_geom.copy())
+                
+                # Limit DIIS vector storage
+                if len(diis_errors) > diis_max:
+                    diis_errors.pop(0)
+                    diis_geometries.pop(0)
+                
+                # Apply DIIS if we have at least 2 vectors
+                if len(diis_errors) >= 2:
+                    try:
+                        diis_step = self._compute_diis_solution(diis_errors, diis_geometries)
+                    except Exception as e:
+                        print(f"DIIS failed: {e}")
+                        diis_step = None
+            
+            # Try step with current damping
+            damped_step = step * damping_factor
+            trial_geom = current_geom + damped_step
+            
+            # Evaluate trial geometry
+            trial_B = self.build_B_matrix(trial_geom)
+            trial_q = np.dot(trial_B, trial_geom - reference_geom)
+            trial_delta_q = step_int - trial_q
+            trial_error = np.linalg.norm(trial_delta_q)
+            trial_rms = trial_error / np.sqrt(len(trial_delta_q))
+            
+            # If we have a DIIS solution, evaluate it too
+            if diis_step is not None:
+                diis_B = self.build_B_matrix(diis_step)
+                diis_q = np.dot(diis_B, diis_step - reference_geom)
+                diis_delta_q = step_int - diis_q
+                diis_error = np.linalg.norm(diis_delta_q)
+                diis_rms = diis_error / np.sqrt(len(diis_delta_q))
+                
+                # Use DIIS if it's better
+                if diis_error < trial_error and diis_error < error:
+                    #print(f"DIIS improvement: {trial_rms:.3e} -> {diis_rms:.3e}")
+                    current_geom = diis_step
+                    delta_q = diis_delta_q
+                    error = diis_error
+                    rms_error = diis_rms
+                    
+                    # DIIS was successful, try to reduce level shifting
+                    if level_shift > 0:
+                        level_shift = max(0, level_shift * 0.5)
+                    continue  # Skip to next iteration
+            
+            # Dynamically adjust the algorithm based on progress
+            if trial_error < error:
+                # Step is good, accept it
+                current_geom = trial_geom
+                delta_q = trial_delta_q
+                prev_error = error
+                error = trial_error
+                rms_error = trial_rms
+                
+                # Increase damping for more aggressive steps
+                damping_factor = min(1.0, damping_factor * 1.2)
+                
+                # Switch to Newton method when close enough to solution
+                if not use_newton and rms_error < 0.1:
+                    #print(f"Switching to Newton-Raphson at iteration {iteration+1}")
+                    use_newton = True
+                    
+                # Reduce level shifting since things are going well
+                if level_shift > 0:
+                    level_shift = max(0, level_shift * 0.5)
+                    
+            else:
+                # Step is bad, adjust strategy
+                if use_newton:
+                    # Newton step made things worse
+                    if level_shift == 0:
+                        # Start with modest level shifting
+                        level_shift = 0.1
+                    else:
+                        # Increase level shifting (similar to SCF when oscillating)
+                        level_shift = min(1.0, level_shift * 2.0)
+                        
+                    #print(f"Increasing level shift to {level_shift:.3e}")
+                    
+                    # If level shift is getting too high, try line search
+                    if level_shift > 0.5:
+                        #print("Switching to line search due to unstable Newton steps")
+                        use_newton = False
+                
+                # Reduce damping for more conservative steps
+                damping_factor = max(0.2, damping_factor * 0.5)
+                
+                # If we have previous good geometry, backtrack halfway
+                if prev_geom is not None:
+                    #print(f"Backtracking: {error:.3e} -> {prev_error:.3e}")
+                    current_geom = 0.5 * (current_geom + prev_geom)
+                    
+                    # Recalculate at backtracked position
+                    B = self.build_B_matrix(current_geom)
+                    current_q = np.dot(B, current_geom - reference_geom)
+                    delta_q = step_int - current_q
+                    error = np.linalg.norm(delta_q)
+                    rms_error = error / np.sqrt(len(delta_q))
+                
+            # Save current position for potential backtracking
+            prev_geom = current_geom.copy()
+        
+        # Handle non-convergence
+        if iteration == max_iterations - 1 and rms_error > convergence_threshold:
+            print(f"Warning: Conversion did not converge. Best RMS error = {best_error/np.sqrt(len(step_int)):.3e}")
+            current_geom = best_geom
+        
+        # Return the Cartesian step
+        return current_geom - reference_geom
+
+    def _compute_diis_solution(self, error_vectors, geometries):
+        """
+        Compute DIIS extrapolated solution using Pulay's method
+        
+        Parameters:
+        -----------
+        error_vectors : list
+            List of error vectors (flattened)
+        geometries : list
+            List of corresponding geometries
+            
+        Returns:
+        --------
+        ndarray
+            DIIS extrapolated geometry
+        """
+        n_vecs = len(error_vectors)
+        
+        # Build DIIS B matrix for Pulay method
+        B_diis = np.zeros((n_vecs + 1, n_vecs + 1))
+        
+        # Fill error vector dot products
+        for i in range(n_vecs):
+            for j in range(n_vecs):
+                B_diis[i, j] = np.dot(error_vectors[i], error_vectors[j])
+        
+        # Add constraint rows/columns
+        B_diis[n_vecs, :n_vecs] = 1.0
+        B_diis[:n_vecs, n_vecs] = 1.0
+        B_diis[n_vecs, n_vecs] = 0.0
+        
+        # RHS vector [0,0,...,0,1]
+        rhs = np.zeros(n_vecs + 1)
+        rhs[n_vecs] = 1.0
+        
+        # Add small regularization to diagonal for numerical stability
+        for i in range(n_vecs):
+            B_diis[i, i] += 1e-8 * (1.0 + abs(B_diis[i, i]))
+        
+        # Solve DIIS equations
+        try:
+            c = np.linalg.solve(B_diis, rhs)
+        except np.linalg.LinAlgError:
+            # Use SVD-based solution if direct solve fails
+            c = np.linalg.lstsq(B_diis, rhs, rcond=1e-10)[0]
+        
+        # Construct DIIS solution
+        diis_geom = np.zeros_like(geometries[0])
+        for i in range(n_vecs):
+            diis_geom += c[i] * geometries[i]
+            
+        return diis_geom
+        
+
+
     def internal_to_cartesian(self, step_int, geometry):
         """
         Transform step in internal coordinates to Cartesian coordinates
@@ -598,11 +713,10 @@ class HybridRFO:
         """
         # Choose the algorithm based on configuration or problem characteristics
         
-        if self.backconv_method == "newton-diis" or self.backconv_method == "diis":
-            return self.internal_to_cartesian_newton(step_int, geometry, use_diis=True)
-
-        else:  # Default to Newton method without DIIS
-            return self.internal_to_cartesian_newton(step_int, geometry, use_diis=False)
+        if self.backconv_method == "scf":
+            return self.internal_to_cartesian_scf(step_int, geometry)
+        else: 
+            return self.internal_to_cartesian_scf(step_int, geometry)
     
     def get_cleaned_hessian(self, hessian):
         """Ensure the Hessian is clean and well-conditioned"""
@@ -878,4 +992,4 @@ class HybridRFO:
     def get_hessian(self):
         """Return current Hessian (in Cartesian coordinates)"""
         return self.hessian if self.hessian is not None else None
-    
+
