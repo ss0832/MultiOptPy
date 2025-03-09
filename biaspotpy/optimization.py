@@ -10,7 +10,7 @@ import numpy as np
 
 from optimizer import CalculateMoveVector
 from visualization import Graph
-from fileio import FileIO
+from fileio import FileIO, xyz2list
 from parameter import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
@@ -22,7 +22,7 @@ from MO_analysis import NROAnalysis
 from constraint_condition import ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
-
+from oniom import ONIOMCalculation
 
 class Optimize:
     def __init__(self, args):
@@ -31,10 +31,10 @@ class Optimize:
         self.hartree2kcalmol = UVL.hartree2kcalmol
         self.bohr2angstroms = UVL.bohr2angstroms
         self.hartree2kjmol = UVL.hartree2kjmol
-        self.set_convergence_criteria(args)
-        self.initialize_variables(args)
+        self._set_convergence_criteria(args)
+        self._initialize_variables(args)
 
-    def set_convergence_criteria(self, args):
+    def _set_convergence_criteria(self, args):
         if args.tight_convergence_criteria and not args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.00012
             self.RMS_FORCE_THRESHOLD = 0.00008
@@ -51,7 +51,7 @@ class Optimize:
             self.MAX_DISPLACEMENT_THRESHOLD = 0.0015
             self.RMS_DISPLACEMENT_THRESHOLD = 0.0010
 
-    def initialize_variables(self, args):
+    def _initialize_variables(self, args):
         self.microiter_num = 100
         self.args = args
         self.FC_COUNT = args.calc_exact_hess
@@ -65,13 +65,13 @@ class Optimize:
         self.BASIS_SET = args.basisset
         self.FUNCTIONAL = args.functional
         self.excited_state = args.excited_state
-        self.check_sub_basisset(args)
+        self._check_sub_basisset(args)
         self.Model_hess = None
         self.mFC_COUNT = args.calc_model_hess
         self.DC_check_dist = float(args.dissociate_check)
         self.unrestrict = args.unrestrict
         self.NRO_analysis = args.NRO_analysis
-        self.check_NRO_analysis(args)
+        self._check_NRO_analysis(args)
         self.irc = args.intrinsic_reaction_coordinates
         self.force_data = force_data_parser(self.args)
         self.final_file_directory = None
@@ -85,8 +85,9 @@ class Optimize:
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
         self.DC_check_flag = False
+        self.oniom = args.oniom_flag
 
-    def check_sub_basisset(self, args):
+    def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
             print("invalid input (-sub_bs)")
             sys.exit(0)
@@ -112,14 +113,14 @@ class Optimize:
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
 
-    def check_NRO_analysis(self, args):
+    def _check_NRO_analysis(self, args):
         if self.NRO_analysis:
             if args.usextb == "None":
                 print("Currently, Natural Reaction Orbital analysis is only available for xTB method.")
                 sys.exit(0)
         
 
-    def make_init_directory(self, file):
+    def _make_init_directory(self, file):
         """
         Create initial directory for optimization results.
         """
@@ -138,12 +139,12 @@ class Optimize:
         
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
         
-    def save_input_data(self):
+    def _save_input_data(self):
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
         return
 
-    def constrain_flag_check(self, force_data):
+    def _constrain_flag_check(self, force_data):
         if len(force_data["projection_constraint_condition_list"]) > 0:
             projection_constrain = True
         else:
@@ -159,7 +160,7 @@ class Optimize:
         
         return projection_constrain, allactive_flag
 
-    def init_projection_constraint(self, PC, geom_num_list, iter, projection_constrain):
+    def _init_projection_constraint(self, PC, geom_num_list, iter, projection_constrain):
         if iter == 0:
             if projection_constrain:
                 PC.initialize(geom_num_list)
@@ -169,7 +170,7 @@ class Optimize:
         else:
             return PC
 
-    def save_init_geometry(self, geom_num_list, element_list, allactive_flag):
+    def _save_init_geometry(self, geom_num_list, element_list, allactive_flag):
         
         if allactive_flag:
             initial_geom_num_list = geom_num_list - Calculationtools().calc_center(geom_num_list, element_list)
@@ -181,7 +182,7 @@ class Optimize:
         return initial_geom_num_list, pre_geom
 
 
-    def calc_eff_hess_for_fix_atoms_and_set_hess(self, allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC):
+    def _calc_eff_hess_for_fix_atoms_and_set_hess(self, allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC):
         if not allactive_flag:
             fix_num = []
             for fnum in force_data["fix_atoms"]:
@@ -216,7 +217,7 @@ class Optimize:
         return optimizer_instances
         
 
-    def apply_projection_constraints(self, projection_constrain, PC, geom_num_list, g, B_g):
+    def _apply_projection_constraints(self, projection_constrain, PC, geom_num_list, g, B_g):
         if projection_constrain:
             g = copy.copy(PC.calc_project_out_grad(geom_num_list, g))
             proj_d_B_g = copy.copy(PC.calc_project_out_grad(geom_num_list, B_g - g))
@@ -224,7 +225,7 @@ class Optimize:
         
         return g, B_g, PC
 
-    def zero_fixed_atom_gradients(self, allactive_flag, force_data, g, B_g):
+    def _zero_fixed_atom_gradients(self, allactive_flag, force_data, g, B_g):
         if not allactive_flag:
             for j in force_data["fix_atoms"]:
                 g[j-1] = copy.copy(g[j-1]*0.0)
@@ -232,7 +233,7 @@ class Optimize:
         
         return g, B_g
 
-    def project_out_translation_rotation(self, new_geometry, geom_num_list, allactive_flag):
+    def _project_out_translation_rotation(self, new_geometry, geom_num_list, allactive_flag):
         
         if allactive_flag:
             # Convert to Bohr, apply Kabsch alignment algorithm, then convert back
@@ -244,7 +245,7 @@ class Optimize:
             # If not all atoms are active, return the original geometry
             return new_geometry
 
-    def apply_projection_constraints_to_geometry(self, projection_constrain, PC, new_geometry):
+    def _apply_projection_constraints_to_geometry(self, projection_constrain, PC, new_geometry):
         if projection_constrain:
             tmp_new_geometry = new_geometry / self.bohr2angstroms
             adjusted_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms
@@ -252,7 +253,7 @@ class Optimize:
         
         return new_geometry, PC
 
-    def reset_fixed_atom_positions(self, new_geometry, initial_geom_num_list, allactive_flag, force_data):
+    def _reset_fixed_atom_positions(self, new_geometry, initial_geom_num_list, allactive_flag, force_data):
         
         if not allactive_flag:
             for j in force_data["fix_atoms"]:
@@ -261,7 +262,7 @@ class Optimize:
         return new_geometry
 
 
-    def initialize_optimization_variables(self):
+    def _initialize_optimization_variables(self):
         # Initialize return dictionary with categories
         vars_dict = {
             'calculation': {},  # Calculation modules and algorithms
@@ -271,12 +272,13 @@ class Optimize:
             'gradients': {},    # Gradient and force variables
             'constraints': {},  # Constraint related variables
             'optimization': {}, # Optimizer settings
-            'misc': {}          # Miscellaneous
+            'misc': {},          # Miscellaneous
+            'oniom': {}          # ONIOM related variables
         }
         
         # Calculation modules and file I/O
-        Calculation, xtb_method = self.import_calculation_module()
-        self.save_input_data()
+        Calculation, xtb_method = self._import_calculation_module()
+        self._save_input_data()
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         
@@ -326,7 +328,7 @@ class Optimize:
         PC = ProjectOutConstrain(force_data["projection_constraint_condition_list"], 
                                 force_data["projection_constraint_atoms"], 
                                 force_data["projection_constraint_constant"])
-        projection_constrain, allactive_flag = self.constrain_flag_check(force_data)
+        projection_constrain, allactive_flag = self._constrain_flag_check(force_data)
         
         # Bias potential and calculation setup
         self.CalcBiaspot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
@@ -351,6 +353,13 @@ class Optimize:
                             electric_charge_and_multiplicity=electric_charge_and_multiplicity)
         else:
             NRO = None
+        
+        if self.oniom_flag is not None:
+            oniom_flag = True
+            high_layer_idx = force_data["oniom_high_layer_idx"]
+        else:
+            oniom_flag = False
+            high_layer_idx = None
         
         # Final status flag
         optimized_flag = False
@@ -409,11 +418,17 @@ class Optimize:
             'NRO': NRO
         }
         
+        vars_dict['oniom'] = {
+            'oniom_flag': oniom_flag,
+            'high_layer_index': high_layer_idx
+            
+        }
+        
         return vars_dict
 
     def optimize(self):
         # Initialize all variables needed for optimization
-        vars_dict = self.initialize_optimization_variables()
+        vars_dict = self._initialize_optimization_variables()
         
         # Extract variables from dictionary
         # Calculation related
@@ -461,6 +476,20 @@ class Optimize:
         exit_flag = vars_dict['misc']['exit_flag']
         optimized_flag = vars_dict['misc']['optimized_flag']
         NRO = vars_dict['misc']['NRO']
+        
+        # ONIOM related
+        oniom_flag = vars_dict['oniom']['oniom_flag']
+        high_layer_idx = vars_dict['oniom']['high_layer_index']
+        
+        #if oniom_flag:
+        #    full_geometry_file_directory = file_directory+"/full_system"
+        #    ONIOM = ONIOMCalculation(full_geometry_file_directory)
+        #    coordinates, elements, _ = xyz2list(self.START_FILE)
+        #     = ONIOM.setup(coordinates, elements, high_layer_idx)
+            
+        #else:
+        #    full_geometry_file_directory = None
+        #    ONIOM = None
 
         for iter in range(self.NSTEP):
             self.iter = iter
@@ -482,13 +511,13 @@ class Optimize:
                 SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
                 self.Model_hess = SP.Model_hess 
             if iter == 0:
-                initial_geom_num_list, pre_geom = self.save_init_geometry(geom_num_list, element_list, allactive_flag)
+                initial_geom_num_list, pre_geom = self._save_init_geometry(geom_num_list, element_list, allactive_flag)
 
             _, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
             
-            PC = self.init_projection_constraint(PC, geom_num_list, iter, projection_constrain)
+            PC = self._init_projection_constraint(PC, geom_num_list, iter, projection_constrain)
             
-            optimizer_instances = self.calc_eff_hess_for_fix_atoms_and_set_hess(allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC)
+            optimizer_instances = self._calc_eff_hess_for_fix_atoms_and_set_hess(allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC)
                     
             if not allactive_flag:
                 B_g = copy.copy(self.calc_fragement_grads(B_g, force_data["opt_fragment"]))
@@ -497,18 +526,18 @@ class Optimize:
             #energy profile 
             self.save_tmp_energy_profiles(iter, e, g, B_g)
             
-            g, B_g, PC = self.apply_projection_constraints(projection_constrain, PC, geom_num_list, g, B_g)
+            g, B_g, PC = self._apply_projection_constraints(projection_constrain, PC, geom_num_list, g, B_g)
                 
-            g, B_g = self.zero_fixed_atom_gradients(allactive_flag, force_data, g, B_g)
+            g, B_g = self._zero_fixed_atom_gradients(allactive_flag, force_data, g, B_g)
 
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list,
                                                                                   B_g, pre_B_g, pre_geom, B_e, pre_B_e,
                                                                                   pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain)
             
           
-            new_geometry = self.project_out_translation_rotation(new_geometry, geom_num_list, allactive_flag)
+            new_geometry = self._project_out_translation_rotation(new_geometry, geom_num_list, allactive_flag)
             
-            new_geometry, PC = self.apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry)
+            new_geometry, PC = self._apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry)
             
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
@@ -522,7 +551,7 @@ class Optimize:
             else:
                 displacement_vector = new_geometry / self.bohr2angstroms - geom_num_list
             
-            converge_flag, max_displacement_threshold, rms_displacement_threshold = self.check_converge_criteria(B_g, displacement_vector)
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self._check_converge_criteria(B_g, displacement_vector)
             
             self.print_info(e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
@@ -544,7 +573,7 @@ class Optimize:
                     optimized_flag = True
                     break
 
-            new_geometry = self.reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
+            new_geometry = self._reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
             #dissociation check
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
             
@@ -564,14 +593,14 @@ class Optimize:
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
 
-        self.finalize_optimization(FIO, G, grad_list, bias_grad_list,
+        self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    orthogonal_bias_grad_list, orthogonal_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
         self.optimized_flag = optimized_flag
         return
 
-    def finalize_optimization(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
-        self.save_results(FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
+    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
+        self._save_opt_results(FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
         self.bias_pot_params_grad_list = self.CalcBiaspot.bias_pot_params_grad_list
         self.bias_pot_params_grad_name_list = self.CalcBiaspot.bias_pot_params_grad_name_list
         self.final_file_directory = file_directory
@@ -587,7 +616,7 @@ class Optimize:
         RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
         return RMS_ortho_B_g, RMS_ortho_g
 
-    def save_results(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
+    def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
@@ -604,7 +633,7 @@ class Optimize:
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
 
-        self.save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
+        self._save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
 
         print("Complete...")
         self.SP = SP
@@ -614,7 +643,7 @@ class Optimize:
         self.final_bias_energy = B_e  # Hartree
         return
 
-    def check_converge_criteria(self, B_g, displacement_vector):
+    def _check_converge_criteria(self, B_g, displacement_vector):
         max_force = abs(B_g.max())
         max_force_threshold = self.MAX_FORCE_THRESHOLD
         
@@ -633,7 +662,7 @@ class Optimize:
             return True, max_displacement_threshold, rms_displacement_threshold
         return False, max_displacement_threshold, rms_displacement_threshold
     
-    def import_calculation_module(self):
+    def _import_calculation_module(self):
         xtb_method = None
         if self.args.pyscf:
             from pyscf_calculation_tools import Calculation
@@ -658,7 +687,6 @@ class Optimize:
             else:
                 from psi4_calculation_tools import Calculation
                
-
         return Calculation, xtb_method
     
     def setup_calculation(self, Calculation):
@@ -715,7 +743,7 @@ class Optimize:
             #-------------------
         return
     
-    def save_energy_profiles(self, orthogonal_bias_grad_list, orthogonal_grad_list, grad_list):
+    def _save_energy_profiles(self, orthogonal_bias_grad_list, orthogonal_grad_list, grad_list):
         if len(orthogonal_bias_grad_list) != 0 and len(orthogonal_grad_list) != 0:
             with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
                 f.write("ITER.,orthogonal bias gradient[a.u.]\n")
@@ -830,7 +858,7 @@ class Optimize:
                 print(f"{file} does not exist.")
                 continue
             
-            self.make_init_directory(file)
+            self._make_init_directory(file)
             self.optimize()
         
             if self.CMDS:

@@ -125,6 +125,7 @@ def optimizeparser(parser):
     parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
+    parser.add_argument("-oniom", "--oniom_flag", nargs="*",  type=str, default=None, help='apply ONIOM method (low layer: GFN1-xTB) (ex.) [(atom_number of high layer (ex. 1,2))] ')
     
     args = parser.parse_args()
     if len(args.INPUT) < 2:
@@ -282,6 +283,13 @@ def force_data_parser(args):
                 sub_list.append(int(sub))    
         return sub_list
     force_data = {}
+    #---------------------
+    force_data["oniom_high_layer_idx"] = []
+    
+    if args.oniom_flag is not None:
+        force_data["oniom_high_layer_idx"] = num_parse(args.oniom_flag[0])
+    
+    
     #---------------------
     force_data["nano_reactor_potential"] = []
     if len(args.nano_reactor_potential) % 6 != 0:
