@@ -354,12 +354,6 @@ class Optimize:
         else:
             NRO = None
         
-        if self.oniom_flag is not None:
-            oniom_flag = True
-            high_layer_idx = force_data["oniom_high_layer_idx"]
-        else:
-            oniom_flag = False
-            high_layer_idx = None
         
         # Final status flag
         optimized_flag = False
@@ -418,11 +412,7 @@ class Optimize:
             'NRO': NRO
         }
         
-        vars_dict['oniom'] = {
-            'oniom_flag': oniom_flag,
-            'high_layer_index': high_layer_idx
-            
-        }
+
         
         return vars_dict
 
@@ -477,19 +467,6 @@ class Optimize:
         optimized_flag = vars_dict['misc']['optimized_flag']
         NRO = vars_dict['misc']['NRO']
         
-        # ONIOM related
-        oniom_flag = vars_dict['oniom']['oniom_flag']
-        high_layer_idx = vars_dict['oniom']['high_layer_index']
-        
-        #if oniom_flag:
-        #    full_geometry_file_directory = file_directory+"/full_system"
-        #    ONIOM = ONIOMCalculation(full_geometry_file_directory)
-        #    coordinates, elements, _ = xyz2list(self.START_FILE)
-        #     = ONIOM.setup(coordinates, elements, high_layer_idx)
-            
-        #else:
-        #    full_geometry_file_directory = None
-        #    ONIOM = None
 
         for iter in range(self.NSTEP):
             self.iter = iter
@@ -858,7 +835,9 @@ class Optimize:
                 print(f"{file} does not exist.")
                 continue
             
+            
             self._make_init_directory(file)
+            
             self.optimize()
         
             if self.CMDS:

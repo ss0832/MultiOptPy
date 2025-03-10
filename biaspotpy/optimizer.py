@@ -71,7 +71,14 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
-    
+    "gdiis_rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
+
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -113,6 +120,16 @@ quasi_newton_mapping = {
     "mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
     "mrfo_psb": {"delta": 0.30, "rfo_type": 1},
     "mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
+
+    "gdiis_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+     
+ 
     
     "rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rfo_fsb": {"delta": 0.50, "rfo_type": 1},

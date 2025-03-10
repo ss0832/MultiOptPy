@@ -1,9 +1,12 @@
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 # Import from BiasPotPy
 from parameter import UnitValueLib, covalent_radii_lib, element_number  
 from Optimizer.fire import FIRE
+from biaspotpy.potential import BiasPotentialCalculation
 
 class ONIOMCalculation:
     """
@@ -23,6 +26,8 @@ class ONIOMCalculation:
         """
         self.UVL = UnitValueLib()
         self.bohr2angstroms = self.UVL.bohr2angstroms
+        self.hartree2kcalmol = self.UVL.hartree2kcalmol
+        
         
         # Default parameters
         self.low_layer_method = kwargs.get("LOW_METHOD", "GFN1-xTB")
@@ -60,7 +65,53 @@ class ONIOMCalculation:
         self.iteration_gradients = []
         self.iteration_geometries = []
         
-     
+    def _import_calculation_module(self):
+        xtb_method = None
+        if self.args.pyscf:
+            from pyscf_calculation_tools import Calculation
+          
+        elif self.args.othersoft and self.args.othersoft != "None":
+            from ase_calculation_tools import Calculation
+            
+            print("Use", self.args.othersoft)
+            with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
+                f.write(self.args.othersoft + "\n")
+                f.write(self.BASIS_SET + "\n")
+                f.write(self.FUNCTIONAL + "\n")
+        else:
+            if self.args.usedxtb and self.args.usedxtb != "None":
+                from dxtb_calculation_tools import Calculation
+              
+                xtb_method = self.args.usedxtb
+            elif self.args.usextb and self.args.usextb != "None":
+                from tblite_calculation_tools import Calculation
+               
+                xtb_method = self.args.usextb
+            else:
+                from psi4_calculation_tools import Calculation
+               
+        return Calculation, xtb_method
+    
+    def setup_calculation(self, Calculation):
+        SP = Calculation(
+            START_FILE=self.START_FILE,
+            N_THREAD=self.N_THREAD,
+            SET_MEMORY=self.SET_MEMORY,
+            FUNCTIONAL=self.FUNCTIONAL,
+            FC_COUNT=self.FC_COUNT,
+            BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
+            Model_hess=self.Model_hess,
+            software_type=self.args.othersoft,
+            unrestrict=self.unrestrict,
+            SUB_BASIS_SET=self.SUB_BASIS_SET,
+            BASIS_SET=self.BASIS_SET,
+            spin_multiplicity=self.spin_multiplicity,
+            electronic_charge=self.electronic_charge,
+            excited_state=self.excited_state)
+        SP.cpcm_solv_model = self.cpcm_solv_model
+        SP.alpb_solv_model = self.alpb_solv_model
+        return SP
+
     
     def update_output_dir(self, output_dir):
         """Update the output directory for ONIOM calculations."""
@@ -348,9 +399,7 @@ class ONIOMCalculation:
         
         return combined_coords, combined_elements, h_caps_info
     
-
-    
-    def write_xyz(self, filename, coordinates, elements, comment="ONIOM method"):
+    def write_xyz(self, filename, coordinates, elements, comment="ONIOM_method"):
         """Write molecular structure to XYZ file."""
         with open(filename, 'w') as f:
             f.write(f"{len(elements)}\n")
@@ -561,5 +610,434 @@ class ONIOMCalculation:
             f.write("# Iteration  Energy(Hartree)  MaxGradient(Hartree/Bohr)\n")
             for i, (e, g) in enumerate(zip(self.iteration_energies, self.iteration_gradients)):
                 f.write(f"{i+1}  {e:.12f}  {g:.12f}\n")
-
-
+    
+       
+    def optimize_oniom(self, args):
+        """
+        Run full ONIOM optimization with microiterations.
+        
+        Args:
+            args: Dictionary containing configuration parameters:
+                - high_calc: High level calculator instance
+                - low_calc: Low level calculator instance
+                - high_layer_indices: List of atom indices in high layer (1-indexed)
+                - link_atom_num: List of link atoms
+                - method: Method to use for low-level calculations
+                - constraints: List of constraint conditions
+                - fixed_atoms: List of atom indices that should not be optimized (1-indexed)
+                - max_iterations: Maximum number of macro-iterations
+                - microiter_num: Maximum number of microiterations
+                - output_dir: Directory for output files
+                
+        Returns:
+            Dictionary with final results including energy and optimized geometry
+        """
+        # Extract parameters from args
+        high_calc = args.get("high_calc")
+        low_calc = args.get("low_calc") or self.oniom.low_calc
+        high_layer_indices = args.get("high_layer_indices", [])
+        link_atom_num = args.get("link_atom_num", [])
+        method = args.get("method", self.oniom.low_layer_method)
+        constraints = args.get("constraints", [])
+        fixed_atoms = args.get("fixed_atoms", [])
+        output_dir = args.get("output_dir", self.oniom.output_dir)
+        bias_data = args.get("bias_data", {})
+        
+        # Update max iterations if provided
+        self.max_iterations = args.get("max_iterations", self.max_iterations)
+        self.microiter_num = args.get("microiter_num", self.microiter_num)
+        
+        # Initialize output directory
+        self.oniom.update_output_dir(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Log start of calculation
+        self._log_header(method, high_layer_indices)
+        
+        # Setup ONIOM calculation if not already done
+        if self.oniom.high_layer_coords is None or self.oniom.high_layer_elements is None:
+            # Check if coordinates and elements are available
+            if self.oniom.coordinates is None or self.oniom.elements is None:
+                raise ValueError("Coordinates and elements must be set before optimization")
+            
+            # Setup ONIOM calculation
+            self.oniom.setup(self.oniom.coordinates, self.oniom.elements, 
+                            high_layer_indices, 
+                            self.oniom.charge_and_multiplicity[0],
+                            self.oniom.charge_and_multiplicity[1])
+        
+        # Prepare calculators
+        if high_calc is None:
+            raise ValueError("High level calculator must be provided")
+        
+        if low_calc is None:
+            raise ValueError("Low level calculator must be provided")
+        
+        self.oniom.low_calc = low_calc
+        
+        # Convert fixed atoms to 0-indexed for internal use
+        fixed_atoms_set = set() if fixed_atoms is None else {atom_idx - 1 for atom_idx in fixed_atoms}
+        
+        # Convert high layer indices to 0-indexed for internal use
+        high_layer_indices_0 = [idx - 1 for idx in high_layer_indices]
+        
+        # Initialize tracking variables for optimization
+        iteration = 0
+        converged = False
+        
+        # Initialize energy and geometry trackers
+        prev_real_energy = 0.0
+        prev_real_bias_energy = 0.0
+        prev_coordinates = None
+        real_initial_coords = np.copy(self.oniom.coordinates)
+        high_layer_initial_coords = np.copy(self.oniom.high_layer_coords)
+        
+        # Create mapping dictionaries between high layer and full system
+        real_to_highlayer, highlayer_to_real = self._create_layer_mappings(
+            high_layer_indices_0, link_atom_num
+        )
+        
+        # Initialize bias potential calculators if needed
+        if bias_data:
+            
+            high_bias_calc = BiasPotentialCalculation(output_dir)
+            low_bias_calc = BiasPotentialCalculation(output_dir)
+        
+        # Write initial structures
+        self._write_initial_structures()
+        
+        # Main optimization loop
+        for iteration in range(self.max_iterations):
+            # Check for exit file
+            if os.path.exists(os.path.join(output_dir, "end.txt")):
+                print("Exit file detected. Stopping optimization.")
+                break
+                
+            print(f"\n# ONIOM Iteration {iteration+1} #\n")
+            
+            # Step 1: Calculate low-level model system (high layer only)
+            print("Model low layer calculation (high layer only)")
+            model_low_energy, model_low_gradient, _, finish_flag = low_calc.single_point(
+                os.path.join(output_dir, f"model_low_iter{iteration}"),
+                self.oniom.high_layer_elements,
+                iteration,
+                self.oniom.charge_and_multiplicity,
+                method,
+                geom_num_list=self.oniom.high_layer_coords * self.bohr2angstroms
+            )
+            
+            if finish_flag:
+                print("Low-level calculation failed. Stopping optimization.")
+                break
+                
+            # Step 2: Microiterations - Optimize low layer with fixed high layer
+            print("\nStarting microiterations...")
+            real_low_energy, real_low_gradient, converged_micro = self._run_microiterations(
+                low_calc, method, iteration, fixed_atoms_set, high_layer_indices_0,
+                highlayer_to_real, real_initial_coords, constraints
+            )
+            
+            if not converged_micro and iteration > 0:
+                print("Warning: Microiterations did not converge")
+            
+            # Step 3: Calculate high-level model system (high layer)
+            print("Model high layer calculation")
+            model_high_energy, model_high_gradient, _, finish_flag = high_calc.single_point(
+                os.path.join(output_dir, f"model_high_iter{iteration}"),
+                self.oniom.high_layer_elements,
+                iteration,
+                self.oniom.charge_and_multiplicity,
+                method="",  # High level method is handled by the high_calc
+                geom_num_list=self.oniom.high_layer_coords * self.bohr2angstroms
+            )
+            
+            if finish_flag:
+                print("High-level calculation failed. Stopping optimization.")
+                break
+                
+            # Step 4: Calculate ONIOM total energy and gradient
+            # E_ONIOM = E_high(high) + E_low(full) - E_low(high)
+            real_energy = real_low_energy + model_high_energy - model_low_energy
+            
+            # Combine gradients - take real_low_gradient and add the difference between high and low model
+            # First create a combined gradient for the full system
+            real_gradient = np.copy(real_low_gradient)
+            
+            # Add the high-level gradient contributions (modifying only the high layer atoms)
+            for h_idx, r_idx in highlayer_to_real.items():
+                real_gradient[r_idx-1] -= model_low_gradient[h_idx-1]  # Subtract low model contribution
+                real_gradient[r_idx-1] += model_high_gradient[h_idx-1]  # Add high model contribution
+            
+            # Apply bias potential if configured
+            if bias_data:
+                _, real_bias_energy, real_bias_gradient, _ = low_bias_calc.main(
+                    real_energy, real_gradient, self.oniom.coordinates, 
+                    self.oniom.elements, bias_data, np.zeros_like(real_gradient), 
+                    iteration, real_initial_coords
+                )
+            else:
+                real_bias_energy = real_energy
+                real_bias_gradient = real_gradient
+            
+            # Fix atoms if requested
+            if fixed_atoms:
+                for atom_idx in fixed_atoms:
+                    real_bias_gradient[atom_idx-1] = np.zeros(3)
+                    real_gradient[atom_idx-1] = np.zeros(3)
+            
+            # Apply constraints if provided
+            if constraints:
+                if iteration > 0:
+                    for constraint in constraints:
+                        # Apply constraint to gradient (a placeholder, actual implementation would depend on constraint type)
+                        pass
+            
+            # Calculate convergence metrics
+            displacement_vector = np.zeros_like(self.oniom.coordinates) if prev_coordinates is None else \
+                                 self.oniom.coordinates - prev_coordinates
+            
+            converged, metrics = self._check_convergence(
+                real_bias_gradient, displacement_vector, 
+                self.oniom.gradient_conv, self.oniom.displacement_conv
+            )
+            
+            # Store data for this iteration
+            self.iteration_energies.append(real_energy * self.hartree2kcalmol)
+            self.iteration_bias_energies.append(real_bias_energy * self.hartree2kcalmol)
+            self.iteration_gradients.append(np.sqrt(np.mean(real_bias_gradient**2)))
+            self.iteration_geometries.append(np.copy(self.oniom.coordinates))
+            
+            # Print current status
+            self._print_status(
+                iteration, real_energy, real_bias_energy, real_bias_gradient, 
+                displacement_vector, prev_real_energy, prev_real_bias_energy,
+                metrics
+            )
+            
+            # Check for convergence
+            if converged:
+                print("\nOptimization converged!")
+                break
+            
+            # Step 5: Update coordinates for next iteration
+            # Move atoms according to gradient and update high layer coordinates
+            new_coords = self._update_coordinates(
+                self.oniom.coordinates, real_bias_gradient, 
+                high_layer_indices_0, constraints, fixed_atoms
+            )
+            
+            # Update for next iteration
+            prev_real_energy = real_energy
+            prev_real_bias_energy = real_bias_energy
+            prev_coordinates = np.copy(self.oniom.coordinates)
+            self.oniom.coordinates = new_coords
+            
+            # Extract new high layer coordinates
+            self.oniom.high_layer_coords = self._extract_high_layer_coords(
+                new_coords, high_layer_indices_0
+            )
+            
+            # Write current geometry to file
+            self._write_geometry(iteration, real_energy)
+            
+        # End of optimization
+        # Generate output plots and files
+        self._generate_output_plots(output_dir)
+        self._write_final_output(output_dir, real_energy, real_bias_energy, iteration)
+        
+        return {
+            "energy": real_energy,
+            "bias_energy": real_bias_energy,
+            "coordinates": np.copy(self.oniom.coordinates),
+            "high_layer_coords": np.copy(self.oniom.high_layer_coords),
+            "elements": self.oniom.elements,
+            "high_layer_elements": self.oniom.high_layer_elements,
+            "converged": converged,
+            "iterations": iteration + 1
+        }
+        
+    def _update_coordinates(self, coords, gradient, high_layer_indices, constraints, fixed_atoms):
+        """
+        Update coordinates based on gradient and constraints.
+        
+        Args:
+            coords: Current coordinates
+            gradient: Current gradient
+            high_layer_indices: High layer atom indices (0-indexed)
+            constraints: List of constraint conditions
+            fixed_atoms: List of fixed atom indices (1-indexed)
+            
+        Returns:
+            Updated coordinates
+        """
+        
+        optimizer = FIRE()
+        
+        # Calculate move vector using optimizer
+        move_vector = optimizer.run(
+            coords.reshape(-1),
+            gradient.reshape(-1),
+            0.0  # Energy (not needed for move vector calculation)
+        ).reshape(-1, 3)
+        
+        # Apply move vector to coordinates
+        new_coords = coords + move_vector
+        
+        # Apply constraints if provided
+        if constraints:
+            # Apply constraint to coordinates (placeholder for actual implementation)
+            pass
+        
+        # Fix atoms if requested
+        if fixed_atoms:
+            for atom_idx in fixed_atoms:
+                new_coords[atom_idx-1] = coords[atom_idx-1]
+        
+        return new_coords
+    
+    def _extract_high_layer_coords(self, full_coords, high_layer_indices):
+        """
+        Extract high layer coordinates from full system coordinates.
+        
+        Args:
+            full_coords: Full system coordinates
+            high_layer_indices: High layer atom indices (0-indexed)
+            
+        Returns:
+            High layer coordinates
+        """
+        high_layer_coords = []
+        for idx in high_layer_indices:
+            high_layer_coords.append(full_coords[idx])
+        
+        # If we have hydrogen caps, add them too
+        if hasattr(self.oniom, 'h_caps_info') and self.oniom.h_caps_info:
+            # This is a simplified version; the actual implementation would depend
+            # on how hydrogen caps are handled in the ONIOMCalculation class
+            pass
+        
+        return np.array(high_layer_coords)
+    
+    def _create_layer_mappings(self, high_layer_indices, link_atom_num):
+        """
+        Create mappings between high layer and full system indices.
+        
+        Args:
+            high_layer_indices: High layer atom indices (0-indexed)
+            link_atom_num: List of link atoms
+            
+        Returns:
+            Tuple of (real_to_highlayer, highlayer_to_real) dictionaries
+        """
+        real_to_highlayer = {}
+        highlayer_to_real = {}
+        
+        for i, idx in enumerate(high_layer_indices):
+            # Convert to 1-indexed for consistency with most chemistry software
+            real_to_highlayer[idx + 1] = i + 1
+            highlayer_to_real[i + 1] = idx + 1
+        
+        return real_to_highlayer, highlayer_to_real
+    
+    def _log_header(self, method, high_layer_indices):
+        """Log the start of ONIOM calculation with configuration details."""
+        with open(os.path.join(self.oniom.output_dir, "ONIOM.log"), "w") as f:
+            f.write(f"### ONIOM Optimization started at {datetime.now()} ###\n")
+            f.write(f"### Low layer: {method} ###\n")
+            f.write(f"### High layer atoms: {high_layer_indices} ###\n")
+            f.write(f"### Total atoms: {len(self.oniom.elements)} ###\n")
+            f.write("### Iteration  Energy(Hartree)  BiasEnergy(Hartree)  MaxGrad(Hartree/Bohr)  RMSGrad(Hartree/Bohr) ###\n")
+    
+    def _print_status(self, iteration, energy, bias_energy, gradient, displacement, 
+                     prev_energy, prev_bias_energy, metrics):
+        """Print and log current optimization status."""
+        energy_change = abs(energy - prev_energy) if prev_energy != 0.0 else 0.0
+        bias_change = abs(bias_energy - prev_bias_energy) if prev_bias_energy != 0.0 else 0.0
+        
+        print(f"Iteration {iteration+1}:")
+        print(f"  Energy: {energy:.10f} Hartree  (Change: {energy_change:.10f})")
+        print(f"  Bias Energy: {bias_energy:.10f} Hartree  (Change: {bias_change:.10f})")
+        print(f"  Max Gradient: {metrics['max_gradient']:.6f} Hartree/Bohr")
+        print(f"  RMS Gradient: {metrics['rms_gradient']:.6f} Hartree/Bohr")
+        print(f"  Max Displacement: {metrics['max_displacement']:.6f} Bohr")
+        print(f"  RMS Displacement: {metrics['rms_displacement']:.6f} Bohr")
+        
+        with open(os.path.join(self.oniom.output_dir, "ONIOM.log"), "a") as f:
+            f.write(f"{iteration+1:8d}  {energy:15.10f}  {bias_energy:15.10f}  {metrics['max_gradient']:15.10f}  {metrics['rms_gradient']:15.10f}\n")
+    
+    def _write_initial_structures(self):
+        """Write initial structures to XYZ files."""
+        self.oniom.write_xyz(
+            os.path.join(self.oniom.output_dir, "initial_full.xyz"),
+            self.oniom.coordinates * self.bohr2angstroms,
+            self.oniom.elements,
+            "Initial structure - Full system"
+        )
+        
+        self.oniom.write_xyz(
+            os.path.join(self.oniom.output_dir, "initial_high.xyz"),
+            self.oniom.high_layer_coords * self.bohr2angstroms,
+            self.oniom.high_layer_elements,
+            "Initial structure - High layer"
+        )
+    
+    def _write_geometry(self, iteration, energy):
+        """Write current geometry to XYZ file."""
+        self.oniom.write_xyz(
+            os.path.join(self.oniom.output_dir, f"step_{iteration+1}.xyz"),
+            self.oniom.coordinates * self.bohr2angstroms,
+            self.oniom.elements,
+            f"Step {iteration+1} - Energy: {energy:.10f} Hartree"
+        )
+    
+    def _write_final_output(self, output_dir, energy, bias_energy, iteration):
+        """Write final output files and summary."""
+        # Write final geometry
+        self.oniom.write_xyz(
+            os.path.join(output_dir, "final.xyz"),
+            self.oniom.coordinates * self.bohr2angstroms,
+            self.oniom.elements,
+            f"Final structure - Energy: {energy:.10f} Hartree"
+        )
+        
+        # Write final high layer geometry
+        self.oniom.write_xyz(
+            os.path.join(output_dir, "final_high.xyz"),
+            self.oniom.high_layer_coords * self.bohr2angstroms,
+            self.oniom.high_layer_elements,
+            f"Final high layer structure - Energy: {energy:.10f} Hartree"
+        )
+        
+        # Write summary file
+        with open(os.path.join(output_dir, "summary.txt"), "w") as f:
+            f.write(f"ONIOM Optimization completed at {datetime.now()}\n")
+            f.write(f"Total iterations: {iteration+1}\n")
+            f.write(f"Final Energy: {energy:.10f} Hartree ({energy*self.hartree2kcalmol:.6f} kcal/mol)\n")
+            f.write(f"Final Bias Energy: {bias_energy:.10f} Hartree ({bias_energy*self.hartree2kcalmol:.6f} kcal/mol)\n")
+            f.write("\nConvergence history:\n")
+            for i, (e, be, g) in enumerate(zip(self.iteration_energies, self.iteration_bias_energies, self.iteration_gradients)):
+                f.write(f"Iteration {i+1}: E={e/self.hartree2kcalmol:.10f} H, BE={be/self.hartree2kcalmol:.10f} H, |G|={g:.6f}\n")
+    
+    def _generate_output_plots(self, output_dir):
+        """Generate energy and gradient plots."""
+        # Plot energy profile
+        iterations = list(range(1, len(self.iteration_energies) + 1))
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(iterations, self.iteration_energies, 'b-o', label='Energy')
+        plt.plot(iterations, self.iteration_bias_energies, 'r-o', label='Bias Energy')
+        plt.xlabel('Iteration')
+        plt.ylabel('Energy (kcal/mol)')
+        plt.title('ONIOM Optimization Energy Profile')
+        plt.grid(True)
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "energy_profile.png"), dpi=300)
+        
+        # Plot gradient norm
+        plt.figure(figsize=(10, 6))
+        plt.plot(iterations, self.iteration_gradients, 'g-o')
+        plt.xlabel('Iteration')
+        plt.ylabel('Gradient (RMS) [a.u.]')
+        plt.title('ONIOM Optimization Gradient Profile')
+        plt.grid(True)
+        plt.savefig(os.path.join(output_dir, "gradient_profile.png"), dpi=300)
