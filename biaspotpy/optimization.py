@@ -22,7 +22,7 @@ from MO_analysis import NROAnalysis
 from constraint_condition import ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
-from oniom import ONIOMCalculation
+from oniom import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 
 class Optimize:
     def __init__(self, args):
@@ -284,7 +284,7 @@ class Optimize:
         
         # Initialize energy tracking arrays
         self.ENERGY_LIST_FOR_PLOTTING = []
-        self.AFIR_ENERGY_LIST_FOR_PLOTTING = []
+        self.BIAS_ENERGY_LIST_FOR_PLOTTING = []
         self.NUM_LIST = []
         
         # Force data and flags
@@ -517,7 +517,7 @@ class Optimize:
             new_geometry, PC = self._apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry)
             
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
-            self.AFIR_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
+            self.BIAS_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
             
             #geometry info
@@ -594,12 +594,12 @@ class Optimize:
         return RMS_ortho_B_g, RMS_ortho_g
 
     def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
-        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
         
         if self.NRO_analysis:
-            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
 
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
@@ -821,7 +821,482 @@ class Optimize:
             for atom_num in fragment:
                 calced_gradient[atom_num-1] = copy.copy(tmp_grad)
         return calced_gradient
-    
+
+
+    def optimize_oniom(self):
+        """
+        Perform ONIOM optimization using a high-level QM method for a subset of atoms
+        and a low-level method for the entire system.
+        
+        High layer: psi4 (or other accurate QM method)
+        Low layer: tblite, ASE(NNP), etc.
+        """
+        # Parse input parameters and initialize calculations
+        force_data = force_data_parser(self.args)
+        high_layer_atom_num = force_data["oniom_flag"][0]
+        link_atom_num = force_data["oniom_flag"][1]
+        calc_method = force_data["oniom_flag"][2]
+        
+        # Import appropriate calculation modules
+        if self.args.pyscf:
+            from pyscf_calculation_tools import Calculation as HL_Calculation
+        else:
+            from psi4_calculation_tools import Calculation as HL_Calculation
+        
+        if calc_method in ["GFN2-xTB", "GFN1-xTB", "IPEA1-xTB"]:
+            from tblite_calculation_tools import Calculation as LL_Calculation
+        else:
+            from ase_calculation_tools import Calculation as LL_Calculation
+        
+        # Save ONIOM configuration to file
+        with open(self.BPA_FOLDER_DIRECTORY+"ONIOM2.txt", "w") as f:
+            f.write("### Low layer ###\n")
+            f.write(calc_method+"\n")
+            f.write("### High layer ###\n")
+            f.write(self.BASIS_SET+"\n")
+            f.write(self.FUNCTIONAL+"\n")  
+        
+        # Initialize file IO and geometry
+        FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)
+        geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
+        self.element_list = element_list
+        file_directory = FIO.make_psi4_input_file(geometry_list, 0)
+        
+        # Estimate number of microiterations based on system size
+        self.microiter_num += 10 * len(element_list)
+        
+        # Extract coordinates and convert to Bohr
+        geom_num_list = []
+        for i in range(2, len(geometry_list[0])):
+            geom_num_list.append(geometry_list[0][i][1:4])
+        geom_num_list = np.array(geom_num_list, dtype="float64") / self.bohr2angstroms
+        
+        # Identify link atoms and separate layers
+        linker_atom_pair_num = specify_link_atom_pairs(geom_num_list, element_list, high_layer_atom_num, link_atom_num)
+        print("Boundary of high layer and low layer:", linker_atom_pair_num)
+        
+        high_layer_geom_num_list, high_layer_element_list = separate_high_layer_and_low_layer(
+            geom_num_list, linker_atom_pair_num, high_layer_atom_num, element_list)
+        
+        # Create mapping between high layer and full system atom indices
+        real_2_highlayer_label_connect_dict, highlayer_2_real_label_connect_dict = link_number_high_layer_and_low_layer(high_layer_atom_num)
+        
+        # Initialize model Hessians
+        LL_Model_hess = np.eye(len(element_list)*3)
+       
+        
+        HL_Model_hess = np.eye((len(high_layer_element_list))*3)
+      
+        self.microiter_num += 10 * len(element_list)
+        # Create mask for high layer atoms in full system
+        bool_list = []
+        for i in range(len(element_list)):
+            if i in high_layer_atom_num:
+                bool_list.extend([True, True, True])
+            else:
+                bool_list.extend([False, False, False])
+        
+        # Initialize bias potential calculators
+        LL_Calc_BiasPot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
+        HL_Calc_BiasPot = BiasPotentialCalculation(self.BPA_FOLDER_DIRECTORY)
+        
+        # Save input arguments
+        with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
+            f.write(str(vars(self.args)))
+        
+        # Initialize energy and gradient tracking variables
+        pre_model_HL_B_e = 0.0
+        pre_model_HL_B_g = np.zeros((len(high_layer_element_list), 3))
+        pre_model_HL_g = np.zeros((len(high_layer_element_list), 3))
+        pre_model_LL_B_g = np.zeros((len(high_layer_element_list), 3))
+        pre_real_LL_B_e = 0.0
+        pre_real_LL_e = 0.0
+        pre_real_LL_B_g = np.zeros((len(element_list), 3))
+        pre_real_LL_g = np.zeros((len(element_list), 3))
+        pre_real_B_e = 0.0
+        pre_real_e = 0.0
+        pre_real_LL_move_vector = np.zeros((len(element_list), 3))
+        pre_model_HL_move_vector = np.zeros((len(high_layer_element_list), 3))
+        
+        # Initialize high layer optimizer
+        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        HL_optimizer_instances = HL_CMV.initialization(force_data["opt_method"])
+        
+        for i in range(len(HL_optimizer_instances)):
+            HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+            if self.DELTA != "x":
+                HL_optimizer_instances[i].DELTA = self.DELTA      
+        
+        # Initialize calculation instances
+        HLSP = HL_Calculation(START_FILE=self.START_FILE,
+                        SUB_BASIS_SET=self.SUB_BASIS_SET,
+                        BASIS_SET=self.BASIS_SET,
+                        N_THREAD=self.N_THREAD,
+                        SET_MEMORY=self.SET_MEMORY,
+                        FUNCTIONAL=self.FUNCTIONAL,
+                        FC_COUNT=self.FC_COUNT,
+                        BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
+                        Model_hess=HL_Model_hess,
+                        unrestrict=self.unrestrict,
+                        excited_state=self.excited_state,
+                        electronic_charge=self.electronic_charge,
+                        spin_multiplicity=self.spin_multiplicity
+                        )
+        
+        LLSP = LL_Calculation(START_FILE=self.START_FILE,
+                        SUB_BASIS_SET=self.SUB_BASIS_SET,
+                        BASIS_SET=self.BASIS_SET,
+                        N_THREAD=self.N_THREAD,
+                        SET_MEMORY=self.SET_MEMORY,
+                        FUNCTIONAL=self.FUNCTIONAL,
+                        FC_COUNT=self.FC_COUNT,
+                        BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
+                        Model_hess=LL_Model_hess,
+                        unrestrict=self.unrestrict,
+                        software_type=calc_method,
+                        excited_state=self.excited_state)
+        
+        
+        
+        # Initialize result tracking
+        self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
+        real_grad_list = []
+        real_bias_grad_list = []
+        real_orthogonal_bias_grad_list = []
+        real_orthogonal_grad_list = []
+        self.NUM_LIST = []
+        self.ENERGY_LIST_FOR_PLOTTING = []
+        self.BIAS_ENERGY_LIST_FOR_PLOTTING = []
+          
+        real_e = None
+        real_B_e = None
+        
+        # Main optimization loop
+        for iter in range(self.NSTEP):
+            self.iter = iter
+            
+            # Check for exit file
+            exit_file_detect = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
+            if exit_file_detect:
+                break
+            
+            print(f"\n# ITR. {iter}\n")
+            
+            # Initialize geometries on first iteration
+            if iter == 0:
+                high_layer_initial_geom_num_list = high_layer_geom_num_list.copy()  # Bohr
+                high_layer_pre_geom = high_layer_initial_geom_num_list.copy()  # Bohr
+                real_initial_geom_num_list = geom_num_list.copy()  # Bohr
+                real_pre_geom = real_initial_geom_num_list.copy()  # Bohr
+            
+            # Calculate model low layer energy and gradients
+            print("Model low layer calculation")
+            model_LL_e, model_LL_g, high_layer_geom_num_list, finish_frag = LLSP.single_point(
+                file_directory, high_layer_element_list, iter, electric_charge_and_multiplicity, 
+                calc_method, geom_num_list=high_layer_geom_num_list*self.bohr2angstroms)
+            
+            if finish_frag:  # Exit if calculation failed
+                break
+           
+           
+            # Perform microiterations to optimize the low layer with fixed high layer
+            print("Processing microiteration...")
+            
+            # Initialize low layer optimizer
+            LL_CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+            LL_optimizer_instances = LL_CMV.initialization(["fire"])
+            LL_optimizer_instances[0].display_flag = False
+            
+            # Variables for tracking convergence
+            prev_low_layer_rms_grad = float('inf')
+            prev_displacement_max = float('inf')
+            prev_displacement_rms = float('inf')
+            low_layer_converged = False
+            
+            for microiter in range(self.microiter_num):
+              
+                # Update model Hessian
+                LLSP.Model_hess = LL_Model_hess
+                
+                # Calculate low layer energy and gradients
+                real_LL_e, real_LL_g, geom_num_list, finish_frag = LLSP.single_point(
+                    file_directory, element_list, microiter, electric_charge_and_multiplicity, 
+                    calc_method, geom_num_list=geom_num_list*self.bohr2angstroms)
+                
+                # Update model Hessian
+                LL_Model_hess = LLSP.Model_hess
+                
+                
+                # Calculate bias potential
+                LL_Calc_BiasPot.Model_hess = LL_Model_hess
+                _, real_LL_B_e, real_LL_B_g, LL_BPA_hessian = LL_Calc_BiasPot.main(
+                    real_LL_e, real_LL_g, geom_num_list, element_list, 
+                    force_data, pre_real_LL_B_g, microiter, real_initial_geom_num_list)
+                
+                # Update optimizer Hessians
+                for x in range(len(LL_optimizer_instances)):
+                    LL_optimizer_instances[x].set_bias_hessian(LL_BPA_hessian)
+                    
+                    if microiter % self.FC_COUNT == 0:
+                        LL_optimizer_instances[x].set_hessian(LL_Model_hess)
+                
+                # Apply fragment constraints if specified
+                if len(force_data["opt_fragment"]) > 0:
+                    real_LL_B_g = copy.copy(self.calc_fragement_grads(real_LL_B_g, force_data["opt_fragment"]))
+                    real_LL_g = copy.copy(self.calc_fragement_grads(real_LL_g, force_data["opt_fragment"]))
+                
+              
+                # Save previous geometry for displacement calculation
+                prev_geom = geom_num_list.copy()
+                
+                # Calculate move vector for low layer
+                geom_num_list, LL_move_vector, LL_optimizer_instances = LL_CMV.calc_move_vector(
+                    microiter, geom_num_list, real_LL_B_g, pre_real_LL_B_g, 
+                    real_pre_geom, real_LL_B_e, pre_real_LL_B_e, 
+                    pre_real_LL_move_vector, real_initial_geom_num_list, 
+                    real_LL_g, pre_real_LL_g, LL_optimizer_instances, print_flag=False)
+                
+                # Fix high layer atoms to their original positions
+                for key, value in highlayer_2_real_label_connect_dict.items():
+                    geom_num_list[value-1] = copy.copy(high_layer_geom_num_list[key-1]*self.bohr2angstroms)
+                
+                # Fix user-specified atoms
+                if len(force_data["fix_atoms"]) > 0:
+                    for j in force_data["fix_atoms"]:
+                        geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
+                
+                # Convert units
+                geom_num_list /= self.bohr2angstroms
+                
+                # Calculate displacement vector for convergence check
+                displacement_vector = geom_num_list - prev_geom
+                
+                # Calculate convergence metrics for low layer atoms only
+                low_layer_grads = []
+                low_layer_displacements = []
+                
+                for i in range(len(element_list)):
+                    if (i+1) not in high_layer_atom_num:  # 0-indexed to 1-indexed
+                        low_layer_grads.append(real_LL_B_g[i])
+                        low_layer_displacements.append(displacement_vector[i])
+                
+                low_layer_grads = np.array(low_layer_grads)
+                low_layer_displacements = np.array(low_layer_displacements)
+                
+                # Calculate RMS and max values for convergence checking
+                low_layer_rms_grad = np.sqrt((low_layer_grads**2).mean()) if len(low_layer_grads) > 0 else 0
+                max_displacement = np.abs(displacement_vector).max() if len(displacement_vector) > 0 else 0
+                rms_displacement = np.sqrt((displacement_vector**2).mean()) if len(displacement_vector) > 0 else 0
+                
+                # Calculate changes from previous iteration
+                energy_shift = abs(pre_real_LL_B_e - real_LL_B_e)
+                grad_shift = abs(prev_low_layer_rms_grad - low_layer_rms_grad)
+                disp_max_shift = abs(prev_displacement_max - max_displacement)
+                disp_rms_shift = abs(prev_displacement_rms - rms_displacement)
+                if microiter % 10 == 0:
+                    # Print current values
+                    print(f"M. ITR. {microiter}")
+                    print("Microiteration results:")
+                    print(f"LOW LAYER ENERGY:       {float(real_LL_e):10.8f}")
+                    print(f"LOW LAYER BIAS ENERGY:  {float(real_LL_B_e):10.8f}")
+                    print(f"LOW LAYER RMS GRADIENT: {float(low_layer_rms_grad):10.8f}")
+                    print(f"LOW LAYER MAX GRADIENT: {float(low_layer_grads.max()):10.8f}")
+                    print(f"MAX DISPLACEMENT:       {float(max_displacement):10.8f}")
+                    print(f"RMS DISPLACEMENT:       {float(rms_displacement):10.8f}")
+                    print(f"ENERGY SHIFT:           {float(energy_shift):10.8f}")
+                
+                # Check convergence of microiterations with defaults from __init__
+                if (low_layer_rms_grad < 0.0003) and \
+                   (low_layer_grads.max() < 0.0006) and \
+                   (max_displacement < 0.003) and \
+                   (rms_displacement < 0.002):
+                    print("Low layer converged... (microiteration)")
+                    low_layer_converged = True
+                    break
+                
+                # Update previous values for next microiteration
+                pre_real_LL_e = real_LL_e
+                pre_real_LL_B_e = real_LL_B_e
+                pre_real_LL_g = real_LL_g
+                pre_real_LL_B_g = real_LL_B_g
+                pre_real_LL_move_vector = LL_move_vector
+                prev_low_layer_rms_grad = low_layer_rms_grad
+                prev_displacement_max = max_displacement
+                prev_displacement_rms = rms_displacement
+            
+            if not low_layer_converged:
+                print("Reached maximum number of microiterations.")
+            print("Microiteration complete.")
+            
+            # Calculate high layer energy and gradients
+            print("Model system (high layer)")
+           
+            HLSP.Model_hess = HL_Model_hess
+            model_HL_e, model_HL_g, high_layer_geom_num_list, finish_frag = HLSP.single_point(
+                file_directory, high_layer_element_list, iter, electric_charge_and_multiplicity,
+                method="", geom_num_list=high_layer_geom_num_list*self.bohr2angstroms)
+            
+            HL_Model_hess = HLSP.Model_hess
+            
+            if finish_frag:
+                break
+            
+            # Transfer gradients from model to real system
+            _, tmp_model_HL_B_e, tmp_model_HL_B_g, HL_BPA_hessian = LL_Calc_BiasPot.main(
+                0.0, real_LL_g*0.0, geom_num_list, element_list, force_data, pre_real_LL_B_g*0.0, iter, real_initial_geom_num_list)
+            
+            tmp_model_HL_g = tmp_model_HL_B_g * 0.0
+            
+            # Apply high layer gradients to the real system
+            for key, value in real_2_highlayer_label_connect_dict.items():
+                tmp_model_HL_B_g[key-1] += model_HL_g[value-1]
+                tmp_model_HL_g[key-1] += model_HL_g[value-1]
+            
+            # Extract high layer Hessian
+            HL_BPA_hessian = LL_BPA_hessian[np.ix_(bool_list, bool_list)]
+            tmp_hl_len = len(HL_BPA_hessian)
+           
+            HL_BPA_hessian = np.hstack([HL_BPA_hessian, np.zeros((len(HL_BPA_hessian), len(linker_atom_pair_num)*3))])
+            tmp_bpa_hess = np.zeros((len(linker_atom_pair_num)*3, tmp_hl_len))
+            tmp_bpa_hess = np.hstack([tmp_bpa_hess, np.eye((len(linker_atom_pair_num)*3))])
+          
+            HL_BPA_hessian = np.vstack([HL_BPA_hessian, tmp_bpa_hess])
+            # Update high layer optimizer Hessians
+            for i in range(len(HL_optimizer_instances)):
+                HL_optimizer_instances[i].set_bias_hessian(HL_BPA_hessian)
+                
+                if iter % self.FC_COUNT == 0:
+                    HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+            
+            # Apply fragment constraints if specified
+            if len(force_data["opt_fragment"]) > 0:
+                tmp_model_HL_B_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_B_g, force_data["opt_fragment"]))
+                tmp_model_HL_g = copy.copy(self.calc_fragement_grads(tmp_model_HL_g, force_data["opt_fragment"]))
+            
+            # Combine gradients for full ONIOM model
+            model_HL_B_g = copy.copy(model_HL_g)
+            model_HL_B_e = model_HL_e + tmp_model_HL_B_e
+            
+            for key, value in real_2_highlayer_label_connect_dict.items():
+                model_HL_B_g[value-1] += tmp_model_HL_B_g[key-1]
+            
+            # Store previous high layer geometry
+            pre_high_layer_geom_num_list = high_layer_geom_num_list
+            
+            # Calculate move vector for high layer
+     
+            high_layer_geom_num_list, move_vector, HL_optimizer_instances = HL_CMV.calc_move_vector(
+                iter, high_layer_geom_num_list, model_HL_B_g, pre_model_HL_B_g, 
+                pre_high_layer_geom_num_list, model_HL_B_e, pre_model_HL_B_e, 
+                pre_model_HL_move_vector, high_layer_pre_geom, 
+                model_HL_g, pre_model_HL_g, HL_optimizer_instances)
+            
+            # Update full system geometry with high layer changes
+            for l in range(len(high_layer_geom_num_list) - len(linker_atom_pair_num)):
+                geom_num_list[highlayer_2_real_label_connect_dict[l+1]-1] = copy.copy(high_layer_geom_num_list[l]/self.bohr2angstroms)
+            
+            # Project out translation and rotation
+            geom_num_list -= Calculationtools().calc_center_of_mass(geom_num_list, element_list)
+            geom_num_list, _ = Calculationtools().kabsch_algorithm(geom_num_list, real_pre_geom)
+            
+            # Update high layer geometry after alignment
+            high_layer_geom_num_list, high_layer_element_list = separate_high_layer_and_low_layer(
+                geom_num_list, linker_atom_pair_num, high_layer_atom_num, element_list)
+            
+            # Combine energies and gradients
+            real_e = real_LL_e + model_HL_e - model_LL_e
+            real_B_e = real_LL_B_e + model_HL_B_e - model_LL_e
+            real_g = real_LL_g + tmp_model_HL_g
+            real_B_g = real_LL_B_g + tmp_model_HL_B_g
+            
+            # Save energy profiles
+            self.save_tmp_energy_profiles(iter, real_e, real_g, real_B_g)
+            self.ENERGY_LIST_FOR_PLOTTING.append(real_e*self.hartree2kcalmol)
+            self.BIAS_ENERGY_LIST_FOR_PLOTTING.append(real_B_e*self.hartree2kcalmol)
+            
+            
+            # Extract geometry information
+            self.geom_info_extract(force_data, file_directory, real_B_g, real_g)
+            if len(linker_atom_pair_num) > 0:
+                tmp_real_B_g = model_HL_B_g[:-len(linker_atom_pair_num)].reshape(-1,1)
+            else:
+                tmp_real_B_g = model_HL_B_g.reshape(-1,1)
+            
+            abjusted_high_layer_geom_num_list, _ = Calculationtools().kabsch_algorithm(high_layer_geom_num_list, pre_high_layer_geom_num_list)
+            # Calculate displacement and check convergence
+            if len(linker_atom_pair_num) > 0:
+                tmp_displacement_vector = (abjusted_high_layer_geom_num_list - pre_high_layer_geom_num_list)[:-len(linker_atom_pair_num)].reshape(-1,1)
+            else:
+                tmp_displacement_vector = (abjusted_high_layer_geom_num_list - pre_high_layer_geom_num_list).reshape(-1,1)
+            
+            displacement_vector = geom_num_list - real_pre_geom
+            converge_flag, max_displacement_threshold, rms_displacement_threshold = self._check_converge_criteria(tmp_real_B_g, tmp_displacement_vector)
+            
+            # Print optimization information
+            self.print_info(real_e, real_B_e, tmp_real_B_g, tmp_displacement_vector, pre_real_e, pre_real_B_e, 
+                            max_displacement_threshold, rms_displacement_threshold)
+            
+            # Track gradients for analysis
+            real_grad_list.append(np.sqrt((real_g**2).mean()))
+            real_bias_grad_list.append(np.sqrt((real_B_g**2).mean()))
+            
+            # Check if optimization has converged
+            if converge_flag:
+                break
+            
+            # Fix user-specified atoms
+            if len(force_data["fix_atoms"]) > 0:
+                for j in force_data["fix_atoms"]:
+                    geom_num_list[j-1] = copy.copy(real_initial_geom_num_list[j-1]*self.bohr2angstroms)
+            
+            # Check for molecular dissociation
+            DC_exit_flag = self.dissociation_check(geom_num_list, element_list)
+            if DC_exit_flag:
+                break
+            
+            # Update previous values for next iteration
+            pre_real_B_e = real_B_e  # Hartree
+            pre_real_e = real_e
+            real_pre_geom = geom_num_list  # Bohr
+            pre_model_HL_B_g = model_HL_B_g
+            pre_model_HL_g = model_HL_g
+            pre_model_HL_B_e = model_HL_B_e
+            pre_model_HL_move_vector = move_vector
+            
+            # Create input for next iteration
+            geometry_list = FIO.print_geometry_list(geom_num_list*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
+            file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            
+          
+                
+        # Generate plots and save results
+        G = Graph(self.BPA_FOLDER_DIRECTORY)
+        self.NUM_LIST = np.array([i for i in range(len(self.ENERGY_LIST_FOR_PLOTTING))])
+        G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
+        G.single_plot(self.NUM_LIST, real_grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
+        G.single_plot(self.NUM_LIST, real_bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
+        
+        if len(force_data["geom_info"]) > 1:
+            for num, i in enumerate(force_data["geom_info"]):
+                G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
+        
+        # Save trajectory and critical points
+        FIO.make_traj_file()
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_TS", "max")
+        FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
+        FIO.argrelextrema_txt_save(real_grad_list, "local_min_grad", "min")
+        
+        # Save energy profiles
+        self._save_energy_profiles(real_orthogonal_bias_grad_list, real_orthogonal_grad_list, real_grad_list)
+        
+        # Store final results
+        print("Complete...")
+        self.final_file_directory = file_directory
+        self.final_geometry = geom_num_list  # Bohr
+        self.final_energy = real_e  # Hartree
+        self.final_bias_energy = real_B_e  # Hartree
+        return
+
     def run(self):
         if type(self.args.INPUT) is str:
             START_FILE_LIST = [self.args.INPUT]
@@ -837,14 +1312,16 @@ class Optimize:
             
             
             self._make_init_directory(file)
-            
-            self.optimize()
+            if len(self.args.oniom_flag) > 0:
+                self.optimize_oniom()
+            else:
+                self.optimize()
         
             if self.CMDS:
-                CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+                CMDPA = CMDSPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
                 CMDPA.main()
             if self.PCA:
-                PCAPA = PCAPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.AFIR_ENERGY_LIST_FOR_PLOTTING)
+                PCAPA = PCAPathAnalysis(self.BPA_FOLDER_DIRECTORY, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
                 PCAPA.main()
             
             if len(self.irc) > 0:

@@ -30,6 +30,7 @@ class Calculation:
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """execute QM calclation."""
         finish_frag = False
+        input_data_for_display = None
         try:
             os.mkdir(file_directory)
         except:
@@ -37,7 +38,7 @@ class Calculation:
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
             try:
-                print("\n",input_file,"\n")
+                
                 if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 logfile = file_directory+"/"+self.START_FILE[:-4]+'_'+str(num)+'.log'
@@ -58,20 +59,20 @@ class Calculation:
                 psi4.set_options({"cubeprop_tasks": ["esp"],'cubeprop_filepath': file_directory})
                 
                 if geom_num_list is None:
+                    print("\n",input_file,"\n")
                     input_data = ""
                     positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                     input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
                     for j in range(len(positions)):
                         input_data += element_list[j]+" "+" ".join(positions[j])+"\n"
                 else:
+                    print("Input data is given as a numpy array.")
                     input_data = ""
-                    if iter == 0:
-                        input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
-                        for j in range(len(geom_num_list)):
-                            input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
-                    else:
-                        for j in range(len(geom_num_list)):
-                            input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
+                  
+                    input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
+                    for j in range(len(geom_num_list)):
+                        input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
+                   
                 
                 input_data = psi4.geometry(input_data)#ang.
                 input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
