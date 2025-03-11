@@ -71,7 +71,14 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
-    
+    "gdiis_rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    "gdiis_rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
+
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -113,6 +120,16 @@ quasi_newton_mapping = {
     "mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
     "mrfo_psb": {"delta": 0.30, "rfo_type": 1},
     "mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
+
+    "gdiis_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "gdiis_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+     
+ 
     
     "rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rfo_fsb": {"delta": 0.50, "rfo_type": 1},
@@ -378,9 +395,9 @@ class CalculateMoveVector:
         return move_vector_list
 
 
-    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain=False):#geom_num_list:Bohr
+    def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain=False, print_flag=True):#geom_num_list:Bohr
         natom = len(geom_num_list)
-    
+        
         ###
         #-------------------------------------------------------------
         geom_num_list = geom_num_list.reshape(natom*3, 1)
@@ -427,25 +444,30 @@ class CalculateMoveVector:
         min_rms_force_switching_threshold=0.005
         )
 
-        print("==================================================================================")
+        if print_flag:
+            print("==================================================================================")
  
         if np.linalg.norm(move_vector) > self.trust_radii:
             move_vector = self.trust_radii * move_vector/np.linalg.norm(move_vector)
-        print("trust radii (unit. ang.): ", self.trust_radii)
-        print("step  radii (unit. ang.): ", np.linalg.norm(move_vector))
+        
+        if print_flag:
+            print("trust radii (unit. ang.): ", self.trust_radii)
+            print("step  radii (unit. ang.): ", np.linalg.norm(move_vector))
         new_geometry = (geom_num_list - move_vector)  
         
         new_geometry = new_geometry.reshape(natom, 3)
         move_vector = move_vector.reshape(natom, 3)
     
         for i in range(len(optimizer_instances)):
-            print(f"Optimizer instance {i}: ", optimizer_instances[i])
+            if print_flag:
+                print(f"Optimizer instance {i}: ", optimizer_instances[i])
             if self.newton_tag[i]:
                 _ = Calculationtools().project_out_hess_tr_and_rot_for_coord( #hessian, element_list, geometry
                     optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian,
                     self.element_list,
                     new_geometry)
-        print("==================================================================================")
+        if print_flag:
+            print("==================================================================================")
         new_geometry *= self.unitval.bohr2angstroms #Bohr -> ang.
         #new_lambda_list : a.u.
         #new_geometry : angstrom

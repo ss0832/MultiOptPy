@@ -46,20 +46,30 @@ class Calculation:
         for num, input_file in enumerate(file_list):
             try:
                 pyscf.lib.num_threads(self.N_THREAD)
-                if geom_num_list is None:
-                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
-                    input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
-                else:
+                
+                if geom_num_list is not None:
                     geom_num_list = np.array(geom_num_list, dtype="float64")
                     input_data_for_display = geom_num_list / self.bohr2angstroms
+                    input_data = [[element_list[i], geom_num_list[i][0], geom_num_list[i][1], geom_num_list[i][2]] for i in range(len(geom_num_list))]
+                    print("position is not read from xyz file. The position is read from input variable.")
+                    mol = pyscf.gto.M(atom = input_data,
+                                    charge = self.electronic_charge,
+                                    spin = self.spin_multiplicity,
+                                    basis = self.SUB_BASIS_SET,
+                                    max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                                    verbose=4)
+                else:
+                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
+                
                     
-                print("\n",input_file,"\n")
-                mol = pyscf.gto.M(atom = input_file,
-                                  charge = self.electronic_charge,
-                                  spin = self.spin_multiplicity,
-                                  basis = self.SUB_BASIS_SET,
-                                  max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
-                                  verbose=4)
+                    print("\n",input_file,"\n")
+                    mol = pyscf.gto.M(atom = input_file,
+                                    charge = self.electronic_charge,
+                                    spin = self.spin_multiplicity,
+                                    basis = self.SUB_BASIS_SET,
+                                    max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                                    verbose=4)
                 if self.excited_state  == 0:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:

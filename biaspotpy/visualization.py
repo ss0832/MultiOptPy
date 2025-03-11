@@ -35,7 +35,7 @@ class Graph:
 
         ax1.set_ylabel('Electronic Energy [kcal/mol]')
         ax2.set_ylabel('Electronic Energy [kcal/mol]')
-        plt.title('normal_above AFIR_below')
+        plt.title('normal_above biasing_below')
         plt.tight_layout()
         plt.savefig(self.BPA_FOLDER_DIRECTORY+"Energy_plot_"+add_file_name+".png", format="png", dpi=300)
         plt.close()
@@ -49,7 +49,7 @@ class Graph:
         ax.set_xlabel(axis_name_1)
         ax.set_ylabel(axis_name_2)
         fig.tight_layout()
-        fig.savefig(self.BPA_FOLDER_DIRECTORY+"Plot_"+name+"_"+str(atom_num)+".png", format="png", dpi=200)
+        fig.savefig(self.BPA_FOLDER_DIRECTORY+"plot_"+name+"_"+str(atom_num)+".png", format="png", dpi=200)
         plt.close()
          
         return
