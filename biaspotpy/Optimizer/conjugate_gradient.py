@@ -10,6 +10,8 @@ class ConjgateGradient:
         self.epsilon = 1e-8
         self.DELTA = 1.0
         self.Initialization = True
+        self.hessian = None
+        self.bias_hessian = None
         return
     
     def calc_alpha(self):
@@ -71,3 +73,10 @@ class ConjgateGradient:
     def set_bias_hessian(self, bias_hessian):
         self.bias_hessian = bias_hessian
         return
+    
+    
+    def get_hessian(self):
+        return self.hessian
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian

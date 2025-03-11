@@ -14,6 +14,9 @@ class Newton:
         self.saddle_order = 0 #
         self.iter = 0 #
         self.beta = 0.5
+        self.hessian = None
+        self.bias_hessian = None
+   
         return
             
     def project_out_hess_tr_and_rot_for_coord(self, hessian, geomerty):#do not consider atomic mass
@@ -64,6 +67,12 @@ class Newton:
     def set_bias_hessian(self, bias_hessian):
         self.bias_hessian = bias_hessian
         return
+    
+    def get_hessian(self):
+        return self.hessian
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian
     
     def hessian_update(self, displacement, delta_grad):
         if "msp" in self.config["method"].lower():

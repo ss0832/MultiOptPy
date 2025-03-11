@@ -836,3 +836,7 @@ class RedundantInternalRFO:
     def get_hessian(self):
         """Return current Hessian (in Cartesian coordinates)"""
         return self.hessian if self.hessian is not None else None
+    
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian

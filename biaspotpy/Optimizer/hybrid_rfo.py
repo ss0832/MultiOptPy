@@ -51,6 +51,7 @@ class HybridRFO:
 
         self.element_list = self.config.get("element_list", None)
     
+    
     def define_internal_coordinates(self, geometry):
         """
         Define primitive internal coordinates based on molecular connectivity
@@ -993,3 +994,5 @@ class HybridRFO:
         """Return current Hessian (in Cartesian coordinates)"""
         return self.hessian if self.hessian is not None else None
 
+    def get_bias_hessian(self):
+        return self.bias_hessian

@@ -18,6 +18,9 @@ class FIRE:
         self.display_flag = True
         self.config = config
         self.Initialization = True
+        self.hessian = None
+        self.bias_hessian = None
+   
         return
     
     def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
@@ -65,3 +68,10 @@ class FIRE:
     def set_bias_hessian(self, bias_hessian):
         self.bias_hessian = bias_hessian
         return
+    
+    
+    def get_hessian(self):
+        return self.hessian
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian
