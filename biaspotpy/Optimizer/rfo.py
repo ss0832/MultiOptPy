@@ -74,6 +74,10 @@ class RationalFunctionOptimization:
         # Convergence monitoring
         self.prev_grad_rms = float('inf')
         self.non_improving_count = 0
+        
+        self.hessian = None
+        self.bias_hessian = None
+   
         return
     
     def calc_center(self, geomerty, element_list=[]):#geomerty:Bohr
@@ -98,8 +102,12 @@ class RationalFunctionOptimization:
         self.hessian = np.eye((len(geometry)))
         return
 
+    
     def get_hessian(self):
         return self.hessian
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian
     
     def hessian_update(self, displacement, delta_grad):
         if "msp" in self.config["method"].lower():

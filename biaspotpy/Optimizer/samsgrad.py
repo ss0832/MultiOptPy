@@ -13,9 +13,12 @@ class SAMSGrad:
         self.Epsilon = 1e-8
         self.Initialization = True
         self.config = config
+        self.hessian = None
+        self.bias_hessian = None
+   
         return
     
-    def run(self, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g):
+    def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
         print("SAMSGrad")
         if self.Initialization:
             self.adam_m = geom_num_list * 0.0
@@ -52,3 +55,9 @@ class SAMSGrad:
     def set_bias_hessian(self, bias_hessian):
         self.bias_hessian = bias_hessian
         return
+    
+    def get_hessian(self):
+        return self.hessian
+    
+    def get_bias_hessian(self):
+        return self.bias_hessian
