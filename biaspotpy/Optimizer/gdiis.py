@@ -3,7 +3,11 @@ import numpy as np
 
 class GDIIS:
     def __init__(self):
-
+        """
+        ref.: Chemical Physics Letters, 1980, 73(2), 393-398.
+              Journal of Molecular Structure, 1984, 114, 31-34.
+              Physical Chemistry Chemical Physics, 2002, 4(1), 11-15.
+        """
         # GDIIS parameters with enhanced defaults
         self.gdiis_history_size = 5        # Reduced history size for better stability
         self.gdiis_min_points = 3          # Require more points before starting GDIIS
