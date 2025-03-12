@@ -1004,7 +1004,10 @@ class Optimize:
             
             # Initialize low layer optimizer
             LL_CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
-            LL_optimizer_instances = LL_CMV.initialization(["fire"])
+            if len(linker_atom_pair_num) > 0:
+                LL_optimizer_instances = LL_CMV.initialization(["fire"])
+            else:
+                LL_optimizer_instances = LL_CMV.initialization(["gediis_fire"])
             LL_optimizer_instances[0].display_flag = False
             
             # Variables for tracking convergence
@@ -1124,6 +1127,7 @@ class Optimize:
                 prev_displacement_max = max_displacement
                 prev_displacement_rms = rms_displacement
             
+            # --------------------------------------------------------------
             if not low_layer_converged:
                 print("Reached maximum number of microiterations.")
             print("Microiteration complete.")
@@ -1149,8 +1153,8 @@ class Optimize:
             
             # Apply high layer gradients to the real system
             for key, value in real_2_highlayer_label_connect_dict.items():
-                tmp_model_HL_B_g[key-1] += model_HL_g[value-1]
-                tmp_model_HL_g[key-1] += model_HL_g[value-1]
+                tmp_model_HL_B_g[key-1] += model_HL_g[value-1] - model_LL_g[value-1]
+                tmp_model_HL_g[key-1] += model_HL_g[value-1] - model_LL_g[value-1]
             
             # Extract high layer Hessian
             HL_BPA_hessian = LL_BPA_hessian[np.ix_(bool_list, bool_list)]
