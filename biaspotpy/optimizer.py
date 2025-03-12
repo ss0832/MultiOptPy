@@ -32,6 +32,7 @@ from Optimizer.newton import Newton
 from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
+from Optimizer.gdiis import GDIIS
 from Optimizer.trust_radius import TrustRadius
 from Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
 from Optimizer.gpmin import GPmin
@@ -71,14 +72,6 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
-    "gdiis_rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_msp": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_psb": {"delta": 0.50, "rfo_type": 3},
-    "gdiis_rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
-
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -121,16 +114,7 @@ quasi_newton_mapping = {
     "mrfo_psb": {"delta": 0.30, "rfo_type": 1},
     "mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
 
-    "gdiis_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    "gdiis_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-     
  
-    
     "rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rfo_fsb": {"delta": 0.50, "rfo_type": 1},
     "rfo_bofill": {"delta": 0.50, "rfo_type": 1},
@@ -140,7 +124,6 @@ quasi_newton_mapping = {
     "rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
 
-    
     "bfgs": {"delta": 0.10, "linesearch": False},
     "fsb": {"delta": 0.10, "linesearch": False},
     "bofill": {"delta": 0.10, "linesearch": False},
@@ -177,6 +160,7 @@ class CalculateMoveVector:
         newton_tag = []
         lookahead_instances = []
         lars_instances = []
+        gdiis_instances = []
 
         for i, m in enumerate(method):
             lower_m = m.lower()
@@ -199,6 +183,7 @@ class CalculateMoveVector:
                         newton_tag.append(False)
                         lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                         lars_instances.append(LARS() if "lars" in lower_m else None)
+                        gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
                         break
                     
             elif m in ["CG", "CG_PR", "CG_FR", "CG_HS", "CG_DY"]:
@@ -226,6 +211,7 @@ class CalculateMoveVector:
                         newton_tag.append(True)
                         lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                         lars_instances.append(LARS() if "lars" in lower_m else None)
+                        gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -238,6 +224,7 @@ class CalculateMoveVector:
         self.newton_tag = newton_tag
         self.lookahead_instances = lookahead_instances
         self.lars_instances = lars_instances
+        self.gdiis_instances = gdiis_instances
         #print("Optimizer instances: ", optimizer_instances)
         #print("Newton tag: ", newton_tag)
         #print("Lookahead instances: ", lookahead_instances)
@@ -387,6 +374,15 @@ class CalculateMoveVector:
                     initial_geom_num_list,
                     g,
                     pre_g,
+                    tmp_move_vector
+                )
+
+            # Apply GDIIS method if available
+            if self.gdiis_instances[i] is not None:
+                tmp_move_vector = self.gdiis_instances[i].run(
+                    self.geom_num_list,
+                    B_g,
+                    pre_B_g,
                     tmp_move_vector
                 )
 
