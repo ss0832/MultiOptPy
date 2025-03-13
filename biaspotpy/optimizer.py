@@ -40,6 +40,7 @@ from Optimizer.c2diis import C2DIIS
 from Optimizer.adiis import ADIIS 
 from Optimizer.kdiis import KrylovDIIS as KDIIS
 from Optimizer.gpr_step import GPRStep
+from Optimizer.gan_step import GANStep
 from Optimizer.component_wise_scaling import ComponentWiseScaling
 from Optimizer.coordinate_locking import CoordinateLocking
 from Optimizer.trust_radius import TrustRadius
@@ -178,6 +179,7 @@ class CalculateMoveVector:
         coordinate_locking_instances = []
         coordinate_wise_scaling_instances = []
         gpr_step_instances = []
+        gan_step_instances = []
 
         for i, m in enumerate(method):
             lower_m = m.lower()
@@ -215,7 +217,7 @@ class CalculateMoveVector:
                         coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                       
+                        gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         break
                     
             elif m in ["CG", "CG_PR", "CG_FR", "CG_HS", "CG_DY"]:
@@ -258,7 +260,7 @@ class CalculateMoveVector:
                         coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                        
+                        gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -275,6 +277,7 @@ class CalculateMoveVector:
                 coordinate_locking_instances.append(None)
                 coordinate_wise_scaling_instances.append(None)
                 gpr_step_instances.append(None)
+                gan_step_instances.append(None)
               
             
         self.method = method
@@ -290,6 +293,7 @@ class CalculateMoveVector:
         self.coordinate_locking_instances = coordinate_locking_instances
         self.coordinate_wise_scaling_instances = coordinate_wise_scaling_instances
         self.gpr_step_instances = gpr_step_instances
+        self.gan_step_instances = gan_step_instances
         return optimizer_instances
             
 
@@ -515,6 +519,15 @@ class CalculateMoveVector:
             # Apply GPR Step method if available
             if self.gpr_step_instances[i] is not None:
                 tmp_move_vector = self.gpr_step_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+                
+            # Apply GAN Step method if available
+            if self.gan_step_instances[i] is not None:
+                tmp_move_vector = self.gan_step_instances[i].run(
                     self.geom_num_list,
                     B_e,
                     B_g,
