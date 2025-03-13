@@ -180,6 +180,8 @@ class CalculateMoveVector:
         coordinate_wise_scaling_instances = []
         gpr_step_instances = []
         gan_step_instances = []
+      
+        
 
         for i, m in enumerate(method):
             lower_m = m.lower()
@@ -190,6 +192,25 @@ class CalculateMoveVector:
                 newton_tag.append(False)
                 lookahead_instances.append(case["lookahead"])
                 lars_instances.append(case["lars"])
+                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+                if "gediis" in lower_m:
+                    gediis_instances.append(GEDIIS())
+                    ediis_instances.append(None)
+                else:
+                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                    gediis_instances.append(None)
+                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
+                kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
+                
+                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                
+                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+                      
+                       
+                
             elif any(key in lower_m for key in optimizer_mapping):
                 for key, optimizer_class in optimizer_mapping.items():
                     if key in lower_m:
@@ -218,13 +239,34 @@ class CalculateMoveVector:
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+                      
+                       
                         break
                     
             elif m in ["CG", "CG_PR", "CG_FR", "CG_HS", "CG_DY"]:
                 optimizer_instances.append(ConjgateGradient(method=m))
+                if "linesearch" in settings:
+                    optimizer_instances[i].linesearchflag = True
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
+                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+                kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
+                if "gediis" in lower_m:
+                    gediis_instances.append(GEDIIS())
+                    ediis_instances.append(None)
+                else:
+                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                    gediis_instances.append(None)
+                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
+                
+                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                
+                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+                
                 
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
@@ -261,6 +303,8 @@ class CalculateMoveVector:
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+                       
+                       
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -294,6 +338,7 @@ class CalculateMoveVector:
         self.coordinate_wise_scaling_instances = coordinate_wise_scaling_instances
         self.gpr_step_instances = gpr_step_instances
         self.gan_step_instances = gan_step_instances
+       
         return optimizer_instances
             
 
@@ -372,27 +417,59 @@ class CalculateMoveVector:
 
             print(f"Switching to {method_list[1]}")
             return copy.copy(move_vector_list[1]), method_list
-    
+        
     def update_move_vector_list(
-        self,
-        optimizer_instances,
-        B_g,
-        pre_B_g,
-        pre_geom,
-        B_e,
-        pre_B_e,
-        pre_move_vector,
-        initial_geom_num_list,
-        g,
-        pre_g):
+            self,
+            optimizer_instances,
+            B_g,
+            pre_B_g,
+            pre_geom,
+            B_e,
+            pre_B_e,
+            pre_move_vector,
+            initial_geom_num_list,
+            g,
+            pre_g):
         """
-        Refactored method to update a list of move vectors from multiple optimizer instances,
-        including optional LARS and LookAhead adjustments.
+        Update a list of move vectors from multiple optimizer instances,
+        including optional enhancements through various techniques.
         """
         move_vector_list = []
 
+        # Enhancement techniques and their parameter configurations
+        # Format: [list_of_instances, method_name, [parameters]]
+        enhancement_config = [
+            # Base optimizer - separate handling
+            
+            # Trust region and momentum techniques
+            [self.lars_instances, "apply_lars", [B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, 
+                                                initial_geom_num_list, g, pre_g]],
+            [self.lookahead_instances, "apply_lookahead", [B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector,
+                                                        initial_geom_num_list, g, pre_g]],
+            
+            # DIIS family techniques
+            [self.ediis_instances, "apply_ediis", [B_e, B_g]],
+            [self.gdiis_instances, "apply_gdiis", [B_g, pre_B_g]],
+            [self.c2diis_instances, "apply_c2diis", [B_g, pre_B_g]],
+            [self.adiis_instances, "apply_adiis", [B_e, B_g]],
+            [self.kdiis_instances, "apply_kdiis", [B_e, B_g]],
+            [self.gediis_instances, "apply_gediis", [B_e, B_g, pre_B_g]],
+            
+            # Coordinate transformation techniques
+            [self.coordinate_locking_instances, "apply_coordinate_locking", [B_e, B_g]],
+            [self.coordinate_wise_scaling_instances, "apply_coordinate_scaling", [B_e, B_g]],
+            
+            # ML-based step prediction techniques
+            [self.gpr_step_instances, "apply_ml_step", [B_e, B_g]],
+            
+            # GAN-based step prediction techniques
+            [self.gan_step_instances, "apply_gan_step", [B_e, B_g]],
+          
+        
+        ]
+
         for i, optimizer_instance in enumerate(optimizer_instances):
-            # Obtain initial move vector
+            # Get initial move vector from base optimizer
             tmp_move_vector = optimizer_instance.run(
                 self.geom_num_list,
                 B_g,
@@ -407,136 +484,45 @@ class CalculateMoveVector:
             )
             tmp_move_vector = np.array(tmp_move_vector, dtype="float64")
 
-            # Apply LARS adjustment if available
-            if self.lars_instances[i] is not None:
-                trust_delta = self.lars_instances[i].run(
-                    self.geom_num_list,
-                    B_g,
-                    pre_B_g,
-                    pre_geom,
-                    B_e,
-                    pre_B_e,
-                    pre_move_vector,
-                    initial_geom_num_list,
-                    g,
-                    pre_g,
-                    tmp_move_vector
-                )
-                tmp_move_vector *= trust_delta
+            # Apply each enhancement technique if available
+            for instance_list, method_name, base_params in enhancement_config:
+                if i < len(instance_list) and instance_list[i] is not None:
+                    tmp_move_vector = self._apply_enhancement(
+                        instance_list[i],
+                        method_name, 
+                        [self.geom_num_list] + base_params + [tmp_move_vector]
+                    )
 
-     
-
-            # Apply LookAhead adjustment if available
-            if self.lookahead_instances[i] is not None:
-                tmp_move_vector = self.lookahead_instances[i].run(
-                    self.geom_num_list,
-                    B_g,
-                    pre_B_g,
-                    pre_geom,
-                    B_e,
-                    pre_B_e,
-                    pre_move_vector,
-                    initial_geom_num_list,
-                    g,
-                    pre_g,
-                    tmp_move_vector
-                )
-
-            # Apply EDIIS method if available
-            if self.ediis_instances[i] is not None:
-                tmp_move_vector = self.ediis_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-
-
-            # Apply GDIIS method if available
-            if self.gdiis_instances[i] is not None:
-                tmp_move_vector = self.gdiis_instances[i].run(
-                    self.geom_num_list,
-                    B_g,
-                    pre_B_g,
-                    tmp_move_vector
-                )
-                
-            # Apply C2DIIS method if available
-            if self.c2diis_instances[i] is not None:
-                tmp_move_vector = self.c2diis_instances[i].run(
-                    self.geom_num_list,
-                    B_g,
-                    pre_B_g,
-                    tmp_move_vector
-                )
-            
-            # Apply ADIIS method if available
-            if self.adiis_instances[i] is not None:
-                tmp_move_vector = self.adiis_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-            
-            # Apply KDIIS method if available
-            if self.kdiis_instances[i] is not None:
-                tmp_move_vector = self.kdiis_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-            
-            # Apply GEDIIS method if available
-            if self.gediis_instances[i] is not None:
-                tmp_move_vector = self.gediis_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    pre_B_g,
-                    tmp_move_vector
-                )
-            
-            # Apply Coordinate Locking method if available
-            if self.coordinate_locking_instances[i] is not None:
-                tmp_move_vector = self.coordinate_locking_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )   
-
-            # Apply Component Wise Scaling method if available
-            if self.coordinate_wise_scaling_instances[i] is not None:
-                tmp_move_vector = self.coordinate_wise_scaling_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-            
-            # Apply GPR Step method if available
-            if self.gpr_step_instances[i] is not None:
-                tmp_move_vector = self.gpr_step_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-                
-            # Apply GAN Step method if available
-            if self.gan_step_instances[i] is not None:
-                tmp_move_vector = self.gan_step_instances[i].run(
-                    self.geom_num_list,
-                    B_e,
-                    B_g,
-                    tmp_move_vector
-                )
-       
             move_vector_list.append(tmp_move_vector)
 
         return move_vector_list
+
+    def _apply_enhancement(self, instance, method_name, params):
+        """
+        Helper method to apply enhancement techniques to the move vector.
+        
+        Parameters:
+        -----------
+        instance : object
+            The enhancement technique instance
+        method_name : str
+            The name of the method to use (for logging/debugging)
+        params : list
+            Parameters to pass to the run method
+        
+        Returns:
+        --------
+        numpy.ndarray
+            The modified move vector
+        """
+        # For LARS, special handling is needed as it returns a scaling factor
+        if method_name == "apply_lars":
+            trust_delta = instance.run(*params)
+            # Last parameter is the move vector
+            return params[-1] * trust_delta
+        else:
+            # Standard run pattern for most enhancement techniques
+            return instance.run(*params)
 
 
     def calc_move_vector(self, iter, geom_num_list, B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector, initial_geom_num_list, g, pre_g, optimizer_instances, projection_constrain=False, print_flag=True):#geom_num_list:Bohr
