@@ -22,17 +22,26 @@ from Optimizer.adamw import AdamW
 from Optimizer.adam import Adam
 from Optimizer.adafactor import Adafactor
 from Optimizer.prodigy import Prodigy
-#from Optimizer.adabound import AdaBound
+# from Optimizer.adabound import AdaBound
 from Optimizer.adadelta import Adadelta
+
 from Optimizer.conjugate_gradient import ConjgateGradient
-from Optimizer.hybrid_rfo import HybridRFO 
-from Optimizer.rfo import RationalFunctionOptimization 
+from Optimizer.hybrid_rfo import HybridRFO
+from Optimizer.rfo import RationalFunctionOptimization
 from Optimizer.ric_rfo import RedundantInternalRFO
-from Optimizer.newton import Newton 
+from Optimizer.newton import Newton
 from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
 from Optimizer.gdiis import GDIIS
+from Optimizer.ediis import EDIIS
+from Optimizer.gediis import GEDIIS
+from Optimizer.c2diis import C2DIIS
+from Optimizer.adiis import ADIIS 
+from Optimizer.kdiis import KrylovDIIS as KDIIS
+from Optimizer.gpr_step import GPRStep
+from Optimizer.component_wise_scaling import ComponentWiseScaling
+from Optimizer.coordinate_locking import CoordinateLocking
 from Optimizer.trust_radius import TrustRadius
 from Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
 from Optimizer.gpmin import GPmin
@@ -161,6 +170,14 @@ class CalculateMoveVector:
         lookahead_instances = []
         lars_instances = []
         gdiis_instances = []
+        ediis_instances = []
+        gediis_instances = []
+        c2diis_instances = []
+        adiis_instances = []
+        kdiis_instances = []
+        coordinate_locking_instances = []
+        coordinate_wise_scaling_instances = []
+        gpr_step_instances = []
 
         for i, m in enumerate(method):
             lower_m = m.lower()
@@ -184,6 +201,21 @@ class CalculateMoveVector:
                         lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                         lars_instances.append(LARS() if "lars" in lower_m else None)
                         gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+                        if "gediis" in lower_m:
+                            gediis_instances.append(GEDIIS())
+                            ediis_instances.append(None)
+                        else:
+                            ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                            gediis_instances.append(None)
+                        c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+                        adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
+                        kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
+                     
+                        coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+                        coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                        
+                        gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+                       
                         break
                     
             elif m in ["CG", "CG_PR", "CG_FR", "CG_HS", "CG_DY"]:
@@ -212,6 +244,21 @@ class CalculateMoveVector:
                         lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                         lars_instances.append(LARS() if "lars" in lower_m else None)
                         gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+                        kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
+                        if "gediis" in lower_m:
+                            gediis_instances.append(GEDIIS())
+                            ediis_instances.append(None)
+                        else:
+                            ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                            gediis_instances.append(None)
+                        c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+                        adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
+                       
+                        coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+                        coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                        
+                        gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+                        
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -219,18 +266,30 @@ class CalculateMoveVector:
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
-
+                gdiis_instances.append(None)
+                ediis_instances.append(None)
+                gediis_instances.append(None)
+                c2diis_instances.append(None)
+                adiis_instances.append(None)
+                kdiis_instances.append(None)
+                coordinate_locking_instances.append(None)
+                coordinate_wise_scaling_instances.append(None)
+                gpr_step_instances.append(None)
+              
+            
         self.method = method
         self.newton_tag = newton_tag
         self.lookahead_instances = lookahead_instances
         self.lars_instances = lars_instances
         self.gdiis_instances = gdiis_instances
-        #print("Optimizer instances: ", optimizer_instances)
-        #print("Newton tag: ", newton_tag)
-        #print("Lookahead instances: ", lookahead_instances)
-        #print("LARS instances: ", lars_instances)
-        #print("Method: ", method)
-        
+        self.ediis_instances = ediis_instances
+        self.gediis_instances = gediis_instances
+        self.c2diis_instances = c2diis_instances
+        self.adiis_instances = adiis_instances
+        self.kdiis_instances = kdiis_instances
+        self.coordinate_locking_instances = coordinate_locking_instances
+        self.coordinate_wise_scaling_instances = coordinate_wise_scaling_instances
+        self.gpr_step_instances = gpr_step_instances
         return optimizer_instances
             
 
@@ -361,6 +420,8 @@ class CalculateMoveVector:
                 )
                 tmp_move_vector *= trust_delta
 
+     
+
             # Apply LookAhead adjustment if available
             if self.lookahead_instances[i] is not None:
                 tmp_move_vector = self.lookahead_instances[i].run(
@@ -377,6 +438,16 @@ class CalculateMoveVector:
                     tmp_move_vector
                 )
 
+            # Apply EDIIS method if available
+            if self.ediis_instances[i] is not None:
+                tmp_move_vector = self.ediis_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+
+
             # Apply GDIIS method if available
             if self.gdiis_instances[i] is not None:
                 tmp_move_vector = self.gdiis_instances[i].run(
@@ -385,7 +456,71 @@ class CalculateMoveVector:
                     pre_B_g,
                     tmp_move_vector
                 )
+                
+            # Apply C2DIIS method if available
+            if self.c2diis_instances[i] is not None:
+                tmp_move_vector = self.c2diis_instances[i].run(
+                    self.geom_num_list,
+                    B_g,
+                    pre_B_g,
+                    tmp_move_vector
+                )
+            
+            # Apply ADIIS method if available
+            if self.adiis_instances[i] is not None:
+                tmp_move_vector = self.adiis_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+            
+            # Apply KDIIS method if available
+            if self.kdiis_instances[i] is not None:
+                tmp_move_vector = self.kdiis_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+            
+            # Apply GEDIIS method if available
+            if self.gediis_instances[i] is not None:
+                tmp_move_vector = self.gediis_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    pre_B_g,
+                    tmp_move_vector
+                )
+            
+            # Apply Coordinate Locking method if available
+            if self.coordinate_locking_instances[i] is not None:
+                tmp_move_vector = self.coordinate_locking_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )   
 
+            # Apply Component Wise Scaling method if available
+            if self.coordinate_wise_scaling_instances[i] is not None:
+                tmp_move_vector = self.coordinate_wise_scaling_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+            
+            # Apply GPR Step method if available
+            if self.gpr_step_instances[i] is not None:
+                tmp_move_vector = self.gpr_step_instances[i].run(
+                    self.geom_num_list,
+                    B_e,
+                    B_g,
+                    tmp_move_vector
+                )
+       
             move_vector_list.append(tmp_move_vector)
 
         return move_vector_list
