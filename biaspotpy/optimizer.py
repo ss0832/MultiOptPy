@@ -148,7 +148,7 @@ quasi_newton_mapping = {
 
 
 class CalculateMoveVector:
-    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=False):
+    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None):
         self.DELTA = DELTA
         self.temperature = temperature
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
@@ -347,7 +347,7 @@ class CalculateMoveVector:
         Refactored method to handle trust radius updates and conditions.
         """
         # Early exit if no full-coordinate count and no Hessian flag
-        if self.FC_COUNT == -1 and not self.model_hess_flag:
+        if self.FC_COUNT == -1 and not self.model_hess_flag is not None:
             return
 
         # Determine if there's a model Hessian to use

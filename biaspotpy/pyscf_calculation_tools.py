@@ -11,6 +11,12 @@ from calc_tools import Calculationtools
 from parameter import UnitValueLib
 from fileio import xyz2list
 
+"""
+Ref.:PySCF
+Recent developments in the PySCF program package, Qiming Sun, Xing Zhang, Samragni Banerjee, Peng Bao, Marc Barbry, Nick S. Blunt, Nikolay A. Bogdanov, George H. Booth, Jia Chen, Zhi-Hao Cui, Janus J. Eriksen, Yang Gao, Sheng Guo, Jan Hermann, Matthew R. Hermes, Kevin Koh, Peter Koval, Susi Lehtola, Zhendong Li, Junzi Liu, Narbe Mardirossian, James D. McClain, Mario Motta, Bastien Mussard, Hung Q. Pham, Artem Pulkin, Wirawan Purwanto, Paul J. Robinson, Enrico Ronca, Elvira R. Sayfutyarova, Maximilian Scheurer, Henry F. Schurkus, James E. T. Smith, Chong Sun, Shi-Ning Sun, Shiv Upadhyay, Lucas K. Wagner, Xiao Wang, Alec White, James Daniel Whitfield, Mark J. Williamson, Sebastian Wouters, Jun Yang, Jason M. Yu, Tianyu Zhu, Timothy C. Berkelbach, Sandeep Sharma, Alexander Yu. Sokolov, and Garnet Kin-Lic Chan, J. Chem. Phys., 153, 024109 (2020). doi:10.1063/5.0006074
+
+"""
+
 class Calculation:
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
@@ -46,20 +52,30 @@ class Calculation:
         for num, input_file in enumerate(file_list):
             try:
                 pyscf.lib.num_threads(self.N_THREAD)
-                if geom_num_list is None:
-                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
-                    input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
-                else:
+                
+                if geom_num_list is not None:
                     geom_num_list = np.array(geom_num_list, dtype="float64")
                     input_data_for_display = geom_num_list / self.bohr2angstroms
+                    input_data = [[element_list[i], geom_num_list[i][0], geom_num_list[i][1], geom_num_list[i][2]] for i in range(len(geom_num_list))]
+                    print("position is not read from xyz file. The position is read from input variable.")
+                    mol = pyscf.gto.M(atom = input_data,
+                                    charge = self.electronic_charge,
+                                    spin = self.spin_multiplicity,
+                                    basis = self.SUB_BASIS_SET,
+                                    max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                                    verbose=4)
+                else:
+                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
+                
                     
-                print("\n",input_file,"\n")
-                mol = pyscf.gto.M(atom = input_file,
-                                  charge = self.electronic_charge,
-                                  spin = self.spin_multiplicity,
-                                  basis = self.SUB_BASIS_SET,
-                                  max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
-                                  verbose=4)
+                    print("\n",input_file,"\n")
+                    mol = pyscf.gto.M(atom = input_file,
+                                    charge = self.electronic_charge,
+                                    spin = self.spin_multiplicity,
+                                    basis = self.SUB_BASIS_SET,
+                                    max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                                    verbose=4)
                 if self.excited_state  == 0:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:

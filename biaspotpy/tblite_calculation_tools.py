@@ -9,7 +9,13 @@ from tblite.interface import Calculator
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
 from fileio import xyz2list
+"""
 
+GFN2-xTB(tblite)
+J. Chem. Theory Comput. 2019, 15, 3, 1652–1671 
+GFN1-xTB(tblite, dxtb)
+J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
+"""
 class Calculation:
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
