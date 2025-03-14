@@ -14,7 +14,6 @@ from visualization import Graph
 from fileio import FileIO
 from parameter import UnitValueLib, element_number, atomic_mass
 from interface import force_data_parser
-from approx_hessian import ApproxHessian
 from constraint_condition import shake_parser, SHAKE, ProjectOutConstrain
 from pbc import apply_periodic_boundary_condition
 
@@ -180,32 +179,15 @@ class Thermostat:
         
         return rand_moment
     
-    def calc_DRC_init_momentum(self, coord, cart_gradient):
-        #dynamic reaction coordinate (DRC)
-        #ref. J. Chem. Phys. 93, 5902–5911 (1990) etc.
-        AH = ApproxHessian()
-        hess = AH.main(coord, self.element_list, cart_gradient)
- 
-        eigenvalue, eigenvector = np.linalg.eig(hess)
-        
-        drc_momentum = eigenvector.T[0].reshape(len(self.element_list), 3)
-        for i in range(len(self.element_list)):
-            drc_momentum[i] *= atomic_mass(self.element_list[i])
-
-        return drc_momentum
     
     def init_purtubation(self, geometry, B_e, B_g):
         random_variables = self.generate_normal_random_variables(len(self.element_list)*3).reshape(len(self.element_list), 3)
-        random_moment_flag = True
         
-        if random_moment_flag:
-            addtional_velocity = self.calc_rand_moment_based_on_boltzman_const(random_variables) # velocity
-            init_momentum = addtional_velocity * 0.0
+        addtional_velocity = self.calc_rand_moment_based_on_boltzman_const(random_variables) # velocity
+        init_momentum = addtional_velocity * 0.0
             
-            for i in range(len(self.element_list)):
-                init_momentum[i] += addtional_velocity[i] * atomic_mass(self.element_list[i])
-        else:
-            init_momentum = self.calc_DRC_init_momentum(geometry, B_g)
+        for i in range(len(self.element_list)):
+            init_momentum[i] += addtional_velocity[i] * atomic_mass(self.element_list[i])
         
         
         self.momentum_list += init_momentum

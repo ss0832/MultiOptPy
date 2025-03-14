@@ -21,26 +21,7 @@ import numpy as np
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-"""
-#please input psi4 inputfile.
-XMOL format (Enter the formal charge and spin multiplicity on the comment line, e.g., "0 1")
-....
-"""
 
-"""
-references:
-
-Psi4
- D. G. A. Smith, L. A. Burns, A. C. Simmonett, R. M. Parrish, M. C. Schieber, R. Galvelis, P. Kraus, H. Kruse, R. Di Remigio, A. Alenaizan, A. M. James, S. Lehtola, J. P. Misiewicz, M. Scheurer, R. A. Shaw, J. B. Schriber, Y. Xie, Z. L. Glick, D. A. Sirianni, J. S. O'Brien, J. M. Waldrop, A. Kumar, E. G. Hohenstein, B. P. Pritchard, B. R. Brooks, H. F. Schaefer III, A. Yu. Sokolov, K. Patkowski, A. E. DePrince III, U. Bozkaya, R. A. King, F. A. Evangelista, J. M. Turney, T. D. Crawford, C. D. Sherrill, "Psi4 1.4: Open-Source Software for High-Throughput Quantum Chemistry", J. Chem. Phys. 152(18) 184108 (2020).
- 
-PySCF
-Recent developments in the PySCF program package, Qiming Sun, Xing Zhang, Samragni Banerjee, Peng Bao, Marc Barbry, Nick S. Blunt, Nikolay A. Bogdanov, George H. Booth, Jia Chen, Zhi-Hao Cui, Janus J. Eriksen, Yang Gao, Sheng Guo, Jan Hermann, Matthew R. Hermes, Kevin Koh, Peter Koval, Susi Lehtola, Zhendong Li, Junzi Liu, Narbe Mardirossian, James D. McClain, Mario Motta, Bastien Mussard, Hung Q. Pham, Artem Pulkin, Wirawan Purwanto, Paul J. Robinson, Enrico Ronca, Elvira R. Sayfutyarova, Maximilian Scheurer, Henry F. Schurkus, James E. T. Smith, Chong Sun, Shi-Ning Sun, Shiv Upadhyay, Lucas K. Wagner, Xiao Wang, Alec White, James Daniel Whitfield, Mark J. Williamson, Sebastian Wouters, Jun Yang, Jason M. Yu, Tianyu Zhu, Timothy C. Berkelbach, Sandeep Sharma, Alexander Yu. Sokolov, and Garnet Kin-Lic Chan, J. Chem. Phys., 153, 024109 (2020). doi:10.1063/5.0006074
-
-GFN2-xTB(tblite)
-J. Chem. Theory Comput. 2019, 15, 3, 1652–1671 
-GFN1-xTB(tblite, dxtb)
-J. Chem. Theory Comput. 2017, 13, 5, 1989–2009
-"""
 
 
 def init_parser():
@@ -81,7 +62,7 @@ def ieipparser(parser):
     args.geom_info = ["0"]
     args.projection_constrain = []
     args.opt_fragment = []
-    args.oniom_method = []
+    args.oniom_flag = []
     return args
 
 
@@ -122,7 +103,14 @@ def optimizeparser(parser):
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
     parser.add_argument('-lcc','--loose_convergence_criteria', help="apply loose opt criteria.", action='store_true')
 
-    parser.add_argument('-modelhess','--use_model_hessian', help="use model hessian.", action='store_true')
+    class ModelhessAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            if values is None:
+                setattr(namespace, self.dest, 'lindh2007d3')
+            else:
+                setattr(namespace, self.dest, values)
+    
+    parser.add_argument('-modelhess','--use_model_hessian', nargs='?', help="use model hessian. (Default: not using model hessian If you specify only option, Improved Lindh + Grimme's D3 dispersion model hessian is used.) (ex. lindh, gfnff, gfn0xtb, fischer, fischerd3, fischerd4, schlegel, swart, lindh2007, lindh2007d3, lindh2007d4)", action=ModelhessAction, default=None)
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-oniom", "--oniom_flag", nargs="*",  type=str, default=[], help='apply ONIOM method (low layer: GFN1-xTB) (ex.) [(atom_number of high layer (ex. 1,2))] (caution) -pc option is not available. If there are not link atoms, please input "none"')
@@ -219,7 +207,7 @@ def nebparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-    
+    args.oniom_flag = []
    
     return args
 
@@ -266,7 +254,7 @@ def mdparser(parser):
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
-  
+    args.oniom_flag = []
     return args
 
 

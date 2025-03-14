@@ -230,6 +230,612 @@ def D2_C6_coeff_lib(element):
 D2_S6_parameter = 1.00 #dimensionless
 
 
+class GFNFFParameters:
+    """Parameters for GFNFF-based approximation Hessian"""
+    def __init__(self):
+        # Unit conversion
+        self.bohr2ang = UnitValueLib().bohr2angstroms  # 0.529177
+        self.kcalmol2hartree = 1.0 / UnitValueLib().hartree2kcalmol  # 1/627.5095
+        
+        # Reference atomic CN
+        self.ref_cn = {
+            'H': 1.0, 'C': 4.0, 'N': 3.0, 'O': 2.0, 'F': 1.0, 'Si': 4.0, 'P': 3.0, 
+            'S': 2.0, 'Cl': 1.0, 'Br': 1.0, 'I': 1.0
+        }
+        
+        # Element radii and vdW parameters (from gfnff_param.f90)
+        # Format: [r_cov, r_vdw, en, alpha]
+        self.element_params = {
+            'H':  [0.32, 1.09, 2.20, 4.5],
+            'He': [0.46, 1.3,  0.00, 1.0],
+            'Li': [1.29, 1.80, 0.98, 164.0],
+            'Be': [0.99, 1.53, 1.57, 38.0],
+            'B':  [0.84, 1.92, 2.04, 21.0],
+            'C':  [0.75, 1.70, 2.55, 12.0],
+            'N':  [0.71, 1.55, 3.04, 7.4],
+            'O':  [0.64, 1.52, 3.44, 5.4],
+            'F':  [0.60, 1.47, 3.98, 3.8],
+            'Ne': [0.67, 1.54, 0.00, 2.67],
+            'Na': [1.60, 2.27, 0.93, 163.0],
+            'Mg': [1.40, 1.73, 1.31, 71.0],
+            'Al': [1.24, 1.84, 1.61, 60.0],
+            'Si': [1.14, 2.10, 1.90, 37.0],
+            'P':  [1.09, 1.80, 2.19, 25.0],
+            'S':  [1.04, 1.80, 2.58, 19.6],
+            'Cl': [0.99, 1.75, 3.16, 15.0],
+            'Ar': [0.96, 1.88, 0.00, 11.1],
+            'K':  [2.00, 2.75, 0.82, 293.0],
+            'Ca': [1.70, 2.31, 1.00, 161.0],
+            'Sc': [1.44, 2.15, 1.36, 120.0],
+            'Ti': [1.32, 2.11, 1.54, 98.0],
+            'V':  [1.22, 2.07, 1.63, 84.0],
+            'Cr': [1.18, 2.06, 1.66, 78.0],
+            'Mn': [1.17, 2.05, 1.55, 63.0],
+            'Fe': [1.17, 2.00, 1.83, 56.0],
+            'Co': [1.16, 2.00, 1.88, 50.0],
+            'Ni': [1.15, 1.97, 1.91, 48.0],
+            'Cu': [1.17, 1.96, 1.90, 42.0],
+            'Zn': [1.25, 2.01, 1.65, 40.0],
+            'Ga': [1.25, 1.87, 1.81, 60.0],
+            'Ge': [1.21, 2.11, 2.01, 41.0],
+            'As': [1.21, 1.85, 2.18, 29.0],
+            'Se': [1.17, 1.90, 2.55, 25.0],
+            'Br': [1.14, 1.83, 2.96, 20.0],
+            'Kr': [1.17, 2.02, 0.00, 16.8],
+            'Rb': [2.15, 3.03, 0.82, 320.0],
+            'Sr': [1.90, 2.49, 0.95, 199.0],
+            'Y':  [1.62, 2.40, 1.22, 126.7],
+            'Zr': [1.45, 2.23, 1.33, 119.97],
+            'Nb': [1.34, 2.18, 1.60, 101.603],
+            'Mo': [1.30, 2.17, 2.16, 88.425],
+            'Tc': [1.27, 2.16, 1.90, 80.083],
+            'Ru': [1.25, 2.13, 2.20, 65.895],
+            'Rh': [1.25, 2.10, 2.28, 56.1],
+            'Pd': [1.28, 2.10, 2.20, 23.68],
+            'Ag': [1.34, 2.11, 1.93, 50.6],
+            'Cd': [1.48, 2.18, 1.69, 39.7],
+            'In': [1.44, 1.93, 1.78, 70.2],
+            'Sn': [1.40, 2.17, 1.96, 55.0],
+            'Sb': [1.40, 2.06, 2.05, 43.7],
+            'Te': [1.37, 2.06, 2.10, 37.65],
+            'I':  [1.33, 1.98, 2.66, 35.0],
+            'Xe': [1.31, 2.16, 0.00, 27.3],
+            'Cs': [2.38, 3.43, 0.79, 400.0],
+            'Ba': [2.00, 2.68, 0.89, 280.0],
+            'La': [1.80, 2.40, 1.10, 215.0],
+            'Ce': [1.65, 2.35, 1.12, 210.0],
+            'Pr': [1.65, 2.35, 1.13, 205.0],
+            'Nd': [1.64, 2.35, 1.14, 200.0],
+            'Pm': [1.63, 2.35, 1.13, 200.0],
+            'Sm': [1.62, 2.35, 1.17, 180.0],
+            'Eu': [1.85, 2.35, 1.20, 180.0],
+            'Gd': [1.61, 2.35, 1.20, 180.0],
+            'Tb': [1.59, 2.35, 1.20, 180.0],
+            'Dy': [1.59, 2.35, 1.22, 180.0],
+            'Ho': [1.58, 2.35, 1.23, 180.0],
+            'Er': [1.57, 2.35, 1.24, 180.0],
+            'Tm': [1.56, 2.35, 1.25, 180.0],
+            'Yb': [1.70, 2.35, 1.10, 180.0],
+            'Lu': [1.56, 2.35, 1.27, 180.0],
+            'Hf': [1.44, 2.23, 1.30, 110.0],
+            'Ta': [1.34, 2.22, 1.50, 100.0],
+            'W':  [1.30, 2.18, 2.36, 90.0],
+            'Re': [1.28, 2.16, 1.90, 80.0],
+            'Os': [1.26, 2.16, 2.20, 70.0],
+            'Ir': [1.27, 2.13, 2.20, 60.0],
+            'Pt': [1.30, 2.13, 2.28, 50.0],
+            'Au': [1.34, 2.14, 2.54, 40.0],
+            'Hg': [1.49, 2.23, 2.00, 35.0],
+            'Tl': [1.48, 2.09, 2.04, 70.0],
+            'Pb': [1.47, 2.02, 2.33, 55.0],
+            'Bi': [1.46, 2.00, 2.02, 50.0],
+            'Po': [1.46, 2.00, 2.00, 45.0],
+            'At': [1.45, 2.00, 2.20, 40.0],
+            'Rn': [1.43, 2.00, 0.00, 35.0]
+        }
+
+        # Bond parameters - scaling factors as in original GFNFF
+        self.bond_scaling = 0.4195  # kcal/mol to hartree
+        self.bond_decay = 0.10
+        
+        # Reference bond lengths and force constants for selected bonds
+        # Values are taken from GFNFF parameters (bondkonst array in gfnff_param.f90)
+        # Format: [r0 (bohr), kb (au)]
+        self.bond_params = {
+            ('C', 'C'): [2.8464, 0.3601],
+            ('C', 'H'): [2.0697, 0.3430],
+            ('C', 'N'): [2.7394, 0.3300],
+            ('C', 'O'): [2.6794, 0.3250],
+            ('C', 'F'): [2.5646, 0.4195],
+            ('C', 'S'): [3.3926, 0.2050],
+            ('C', 'Cl'): [3.2740, 0.2150],
+            ('C', 'Br'): [3.5260, 0.1800],
+            ('C', 'I'): [3.8467, 0.1600],
+            ('N', 'H'): [1.9079, 0.4150],
+            ('N', 'N'): [2.5363, 0.2660],
+            ('N', 'O'): [2.6379, 0.2800],
+            ('N', 'F'): [2.5155, 0.2950],
+            ('O', 'H'): [1.8200, 0.4770],
+            ('O', 'O'): [2.7358, 0.1525],
+            ('O', 'S'): [3.1786, 0.2270],
+            ('S', 'H'): [2.5239, 0.2750],
+            ('S', 'S'): [3.6599, 0.1375],
+            ('S', 'F'): [3.0108, 0.2200],
+            ('S', 'Cl'): [3.4798, 0.1625]
+        }
+
+        # Angle bend parameters
+        # Values from benkonst array in gfnff_param.f90
+        # Format: [theta0 (degrees), ka (au)]
+        self.angle_params = {
+            ('C', 'C', 'C'): [112.7, 0.0800],
+            ('C', 'C', 'H'): [110.7, 0.0590],
+            ('C', 'C', 'N'): [111.0, 0.0740],
+            ('C', 'C', 'O'): [109.5, 0.0950],
+            ('H', 'C', 'H'): [109.5, 0.0400],
+            ('H', 'C', 'N'): [109.5, 0.0670],
+            ('H', 'C', 'O'): [109.5, 0.0580],
+            ('N', 'C', 'N'): [109.5, 0.0700],
+            ('N', 'C', 'O'): [110.5, 0.0750],
+            ('O', 'C', 'O'): [109.5, 0.0990],
+            ('C', 'N', 'C'): [109.5, 0.0680],
+            ('C', 'N', 'H'): [109.5, 0.0560],
+            ('H', 'N', 'H'): [106.4, 0.0450],
+            ('C', 'O', 'C'): [111.0, 0.0880],
+            ('C', 'O', 'H'): [107.0, 0.0980],
+            ('H', 'O', 'H'): [104.5, 0.0550],
+            ('C', 'S', 'C'): [96.0, 0.0850],
+            ('C', 'S', 'H'): [96.0, 0.0680],
+            ('H', 'S', 'H'): [93.0, 0.0380]
+        }
+
+        # Torsion parameters
+        # Values from torskonst array in gfnff_param.f90
+        # Format: [V1, V2, V3] (kcal/mol, converted to hartree in the getter)
+        self.torsion_params = {
+            ('C', 'C', 'C', 'C'): [0.20, 0.25, 0.18],
+            ('C', 'C', 'C', 'H'): [0.00, 0.00, 0.30],
+            ('C', 'C', 'C', 'N'): [0.10, 0.40, 0.70],
+            ('C', 'C', 'C', 'O'): [-0.55, 0.10, 0.50],
+            ('H', 'C', 'C', 'H'): [0.00, 0.00, 0.30],
+            ('H', 'C', 'C', 'N'): [0.00, 0.00, 0.40],
+            ('H', 'C', 'C', 'O'): [0.00, 0.00, 0.35],
+            ('N', 'C', 'C', 'N'): [-0.60, -0.10, 0.50],
+            ('N', 'C', 'C', 'O'): [0.50, 0.45, 0.00],
+            ('O', 'C', 'C', 'O'): [-0.55, -0.10, 0.00],
+            ('C', 'C', 'N', 'C'): [-0.54, -0.10, 0.32],
+            ('C', 'C', 'N', 'H'): [0.00, 0.00, 0.30],
+            ('H', 'C', 'N', 'C'): [0.00, 0.00, 0.40],
+            ('H', 'C', 'N', 'H'): [0.00, 0.00, 0.30],
+            ('C', 'C', 'O', 'C'): [0.65, -0.25, 0.67],
+            ('C', 'C', 'O', 'H'): [0.00, 0.00, 0.45],
+            ('H', 'C', 'O', 'C'): [0.00, 0.00, 0.45],
+            ('H', 'C', 'O', 'H'): [0.00, 0.00, 0.27]
+        }
+        
+        # Hydrogen bond parameters
+        # Based on hbtyppar in gfnff_param.f90
+        # Format: [r0 (Å), k (kcal/mol)]
+        self.hbond_params = {
+            ('O', 'H', 'N'): [1.9, 4.0],
+            ('O', 'H', 'O'): [1.8, 4.0],
+            ('N', 'H', 'N'): [2.0, 4.0],
+            ('N', 'H', 'O'): [1.9, 4.0],
+            ('F', 'H', 'N'): [1.8, 3.5],
+            ('F', 'H', 'O'): [1.7, 3.5],
+            ('S', 'H', 'N'): [2.5, 3.5],
+            ('S', 'H', 'O'): [2.4, 3.5],
+            ('Cl', 'H', 'N'): [2.3, 3.0],
+            ('Cl', 'H', 'O'): [2.2, 3.0],
+            ('Br', 'H', 'N'): [2.5, 2.5],
+            ('Br', 'H', 'O'): [2.4, 2.5],
+            ('I', 'H', 'N'): [2.7, 2.0],
+            ('I', 'H', 'O'): [2.6, 2.0]
+        }
+
+        # Dispersion parameters
+        self.d4_s6 = 1.0
+        self.d4_s8 = 1.03683
+        self.d4_s9 = 1.0
+        self.d4_a1 = 0.4171
+        self.d4_a2 = 4.5337
+
+        # Default parameters for missing entries
+        self.default_bond_k = 0.3000
+        self.default_angle_k = 0.0700
+        self.default_torsion_v = [0.0, 0.0, 0.2]
+        
+    def get_vdw_radius(self, element):
+        """Get van der Waals radius for an element (in Angstrom)"""
+        if element in self.element_params:
+            return self.element_params[element][1]
+        return 2.0  # Default value
+    
+    def get_cov_radius(self, element):
+        """Get covalent radius for an element (in Angstrom)"""
+        if element in self.element_params:
+            return self.element_params[element][0]
+        return 1.0  # Default value
+    
+    def get_electronegativity(self, element):
+        """Get electronegativity for an element"""
+        if element in self.element_params:
+            return self.element_params[element][2]
+        return 2.0  # Default value
+    
+    def get_polarizability(self, element):
+        """Get polarizability for an element (in a.u.)"""
+        if element in self.element_params:
+            return self.element_params[element][3]
+        return 10.0  # Default value
+    
+    def get_bond_params(self, element1, element2):
+        """Get bond parameters for a given pair of elements"""
+        key = tuple(sorted([element1, element2]))
+        if key in self.bond_params:
+            # Return [r0 (bohr), kb (au)]
+            return self.bond_params[key]
+        
+        # Estimate based on covalent radii if not explicitly defined
+        r_cov1 = self.get_cov_radius(element1)
+        r_cov2 = self.get_cov_radius(element2)
+        r0 = (r_cov1 + r_cov2) / self.bohr2ang  # Convert Å to bohr
+        
+        return [r0, self.default_bond_k]
+    
+    def get_angle_params(self, element1, element2, element3):
+        """Get angle parameters for a given triplet of elements"""
+        key = (element1, element2, element3)
+        if key in self.angle_params:
+            return self.angle_params[key]
+        
+        # Reverse order
+        key_rev = (element3, element2, element1)
+        if key_rev in self.angle_params:
+            return self.angle_params[key_rev]
+        
+        # Default angle based on element2's expected coordination
+        if element2 in ['C', 'Si']:
+            theta0 = 109.5  # tetrahedral
+        elif element2 in ['N', 'P']:
+            theta0 = 107.0  # slightly reduced tetrahedral
+        elif element2 in ['O', 'S']:
+            theta0 = 104.5  # bent
+        else:
+            theta0 = 120.0  # default
+        
+        return [theta0, self.default_angle_k]
+    
+    def get_torsion_params(self, element1, element2, element3, element4):
+        """Get torsion parameters for a given quartet of elements"""
+        key = (element1, element2, element3, element4)
+        if key in self.torsion_params:
+            # Convert kcal/mol to hartree
+            v1, v2, v3 = self.torsion_params[key]
+            return [v1 * self.kcalmol2hartree, 
+                    v2 * self.kcalmol2hartree, 
+                    v3 * self.kcalmol2hartree]
+        
+        # Reverse order
+        key_rev = (element4, element3, element2, element1)
+        if key_rev in self.torsion_params:
+            v1, v2, v3 = self.torsion_params[key_rev]
+            return [v1 * self.kcalmol2hartree, 
+                    v2 * self.kcalmol2hartree, 
+                    v3 * self.kcalmol2hartree]
+        
+        # Default parameters
+        return [v * self.kcalmol2hartree for v in self.default_torsion_v]
+    
+    def get_hbond_params(self, donor, h, acceptor):
+        """Get hydrogen bond parameters for a donor-H-acceptor triplet"""
+        key = (donor, h, acceptor)
+        if key in self.hbond_params:
+            r0, k = self.hbond_params[key]
+            return [r0 / self.bohr2ang, k * self.kcalmol2hartree]  # Convert to bohr, hartree
+        
+        # Try reverse order (some H-bonds can be bidirectional)
+        key_rev = (acceptor, h, donor)
+        if key_rev in self.hbond_params:
+            r0, k = self.hbond_params[key_rev]
+            return [r0 / self.bohr2ang, k * self.kcalmol2hartree]
+        
+        # Default weak hydrogen bond parameters
+        return [2.0 / self.bohr2ang, 2.0 * self.kcalmol2hartree]
+
+
+class GFN0Parameters:
+    """GFN0-xTB model parameters based on official implementation"""
+    def __init__(self):
+        # Unit conversion
+        self.bohr2ang = UnitValueLib().bohr2angstroms
+        self.kcalmol2hartree = 1.0 / UnitValueLib().hartree2kcalmol
+        
+        # --- Atomic parameters from gfn0_param.f90 ---
+        
+        # Atomic radii (Bohr)
+        self.rad = {
+            'H': 0.75, 'He': 0.75, 'Li': 1.23, 'Be': 1.01, 'B': 0.90, 'C': 0.85, 'N': 0.84,
+            'O': 0.83, 'F': 0.83, 'Ne': 0.75, 'Na': 1.60, 'Mg': 1.40, 'Al': 1.25, 'Si': 1.14,
+            'P': 1.09, 'S': 1.04, 'Cl': 1.00, 'Ar': 0.75, 'K': 1.90, 'Ca': 1.71, 'Sc': 1.48,
+            'Ti': 1.36, 'V': 1.34, 'Cr': 1.22, 'Mn': 1.19, 'Fe': 1.17, 'Co': 1.16, 'Ni': 1.15,
+            'Cu': 1.14, 'Zn': 1.23, 'Ga': 1.25, 'Ge': 1.21, 'As': 1.16, 'Se': 1.14, 'Br': 1.12,
+            'Kr': 0.75, 'Rb': 2.06, 'Sr': 1.85, 'Y': 1.61, 'Zr': 1.48, 'Nb': 1.37, 'Mo': 1.31,
+            'Tc': 1.23, 'Ru': 1.24, 'Rh': 1.24, 'Pd': 1.19, 'Ag': 1.26, 'Cd': 1.36, 'In': 1.47,
+            'Sn': 1.40, 'Sb': 1.39, 'Te': 1.35, 'I': 1.33, 'Xe': 0.75
+        }
+        
+        # Electronegativity parameters (Mulliken EN)
+        self.en = {
+            'H': 2.20, 'He': 0.00, 'Li': 0.97, 'Be': 1.47, 'B': 2.01, 'C': 2.50, 'N': 3.07,
+            'O': 3.50, 'F': 4.10, 'Ne': 0.00, 'Na': 1.01, 'Mg': 1.23, 'Al': 1.47, 'Si': 1.74,
+            'P': 2.06, 'S': 2.44, 'Cl': 2.83, 'Ar': 0.00, 'K': 0.91, 'Ca': 1.04, 'Sc': 1.20,
+            'Ti': 1.32, 'V': 1.45, 'Cr': 1.56, 'Mn': 1.60, 'Fe': 1.64, 'Co': 1.70, 'Ni': 1.75,
+            'Cu': 1.75, 'Zn': 1.66, 'Ga': 1.82, 'Ge': 2.02, 'As': 2.20, 'Se': 2.48, 'Br': 2.74,
+            'Kr': 0.00, 'Rb': 0.89, 'Sr': 0.99, 'Y': 1.11, 'Zr': 1.22, 'Nb': 1.23, 'Mo': 1.30,
+            'Tc': 1.36, 'Ru': 1.42, 'Rh': 1.45, 'Pd': 1.35, 'Ag': 1.42, 'Cd': 1.46, 'In': 1.49,
+            'Sn': 1.72, 'Sb': 1.82, 'Te': 2.01, 'I': 2.21, 'Xe': 0.00
+        }
+        
+        # Charge scaling and interaction parameters
+        self.kCN = 2.0  # Charge-scaling exponent
+        self.shellPoly = 1.5  # Shell-charge polynomial
+        
+        # GFN0 specific bond parameters
+        # Reference bond orders and stretching constants
+        self.referenceBondLength = {
+            ('C', 'C'): 1.53, ('C', 'N'): 1.42, ('C', 'O'): 1.42, ('C', 'H'): 1.10,
+            ('N', 'N'): 1.41, ('N', 'O'): 1.40, ('N', 'H'): 1.03,
+            ('O', 'O'): 1.45, ('O', 'H'): 0.98,
+            ('H', 'H'): 0.80,
+            # Special bonds for cyano groups 
+            ('C', 'N', 'triple'): 1.16, # C≡N triple bond
+            ('C', 'C', 'triple'): 1.20, # C≡C triple bond
+            ('C', 'O', 'double'): 1.25, # C=O double bond
+            ('C', 'N', 'double'): 1.29, # C=N double bond
+        }
+        
+        # Force constant scaling factors for different bond types
+        self.bondForceFactors = {
+            'single': 1.0,
+            'aromatic': 1.2, 
+            'double': 1.5,
+            'triple': 2.0
+        }
+        
+        # Base force constants in mDyne/Å (converted to atomic units)
+        self.kStretchBase = 0.35
+        
+        # Angle parameters - natural angles in radians
+        self.naturalAngles = {
+            'sp3': 109.5 * np.pi/180,  # Tetrahedral
+            'sp2': 120.0 * np.pi/180,   # Trigonal planar
+            'sp': 180.0 * np.pi/180     # Linear
+        }
+        
+        # Base angle force constants (mDyne·Å/rad²)
+        self.kAngleBase = 0.07
+        
+        # Base torsion barriers (kcal/mol)
+        self.V2Base = 0.1 * self.kcalmol2hartree
+        self.V3Base = 0.01 * self.kcalmol2hartree
+        
+        # Special parameters for CN triple bonds
+        self.CNParams = {
+            'kStretch': 0.9,   # Stronger force constant for CN triple bond
+            'kBend': 0.15,     # Force constant for X-C≡N bending
+            'kTorsion': 0.002  # Very weak torsional barrier
+        }
+    
+    def get_radius(self, element):
+        """Get atomic radius for an element (in Bohr)"""
+        if element in self.rad:
+            return self.rad[element]
+        return 1.0  # Default radius
+    
+    def get_en(self, element):
+        """Get electronegativity for an element"""
+        if element in self.en:
+            return self.en[element]
+        return 2.0  # Default EN
+    
+    def get_bond_length(self, element1, element2, bond_type='single'):
+        """Get reference bond length for a given pair of elements and bond type"""
+        key = tuple(sorted([element1, element2]))
+        if bond_type != 'single':
+            key_with_type = key + (bond_type,)
+            if key_with_type in self.referenceBondLength:
+                return self.referenceBondLength[key_with_type]
+        
+        if key in self.referenceBondLength:
+            return self.referenceBondLength[key]
+        
+        # If not found, estimate from radii
+        r1 = self.get_radius(element1)
+        r2 = self.get_radius(element2)
+        bond_length = r1 + r2
+        
+        # Adjust for bond type
+        if bond_type == 'double':
+            bond_length *= 0.85
+        elif bond_type == 'triple':
+            bond_length *= 0.78
+        elif bond_type == 'aromatic':
+            bond_length *= 0.90
+            
+        return bond_length
+    
+    def get_bond_force_constant(self, element1, element2, bond_type='single'):
+        """Get bond force constant for a pair of elements and bond type"""
+        # Special case for CN triple bond
+        if ((element1 == 'C' and element2 == 'N') or 
+            (element1 == 'N' and element2 == 'C')) and bond_type == 'triple':
+            return self.CNParams['kStretch']
+        
+        # Regular case - scale by bond type
+        factor = self.bondForceFactors.get(bond_type, 1.0)
+        return self.kStretchBase * factor
+
+
+class D4Parameters:
+    """Parameters class for D4 dispersion correction"""
+    def __init__(self, s6=1.0, s8=1.03683, s9=1.0, a1=0.4171, a2=4.5337):
+        # Default parameters for PBE0/def2-QZVP
+        self.s6 = s6    # Scaling constant for C6 term (typically 1.0)
+        self.s8 = s8    # Scaling constant for C8 term
+        self.s9 = s9    # Scaling constant for three-body term
+        self.a1 = a1    # Parameter for damping function of C6 term
+        self.a2 = a2    # Parameter for damping function of C8 term
+        
+        # Charge scaling constants
+        self.ga = 3.0   # Charge scaling factor
+        self.gc = 2.0   # Three-body charge scaling factor
+        
+        # Reference polarizabilities based on PBE0/def2-QZVP calculations
+        self.ref_polarizabilities = {
+            'H': 4.50, 'He': 1.38, 
+            'Li': 164.20, 'Be': 38.40, 'B': 21.10, 'C': 12.00, 'N': 7.40, 'O': 5.40, 'F': 3.80, 'Ne': 2.67,
+            'Na': 162.70, 'Mg': 71.00, 'Al': 57.80, 'Si': 37.00, 'P': 25.00, 'S': 19.60, 'Cl': 15.00, 'Ar': 11.10,
+            'K': 292.80, 'Ca': 160.80, 'Sc': 120.00, 'Ti': 98.00, 'V': 84.00, 'Cr': 72.00, 'Mn': 63.00, 'Fe': 56.00,
+            'Co': 50.00, 'Ni': 44.00, 'Cu': 42.00, 'Zn': 40.00, 'Ga': 60.00, 'Ge': 41.00, 'As': 29.00, 'Se': 25.00,
+            'Br': 20.00, 'Kr': 16.80, 'Rb': 320.20, 'Sr': 199.30, 'Y': 126.70, 'Zr': 119.97, 'Nb': 101.60, 
+            'Mo': 88.42, 'Tc': 80.08, 'Ru': 65.89, 'Rh': 56.10, 'Pd': 23.68, 'Ag': 46.00, 'Cd': 39.72,
+            'In': 70.22, 'Sn': 55.95, 'Sb': 43.67, 'Te': 37.65, 'I': 35.00, 'Xe': 27.30
+        }
+        
+        # r4/r2 values from tad-dftd3 library
+        self.r4r2_values = {
+            # H, He
+            'H': 8.0589, 'He': 3.4698,
+            # Li-Ne
+            'Li': 29.0974, 'Be': 14.8517, 'B': 11.8799, 'C': 7.8715, 'N': 5.5588, 
+            'O': 4.7566, 'F': 3.8025, 'Ne': 3.1036,
+            # Na-Ar
+            'Na': 26.1552, 'Mg': 17.2304, 'Al': 17.7210, 'Si': 12.7442, 'P': 9.5361, 
+            'S': 8.1652, 'Cl': 6.7463, 'Ar': 5.6004,
+            # K, Ca
+            'K': 29.2012, 'Ca': 22.3934,
+            # Sc-Zn
+            'Sc': 19.0598, 'Ti': 16.8590, 'V': 15.4023, 'Cr': 12.5589, 'Mn': 13.4788,
+            'Fe': 12.2309, 'Co': 11.2809, 'Ni': 10.5569, 'Cu': 10.1428, 'Zn': 9.4907,
+            # Ga-Kr
+            'Ga': 13.4606, 'Ge': 10.8544, 'As': 8.9386, 'Se': 8.1350, 'Br': 7.1251, 'Kr': 6.1971,
+            # Rb, Sr
+            'Rb': 30.0162, 'Sr': 24.4103,
+            # Y-Cd
+            'Y': 20.3537, 'Zr': 17.4780, 'Nb': 13.5528, 'Mo': 11.8451, 'Tc': 11.0355,
+            'Ru': 10.1997, 'Rh': 9.5414, 'Pd': 9.0061, 'Ag': 8.6417, 'Cd': 8.9975,
+            # In-Xe
+            'In': 14.0834, 'Sn': 11.8333, 'Sb': 10.0179, 'Te': 9.3844, 'I': 8.4110, 'Xe': 7.5152,
+            # Cs, Ba
+            'Cs': 32.7622, 'Ba': 27.5708
+        }
+        
+        # Electronegativity values used for charge scaling
+        self.electronegativity = {
+            'H': 2.20, 'He': 0.00,
+            'Li': 0.98, 'Be': 1.57, 'B': 2.04, 'C': 2.55, 'N': 3.04, 'O': 3.44, 'F': 3.98, 'Ne': 0.00,
+            'Na': 0.93, 'Mg': 1.31, 'Al': 1.61, 'Si': 1.90, 'P': 2.19, 'S': 2.58, 'Cl': 3.16, 'Ar': 0.00,
+            'K': 0.82, 'Ca': 1.00, 'Sc': 1.36, 'Ti': 1.54, 'V': 1.63, 'Cr': 1.66, 'Mn': 1.55, 'Fe': 1.83,
+            'Co': 1.88, 'Ni': 1.91, 'Cu': 1.90, 'Zn': 1.65, 'Ga': 1.81, 'Ge': 2.01, 'As': 2.18, 'Se': 2.55,
+            'Br': 2.96, 'Kr': 0.00, 'Rb': 0.82, 'Sr': 0.95, 'Y': 1.22, 'Zr': 1.33, 'Nb': 1.60, 'Mo': 2.16,
+            'Tc': 1.90, 'Ru': 2.20, 'Rh': 2.28, 'Pd': 2.20, 'Ag': 1.93, 'Cd': 1.69, 'In': 1.78, 'Sn': 1.96,
+            'Sb': 2.05, 'Te': 2.10, 'I': 2.66, 'Xe': 0.00, 'Cs': 0.79, 'Ba': 0.89
+        }
+
+        # Reference coordination numbers for different hybridization states
+        self.ref_cn = {
+            'H': [0.0, 1.0],
+            'C': [0.0, 2.0, 3.0, 4.0],
+            'N': [0.0, 1.0, 2.0, 3.0],
+            'O': [0.0, 1.0, 2.0],
+            'P': [0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+            'S': [0.0, 1.0, 2.0, 3.0, 4.0, 6.0]
+        }
+
+        # Default values for unlisted elements
+        self.default_r4r2 = 10.0
+        self.default_polarizability = 20.0
+        self.default_electronegativity = 2.0
+        
+    def get_r4r2(self, element):
+        """Get r^4/r^2 ratio for each element"""
+        if element in self.r4r2_values:
+            return self.r4r2_values[element]
+        return self.default_r4r2
+    
+    def get_polarizability(self, element):
+        """Get reference polarizability for an element"""
+        if element in self.ref_polarizabilities:
+            return self.ref_polarizabilities[element]
+        return self.default_polarizability
+    
+    def get_electronegativity(self, element):
+        """Get electronegativity for an element"""
+        if element in self.electronegativity:
+            return self.electronegativity[element]
+        return self.default_electronegativity
+
+class D3Parameters:
+    """Parameters class for D3 dispersion correction"""
+    def __init__(self, s6=1.0, s8=0.7875, a1=0.4289, a2=4.4407):
+        # Default parameters for PBE0
+        self.s6 = s6  # Scaling constant for C6 term (typically 1.0)
+        self.s8 = s8  # Scaling constant for C8 term
+        self.a1 = a1  # Parameter for damping function of C6 term
+        self.a2 = a2  # Parameter for damping function of C8 term
+        
+        # r4_over_r2 values from tad-dftd3 library
+        # PBE0/def2-QZVP atomic values calculated by S. Grimme in Gaussian (2010)
+        # with updates for rare gases and super-heavy elements
+        self.r4r2_values = {
+            # None
+            # H, He
+            'H': 8.0589, 'He': 3.4698,
+            # Li-Ne
+            'Li': 29.0974, 'Be': 14.8517, 'B': 11.8799, 'C': 7.8715, 'N': 5.5588, 
+            'O': 4.7566, 'F': 3.8025, 'Ne': 3.1036,
+            # Na-Ar
+            'Na': 26.1552, 'Mg': 17.2304, 'Al': 17.7210, 'Si': 12.7442, 'P': 9.5361, 
+            'S': 8.1652, 'Cl': 6.7463, 'Ar': 5.6004,
+            # K, Ca
+            'K': 29.2012, 'Ca': 22.3934,
+            # Sc-Zn
+            'Sc': 19.0598, 'Ti': 16.8590, 'V': 15.4023, 'Cr': 12.5589, 'Mn': 13.4788,
+            'Fe': 12.2309, 'Co': 11.2809, 'Ni': 10.5569, 'Cu': 10.1428, 'Zn': 9.4907,
+            # Ga-Kr
+            'Ga': 13.4606, 'Ge': 10.8544, 'As': 8.9386, 'Se': 8.1350, 'Br': 7.1251, 'Kr': 6.1971,
+            # Rb, Sr
+            'Rb': 30.0162, 'Sr': 24.4103,
+            # Y-Cd
+            'Y': 20.3537, 'Zr': 17.4780, 'Nb': 13.5528, 'Mo': 11.8451, 'Tc': 11.0355,
+            'Ru': 10.1997, 'Rh': 9.5414, 'Pd': 9.0061, 'Ag': 8.6417, 'Cd': 8.9975,
+            # In-Xe
+            'In': 14.0834, 'Sn': 11.8333, 'Sb': 10.0179, 'Te': 9.3844, 'I': 8.4110, 'Xe': 7.5152,
+            # Cs, Ba
+            'Cs': 32.7622, 'Ba': 27.5708,
+            # La-Eu
+            'La': 23.1671, 'Ce': 21.6003, 'Pr': 20.9615, 'Nd': 20.4562, 'Pm': 20.1010, 
+            'Sm': 19.7475, 'Eu': 19.4828,
+            # Gd-Yb
+            'Gd': 15.6013, 'Tb': 19.2362, 'Dy': 17.4717, 'Ho': 17.8321, 'Er': 17.4237, 
+            'Tm': 17.1954, 'Yb': 17.1631,
+            # Lu-Hg
+            'Lu': 14.5716, 'Hf': 15.8758, 'Ta': 13.8989, 'W': 12.4834, 'Re': 11.4421,
+            'Os': 10.2671, 'Ir': 8.3549, 'Pt': 7.8496, 'Au': 7.3278, 'Hg': 7.4820,
+            # Tl-Rn
+            'Tl': 13.5124, 'Pb': 11.6554, 'Bi': 10.0959, 'Po': 9.7340, 'At': 8.8584, 'Rn': 8.0125
+        }
+        
+        # Default value for unlisted elements
+        self.default_r4r2 = 10.0
+        
+    def get_r4r2(self, element):
+        """Get r^4/r^2 ratio for each element"""
+        if element in self.r4r2_values:
+            return self.r4r2_values[element]
+        return self.default_r4r2
+
 
 def DREIDING_VDW_distance_lib(element):#https://doi.org/10.1021/j100389a010 
     #Atoms for which no parameters exist use UFF parameters

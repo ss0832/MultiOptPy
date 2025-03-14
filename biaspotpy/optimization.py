@@ -86,6 +86,7 @@ class Optimize:
         self.bias_pot_params_grad_name_list = None
         self.DC_check_flag = False
         self.oniom = args.oniom_flag
+        self.use_model_hessian = args.use_model_hessian
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -203,7 +204,7 @@ class Optimize:
             else:
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
             
-            if self.iter % self.FC_COUNT == 0 or (self.args.use_model_hessian and self.iter % self.mFC_COUNT == 0):
+            if self.iter % self.FC_COUNT == 0 or (self.use_model_hessian is not None and self.iter % self.mFC_COUNT == 0):
                 if not allactive_flag:
                     self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
                 
@@ -336,7 +337,7 @@ class Optimize:
         
         # Move vector calculation
         CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, 
-                                self.FC_COUNT, self.temperature, self.args.use_model_hessian)
+                                self.FC_COUNT, self.temperature, self.use_model_hessian)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         # Initialize optimizer instances
@@ -484,8 +485,8 @@ class Optimize:
             if exit_flag:
                 break
                 
-            if iter % self.mFC_COUNT == 0 and self.args.use_model_hessian and self.FC_COUNT < 1:
-                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g)
+            if iter % self.mFC_COUNT == 0 and self.use_model_hessian is not None and self.FC_COUNT < 1:
+                SP.Model_hess = ApproxHessian().main(geom_num_list, element_list, g, self.use_model_hessian)
                 self.Model_hess = SP.Model_hess 
             if iter == 0:
                 initial_geom_num_list, pre_geom = self._save_init_geometry(geom_num_list, element_list, allactive_flag)
@@ -881,6 +882,8 @@ class Optimize:
         # Create mapping between high layer and full system atom indices
         real_2_highlayer_label_connect_dict, highlayer_2_real_label_connect_dict = link_number_high_layer_and_low_layer(high_layer_atom_num)
         
+        
+        
         # Initialize model Hessians
         LL_Model_hess = np.eye(len(element_list)*3)
        
@@ -1115,7 +1118,7 @@ class Optimize:
                     break
                 
                 # Update previous values for next microiteration
-                pre_real_LL_e = real_LL_e
+              
                 pre_real_LL_B_e = real_LL_B_e
                 pre_real_LL_g = real_LL_g
                 pre_real_LL_B_g = real_LL_B_g
