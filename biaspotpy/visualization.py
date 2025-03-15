@@ -21,29 +21,50 @@ class Graph:
         return
     
     def double_plot(self, num_list, energy_list, energy_list_2, add_file_name=""):
+        """
+        Plot two energy profiles on a single figure using primary and secondary y-axes
+        with proper legends.
         
-        fig = plt.figure()
-
-        ax1 = fig.add_subplot(2, 1, 1)
-        ax2 = fig.add_subplot(2, 1, 2)
-
-        ax1.plot(num_list, energy_list, "g--.")
-        ax2.plot(num_list, energy_list_2, "b--.")
-
+        Args:
+            num_list: Iteration numbers (x-axis)
+            energy_list: First energy profile (primary y-axis)
+            energy_list_2: Second energy profile (secondary y-axis)
+            add_file_name: Additional text for the output file name
+        """
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        # Primary axis (left) - Normal energy
+        color1 = 'green'
+        line1, = ax1.plot(num_list, energy_list, color=color1, linestyle='--', marker='.', label='Normal Energy')
         ax1.set_xlabel('ITR.')
-        ax2.set_xlabel('ITR.')
-
-        ax1.set_ylabel('Electronic Energy [kcal/mol]')
-        ax2.set_ylabel('Electronic Energy [kcal/mol]')
-        plt.title('normal_above biasing_below')
+        ax1.set_ylabel('Electronic Energy [kcal/mol]', color=color1)
+        ax1.tick_params(axis='y', labelcolor=color1)
+        
+        # Secondary axis (right) - Bias energy
+        color2 = 'blue'
+        ax2 = ax1.twinx()
+        line2, = ax2.plot(num_list, energy_list_2, color=color2, linestyle='--', marker='.', label='Bias Energy')
+        ax2.set_ylabel('Electronic Energy [kcal/mol]', color=color2)
+        ax2.tick_params(axis='y', labelcolor=color2)
+        
+        # Add legend
+        lines = [line1, line2]
+        labels = [line.get_label() for line in lines]
+        ax1.legend(lines, labels, loc='best')
+        
+        # Title and layout
+        plt.title('Energy Profile')
+        plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig(self.BPA_FOLDER_DIRECTORY+"Energy_plot_"+add_file_name+".png", format="png", dpi=300)
+        
+        # Save figure
+        plt.savefig(self.BPA_FOLDER_DIRECTORY + "energy_plot_" + add_file_name + ".png", format="png", dpi=300)
         plt.close()
         return
         
     def single_plot(self, num_list, energy_list, file_directory, atom_num, axis_name_1="ITR. ", axis_name_2="cosθ", name="orthogonality"):
         fig, ax = plt.subplots()
-        ax.plot(num_list,energy_list, "r--o" , markersize=2)
+        ax.plot(num_list,energy_list, "b--o" , markersize=3)
 
         ax.set_title(str(atom_num))
         ax.set_xlabel(axis_name_1)

@@ -6,7 +6,7 @@ from bond_connectivity import BondConnectivity
 from parameter import UnitValueLib, number_element, element_number, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, atomic_mass, D2_VDW_radii_lib, D2_C6_coeff_lib, D2_S6_parameter, double_covalent_radii_lib, triple_covalent_radii_lib, D3Parameters, D4Parameters, GFNFFParameters, GFN0Parameters, GNB_radii_lib
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
-
+from scipy.special import erf
 
 import numpy as np
 import itertools
@@ -2524,7 +2524,6 @@ class FischerD3ApproxHessian:
         
         return hess_proj
     
-
 class LindhApproxHessian:
     def __init__(self):
         #Lindh's approximate hessian
@@ -2680,7 +2679,6 @@ class LindhApproxHessian:
         #print(sorted(eigenvalue))
         hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(cart_hess, element_list, coord)
         return hess_proj#cart_hess
-    
 
 class SchlegelApproxHessian:
     def __init__(self):
@@ -2817,6 +2815,871 @@ class SchlegelApproxHessian:
         hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(cart_hess, element_list, coord)
         return hess_proj#cart_hess
 
+
+class SchlegelD3ApproxHessian:
+    def __init__(self):
+        """
+        Schlegel's approximate Hessian with D3 dispersion corrections and special handling for cyano groups
+        References:
+        - Schlegel: Journal of Molecular Structure: THEOCHEM Volumes 398–399, 30 June 1997, Pages 55-61
+        - D3: S. Grimme, J. Antony, S. Ehrlich, H. Krieg, J. Chem. Phys., 2010, 132, 154104
+        """
+        self.bohr2angstroms = UnitValueLib().bohr2angstroms
+        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
+        
+        # D3 dispersion parameters
+        self.d3_params = D3Parameters()
+        
+        # Cyano group parameters - enhanced force constants
+        self.cn_stretch_factor = 2.0  # Enhance stretch force constants for C≡N triple bond
+        self.cn_angle_factor = 1.5    # Enhance angle force constants involving C≡N
+        self.cn_torsion_factor = 0.5  # Reduce torsion force constants involving C≡N (more flexible)
+        
+    def detect_cyano_groups(self, coord, element_list):
+        """Detect C≡N triple bonds in the structure"""
+        cyano_atoms = []  # List of (C_idx, N_idx) tuples
+        
+        for i in range(len(coord)):
+            if element_list[i] != 'C':
+                continue
+                
+            for j in range(len(coord)):
+                if i == j or element_list[j] != 'N':
+                    continue
+                    
+                # Calculate distance between C and N
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                
+                # Check if distance is close to a triple bond length
+                cn_triple_bond = triple_covalent_radii_lib('C') + triple_covalent_radii_lib('N')
+                
+                if abs(r_ij - cn_triple_bond) < 0.3:  # Within 0.3 bohr of ideal length
+                    # Check if C is connected to only one other atom (besides N)
+                    connections_to_c = 0
+                    for k in range(len(coord)):
+                        if k == i or k == j:
+                            continue
+                            
+                        r_ik = np.linalg.norm(coord[i] - coord[k])
+                        cov_dist = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        
+                        if r_ik < 1.3 * cov_dist:  # Using 1.3 as a factor to account for bond length variations
+                            connections_to_c += 1
+                    
+                    # If C has only one other connection, it's likely a terminal cyano group
+                    if connections_to_c <= 1:
+                        cyano_atoms.append((i, j))
+        
+        return cyano_atoms
+    
+    def return_schlegel_const(self, element_1, element_2):
+        """Return Schlegel's constant for a given element pair"""
+        if type(element_1) is int:
+            element_1 = number_element(element_1)
+        if type(element_2) is int:
+            element_2 = number_element(element_2)
+        
+        parameter_B_matrix = [
+            [0.2573, 0.3401, 0.6937, 0.7126, 0.8335, 0.9491, 0.9491],
+            [0.3401, 0.9652, 1.2843, 1.4725, 1.6549, 1.7190, 1.7190],
+            [0.6937, 1.2843, 1.6925, 1.8238, 2.1164, 2.3185, 2.3185],
+            [0.7126, 1.4725, 1.8238, 2.0203, 2.2137, 2.5206, 2.5206],
+            [0.8335, 1.6549, 2.1164, 2.2137, 2.3718, 2.5110, 2.5110],
+            [0.9491, 1.7190, 2.3185, 2.5206, 2.5110, 2.5110, 2.5110],
+            [0.9491, 1.7190, 2.3185, 2.5206, 2.5110, 2.5110, 2.5110]
+        ]  # Bohr
+        
+        first_period_table = ["H", "He"]
+        second_period_table = ["Li", "Be", "B", "C", "N", "O", "F", "Ne"]
+        third_period_table = ["Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"]
+        fourth_period_table = ["K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br","Kr"]
+        fifth_period_table = ["Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc","Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te","I", "Xe"]
+        sixth_period_table = ["Cs", "Ba", "La","Ce","Pr","Nd","Pm","Sm", "Eu", "Gd", "Tb", "Dy" ,"Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn"]
+        
+        if element_1 in first_period_table:
+            idx_1 = 0
+        elif element_1 in second_period_table:
+            idx_1 = 1
+        elif element_1 in third_period_table:
+            idx_1 = 2
+        elif element_1 in fourth_period_table:
+            idx_1 = 3
+        elif element_1 in fifth_period_table:
+            idx_1 = 4
+        elif element_1 in sixth_period_table:
+            idx_1 = 5
+        else:
+            idx_1 = 6
+        
+        if element_2 in first_period_table:
+            idx_2 = 0
+        elif element_2 in second_period_table:
+            idx_2 = 1
+        elif element_2 in third_period_table:
+            idx_2 = 2
+        elif element_2 in fourth_period_table:
+            idx_2 = 3
+        elif element_2 in fifth_period_table:
+            idx_2 = 4
+        elif element_2 in sixth_period_table:
+            idx_2 = 5
+        else:
+            idx_2 = 6
+        
+        const_b = parameter_B_matrix[idx_1][idx_2]
+        return const_b
+    
+    def d3_damping_function(self, r_ij, r0):
+        """Calculate D3 rational damping function"""
+        a1 = self.d3_params.a1
+        a2 = self.d3_params.a2
+        
+        # Rational damping function for C6 term
+        damp = 1.0 / (1.0 + 6.0 * (r_ij / (a1 * r0)) ** a2)
+        return damp
+    
+    def get_d3_parameters(self, elem1, elem2):
+        """Get D3 parameters for a pair of elements"""
+        # Get R4/R2 values
+        r4r2_1 = self.d3_params.get_r4r2(elem1)
+        r4r2_2 = self.d3_params.get_r4r2(elem2)
+        
+        # C6 coefficients
+        c6_1 = r4r2_1 ** 2
+        c6_2 = r4r2_2 ** 2
+        c6 = np.sqrt(c6_1 * c6_2)
+        
+        # C8 coefficients
+        c8 = 3.0 * c6 * np.sqrt(r4r2_1 * r4r2_2)
+        
+        # r0 parameter (vdW radii)
+        r0 = np.sqrt(UFF_VDW_distance_lib(elem1) * UFF_VDW_distance_lib(elem2))
+        
+        return c6, c8, r0
+    
+    def calc_d3_correction(self, r_ij, elem1, elem2):
+        """Calculate D3 dispersion correction to the force constant"""
+        # Get D3 parameters
+        c6, c8, r0 = self.get_d3_parameters(elem1, elem2)
+        
+        # Damping functions
+        damp6 = self.d3_damping_function(r_ij, r0)
+        
+        # D3 energy contribution (simplified)
+        e_disp = -self.d3_params.s6 * c6 / r_ij**6 * damp6
+        
+        # Approximate second derivative (force constant)
+        fc_disp = self.d3_params.s6 * c6 * (42.0 / r_ij**8) * damp6
+        
+        return fc_disp * 0.01  # Scale factor to match overall Hessian scale
+    
+    def guess_schlegel_hessian(self, coord, element_list):
+        """
+        Calculate approximate Hessian using Schlegel's approach augmented with D3 dispersion
+        and special handling for cyano groups
+        """
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+            
+        # Setup connectivity tables using BondConnectivity utility
+        BC = BondConnectivity()
+        b_c_mat = BC.bond_connect_matrix(element_list, coord)
+        connectivity_table = [BC.bond_connect_table(b_c_mat), 
+                              BC.angle_connect_table(b_c_mat), 
+                              BC.dihedral_angle_connect_table(b_c_mat)]
+        
+        # Initialize RIC index list for all atom pairs
+        RIC_idx_list = [[i[0], i[1]] for i in itertools.combinations(range(len(coord)), 2)]
+        self.RIC_variable_num = len(RIC_idx_list)
+        RIC_approx_diag_hessian = [0.0] * self.RIC_variable_num
+        
+        # Process connectivity table to build Hessian
+        for idx_list in connectivity_table:
+            for idx in idx_list:
+                # Bond stretching terms
+                if len(idx) == 2:
+                    tmp_idx = sorted([idx[0], idx[1]])
+                    distance = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    const_b = self.return_schlegel_const(elem_1, elem_2)
+                    tmpnum = RIC_idx_list.index(tmp_idx)
+                    
+                    # Base Schlegel force constant
+                    F = 1.734 / (distance - const_b) ** 3
+                    
+                    # Check if this is a cyano bond
+                    is_cyano_bond = False
+                    for c_idx, n_idx in cyano_atoms:
+                        if (idx[0] == c_idx and idx[1] == n_idx) or (idx[0] == n_idx and idx[1] == c_idx):
+                            is_cyano_bond = True
+                            break
+                    
+                    # Add D3 dispersion contribution
+                    d3_correction = self.calc_d3_correction(distance, elem_1, elem_2)
+                    
+                    if is_cyano_bond:
+                        # Enhanced force constant for C≡N triple bond
+                        RIC_approx_diag_hessian[tmpnum] += self.cn_stretch_factor * F + d3_correction
+                    else:
+                        RIC_approx_diag_hessian[tmpnum] += F + d3_correction
+                
+                # Angle bending terms
+                elif len(idx) == 3:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    elem_3 = element_list[idx[2]]
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    
+                    # Check if angle involves cyano group
+                    is_cyano_angle = (idx[0] in cyano_set or idx[1] in cyano_set or idx[2] in cyano_set)
+                    
+                    # Base Schlegel force constant
+                    if elem_1 == "H" or elem_3 == "H":
+                        F_angle = 0.160
+                    else:
+                        F_angle = 0.250
+                    
+                    # Add D3 dispersion contribution
+                    d3_r1 = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    d3_r2 = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    d3_correction_1 = self.calc_d3_correction(d3_r1, elem_1, elem_2) * 0.2
+                    d3_correction_2 = self.calc_d3_correction(d3_r2, elem_2, elem_3) * 0.2
+                    
+                    if is_cyano_angle:
+                        # Enhanced angle force constants for angles involving C≡N
+                        RIC_approx_diag_hessian[tmpnum_1] += self.cn_angle_factor * F_angle + d3_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += self.cn_angle_factor * F_angle + d3_correction_2
+                    else:
+                        RIC_approx_diag_hessian[tmpnum_1] += F_angle + d3_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += F_angle + d3_correction_2
+                
+                # Torsion (dihedral) terms
+                elif len(idx) == 4:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    tmp_idx_3 = sorted([idx[2], idx[3]])
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    elem_3 = element_list[idx[2]]
+                    elem_4 = element_list[idx[3]]
+                    distance = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    bond_length = covalent_radii_lib(elem_2) + covalent_radii_lib(elem_3)
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    tmpnum_3 = RIC_idx_list.index(tmp_idx_3)
+                    
+                    # Base Schlegel torsion force constant
+                    F_torsion = 0.0023 - 0.07 * (distance - bond_length)
+                    
+                    # Check if torsion involves cyano group
+                    is_cyano_torsion = (idx[0] in cyano_set or idx[1] in cyano_set or 
+                                        idx[2] in cyano_set or idx[3] in cyano_set)
+                    
+                    # Add D3 dispersion contribution
+                    d3_r1 = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    d3_r2 = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    d3_r3 = np.linalg.norm(coord[idx[2]] - coord[idx[3]])
+                    d3_correction_1 = self.calc_d3_correction(d3_r1, elem_1, elem_2) * 0.05
+                    d3_correction_2 = self.calc_d3_correction(d3_r2, elem_2, elem_3) * 0.05
+                    d3_correction_3 = self.calc_d3_correction(d3_r3, elem_3, elem_4) * 0.05
+                    
+                    if is_cyano_torsion:
+                        # Reduced torsion force constants for torsions involving C≡N
+                        RIC_approx_diag_hessian[tmpnum_1] += self.cn_torsion_factor * F_torsion + d3_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += self.cn_torsion_factor * F_torsion + d3_correction_2
+                        RIC_approx_diag_hessian[tmpnum_3] += self.cn_torsion_factor * F_torsion + d3_correction_3
+                    else:
+                        RIC_approx_diag_hessian[tmpnum_1] += F_torsion + d3_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += F_torsion + d3_correction_2
+                        RIC_approx_diag_hessian[tmpnum_3] += F_torsion + d3_correction_3
+        
+        # Convert to numpy array
+        RIC_approx_hessian = np.diag(RIC_approx_diag_hessian).astype("float64")
+        return RIC_approx_hessian
+    
+    def main(self, coord, element_list, cart_gradient):
+        """Main method to calculate the approximate Hessian"""
+        print("Generating Schlegel's approximate Hessian with D3 dispersion correction...")
+        
+        # Calculate B matrix for redundant internal coordinates
+        b_mat = RedundantInternalCoordinates().B_matrix(coord)
+        self.RIC_variable_num = len(b_mat)
+        
+        # Calculate approximate Hessian in internal coordinates
+        int_approx_hess = self.guess_schlegel_hessian(coord, element_list)
+        
+        # Convert to Cartesian coordinates
+        cart_hess = np.dot(b_mat.T, np.dot(int_approx_hess, b_mat))
+        
+        # Handle NaN values
+        cart_hess = np.nan_to_num(cart_hess, nan=0.0)
+        
+        # Project out translational and rotational modes
+        hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(cart_hess, element_list, coord)
+        
+        return hess_proj
+
+
+
+class SchlegelD4ApproxHessian:
+    def __init__(self):
+        """
+        Schlegel's approximate Hessian with D4 dispersion corrections and special handling for cyano groups
+        References:
+        - Schlegel: Journal of Molecular Structure: THEOCHEM Volumes 398–399, 30 June 1997, Pages 55-61
+        - D4: E. Caldeweyher, C. Bannwarth, S. Grimme, J. Chem. Phys., 2017, 147, 034112
+        """
+        self.bohr2angstroms = UnitValueLib().bohr2angstroms
+        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
+        
+        # D4 dispersion parameters
+        self.d4_params = D4Parameters()
+        
+        # Cyano group parameters - enhanced force constants
+        self.cn_stretch_factor = 2.0   # Enhance stretch force constants for C≡N triple bond
+        self.cn_angle_factor = 1.5     # Enhance angle force constants involving C≡N
+        self.cn_torsion_factor = 0.5   # Reduce torsion force constants involving C≡N (more flexible)
+        
+    def detect_cyano_groups(self, coord, element_list):
+        """Detect C≡N triple bonds in the structure"""
+        cyano_atoms = []  # List of (C_idx, N_idx) tuples
+        
+        for i in range(len(coord)):
+            if element_list[i] != 'C':
+                continue
+                
+            for j in range(len(coord)):
+                if i == j or element_list[j] != 'N':
+                    continue
+                    
+                # Calculate distance between C and N
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                
+                # Check if distance is close to a triple bond length
+                cn_triple_bond = triple_covalent_radii_lib('C') + triple_covalent_radii_lib('N')
+                
+                if abs(r_ij - cn_triple_bond) < 0.3:  # Within 0.3 bohr of ideal length
+                    # Check if C is connected to only one other atom (besides N)
+                    connections_to_c = 0
+                    for k in range(len(coord)):
+                        if k == i or k == j:
+                            continue
+                            
+                        r_ik = np.linalg.norm(coord[i] - coord[k])
+                        cov_dist = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        
+                        if r_ik < 1.3 * cov_dist:  # Using 1.3 as a factor to account for bond length variations
+                            connections_to_c += 1
+                    
+                    # If C has only one other connection, it's likely a terminal cyano group
+                    if connections_to_c <= 1:
+                        cyano_atoms.append((i, j))
+        
+        return cyano_atoms
+    
+    def calculate_coordination_numbers(self, coord, element_list):
+        """Calculate atomic coordination numbers for D4 scaling"""
+        n_atoms = len(coord)
+        cn = np.zeros(n_atoms)
+        
+        for i in range(n_atoms):
+            for j in range(n_atoms):
+                if i == j:
+                    continue
+                
+                # Calculate distance
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                
+                # Get covalent radii
+                r_cov_i = covalent_radii_lib(element_list[i])
+                r_cov_j = covalent_radii_lib(element_list[j])
+                
+                # Coordination number contribution using counting function
+                # k1 = 16.0, k2 = 4.0/3.0 (standard values from DFT-D4)
+                k1 = 16.0
+                k2 = 4.0/3.0
+                r0 = r_cov_i + r_cov_j
+                
+                # Avoid overflow in exp
+                if k1 * (r_ij / r0 - 1.0) > 25.0:
+                    continue
+                
+                cn_contrib = 1.0 / (1.0 + np.exp(-k1 * (k2 * r0 / r_ij - 1.0)))
+                cn[i] += cn_contrib
+        
+        return cn
+    
+    def estimate_atomic_charges(self, coord, element_list):
+        """
+        Estimate atomic charges using electronegativity equalization
+        Simplified version for Hessian generation
+        """
+        n_atoms = len(coord)
+        charges = np.zeros(n_atoms)
+        
+        # Calculate reference electronegativities
+        en_list = [self.d4_params.get_electronegativity(elem) for elem in element_list]
+        
+        # Simple charge estimation based on electronegativity differences
+        # This is a very simplified model
+        for i in range(n_atoms):
+            for j in range(i+1, n_atoms):
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                r_cov_sum = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Only consider bonded atoms
+                if r_ij < 1.3 * r_cov_sum:
+                    en_diff = en_list[j] - en_list[i]
+                    charge_transfer = 0.1 * en_diff  # Simple approximation
+                    charges[i] += charge_transfer
+                    charges[j] -= charge_transfer
+        
+        return charges
+    
+    def return_schlegel_const(self, element_1, element_2):
+        """Return Schlegel's constant for a given element pair"""
+        if type(element_1) is int:
+            element_1 = number_element(element_1)
+        if type(element_2) is int:
+            element_2 = number_element(element_2)
+        
+        parameter_B_matrix = [
+            [0.2573, 0.3401, 0.6937, 0.7126, 0.8335, 0.9491, 0.9491],
+            [0.3401, 0.9652, 1.2843, 1.4725, 1.6549, 1.7190, 1.7190],
+            [0.6937, 1.2843, 1.6925, 1.8238, 2.1164, 2.3185, 2.3185],
+            [0.7126, 1.4725, 1.8238, 2.0203, 2.2137, 2.5206, 2.5206],
+            [0.8335, 1.6549, 2.1164, 2.2137, 2.3718, 2.5110, 2.5110],
+            [0.9491, 1.7190, 2.3185, 2.5206, 2.5110, 2.5110, 2.5110],
+            [0.9491, 1.7190, 2.3185, 2.5206, 2.5110, 2.5110, 2.5110]
+        ]  # Bohr
+        
+        first_period_table = ["H", "He"]
+        second_period_table = ["Li", "Be", "B", "C", "N", "O", "F", "Ne"]
+        third_period_table = ["Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"]
+        fourth_period_table = ["K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br","Kr"]
+        fifth_period_table = ["Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc","Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te","I", "Xe"]
+        sixth_period_table = ["Cs", "Ba", "La","Ce","Pr","Nd","Pm","Sm", "Eu", "Gd", "Tb", "Dy" ,"Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn"]
+        
+        if element_1 in first_period_table:
+            idx_1 = 0
+        elif element_1 in second_period_table:
+            idx_1 = 1
+        elif element_1 in third_period_table:
+            idx_1 = 2
+        elif element_1 in fourth_period_table:
+            idx_1 = 3
+        elif element_1 in fifth_period_table:
+            idx_1 = 4
+        elif element_1 in sixth_period_table:
+            idx_1 = 5
+        else:
+            idx_1 = 6
+        
+        if element_2 in first_period_table:
+            idx_2 = 0
+        elif element_2 in second_period_table:
+            idx_2 = 1
+        elif element_2 in third_period_table:
+            idx_2 = 2
+        elif element_2 in fourth_period_table:
+            idx_2 = 3
+        elif element_2 in fifth_period_table:
+            idx_2 = 4
+        elif element_2 in sixth_period_table:
+            idx_2 = 5
+        else:
+            idx_2 = 6
+        
+        const_b = parameter_B_matrix[idx_1][idx_2]
+        return const_b
+    
+    def d4_damping_function(self, r_ij, r0, order=6):
+        """D4 rational damping function"""
+        a1 = self.d4_params.a1
+        a2 = self.d4_params.a2
+        
+        if order == 6:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a1 * r0)) ** a2)
+        elif order == 8:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a2 * r0)) ** a1)
+        return 0.0
+    
+    def charge_scale_factor(self, charge, element):
+        """Calculate charge scaling factor for D4"""
+        ga = self.d4_params.ga  # D4 charge scaling parameter (default=3.0)
+        q_ref = self.d4_params.get_electronegativity(element)
+        
+        # Prevent numerical issues with large exponents
+        exp_arg = -ga * abs(charge)
+        if exp_arg < -50.0:  # Avoid underflow
+            return 0.0
+            
+        return np.exp(exp_arg)
+    
+    def get_d4_parameters(self, elem1, elem2, q1=0.0, q2=0.0, cn1=None, cn2=None):
+        """Get D4 parameters for a pair of elements with charge scaling"""
+        # Get polarizabilities
+        alpha1 = self.d4_params.get_polarizability(elem1)
+        alpha2 = self.d4_params.get_polarizability(elem2)
+        
+        # Charge scaling
+        qscale1 = self.charge_scale_factor(q1, elem1)
+        qscale2 = self.charge_scale_factor(q2, elem2)
+        
+        # Get R4/R2 values
+        r4r2_1 = self.d4_params.get_r4r2(elem1)
+        r4r2_2 = self.d4_params.get_r4r2(elem2)
+        
+        # C6 coefficients with charge scaling
+        c6_1 = alpha1 * r4r2_1 * qscale1
+        c6_2 = alpha2 * r4r2_2 * qscale2
+        c6_param = 2.0 * c6_1 * c6_2 / (c6_1 + c6_2)  # Effective C6 using harmonic mean
+        
+        # C8 coefficients
+        c8_param = 3.0 * c6_param * np.sqrt(r4r2_1 * r4r2_2)
+        
+        # r0 parameter (combined vdW radii)
+        r0_param = np.sqrt(UFF_VDW_distance_lib(elem1) * UFF_VDW_distance_lib(elem2))
+        
+        return c6_param, c8_param, r0_param
+    
+    def calc_d4_correction(self, r_ij, elem1, elem2, q1=0.0, q2=0.0, cn1=None, cn2=None):
+        """Calculate D4 dispersion correction to the force constant"""
+        # Get D4 parameters with charge scaling
+        c6_param, c8_param, r0_param = self.get_d4_parameters(
+            elem1, elem2, q1=q1, q2=q2, cn1=cn1, cn2=cn2
+        )
+        
+        # Damping functions
+        damp6 = self.d4_damping_function(r_ij, r0_param, order=6)
+        damp8 = self.d4_damping_function(r_ij, r0_param, order=8)
+        
+        # D4 energy contribution 
+        s6 = self.d4_params.s6
+        s8 = self.d4_params.s8
+        e_disp = -s6 * c6_param / r_ij**6 * damp6 - s8 * c8_param / r_ij**8 * damp8
+        
+        # Approximate second derivative (force constant)
+        fc_disp = s6 * c6_param * (42.0 / r_ij**8) * damp6 + s8 * c8_param * (72.0 / r_ij**10) * damp8
+        
+        return fc_disp * 0.01  # Scale factor to match overall Hessian scale
+    
+    def calculate_three_body_term(self, coord, element_list, charges, cn):
+        """Calculate three-body dispersion contribution"""
+        n_atoms = len(coord)
+        s9 = self.d4_params.s9
+        
+        # Skip if three-body term is turned off
+        if abs(s9) < 1e-12:
+            return np.zeros((3 * n_atoms, 3 * n_atoms))
+        
+        # Initialize three-body Hessian contribution
+        three_body_hess = np.zeros((3 * n_atoms, 3 * n_atoms))
+        
+        # Loop over all atom triplets
+        for i in range(n_atoms):
+            for j in range(i+1, n_atoms):
+                for k in range(j+1, n_atoms):
+                    # Get positions
+                    r_i = coord[i]
+                    r_j = coord[j]
+                    r_k = coord[k]
+                    
+                    # Calculate interatomic distances
+                    r_ij = np.linalg.norm(r_i - r_j)
+                    r_jk = np.linalg.norm(r_j - r_k)
+                    r_ki = np.linalg.norm(r_k - r_i)
+                    
+                    # Get coordination-number scaled C6 coefficients
+                    c6_ij, _, r0_ij = self.get_d4_parameters(
+                        element_list[i], element_list[j], 
+                        q1=charges[i], q2=charges[j], 
+                        cn1=cn[i], cn2=cn[j]
+                    )
+                    
+                    c6_jk, _, r0_jk = self.get_d4_parameters(
+                        element_list[j], element_list[k], 
+                        q1=charges[j], q2=charges[k], 
+                        cn1=cn[j], cn2=cn[k]
+                    )
+                    
+                    c6_ki, _, r0_ki = self.get_d4_parameters(
+                        element_list[k], element_list[i], 
+                        q1=charges[k], q2=charges[i], 
+                        cn1=cn[k], cn2=cn[i]
+                    )
+                    
+                    # Calculate geometric mean of C6 coefficients
+                    c9 = np.cbrt(c6_ij * c6_jk * c6_ki)
+                    
+                    # Calculate damping
+                    damp_ij = self.d4_damping_function(r_ij, r0_ij)
+                    damp_jk = self.d4_damping_function(r_jk, r0_jk)
+                    damp_ki = self.d4_damping_function(r_ki, r0_ki)
+                    damp = damp_ij * damp_jk * damp_ki
+                    
+                    # Skip if damping is too small
+                    if damp < 1e-8:
+                        continue
+                    
+                    # Calculate angle factor
+                    r_ij_vec = r_j - r_i
+                    r_jk_vec = r_k - r_j
+                    r_ki_vec = r_i - r_k
+                    
+                    cos_ijk = np.dot(r_ij_vec, r_jk_vec) / (r_ij * r_jk)
+                    cos_jki = np.dot(r_jk_vec, -r_ki_vec) / (r_jk * r_ki)
+                    cos_kij = np.dot(-r_ki_vec, r_ij_vec) / (r_ki * r_ij)
+                    
+                    angle_factor = 1.0 + 3.0 * cos_ijk * cos_jki * cos_kij
+                    
+                    # Calculate three-body energy term
+                    e_3 = -s9 * angle_factor * c9 * damp / (r_ij * r_jk * r_ki) ** 3
+                    
+                    # Approximate Hessian contribution (simplified)
+                    # We use a small scaling factor to avoid dominating the Hessian
+                    fc_scale = 0.002 * s9 * angle_factor * c9 * damp
+                    
+                    # Add approximate three-body contributions to Hessian
+                    for n in range(3):
+                        for m in range(3):
+                            # Properly define all indices
+                            idx_i_n = i * 3 + n
+                            idx_j_n = j * 3 + n
+                            idx_k_n = k * 3 + n
+                            
+                            idx_i_m = i * 3 + m
+                            idx_j_m = j * 3 + m
+                            idx_k_m = k * 3 + m
+                            
+                            # Diagonal blocks (diagonal atoms)
+                            if n == m:
+                                three_body_hess[idx_i_n, idx_i_n] += fc_scale / (r_ij**6) + fc_scale / (r_ki**6)
+                                three_body_hess[idx_j_n, idx_j_n] += fc_scale / (r_ij**6) + fc_scale / (r_jk**6)
+                                three_body_hess[idx_k_n, idx_k_n] += fc_scale / (r_jk**6) + fc_scale / (r_ki**6)
+                            
+                            # Off-diagonal blocks (between atoms)
+                            three_body_hess[idx_i_n, idx_j_m] -= fc_scale / (r_ij**6)
+                            three_body_hess[idx_j_m, idx_i_n] -= fc_scale / (r_ij**6)
+                            
+                            three_body_hess[idx_j_n, idx_k_m] -= fc_scale / (r_jk**6)
+                            three_body_hess[idx_k_m, idx_j_n] -= fc_scale / (r_jk**6)
+                            
+                            three_body_hess[idx_k_n, idx_i_m] -= fc_scale / (r_ki**6)
+                            three_body_hess[idx_i_m, idx_k_n] -= fc_scale / (r_ki**6)
+        
+        return three_body_hess
+    
+    def guess_schlegel_hessian(self, coord, element_list, charges, cn):
+        """
+        Calculate approximate Hessian using Schlegel's approach augmented with D4 dispersion
+        and special handling for cyano groups
+        """
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+            
+        # Setup connectivity tables using BondConnectivity utility
+        BC = BondConnectivity()
+        b_c_mat = BC.bond_connect_matrix(element_list, coord)
+        connectivity_table = [BC.bond_connect_table(b_c_mat), 
+                              BC.angle_connect_table(b_c_mat), 
+                              BC.dihedral_angle_connect_table(b_c_mat)]
+        
+        # Initialize RIC index list for all atom pairs
+        RIC_idx_list = [[i[0], i[1]] for i in itertools.combinations(range(len(coord)), 2)]
+        self.RIC_variable_num = len(RIC_idx_list)
+        RIC_approx_diag_hessian = [0.0] * self.RIC_variable_num
+        
+        # Process connectivity table to build Hessian
+        for idx_list in connectivity_table:
+            for idx in idx_list:
+                # Bond stretching terms
+                if len(idx) == 2:
+                    tmp_idx = sorted([idx[0], idx[1]])
+                    distance = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    const_b = self.return_schlegel_const(elem_1, elem_2)
+                    tmpnum = RIC_idx_list.index(tmp_idx)
+                    
+                    # Base Schlegel force constant
+                    F = 1.734 / (distance - const_b) ** 3
+                    
+                    # Check if this is a cyano bond
+                    is_cyano_bond = False
+                    for c_idx, n_idx in cyano_atoms:
+                        if (idx[0] == c_idx and idx[1] == n_idx) or (idx[0] == n_idx and idx[1] == c_idx):
+                            is_cyano_bond = True
+                            break
+                    
+                    # Add D4 dispersion contribution with charge scaling
+                    d4_correction = self.calc_d4_correction(
+                        distance, elem_1, elem_2, 
+                        q1=charges[idx[0]], q2=charges[idx[1]],
+                        cn1=cn[idx[0]], cn2=cn[idx[1]]
+                    )
+                    
+                    if is_cyano_bond:
+                        # Enhanced force constant for C≡N triple bond
+                        RIC_approx_diag_hessian[tmpnum] += self.cn_stretch_factor * F + d4_correction
+                    else:
+                        RIC_approx_diag_hessian[tmpnum] += F + d4_correction
+                
+                # Angle bending terms
+                elif len(idx) == 3:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    elem_3 = element_list[idx[2]]
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    
+                    # Check if angle involves cyano group
+                    is_cyano_angle = (idx[0] in cyano_set or idx[1] in cyano_set or idx[2] in cyano_set)
+                    
+                    # Base Schlegel force constant
+                    if elem_1 == "H" or elem_3 == "H":
+                        F_angle = 0.160
+                    else:
+                        F_angle = 0.250
+                    
+                    # Add D4 dispersion contribution with charge scaling
+                    d3_r1 = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    d3_r2 = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    
+                    d4_correction_1 = self.calc_d4_correction(
+                        d3_r1, elem_1, elem_2, 
+                        q1=charges[idx[0]], q2=charges[idx[1]],
+                        cn1=cn[idx[0]], cn2=cn[idx[1]]
+                    ) * 0.2
+                    
+                    d4_correction_2 = self.calc_d4_correction(
+                        d3_r2, elem_2, elem_3, 
+                        q1=charges[idx[1]], q2=charges[idx[2]],
+                        cn1=cn[idx[1]], cn2=cn[idx[2]]
+                    ) * 0.2
+                    
+                    if is_cyano_angle:
+                        # Enhanced angle force constants for angles involving C≡N
+                        RIC_approx_diag_hessian[tmpnum_1] += self.cn_angle_factor * F_angle + d4_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += self.cn_angle_factor * F_angle + d4_correction_2
+                    else:
+                        RIC_approx_diag_hessian[tmpnum_1] += F_angle + d4_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += F_angle + d4_correction_2
+                
+                # Torsion (dihedral) terms
+                elif len(idx) == 4:
+                    tmp_idx_1 = sorted([idx[0], idx[1]])
+                    tmp_idx_2 = sorted([idx[1], idx[2]])
+                    tmp_idx_3 = sorted([idx[2], idx[3]])
+                    elem_1 = element_list[idx[0]]
+                    elem_2 = element_list[idx[1]]
+                    elem_3 = element_list[idx[2]]
+                    elem_4 = element_list[idx[3]]
+                    distance = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    bond_length = covalent_radii_lib(elem_2) + covalent_radii_lib(elem_3)
+                    tmpnum_1 = RIC_idx_list.index(tmp_idx_1)
+                    tmpnum_2 = RIC_idx_list.index(tmp_idx_2)
+                    tmpnum_3 = RIC_idx_list.index(tmp_idx_3)
+                    
+                    # Base Schlegel torsion force constant
+                    F_torsion = 0.0023 - 0.07 * (distance - bond_length)
+                    
+                    # Check if torsion involves cyano group
+                    is_cyano_torsion = (idx[0] in cyano_set or idx[1] in cyano_set or 
+                                        idx[2] in cyano_set or idx[3] in cyano_set)
+                    
+                    # Add D4 dispersion contribution with charge scaling
+                    d3_r1 = np.linalg.norm(coord[idx[0]] - coord[idx[1]])
+                    d3_r2 = np.linalg.norm(coord[idx[1]] - coord[idx[2]])
+                    d3_r3 = np.linalg.norm(coord[idx[2]] - coord[idx[3]])
+                    
+                    d4_correction_1 = self.calc_d4_correction(
+                        d3_r1, elem_1, elem_2, 
+                        q1=charges[idx[0]], q2=charges[idx[1]],
+                        cn1=cn[idx[0]], cn2=cn[idx[1]]
+                    ) * 0.05
+                    
+                    d4_correction_2 = self.calc_d4_correction(
+                        d3_r2, elem_2, elem_3, 
+                        q1=charges[idx[1]], q2=charges[idx[2]],
+                        cn1=cn[idx[1]], cn2=cn[idx[2]]
+                    ) * 0.05
+                    
+                    d4_correction_3 = self.calc_d4_correction(
+                        d3_r3, elem_3, elem_4, 
+                        q1=charges[idx[2]], q2=charges[idx[3]],
+                        cn1=cn[idx[2]], cn2=cn[idx[3]]
+                    ) * 0.05
+                    
+                    if is_cyano_torsion:
+                        # Reduced torsion force constants for torsions involving C≡N
+                        RIC_approx_diag_hessian[tmpnum_1] += self.cn_torsion_factor * F_torsion + d4_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += self.cn_torsion_factor * F_torsion + d4_correction_2
+                        RIC_approx_diag_hessian[tmpnum_3] += self.cn_torsion_factor * F_torsion + d4_correction_3
+                    else:
+                        RIC_approx_diag_hessian[tmpnum_1] += F_torsion + d4_correction_1
+                        RIC_approx_diag_hessian[tmpnum_2] += F_torsion + d4_correction_2
+                        RIC_approx_diag_hessian[tmpnum_3] += F_torsion + d4_correction_3
+        
+        # Convert to numpy array
+        RIC_approx_hessian = np.diag(RIC_approx_diag_hessian).astype("float64")
+        return RIC_approx_hessian
+    
+    def main(self, coord, element_list, cart_gradient):
+        """Main method to calculate the approximate Hessian"""
+        print("Generating Schlegel's approximate Hessian with D4 dispersion correction...")
+        
+        # Calculate coordination numbers and atomic charges for D4
+        cn = self.calculate_coordination_numbers(coord, element_list)
+        charges = self.estimate_atomic_charges(coord, element_list)
+        
+        # Calculate B matrix for redundant internal coordinates
+        b_mat = RedundantInternalCoordinates().B_matrix(coord)
+        self.RIC_variable_num = len(b_mat)
+        
+        # Calculate approximate Hessian in internal coordinates
+        int_approx_hess = self.guess_schlegel_hessian(coord, element_list, charges, cn)
+        
+        # Convert to Cartesian coordinates
+        cart_hess = np.dot(b_mat.T, np.dot(int_approx_hess, b_mat))
+        
+        # Add three-body contribution (specific to D4)
+        three_body_hess = self.calculate_three_body_term(coord, element_list, charges, cn)
+        cart_hess += three_body_hess
+        
+        # Handle NaN values
+        cart_hess = np.nan_to_num(cart_hess, nan=0.0)
+        
+        # Ensure Hessian is symmetric
+        n = len(coord) * 3
+        for i in range(n):
+            for j in range(i):
+                avg = (cart_hess[i, j] + cart_hess[j, i]) / 2
+                cart_hess[i, j] = avg
+                cart_hess[j, i] = avg
+        
+        # Project out translational and rotational modes
+        hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(cart_hess, element_list, coord)
+        
+        print("D4 dispersion correction applied successfully")
+        return hess_proj
+    
 def calc_vdw_isotopic(x_ij, y_ij, z_ij, C6_param_ij, C6_VDW_ij):
    
     x_ij = x_ij + 1.0e-12
@@ -3031,8 +3894,1617 @@ def stretch2(t_xyz):
     b[1] = dist / norm_dist
     return norm_dist, b # distance, move_vectors (unit_vector)
 
+
+class SwartD4ApproxHessian:
+    def __init__(self):
+        #Swart's Model Hessian augmented with D4 dispersion
+        #ref.: M. Swart, F. M. Bickelhaupt, Int. J. Quantum Chem., 2006, 106, 2536–2544.
+        #ref.: E. Caldeweyher, C. Bannwarth, S. Grimme, J. Chem. Phys., 2017, 147, 034112
+        self.bohr2angstroms = UnitValueLib().bohr2angstroms
+        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
+        self.kd = 2.00  # Dispersion scaling factor
+        
+        self.kr = 0.35  # Bond stretching force constant scaling
+        self.kf = 0.15  # Angle bending force constant scaling
+        self.kt = 0.005 # Torsional force constant scaling
+        
+        self.cutoff = 70.0  # Cutoff for long-range interactions
+        self.eps = 1.0e-12  # Small number for numerical stability
+        
+        # D4 parameters
+        self.d4_params = D4Parameters()
+        
+        # Cyano group parameters
+        self.cn_kr = 0.70  # Enhanced force constant for C≡N triple bond
+        self.cn_kf = 0.20  # Enhanced force constant for angles involving C≡N
+        self.cn_kt = 0.002 # Reduced force constant for torsions involving C≡N
+        return
     
+    def detect_cyano_groups(self, coord, element_list):
+        """Detect C≡N triple bonds in the structure"""
+        cyano_atoms = []  # List of (C_idx, N_idx) tuples
+        
+        for i in range(len(coord)):
+            if element_list[i] != 'C':
+                continue
+                
+            for j in range(len(coord)):
+                if i == j or element_list[j] != 'N':
+                    continue
+                    
+                # Calculate distance between C and N
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij = np.sqrt(x_ij**2 + y_ij**2 + z_ij**2)
+                
+                # Check if distance is close to a triple bond length
+                cn_triple_bond = triple_covalent_radii_lib('C') + triple_covalent_radii_lib('N')
+                
+                if abs(r_ij - cn_triple_bond) < 0.3:  # Within 0.3 bohr of ideal length
+                    # Check if C is connected to only one other atom (besides N)
+                    connections_to_c = 0
+                    for k in range(len(coord)):
+                        if k == i or k == j:
+                            continue
+                            
+                        x_ik = coord[i][0] - coord[k][0]
+                        y_ik = coord[i][1] - coord[k][1]
+                        z_ik = coord[i][2] - coord[k][2]
+                        r_ik = np.sqrt(x_ik**2 + y_ik**2 + z_ik**2)
+                        
+                        cov_dist = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        if r_ik < 1.3 * cov_dist:  # Using 1.3 as a factor to account for bond length variations
+                            connections_to_c += 1
+                    
+                    # If C has only one other connection, it's likely a terminal cyano group
+                    if connections_to_c <= 1:
+                        cyano_atoms.append((i, j))
+        
+        return cyano_atoms
     
+    def calculate_coordination_numbers(self, coord, element_list):
+        """Calculate atomic coordination numbers for D4 scaling"""
+        n_atoms = len(coord)
+        cn = np.zeros(n_atoms)
+        
+        for i in range(n_atoms):
+            for j in range(n_atoms):
+                if i == j:
+                    continue
+                
+                # Calculate distance
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                
+                # Get covalent radii
+                r_cov_i = covalent_radii_lib(element_list[i])
+                r_cov_j = covalent_radii_lib(element_list[j])
+                
+                # Coordination number contribution using counting function
+                # k1 = 16.0, k2 = 4.0/3.0 (standard values from DFT-D4)
+                k1 = 16.0
+                k2 = 4.0/3.0
+                r0 = r_cov_i + r_cov_j
+                
+                # Avoid overflow in exp
+                if k1 * (r_ij / r0 - 1.0) > 25.0:
+                    continue
+                
+                cn_contrib = 1.0 / (1.0 + np.exp(-k1 * (k2 * r0 / r_ij - 1.0)))
+                cn[i] += cn_contrib
+        
+        return cn
+    
+    def estimate_atomic_charges(self, coord, element_list):
+        """
+        Estimate atomic charges using electronegativity equalization
+        Simplified version for Hessian generation
+        """
+        n_atoms = len(coord)
+        charges = np.zeros(n_atoms)
+        
+        # Calculate reference electronegativities
+        en_list = [self.d4_params.get_electronegativity(elem) for elem in element_list]
+        
+        # Simple charge estimation based on electronegativity differences
+        # This is a very simplified model
+        for i in range(n_atoms):
+            for j in range(i+1, n_atoms):
+                r_ij = np.linalg.norm(coord[i] - coord[j])
+                r_cov_sum = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Only consider bonded atoms
+                if r_ij < 1.3 * r_cov_sum:
+                    en_diff = en_list[j] - en_list[i]
+                    charge_transfer = 0.1 * en_diff  # Simple approximation
+                    charges[i] += charge_transfer
+                    charges[j] -= charge_transfer
+        
+        return charges
+    
+    def calc_force_const(self, alpha, covalent_length, distance):
+        """Calculate force constant with exponential damping"""
+        force_const = np.exp(-1 * alpha * (distance / covalent_length - 1.0))
+        return force_const
+        
+    def calc_vdw_force_const(self, alpha, r0, distance):
+        """Calculate van der Waals force constant with exponential damping"""
+        vdw_force_const = np.exp(-1 * alpha * (r0 - distance) ** 2)
+        return vdw_force_const
+        
+    def d4_damping_function(self, r_ij, r0, order=6):
+        """D4 rational damping function"""
+        a1 = self.d4_params.a1
+        a2 = self.d4_params.a2
+        
+        if order == 6:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a1 * r0)) ** a2)
+        elif order == 8:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a2 * r0)) ** a1)
+        return 0.0
+    
+    def charge_scale_factor(self, charge, element):
+        """Calculate charge scaling factor for D4"""
+        ga = self.d4_params.ga  # D4 charge scaling parameter
+        q_ref = self.d4_params.get_electronegativity(element)
+        
+        # Prevent numerical issues with large exponents
+        exp_arg = -ga * abs(charge)
+        if exp_arg < -50.0:  # Avoid underflow
+            return 0.0
+            
+        return np.exp(exp_arg)
+    
+    def get_d4_parameters(self, elem1, elem2, q1=0.0, q2=0.0, cn1=None, cn2=None):
+        """Get D4 parameters for a pair of elements with charge scaling"""
+        # Get polarizabilities
+        alpha1 = self.d4_params.get_polarizability(elem1)
+        alpha2 = self.d4_params.get_polarizability(elem2)
+        
+        # Charge scaling
+        qscale1 = self.charge_scale_factor(q1, elem1)
+        qscale2 = self.charge_scale_factor(q2, elem2)
+        
+        # Get R4/R2 values
+        r4r2_1 = self.d4_params.get_r4r2(elem1)
+        r4r2_2 = self.d4_params.get_r4r2(elem2)
+        
+        # C6 coefficients with charge scaling
+        c6_1 = alpha1 * r4r2_1 * qscale1
+        c6_2 = alpha2 * r4r2_2 * qscale2
+        c6_param = 2.0 * c6_1 * c6_2 / (c6_1 + c6_2)  # Effective C6 using harmonic mean
+        
+        # C8 coefficients
+        c8_param = 3.0 * c6_param * np.sqrt(r4r2_1 * r4r2_2)
+        
+        # r0 parameter (combined vdW radii)
+        r0_param = np.sqrt(UFF_VDW_distance_lib(elem1) * UFF_VDW_distance_lib(elem2))
+        
+        return c6_param, c8_param, r0_param
+    
+    def calc_d4_force_const(self, r_ij, c6_param, c8_param, r0_param):
+        """Calculate D4 dispersion force constant"""
+        s6 = self.d4_params.s6
+        s8 = self.d4_params.s8
+        
+        # Apply damping functions
+        damp6 = self.d4_damping_function(r_ij, r0_param, order=6)
+        damp8 = self.d4_damping_function(r_ij, r0_param, order=8)
+        
+        # Energy terms (negative because dispersion is attractive)
+        e6 = -s6 * c6_param / r_ij ** 6 * damp6
+        e8 = -s8 * c8_param / r_ij ** 8 * damp8
+        
+        # Force constant is the second derivative of energy
+        fc6 = s6 * c6_param * (42.0 / r_ij ** 8) * damp6
+        fc8 = s8 * c8_param * (72.0 / r_ij ** 10) * damp8
+        
+        return fc6 + fc8
+    
+    def swart_bond(self, coord, element_list, charges, cn):
+        """Calculate bond stretching contributions to the Hessian with D4 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+        
+        for i in range(len(coord)):
+            for j in range(i):
+                
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij_2 = x_ij**2 + y_ij**2 + z_ij**2
+                r_ij = np.sqrt(r_ij_2)
+                covalent_length = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Get D4 parameters with charge scaling
+                c6_param, c8_param, r0_param = self.get_d4_parameters(
+                    element_list[i], element_list[j], 
+                    q1=charges[i], q2=charges[j], 
+                    cn1=cn[i], cn2=cn[j]
+                )
+                
+                # Calculate D4 dispersion contribution
+                d4_force_const = self.calc_d4_force_const(r_ij, c6_param, c8_param, r0_param)
+                
+                # Check if this is a cyano bond
+                is_cyano_bond = False
+                for c_idx, n_idx in cyano_atoms:
+                    if (i == c_idx and j == n_idx) or (i == n_idx and j == c_idx):
+                        is_cyano_bond = True
+                        break
+                
+                # Apply appropriate force constant
+                if is_cyano_bond:
+                    # Special force constant for C≡N triple bond
+                    g_mm = self.cn_kr * self.calc_force_const(1.0, covalent_length, r_ij) + self.kd * d4_force_const
+                else:
+                    # Regular Swart force constant with D4 dispersion
+                    g_mm = self.kr * self.calc_force_const(1.0, covalent_length, r_ij) + self.kd * d4_force_const
+                
+                # Calculate Hessian components
+                hess_xx = g_mm * x_ij ** 2 / r_ij_2
+                hess_xy = g_mm * x_ij * y_ij / r_ij_2
+                hess_xz = g_mm * x_ij * z_ij / r_ij_2
+                hess_yy = g_mm * y_ij ** 2 / r_ij_2
+                hess_yz = g_mm * y_ij * z_ij / r_ij_2
+                hess_zz = g_mm * z_ij ** 2 / r_ij_2
+                
+                # Fill the Hessian matrix
+                self.cart_hess[i * 3][i * 3] += hess_xx
+                self.cart_hess[i * 3 + 1][i * 3] += hess_xy
+                self.cart_hess[i * 3 + 1][i * 3 + 1] += hess_yy
+                self.cart_hess[i * 3 + 2][i * 3] += hess_xz
+                self.cart_hess[i * 3 + 2][i * 3 + 1] += hess_yz
+                self.cart_hess[i * 3 + 2][i * 3 + 2] += hess_zz
+                
+                self.cart_hess[j * 3][j * 3] += hess_xx
+                self.cart_hess[j * 3 + 1][j * 3] += hess_xy
+                self.cart_hess[j * 3 + 1][j * 3 + 1] += hess_yy
+                self.cart_hess[j * 3 + 2][j * 3] += hess_xz
+                self.cart_hess[j * 3 + 2][j * 3 + 1] += hess_yz
+                self.cart_hess[j * 3 + 2][j * 3 + 2] += hess_zz
+                
+                self.cart_hess[i * 3][j * 3] -= hess_xx
+                self.cart_hess[i * 3][j * 3 + 1] -= hess_xy
+                self.cart_hess[i * 3][j * 3 + 2] -= hess_xz
+                self.cart_hess[i * 3 + 1][j * 3] -= hess_xy
+                self.cart_hess[i * 3 + 1][j * 3 + 1] -= hess_yy
+                self.cart_hess[i * 3 + 1][j * 3 + 2] -= hess_yz
+                self.cart_hess[i * 3 + 2][j * 3] -= hess_xz
+                self.cart_hess[i * 3 + 2][j * 3 + 1] -= hess_yz
+                self.cart_hess[i * 3 + 2][j * 3 + 2] -= hess_zz
+                
+                self.cart_hess[j * 3][i * 3] -= hess_xx
+                self.cart_hess[j * 3][i * 3 + 1] -= hess_xy
+                self.cart_hess[j * 3][i * 3 + 2] -= hess_xz
+                self.cart_hess[j * 3 + 1][i * 3] -= hess_xy
+                self.cart_hess[j * 3 + 1][i * 3 + 1] -= hess_yy
+                self.cart_hess[j * 3 + 1][i * 3 + 2] -= hess_yz
+                self.cart_hess[j * 3 + 2][i * 3] -= hess_xz
+                self.cart_hess[j * 3 + 2][i * 3 + 1] -= hess_yz
+                self.cart_hess[j * 3 + 2][i * 3 + 2] -= hess_zz
+        
+        return
+    
+    def swart_angle(self, coord, element_list, charges, cn):
+        """Calculate angle bending contributions to the Hessian with D4 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+            
+        for i in range(len(coord)):
+            for j in range(len(coord)):
+                if i == j:
+                    continue
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij_2 = x_ij**2 + y_ij**2 + z_ij**2
+                r_ij = np.sqrt(r_ij_2)
+                covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Get D4 parameters with charge scaling for i-j pair
+                c6_ij, c8_ij, r0_ij = self.get_d4_parameters(
+                    element_list[i], element_list[j], 
+                    q1=charges[i], q2=charges[j], 
+                    cn1=cn[i], cn2=cn[j]
+                )
+                
+                for k in range(j):
+                    if i == k:
+                        continue
+                    x_ik = coord[i][0] - coord[k][0]
+                    y_ik = coord[i][1] - coord[k][1]
+                    z_ik = coord[i][2] - coord[k][2]
+                    r_ik_2 = x_ik**2 + y_ik**2 + z_ik**2
+                    r_ik = np.sqrt(r_ik_2)
+                    covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                    
+                    # Check for linear arrangement (cos_theta ~ 1.0)
+                    error_check = x_ij * x_ik + y_ij * y_ik + z_ij * z_ik
+                    error_check = error_check / (r_ij * r_ik)
+                    
+                    if abs(error_check - 1.0) < self.eps:
+                        continue
+                    
+                    x_jk = coord[j][0] - coord[k][0]
+                    y_jk = coord[j][1] - coord[k][1]
+                    z_jk = coord[j][2] - coord[k][2]
+                    r_jk_2 = x_jk**2 + y_jk**2 + z_jk**2
+                    r_jk = np.sqrt(r_jk_2)
+                    
+                    # Get D4 parameters with charge scaling for i-k pair
+                    c6_ik, c8_ik, r0_ik = self.get_d4_parameters(
+                        element_list[i], element_list[k], 
+                        q1=charges[i], q2=charges[k], 
+                        cn1=cn[i], cn2=cn[k]
+                    )
+                    
+                    # Calculate D4 dispersion contributions
+                    d4_ij = self.calc_d4_force_const(r_ij, c6_ij, c8_ij, r0_ij)
+                    d4_ik = self.calc_d4_force_const(r_ik, c6_ik, c8_ik, r0_ik)
+                    
+                    # Calculate bond force constants with D4 dispersion
+                    g_ij = self.calc_force_const(1.0, covalent_length_ij, r_ij) + 0.5 * self.kd * d4_ij
+                    g_ik = self.calc_force_const(1.0, covalent_length_ik, r_ik) + 0.5 * self.kd * d4_ik
+                    
+                    # Check if angle involves cyano group
+                    is_cyano_angle = (i in cyano_set or j in cyano_set or k in cyano_set)
+                    
+                    # Apply appropriate force constant
+                    if is_cyano_angle:
+                        # Special force constant for angles involving cyano groups
+                        g_jk = self.cn_kf * g_ij * g_ik
+                    else:
+                        # Regular Swart force constant
+                        g_jk = self.kf * g_ij * g_ik
+                    
+                    # Calculate cross product for sin(theta)
+                    r_cross_2 = (y_ij * z_ik - z_ij * y_ik) ** 2 + (z_ij * x_ik - x_ij * z_ik) ** 2 + (x_ij * y_ik - y_ij * x_ik) ** 2
+                    
+                    if r_cross_2 < 1.0e-12:
+                        r_cross = 0.0
+                    else:
+                        r_cross = np.sqrt(r_cross_2)
+                    
+                    if r_ik > self.eps and r_ij > self.eps and r_jk > self.eps:
+                        cos_theta = (r_ij_2 + r_ik_2 - r_jk_2) / (2.0 * r_ij * r_ik)
+                        sin_theta = r_cross / (r_ij * r_ik)
+                        
+                        dot_product_r_ij_r_ik = x_ij * x_ik + y_ij * y_ik + z_ij * z_ik
+                       
+                        if sin_theta > self.eps: # non-linear
+                            # Calculate derivatives for non-linear case
+                            s_xj = (x_ij / r_ij * cos_theta - x_ik / r_ik) / (r_ij * sin_theta)
+                            s_yj = (y_ij / r_ij * cos_theta - y_ik / r_ik) / (r_ij * sin_theta)
+                            s_zj = (z_ij / r_ij * cos_theta - z_ik / r_ik) / (r_ij * sin_theta)
+                            
+                            s_xk = (x_ik / r_ik * cos_theta - x_ij / r_ij) / (r_ik * sin_theta)
+                            s_yk = (y_ik / r_ik * cos_theta - y_ij / r_ij) / (r_ik * sin_theta)
+                            s_zk = (z_ik / r_ik * cos_theta - z_ij / r_ij) / (r_ik * sin_theta)
+                            
+                            s_xi = -1 * s_xj - s_xk
+                            s_yi = -1 * s_yj - s_yk
+                            s_zi = -1 * s_zj - s_zk
+                            
+                            s_j = [s_xj, s_yj, s_zj]
+                            s_k = [s_xk, s_yk, s_zk]
+                            s_i = [s_xi, s_yi, s_zi]
+                            
+                            # Update Hessian for non-linear case
+                            for l in range(3):
+                                for m in range(3):
+                                    #-------------------------------------
+                                    if i > j:
+                                        tmp_val = g_jk * s_i[l] * s_j[m]
+                                        self.cart_hess[i * 3 + l][j * 3 + m] += tmp_val     
+                                    else:
+                                        tmp_val = g_jk * s_j[l] * s_i[m]
+                                        self.cart_hess[j * 3 + l][i * 3 + m] += tmp_val
+                                    
+                                    #-------------------------------------
+                                    if i > k:
+                                        tmp_val = g_jk * s_i[l] * s_k[m]
+                                        self.cart_hess[i * 3 + l][k * 3 + m] += tmp_val
+                                    else:
+                                        tmp_val = g_jk * s_k[l] * s_i[m]
+                                        self.cart_hess[k * 3 + l][i * 3 + m] += tmp_val
+                                            
+                                    #-------------------------------------
+                                    if j > k:
+                                        tmp_val = g_jk * s_j[l] * s_k[m]
+                                        self.cart_hess[j * 3 + l][k * 3 + m] += tmp_val
+                                    else:
+                                        tmp_val = g_jk * s_k[l] * s_j[m]
+                                        self.cart_hess[k * 3 + l][j * 3 + m] += tmp_val
+                                    #-------------------------------------
+                                    
+                            # Update diagonal blocks
+                            for l in range(3):
+                                for m in range(l):
+                                    tmp_val_1 = g_jk * s_j[l] * s_j[m]
+                                    tmp_val_2 = g_jk * s_i[l] * s_i[m]
+                                    tmp_val_3 = g_jk * s_k[l] * s_k[m]
+                                    
+                                    self.cart_hess[j * 3 + l][j * 3 + m] += tmp_val_1
+                                    self.cart_hess[i * 3 + l][i * 3 + m] += tmp_val_2
+                                    self.cart_hess[k * 3 + l][k * 3 + m] += tmp_val_3
+                            
+                        else: # linear 
+                            # Special handling for linear arrangements
+                            if abs(y_ij) < self.eps and abs(z_ij) < self.eps:
+                                x_1 = -1 * y_ij
+                                y_1 = x_ij
+                                z_1 = 0.0
+                                x_2 = -1 * x_ij * z_ij
+                                y_2 = -1 * y_ij * z_ij
+                                z_2 = x_ij ** 2 + y_ij ** 2
+                            else:
+                                x_1 = 1.0
+                                y_1 = 0.0
+                                z_1 = 0.0
+                                x_2 = 0.0
+                                y_2 = 1.0
+                                z_2 = 0.0
+                            
+                            x = [x_1, x_2]
+                            y = [y_1, y_2]
+                            z = [z_1, z_2]
+                            
+                            # Iterate over two perpendicular directions
+                            for ii in range(2):
+                                r_1 = np.sqrt(x[ii] ** 2 + y[ii] ** 2 + z[ii] ** 2)
+                                cos_theta_x = x[ii] / r_1
+                                cos_theta_y = y[ii] / r_1
+                                cos_theta_z = z[ii] / r_1
+                                
+                                s_xj = -1 * cos_theta_x / r_ij
+                                s_yj = -1 * cos_theta_y / r_ij
+                                s_zj = -1 * cos_theta_z / r_ij
+                                s_xk = -1 * cos_theta_x / r_ik
+                                s_yk = -1 * cos_theta_y / r_ik
+                                s_zk = -1 * cos_theta_z / r_ik
+                                
+                                s_xi = -1 * s_xj - s_xk
+                                s_yi = -1 * s_yj - s_yk
+                                s_zi = -1 * s_zj - s_zk
+                                
+                                s_j = [s_xj, s_yj, s_zj]
+                                s_k = [s_xk, s_yk, s_zk]
+                                s_i = [s_xi, s_yi, s_zi]
+                                
+                                # Update Hessian for linear case
+                                for l in range(3):
+                                    for m in range(3):
+                                        #-------------------------------------
+                                        if i > j:
+                                            tmp_val = g_jk * s_i[l] * s_j[m]
+                                            self.cart_hess[i * 3 + l][j * 3 + m] += tmp_val     
+                                        else:
+                                            tmp_val = g_jk * s_j[l] * s_i[m]
+                                            self.cart_hess[j * 3 + l][i * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                        if i > k:
+                                            tmp_val = g_jk * s_i[l] * s_k[m]
+                                            self.cart_hess[i * 3 + l][k * 3 + m] += tmp_val
+                                        else:
+                                            tmp_val = g_jk * s_k[l] * s_i[m]
+                                            self.cart_hess[k * 3 + l][i * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                        if j > k:
+                                            tmp_val = g_jk * s_j[l] * s_k[m]
+                                            self.cart_hess[j * 3 + l][k * 3 + m] += tmp_val
+                                        else:
+                                            tmp_val = g_jk * s_k[l] * s_j[m]
+                                            self.cart_hess[k * 3 + l][j * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                
+                                # Update diagonal blocks for linear case
+                                for l in range(3):
+                                    for m in range(l):
+                                        tmp_val_1 = g_jk * s_j[l] * s_j[m]
+                                        tmp_val_2 = g_jk * s_i[l] * s_i[m]
+                                        tmp_val_3 = g_jk * s_k[l] * s_k[m]
+                                        
+                                        self.cart_hess[j * 3 + l][j * 3 + m] += tmp_val_1
+                                        self.cart_hess[i * 3 + l][i * 3 + m] += tmp_val_2
+                                        self.cart_hess[k * 3 + l][k * 3 + m] += tmp_val_3
+                    else:
+                        pass  # Skip if any distance is too small
+        
+        # Make the Hessian symmetric for angle terms
+        n_basis = len(coord) * 3
+        for i in range(n_basis):
+            for j in range(i):
+                if abs(self.cart_hess[i][j] - self.cart_hess[j][i]) > 1.0e-10:
+                    avg = (self.cart_hess[i][j] + self.cart_hess[j][i]) / 2.0
+                    self.cart_hess[i][j] = avg
+                    self.cart_hess[j][i] = avg
+                
+        return
+    
+    def swart_dihedral_angle(self, coord, element_list, charges, cn):
+        """Calculate dihedral angle contributions to the Hessian with D4 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+        
+        for j in range(len(coord)):
+            t_xyz_2 = coord[j] 
+            
+            for k in range(len(coord)):
+                if j >= k:
+                    continue
+                t_xyz_3 = coord[k]
+                for i in range(len(coord)):
+                    ij = (len(coord) * j) + (i + 1)
+                    if i >= j:
+                        continue
+                    if i >= k:
+                        continue
+                    
+                    t_xyz_1 = coord[i]
+                    
+                    for l in range(len(coord)):
+                        kl = (len(coord) * k) + (l + 1)
+                       
+                        if ij <= kl:
+                            continue
+                        if l >= i:
+                            continue
+                        if l >= j:
+                            continue
+                        if l >= k:
+                            continue
+                    
+                        t_xyz_4 = coord[l]
+                        r_ij = coord[i] - coord[j]
+                        r_jk = coord[j] - coord[k]
+                        r_kl = coord[k] - coord[l]
+                        
+                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
+                        covalent_length_kl = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[l])
+                        
+                        # Calculate vector magnitudes
+                        r_ij_2 = np.sum(r_ij ** 2)
+                        r_jk_2 = np.sum(r_jk ** 2)
+                        r_kl_2 = np.sum(r_kl ** 2)
+                        norm_r_ij = np.sqrt(r_ij_2)
+                        norm_r_jk = np.sqrt(r_jk_2)
+                        norm_r_kl = np.sqrt(r_kl_2)
+                       
+                        # Skip if angle is too shallow (less than 35 degrees)
+                        a35 = (35.0/180)* np.pi
+                        cosfi_max = np.cos(a35)
+                        cosfi2 = np.dot(r_ij, r_jk) / np.sqrt(r_ij_2 * r_jk_2)
+                        if abs(cosfi2) > cosfi_max:
+                            continue
+                        cosfi3 = np.dot(r_kl, r_jk) / np.sqrt(r_kl_2 * r_jk_2)
+                        if abs(cosfi3) > cosfi_max:
+                            continue
+                        
+                        # Get D4 parameters for each atom pair with charge scaling
+                        c6_ij, c8_ij, r0_ij = self.get_d4_parameters(
+                            element_list[i], element_list[j], 
+                            q1=charges[i], q2=charges[j], 
+                            cn1=cn[i], cn2=cn[j]
+                        )
+                        
+                        c6_jk, c8_jk, r0_jk = self.get_d4_parameters(
+                            element_list[j], element_list[k], 
+                            q1=charges[j], q2=charges[k], 
+                            cn1=cn[j], cn2=cn[k]
+                        )
+                        
+                        c6_kl, c8_kl, r0_kl = self.get_d4_parameters(
+                            element_list[k], element_list[l], 
+                            q1=charges[k], q2=charges[l], 
+                            cn1=cn[k], cn2=cn[l]
+                        )
+                        
+                        # Calculate D4 dispersion contributions
+                        d4_ij = self.calc_d4_force_const(norm_r_ij, c6_ij, c8_ij, r0_ij)
+                        d4_jk = self.calc_d4_force_const(norm_r_jk, c6_jk, c8_jk, r0_jk)
+                        d4_kl = self.calc_d4_force_const(norm_r_kl, c6_kl, c8_kl, r0_kl)
+                        
+                        # Calculate bond force constants with D4 dispersion
+                        g_ij = self.calc_force_const(1.0, covalent_length_ij, norm_r_ij) + 0.5 * self.kd * d4_ij
+                        g_jk = self.calc_force_const(1.0, covalent_length_jk, norm_r_jk) + 0.5 * self.kd * d4_jk
+                        g_kl = self.calc_force_const(1.0, covalent_length_kl, norm_r_kl) + 0.5 * self.kd * d4_kl
+                        
+                        # Check if torsion involves cyano group
+                        is_cyano_torsion = False
+                        if i in cyano_set or j in cyano_set or k in cyano_set or l in cyano_set:
+                            is_cyano_torsion = True
+                        
+                        # Adjust force constant for cyano groups - they have flatter torsional potentials
+                        if is_cyano_torsion:
+                            t_ij = self.cn_kt * g_ij * g_jk * g_kl
+                        else:
+                            t_ij = self.kt * g_ij * g_jk * g_kl
+                        
+                        # Calculate torsion angle and derivatives
+                        t_xyz = np.array([t_xyz_1, t_xyz_2, t_xyz_3, t_xyz_4])
+                        tau, c = torsion2(t_xyz)
+                        s_i = c[0]
+                        s_j = c[1]
+                        s_k = c[2]
+                        s_l = c[3]
+                       
+                        # Update Hessian with torsional contributions
+                        for n in range(3):
+                            for m in range(3):
+                                self.cart_hess[3 * i + n][3 * j + m] += t_ij * s_i[n] * s_j[m]
+                                self.cart_hess[3 * i + n][3 * k + m] += t_ij * s_i[n] * s_k[m]
+                                self.cart_hess[3 * i + n][3 * l + m] += t_ij * s_i[n] * s_l[m]
+                                self.cart_hess[3 * j + n][3 * k + m] += t_ij * s_j[n] * s_k[m]
+                                self.cart_hess[3 * j + n][3 * l + m] += t_ij * s_j[n] * s_l[m]
+                                self.cart_hess[3 * k + n][3 * l + m] += t_ij * s_k[n] * s_l[m]
+                            
+                        # Update diagonal blocks
+                        for n in range(3):
+                            for m in range(n):
+                                self.cart_hess[3 * i + n][3 * i + m] += t_ij * s_i[n] * s_i[m]
+                                self.cart_hess[3 * j + n][3 * j + m] += t_ij * s_j[n] * s_j[m]
+                                self.cart_hess[3 * k + n][3 * k + m] += t_ij * s_k[n] * s_k[m]
+                                self.cart_hess[3 * l + n][3 * l + m] += t_ij * s_l[n] * s_l[m]
+                       
+        return
+    
+    def swart_out_of_plane(self, coord, element_list, charges, cn):
+        """Calculate out-of-plane bending contributions to the Hessian with D4 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+            
+        for i in range(len(coord)):
+            t_xyz_4 = coord[i]
+            for j in range(len(coord)):
+                if i >= j:
+                    continue
+                t_xyz_1 = coord[j]
+                for k in range(len(coord)):
+                    ij = (len(coord) * j) + (i + 1)
+                    if i >= k:
+                        continue
+                    if j >= k:
+                        continue
+                    t_xyz_2 = coord[k]
+                    
+                    for l in range(len(coord)):
+                        kl = (len(coord) * k) + (l + 1)
+                        if i >= l:
+                            continue
+                        if j >= l:
+                            continue
+                        if k >= l:
+                            continue
+                        if ij <= kl:
+                            continue
+                        t_xyz_3 = coord[l]
+                        
+                        r_ij = coord[i] - coord[j]
+                        r_ik = coord[i] - coord[k]
+                        r_il = coord[i] - coord[l]
+                        
+                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        covalent_length_il = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[l])
+                        
+                        r_ij_2 = np.sum(r_ij ** 2)
+                        r_ik_2 = np.sum(r_ik ** 2)
+                        r_il_2 = np.sum(r_il ** 2)
+                        norm_r_ij = np.sqrt(r_ij_2)
+                        norm_r_ik = np.sqrt(r_ik_2)
+                        norm_r_il = np.sqrt(r_il_2)
+                        
+                        # Skip if atoms are nearly collinear
+                        cosfi2 = np.dot(r_ij, r_ik) / np.sqrt(r_ij_2 * r_ik_2)
+                        if abs(abs(cosfi2) - 1.0) < 1.0e-1:
+                            continue
+                        cosfi3 = np.dot(r_ij, r_il) / np.sqrt(r_ij_2 * r_il_2)
+                        if abs(abs(cosfi3) - 1.0) < 1.0e-1:
+                            continue
+                        cosfi4 = np.dot(r_ik, r_il) / np.sqrt(r_ik_2 * r_il_2)
+                        if abs(abs(cosfi4) - 1.0) < 1.0e-1:
+                            continue
+                        
+                        # Get D4 parameters with charge scaling for each atom pair
+                        c6_ij, c8_ij, r0_ij = self.get_d4_parameters(
+                            element_list[i], element_list[j], 
+                            q1=charges[i], q2=charges[j], 
+                            cn1=cn[i], cn2=cn[j]
+                        )
+                        
+                        c6_ik, c8_ik, r0_ik = self.get_d4_parameters(
+                            element_list[i], element_list[k], 
+                            q1=charges[i], q2=charges[k], 
+                            cn1=cn[i], cn2=cn[k]
+                        )
+                        
+                        c6_il, c8_il, r0_il = self.get_d4_parameters(
+                            element_list[i], element_list[l], 
+                            q1=charges[i], q2=charges[l], 
+                            cn1=cn[i], cn2=cn[l]
+                        )
+                        
+                        # Calculate D4 dispersion contributions
+                        d4_ij = self.calc_d4_force_const(norm_r_ij, c6_ij, c8_ij, r0_ij)
+                        d4_ik = self.calc_d4_force_const(norm_r_ik, c6_ik, c8_ik, r0_ik)
+                        d4_il = self.calc_d4_force_const(norm_r_il, c6_il, c8_il, r0_il)
+                        
+                        # Calculate bond force constants with D4 dispersion
+                        g_ij = self.calc_force_const(1.0, covalent_length_ij, norm_r_ij) + 0.5 * self.kd * d4_ij
+                        g_ik = self.calc_force_const(1.0, covalent_length_ik, norm_r_ik) + 0.5 * self.kd * d4_ik
+                        g_il = self.calc_force_const(1.0, covalent_length_il, norm_r_il) + 0.5 * self.kd * d4_il
+                        
+                        # Check if any atom is part of a cyano group
+                        is_cyano_involved = (i in cyano_set or j in cyano_set or 
+                                            k in cyano_set or l in cyano_set)
+                        
+                        # Adjust force constant if cyano group is involved
+                        if is_cyano_involved:
+                            t_ij = 0.5 * self.kt * g_ij * g_ik * g_il  # Reduce force constant for cyano
+                        else:
+                            t_ij = self.kt * g_ij * g_ik * g_il
+                        
+                        # Calculate out-of-plane angle and derivatives
+                        t_xyz = np.array([t_xyz_1, t_xyz_2, t_xyz_3, t_xyz_4])
+                        theta, c = outofplane2(t_xyz)
+                        
+                        s_i = c[0]
+                        s_j = c[1]
+                        s_k = c[2]
+                        s_l = c[3]
+                        
+                        # Update Hessian with out-of-plane contributions
+                        for n in range(3):
+                            for m in range(3):
+                                self.cart_hess[i * 3 + n][j * 3 + m] += t_ij * s_i[n] * s_j[m]
+                                self.cart_hess[i * 3 + n][k * 3 + m] += t_ij * s_i[n] * s_k[m]
+                                self.cart_hess[i * 3 + n][l * 3 + m] += t_ij * s_i[n] * s_l[m]
+                                self.cart_hess[j * 3 + n][k * 3 + m] += t_ij * s_j[n] * s_k[m]
+                                self.cart_hess[j * 3 + n][l * 3 + m] += t_ij * s_j[n] * s_l[m]
+                                self.cart_hess[k * 3 + n][l * 3 + m] += t_ij * s_k[n] * s_l[m]    
+                            
+                        # Update diagonal blocks
+                        for n in range(3):
+                            for m in range(n):
+                                self.cart_hess[i * 3 + n][i * 3 + m] += t_ij * s_i[n] * s_i[m]
+                                self.cart_hess[j * 3 + n][j * 3 + m] += t_ij * s_j[n] * s_j[m]
+                                self.cart_hess[k * 3 + n][k * 3 + m] += t_ij * s_k[n] * s_k[m]
+                                self.cart_hess[l * 3 + n][l * 3 + m] += t_ij * s_l[n] * s_l[m]
+                        
+        return
+    
+    def calculate_three_body_term(self, coord, element_list, charges, cn):
+        """Calculate three-body dispersion contribution to the Hessian (D4 specific)"""
+        s9 = self.d4_params.s9  # Scaling parameter for three-body term
+        if abs(s9) < 1e-12:
+            return  # Skip if three-body term is turned off
+        
+        n_atoms = len(coord)
+        
+        # Loop over all atom triplets
+        for i in range(n_atoms):
+            for j in range(i):
+                for k in range(j):
+                    # Get positions
+                    r_i = coord[i]
+                    r_j = coord[j]
+                    r_k = coord[k]
+                    
+                    # Calculate interatomic distances
+                    r_ij = np.linalg.norm(r_i - r_j)
+                    r_jk = np.linalg.norm(r_j - r_k)
+                    r_ki = np.linalg.norm(r_k - r_i)
+                    
+                    # Get coordination-number scaled C6 coefficients
+                    c6_ij, _, r0_ij = self.get_d4_parameters(
+                        element_list[i], element_list[j], 
+                        q1=charges[i], q2=charges[j], 
+                        cn1=cn[i], cn2=cn[j]
+                    )
+                    
+                    c6_jk, _, r0_jk = self.get_d4_parameters(
+                        element_list[j], element_list[k], 
+                        q1=charges[j], q2=charges[k], 
+                        cn1=cn[j], cn2=cn[k]
+                    )
+                    
+                    c6_ki, _, r0_ki = self.get_d4_parameters(
+                        element_list[k], element_list[i], 
+                        q1=charges[k], q2=charges[i], 
+                        cn1=cn[k], cn2=cn[i]
+                    )
+                    
+                    # Calculate geometric mean of C6 coefficients
+                    c9 = (c6_ij * c6_jk * c6_ki) ** (1.0/3.0)
+                    
+                    # Calculate three-body damping
+                    damp_ij = self.d4_damping_function(r_ij, r0_ij)
+                    damp_jk = self.d4_damping_function(r_jk, r0_jk)
+                    damp_ki = self.d4_damping_function(r_ki, r0_ki)
+                    damp = damp_ij * damp_jk * damp_ki
+                    
+                    # Calculate angle factor
+                    cos_ijk = np.dot(r_i - r_j, r_k - r_j) / (r_ij * r_jk)
+                    cos_jki = np.dot(r_j - r_k, r_i - r_k) / (r_jk * r_ki)
+                    cos_kij = np.dot(r_k - r_i, r_j - r_i) / (r_ki * r_ij)
+                    angle_factor = 1.0 + 3.0 * cos_ijk * cos_jki * cos_kij
+                    
+                    # Calculate three-body energy term
+                    e_3 = s9 * angle_factor * c9 * damp / (r_ij * r_jk * r_ki) ** 3
+                    
+                    # Calculate force constants (second derivatives)
+                    # This is a simplified approximation - full D4 three-body Hessian is complex
+                    fc_scale = 0.01 * s9 * angle_factor * c9 * damp
+                    
+                    # Add approximate three-body contributions to Hessian
+                    for n in range(3):
+                        for m in range(3):
+                            # Diagonal blocks (diagonal atoms)
+                            if n == m:
+                                self.cart_hess[i * 3 + n][i * 3 + m] += fc_scale / r_ij**6 + fc_scale / r_ki**6
+                                self.cart_hess[j * 3 + n][j * 3 + m] += fc_scale / r_ij**6 + fc_scale / r_jk**6
+                                self.cart_hess[k * 3 + n][k * 3 + m] += fc_scale / r_jk**6 + fc_scale / r_ki**6
+                            
+                            # Off-diagonal blocks (between atoms)
+                            self.cart_hess[i * 3 + n][j * 3 + m] -= fc_scale / r_ij**6 
+                            self.cart_hess[j * 3 + n][i * 3 + m] -= fc_scale / r_ij**6
+                            
+                            self.cart_hess[j * 3 + n][k * 3 + m] -= fc_scale / r_jk**6
+                            self.cart_hess[k * 3 + n][j * 3 + m] -= fc_scale / r_jk**6
+                            
+                            self.cart_hess[k * 3 + n][i * 3 + m] -= fc_scale / r_ki**6
+                            self.cart_hess[i * 3 + n][k * 3 + m] -= fc_scale / r_ki**6
+        
+        return
+    
+    def main(self, coord, element_list, cart_gradient):
+        """Main method to calculate the approximate Hessian using Swart's model with D4 dispersion"""
+        print("Generating Swart's approximate hessian with D4 dispersion correction...")
+        self.cart_hess = np.zeros((len(coord) * 3, len(coord) * 3), dtype="float64")
+        
+        # Calculate coordination numbers and atomic charges for D4
+        cn = self.calculate_coordination_numbers(coord, element_list)
+        charges = self.estimate_atomic_charges(coord, element_list)
+        
+        # Calculate all contributions to the Hessian
+        self.swart_bond(coord, element_list, charges, cn)
+        self.swart_angle(coord, element_list, charges, cn)
+        self.swart_dihedral_angle(coord, element_list, charges, cn)
+        self.swart_out_of_plane(coord, element_list, charges, cn)
+        
+        # Add D4-specific three-body term
+        self.calculate_three_body_term(coord, element_list, charges, cn)
+        
+        # Ensure symmetry of the Hessian matrix
+        n_basis = len(coord) * 3
+        for i in range(n_basis):
+            for j in range(i):
+                if abs(self.cart_hess[i][j] - self.cart_hess[j][i]) > 1.0e-10:
+                    avg = (self.cart_hess[i][j] + self.cart_hess[j][i]) / 2.0
+                    self.cart_hess[i][j] = avg
+                    self.cart_hess[j][i] = avg
+        
+        # Project out translational and rotational modes
+        hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.cart_hess, element_list, coord)
+        return hess_proj
+
+
+class SwartD3ApproxHessian:
+    def __init__(self):
+        #Swart's Model Hessian augmented with D3 dispersion
+        #ref.: M. Swart, F. M. Bickelhaupt, Int. J. Quantum Chem., 2006, 106, 2536–2544.
+        #ref.: S. Grimme, J. Antony, S. Ehrlich, H. Krieg, J. Chem. Phys., 2010, 132, 154104
+        self.bohr2angstroms = UnitValueLib().bohr2angstroms
+        self.hartree2kcalmol = UnitValueLib().hartree2kcalmol
+        self.kd = 2.00
+        
+        self.kr = 0.35
+        self.kf = 0.15
+        self.kt = 0.005
+        
+        self.cutoff = 70.0
+        self.eps = 1.0e-12
+        
+        # D3 parameters
+        self.d3_params = D3Parameters()
+        
+        # Cyano group parameters
+        self.cn_kr = 0.70  # Enhanced force constant for C≡N triple bond
+        self.cn_kf = 0.20  # Enhanced force constant for angles involving C≡N
+        self.cn_kt = 0.002 # Reduced force constant for torsions involving C≡N
+        return
+    
+    def detect_cyano_groups(self, coord, element_list):
+        """Detect C≡N triple bonds in the structure"""
+        cyano_atoms = []  # List of (C_idx, N_idx) tuples
+        
+        for i in range(len(coord)):
+            if element_list[i] != 'C':
+                continue
+                
+            for j in range(len(coord)):
+                if i == j or element_list[j] != 'N':
+                    continue
+                    
+                # Calculate distance between C and N
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij = np.sqrt(x_ij**2 + y_ij**2 + z_ij**2)
+                
+                # Check if distance is close to a triple bond length
+                cn_triple_bond = triple_covalent_radii_lib('C') + triple_covalent_radii_lib('N')
+                
+                if abs(r_ij - cn_triple_bond) < 0.3:  # Within 0.3 bohr of ideal length
+                    # Check if C is connected to only one other atom (besides N)
+                    connections_to_c = 0
+                    for k in range(len(coord)):
+                        if k == i or k == j:
+                            continue
+                            
+                        x_ik = coord[i][0] - coord[k][0]
+                        y_ik = coord[i][1] - coord[k][1]
+                        z_ik = coord[i][2] - coord[k][2]
+                        r_ik = np.sqrt(x_ik**2 + y_ik**2 + z_ik**2)
+                        
+                        cov_dist = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        if r_ik < 1.3 * cov_dist:  # Using 1.3 as a factor to account for bond length variations
+                            connections_to_c += 1
+                    
+                    # If C has only one other connection, it's likely a terminal cyano group
+                    if connections_to_c <= 1:
+                        cyano_atoms.append((i, j))
+        
+        return cyano_atoms
+    
+    def calc_force_const(self, alpha, covalent_length, distance):
+        force_const = np.exp(-1 * alpha * (distance / covalent_length - 1.0))
+        return force_const
+        
+    def d3_damping_function(self, r_ij, r0, order=6):
+        """D3 rational damping function"""
+        a1 = self.d3_params.a1
+        a2 = self.d3_params.a2
+        
+        if order == 6:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a1 * r0)) ** a2)
+        elif order == 8:
+            return 1.0 / (1.0 + 6.0 * (r_ij / (a2 * r0)) ** a1)
+        return 0.0
+        
+    def get_d3_parameters(self, elem1, elem2):
+        """Get D3 parameters for a pair of elements"""
+        # Get R4/R2 values
+        r4r2_1 = self.d3_params.get_r4r2(elem1)
+        r4r2_2 = self.d3_params.get_r4r2(elem2)
+        
+        # C6 coefficients based on averaging rules
+        c6_1 = self.d3_params.get_r4r2(elem1) ** 2
+        c6_2 = self.d3_params.get_r4r2(elem2) ** 2
+        c6_param = np.sqrt(c6_1 * c6_2)
+        
+        # C8 coefficients using r^4/r^2 ratio
+        c8_param = 3.0 * c6_param * np.sqrt(r4r2_1 * r4r2_2)
+        
+        # r0 parameter (combined vdW radii)
+        r0_param = np.sqrt(UFF_VDW_distance_lib(elem1) * UFF_VDW_distance_lib(elem2))
+        
+        return c6_param, c8_param, r0_param
+    
+    def calc_d3_force_const(self, r_ij, c6_param, c8_param, r0_param):
+        """Calculate D3 dispersion force constant"""
+        s6 = self.d3_params.s6
+        s8 = self.d3_params.s8
+        
+        # Apply damping functions
+        damp6 = self.d3_damping_function(r_ij, r0_param, order=6)
+        damp8 = self.d3_damping_function(r_ij, r0_param, order=8)
+        
+        # Energy terms (negative because dispersion is attractive)
+        e6 = -s6 * c6_param / r_ij ** 6 * damp6
+        e8 = -s8 * c8_param / r_ij ** 8 * damp8
+        
+        # Force constant is the second derivative of energy
+        # Simplified approximation of second derivatives
+        fc6 = s6 * c6_param * (42.0 / r_ij ** 8) * damp6
+        fc8 = s8 * c8_param * (72.0 / r_ij ** 10) * damp8
+        
+        return fc6 + fc8
+    
+    def swart_bond(self, coord, element_list):
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+        
+        for i in range(len(coord)):
+            for j in range(i):
+                
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij_2 = x_ij**2 + y_ij**2 + z_ij**2
+                r_ij = np.sqrt(r_ij_2)
+                covalent_length = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Get D3 parameters
+                c6_param, c8_param, r0_param = self.get_d3_parameters(element_list[i], element_list[j])
+                
+                # Calculate D3 dispersion contribution
+                d3_force_const = self.calc_d3_force_const(r_ij, c6_param, c8_param, r0_param)
+                
+                # Check if this is a cyano bond
+                is_cyano_bond = False
+                for c_idx, n_idx in cyano_atoms:
+                    if (i == c_idx and j == n_idx) or (i == n_idx and j == c_idx):
+                        is_cyano_bond = True
+                        break
+                
+                # Apply appropriate force constant
+                if is_cyano_bond:
+                    # Special force constant for C≡N triple bond
+                    g_mm = self.cn_kr * self.calc_force_const(1.0, covalent_length, r_ij) + self.kd * d3_force_const
+                else:
+                    # Regular Swart force constant with D3 dispersion
+                    g_mm = self.kr * self.calc_force_const(1.0, covalent_length, r_ij) + self.kd * d3_force_const
+                
+                # Calculate Hessian components
+                hess_xx = g_mm * x_ij ** 2 / r_ij_2
+                hess_xy = g_mm * x_ij * y_ij / r_ij_2
+                hess_xz = g_mm * x_ij * z_ij / r_ij_2
+                hess_yy = g_mm * y_ij ** 2 / r_ij_2
+                hess_yz = g_mm * y_ij * z_ij / r_ij_2
+                hess_zz = g_mm * z_ij ** 2 / r_ij_2
+                
+                # Fill the Hessian matrix
+                self.cart_hess[i * 3][i * 3] += hess_xx
+                self.cart_hess[i * 3 + 1][i * 3] += hess_xy
+                self.cart_hess[i * 3 + 1][i * 3 + 1] += hess_yy
+                self.cart_hess[i * 3 + 2][i * 3] += hess_xz
+                self.cart_hess[i * 3 + 2][i * 3 + 1] += hess_yz
+                self.cart_hess[i * 3 + 2][i * 3 + 2] += hess_zz
+                
+                self.cart_hess[j * 3][j * 3] += hess_xx
+                self.cart_hess[j * 3 + 1][j * 3] += hess_xy
+                self.cart_hess[j * 3 + 1][j * 3 + 1] += hess_yy
+                self.cart_hess[j * 3 + 2][j * 3] += hess_xz
+                self.cart_hess[j * 3 + 2][j * 3 + 1] += hess_yz
+                self.cart_hess[j * 3 + 2][j * 3 + 2] += hess_zz
+                
+                self.cart_hess[i * 3][j * 3] -= hess_xx
+                self.cart_hess[i * 3][j * 3 + 1] -= hess_xy
+                self.cart_hess[i * 3][j * 3 + 2] -= hess_xz
+                self.cart_hess[i * 3 + 1][j * 3] -= hess_xy
+                self.cart_hess[i * 3 + 1][j * 3 + 1] -= hess_yy
+                self.cart_hess[i * 3 + 1][j * 3 + 2] -= hess_yz
+                self.cart_hess[i * 3 + 2][j * 3] -= hess_xz
+                self.cart_hess[i * 3 + 2][j * 3 + 1] -= hess_yz
+                self.cart_hess[i * 3 + 2][j * 3 + 2] -= hess_zz
+                
+                self.cart_hess[j * 3][i * 3] -= hess_xx
+                self.cart_hess[j * 3][i * 3 + 1] -= hess_xy
+                self.cart_hess[j * 3][i * 3 + 2] -= hess_xz
+                self.cart_hess[j * 3 + 1][i * 3] -= hess_xy
+                self.cart_hess[j * 3 + 1][i * 3 + 1] -= hess_yy
+                self.cart_hess[j * 3 + 1][i * 3 + 2] -= hess_yz
+                self.cart_hess[j * 3 + 2][i * 3] -= hess_xz
+                self.cart_hess[j * 3 + 2][i * 3 + 1] -= hess_yz
+                self.cart_hess[j * 3 + 2][i * 3 + 2] -= hess_zz
+        
+        return
+    
+    def swart_angle(self, coord, element_list):
+        """Calculate angle bending contributions to the Hessian with D3 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+        
+        for i in range(len(coord)):
+            for j in range(len(coord)):
+                if i == j:
+                    continue
+                x_ij = coord[i][0] - coord[j][0]
+                y_ij = coord[i][1] - coord[j][1]
+                z_ij = coord[i][2] - coord[j][2]
+                r_ij_2 = x_ij**2 + y_ij**2 + z_ij**2
+                r_ij = np.sqrt(r_ij_2)
+                covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                
+                # Get D3 parameters for i-j pair
+                c6_ij, c8_ij, r0_ij = self.get_d3_parameters(element_list[i], element_list[j])
+                
+                for k in range(j):
+                    if i == k:
+                        continue
+                    x_ik = coord[i][0] - coord[k][0]
+                    y_ik = coord[i][1] - coord[k][1]
+                    z_ik = coord[i][2] - coord[k][2]
+                    r_ik_2 = x_ik**2 + y_ik**2 + z_ik**2
+                    r_ik = np.sqrt(r_ik_2)
+                    covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                    
+                    # Check for linear arrangement (cos_theta ~ 1.0)
+                    error_check = x_ij * x_ik + y_ij * y_ik + z_ij * z_ik
+                    error_check = error_check / (r_ij * r_ik)
+                    
+                    if abs(error_check - 1.0) < self.eps:
+                        continue
+                    
+                    x_jk = coord[j][0] - coord[k][0]
+                    y_jk = coord[j][1] - coord[k][1]
+                    z_jk = coord[j][2] - coord[k][2]
+                    r_jk_2 = x_jk**2 + y_jk**2 + z_jk**2
+                    r_jk = np.sqrt(r_jk_2)
+                    
+                    # Get D3 parameters for i-k pair
+                    c6_ik, c8_ik, r0_ik = self.get_d3_parameters(element_list[i], element_list[k])
+                    
+                    # Calculate D3 dispersion contributions
+                    d3_ij = self.calc_d3_force_const(r_ij, c6_ij, c8_ij, r0_ij)
+                    d3_ik = self.calc_d3_force_const(r_ik, c6_ik, c8_ik, r0_ik)
+                    
+                    # Calculate bond force constants with D3 dispersion
+                    g_ij = self.calc_force_const(1.0, covalent_length_ij, r_ij) + 0.5 * self.kd * d3_ij
+                    g_ik = self.calc_force_const(1.0, covalent_length_ik, r_ik) + 0.5 * self.kd * d3_ik
+                    
+                    # Check if angle involves cyano group
+                    is_cyano_angle = (i in cyano_set or j in cyano_set or k in cyano_set)
+                    
+                    # Apply appropriate force constant
+                    if is_cyano_angle:
+                        # Special force constant for angles involving cyano groups
+                        g_jk = self.cn_kf * g_ij * g_ik
+                    else:
+                        # Regular Swart force constant
+                        g_jk = self.kf * g_ij * g_ik
+                    
+                    # Calculate cross product for sin(theta)
+                    r_cross_2 = (y_ij * z_ik - z_ij * y_ik) ** 2 + (z_ij * x_ik - x_ij * z_ik) ** 2 + (x_ij * y_ik - y_ij * x_ik) ** 2
+                    
+                    if r_cross_2 < 1.0e-12:
+                        r_cross = 0.0
+                    else:
+                        r_cross = np.sqrt(r_cross_2)
+                    
+                    if r_ik > self.eps and r_ij > self.eps and r_jk > self.eps:
+                        cos_theta = (r_ij_2 + r_ik_2 - r_jk_2) / (2.0 * r_ij * r_ik)
+                        sin_theta = r_cross / (r_ij * r_ik)
+                        
+                        dot_product_r_ij_r_ik = x_ij * x_ik + y_ij * y_ik + z_ij * z_ik
+                       
+                        if sin_theta > self.eps: # non-linear
+                            # Calculate derivatives for non-linear case
+                            s_xj = (x_ij / r_ij * cos_theta - x_ik / r_ik) / (r_ij * sin_theta)
+                            s_yj = (y_ij / r_ij * cos_theta - y_ik / r_ik) / (r_ij * sin_theta)
+                            s_zj = (z_ij / r_ij * cos_theta - z_ik / r_ik) / (r_ij * sin_theta)
+                            
+                            s_xk = (x_ik / r_ik * cos_theta - x_ij / r_ij) / (r_ik * sin_theta)
+                            s_yk = (y_ik / r_ik * cos_theta - y_ij / r_ij) / (r_ik * sin_theta)
+                            s_zk = (z_ik / r_ik * cos_theta - z_ij / r_ij) / (r_ik * sin_theta)
+                            
+                            s_xi = -1 * s_xj - s_xk
+                            s_yi = -1 * s_yj - s_yk
+                            s_zi = -1 * s_zj - s_zk
+                            
+                            s_j = [s_xj, s_yj, s_zj]
+                            s_k = [s_xk, s_yk, s_zk]
+                            s_i = [s_xi, s_yi, s_zi]
+                            
+                            # Update Hessian for non-linear case
+                            for l in range(3):
+                                for m in range(3):
+                                    #-------------------------------------
+                                    if i > j:
+                                        tmp_val = g_jk * s_i[l] * s_j[m]
+                                        self.cart_hess[i * 3 + l][j * 3 + m] += tmp_val     
+                                    else:
+                                        tmp_val = g_jk * s_j[l] * s_i[m]
+                                        self.cart_hess[j * 3 + l][i * 3 + m] += tmp_val
+                                    
+                                    #-------------------------------------
+                                    if i > k:
+                                        tmp_val = g_jk * s_i[l] * s_k[m]
+                                        self.cart_hess[i * 3 + l][k * 3 + m] += tmp_val
+                                    else:
+                                        tmp_val = g_jk * s_k[l] * s_i[m]
+                                        self.cart_hess[k * 3 + l][i * 3 + m] += tmp_val
+                                            
+                                    #-------------------------------------
+                                    if j > k:
+                                        tmp_val = g_jk * s_j[l] * s_k[m]
+                                        self.cart_hess[j * 3 + l][k * 3 + m] += tmp_val
+                                    else:
+                                        tmp_val = g_jk * s_k[l] * s_j[m]
+                                        self.cart_hess[k * 3 + l][j * 3 + m] += tmp_val
+                                    #-------------------------------------
+                                    
+                            # Update diagonal blocks
+                            for l in range(3):
+                                for m in range(l):
+                                    tmp_val_1 = g_jk * s_j[l] * s_j[m]
+                                    tmp_val_2 = g_jk * s_i[l] * s_i[m]
+                                    tmp_val_3 = g_jk * s_k[l] * s_k[m]
+                                    
+                                    self.cart_hess[j * 3 + l][j * 3 + m] += tmp_val_1
+                                    self.cart_hess[i * 3 + l][i * 3 + m] += tmp_val_2
+                                    self.cart_hess[k * 3 + l][k * 3 + m] += tmp_val_3
+                            
+                        else: # linear 
+                            # Special handling for linear arrangements
+                            if abs(y_ij) < self.eps and abs(z_ij) < self.eps:
+                                x_1 = -1 * y_ij
+                                y_1 = x_ij
+                                z_1 = 0.0
+                                x_2 = -1 * x_ij * z_ij
+                                y_2 = -1 * y_ij * z_ij
+                                z_2 = x_ij ** 2 + y_ij ** 2
+                            else:
+                                x_1 = 1.0
+                                y_1 = 0.0
+                                z_1 = 0.0
+                                x_2 = 0.0
+                                y_2 = 1.0
+                                z_2 = 0.0
+                            
+                            x = [x_1, x_2]
+                            y = [y_1, y_2]
+                            z = [z_1, z_2]
+                            
+                            # Iterate over two perpendicular directions
+                            for ii in range(2):
+                                r_1 = np.sqrt(x[ii] ** 2 + y[ii] ** 2 + z[ii] ** 2)
+                                cos_theta_x = x[ii] / r_1
+                                cos_theta_y = y[ii] / r_1
+                                cos_theta_z = z[ii] / r_1
+                                
+                                s_xj = -1 * cos_theta_x / r_ij
+                                s_yj = -1 * cos_theta_y / r_ij
+                                s_zj = -1 * cos_theta_z / r_ij
+                                s_xk = -1 * cos_theta_x / r_ik
+                                s_yk = -1 * cos_theta_y / r_ik
+                                s_zk = -1 * cos_theta_z / r_ik
+                                
+                                s_xi = -1 * s_xj - s_xk
+                                s_yi = -1 * s_yj - s_yk
+                                s_zi = -1 * s_zj - s_zk
+                                
+                                s_j = [s_xj, s_yj, s_zj]
+                                s_k = [s_xk, s_yk, s_zk]
+                                s_i = [s_xi, s_yi, s_zi]
+                                
+                                # Update Hessian for linear case
+                                for l in range(3):
+                                    for m in range(3):
+                                        #-------------------------------------
+                                        if i > j:
+                                            tmp_val = g_jk * s_i[l] * s_j[m]
+                                            self.cart_hess[i * 3 + l][j * 3 + m] += tmp_val     
+                                        else:
+                                            tmp_val = g_jk * s_j[l] * s_i[m]
+                                            self.cart_hess[j * 3 + l][i * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                        if i > k:
+                                            tmp_val = g_jk * s_i[l] * s_k[m]
+                                            self.cart_hess[i * 3 + l][k * 3 + m] += tmp_val
+                                        else:
+                                            tmp_val = g_jk * s_k[l] * s_i[m]
+                                            self.cart_hess[k * 3 + l][i * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                        if j > k:
+                                            tmp_val = g_jk * s_j[l] * s_k[m]
+                                            self.cart_hess[j * 3 + l][k * 3 + m] += tmp_val
+                                        else:
+                                            tmp_val = g_jk * s_k[l] * s_j[m]
+                                            self.cart_hess[k * 3 + l][j * 3 + m] += tmp_val
+                                        #-------------------------------------
+                                
+                                # Update diagonal blocks for linear case
+                                for l in range(3):
+                                    for m in range(l):
+                                        tmp_val_1 = g_jk * s_j[l] * s_j[m]
+                                        tmp_val_2 = g_jk * s_i[l] * s_i[m]
+                                        tmp_val_3 = g_jk * s_k[l] * s_k[m]
+                                        
+                                        self.cart_hess[j * 3 + l][j * 3 + m] += tmp_val_1
+                                        self.cart_hess[i * 3 + l][i * 3 + m] += tmp_val_2
+                                        self.cart_hess[k * 3 + l][k * 3 + m] += tmp_val_3
+                    else:
+                        pass  # Skip if any distance is too small
+        
+        # Make the Hessian symmetric for angle terms
+        n_basis = len(coord) * 3
+        for i in range(n_basis):
+            for j in range(i):
+                if abs(self.cart_hess[i][j] - self.cart_hess[j][i]) > 1.0e-10:
+                    avg = (self.cart_hess[i][j] + self.cart_hess[j][i]) / 2.0
+                    self.cart_hess[i][j] = avg
+                    self.cart_hess[j][i] = avg
+                
+        return
+
+    def swart_dihedral_angle(self, coord, element_list):
+        """Calculate dihedral angle contributions to the Hessian with D3 dispersion"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+        
+        for j in range(len(coord)):
+            t_xyz_2 = coord[j] 
+            
+            for k in range(len(coord)):
+                if j >= k:
+                    continue
+                t_xyz_3 = coord[k]
+                for i in range(len(coord)):
+                    ij = (len(coord) * j) + (i + 1)
+                    if i >= j:
+                        continue
+                    if i >= k:
+                        continue
+                    
+                    t_xyz_1 = coord[i]
+                    
+                    for l in range(len(coord)):
+                        kl = (len(coord) * k) + (l + 1)
+                       
+                        if ij <= kl:
+                            continue
+                        if l >= i:
+                            continue
+                        if l >= j:
+                            continue
+                        if l >= k:
+                            continue
+                    
+                        t_xyz_4 = coord[l]
+                        r_ij = coord[i] - coord[j]
+                        r_jk = coord[j] - coord[k]
+                        r_kl = coord[k] - coord[l]
+                        
+                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        covalent_length_jk = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
+                        covalent_length_kl = covalent_radii_lib(element_list[k]) + covalent_radii_lib(element_list[l])
+                        
+                        # Calculate vector magnitudes
+                        r_ij_2 = np.sum(r_ij ** 2)
+                        r_jk_2 = np.sum(r_jk ** 2)
+                        r_kl_2 = np.sum(r_kl ** 2)
+                        norm_r_ij = np.sqrt(r_ij_2)
+                        norm_r_jk = np.sqrt(r_jk_2)
+                        norm_r_kl = np.sqrt(r_kl_2)
+                       
+                        # Skip if angle is too shallow (less than 35 degrees)
+                        a35 = (35.0/180)* np.pi
+                        cosfi_max = np.cos(a35)
+                        cosfi2 = np.dot(r_ij, r_jk) / np.sqrt(r_ij_2 * r_jk_2)
+                        if abs(cosfi2) > cosfi_max:
+                            continue
+                        cosfi3 = np.dot(r_kl, r_jk) / np.sqrt(r_kl_2 * r_jk_2)
+                        if abs(cosfi3) > cosfi_max:
+                            continue
+                        
+                        # Get D3 parameters for each atom pair
+                        c6_ij, c8_ij, r0_ij = self.get_d3_parameters(element_list[i], element_list[j])
+                        c6_jk, c8_jk, r0_jk = self.get_d3_parameters(element_list[j], element_list[k])
+                        c6_kl, c8_kl, r0_kl = self.get_d3_parameters(element_list[k], element_list[l])
+                        
+                        # Calculate D3 dispersion contributions
+                        d3_ij = self.calc_d3_force_const(norm_r_ij, c6_ij, c8_ij, r0_ij)
+                        d3_jk = self.calc_d3_force_const(norm_r_jk, c6_jk, c8_jk, r0_jk)
+                        d3_kl = self.calc_d3_force_const(norm_r_kl, c6_kl, c8_kl, r0_kl)
+                        
+                        # Calculate bond force constants with D3 dispersion
+                        g_ij = self.calc_force_const(1.0, covalent_length_ij, norm_r_ij) + 0.5 * self.kd * d3_ij
+                        g_jk = self.calc_force_const(1.0, covalent_length_jk, norm_r_jk) + 0.5 * self.kd * d3_jk
+                        g_kl = self.calc_force_const(1.0, covalent_length_kl, norm_r_kl) + 0.5 * self.kd * d3_kl
+                        
+                        # Check if torsion involves cyano group
+                        is_cyano_torsion = False
+                        if i in cyano_set or j in cyano_set or k in cyano_set or l in cyano_set:
+                            is_cyano_torsion = True
+                        
+                        # Adjust force constant for cyano groups - they have flatter torsional potentials
+                        if is_cyano_torsion:
+                            t_ij = self.cn_kt * g_ij * g_jk * g_kl
+                        else:
+                            t_ij = self.kt * g_ij * g_jk * g_kl
+                        
+                        # Calculate torsion angle and derivatives
+                        t_xyz = np.array([t_xyz_1, t_xyz_2, t_xyz_3, t_xyz_4])
+                        tau, c = torsion2(t_xyz)
+                        s_i = c[0]
+                        s_j = c[1]
+                        s_k = c[2]
+                        s_l = c[3]
+                       
+                        # Update Hessian with torsional contributions
+                        for n in range(3):
+                            for m in range(3):
+                                self.cart_hess[3 * i + n][3 * j + m] += t_ij * s_i[n] * s_j[m]
+                                self.cart_hess[3 * i + n][3 * k + m] += t_ij * s_i[n] * s_k[m]
+                                self.cart_hess[3 * i + n][3 * l + m] += t_ij * s_i[n] * s_l[m]
+                                self.cart_hess[3 * j + n][3 * k + m] += t_ij * s_j[n] * s_k[m]
+                                self.cart_hess[3 * j + n][3 * l + m] += t_ij * s_j[n] * s_l[m]
+                                self.cart_hess[3 * k + n][3 * l + m] += t_ij * s_k[n] * s_l[m]
+                            
+                        # Update diagonal blocks
+                        for n in range(3):
+                            for m in range(n):
+                                self.cart_hess[3 * i + n][3 * i + m] += t_ij * s_i[n] * s_i[m]
+                                self.cart_hess[3 * j + n][3 * j + m] += t_ij * s_j[n] * s_j[m]
+                                self.cart_hess[3 * k + n][3 * k + m] += t_ij * s_k[n] * s_k[m]
+                                self.cart_hess[3 * l + n][3 * l + m] += t_ij * s_l[n] * s_l[m]
+                       
+        return
+      
+    def swart_out_of_plane(self, coord, element_list):
+        """Calculate out-of-plane bending contributions to the Hessian"""
+        # Detect cyano groups
+        cyano_atoms = self.detect_cyano_groups(coord, element_list)
+        cyano_set = set()
+        for c_idx, n_idx in cyano_atoms:
+            cyano_set.add(c_idx)
+            cyano_set.add(n_idx)
+            
+        for i in range(len(coord)):
+            t_xyz_4 = coord[i]
+            for j in range(len(coord)):
+                if i >= j:
+                    continue
+                t_xyz_1 = coord[j]
+                for k in range(len(coord)):
+                    ij = (len(coord) * j) + (i + 1)
+                    if i >= k:
+                        continue
+                    if j >= k:
+                        continue
+                    t_xyz_2 = coord[k]
+                    
+                    for l in range(len(coord)):
+                        kl = (len(coord) * k) + (l + 1)
+                        if i >= l:
+                            continue
+                        if j >= l:
+                            continue
+                        if k >= l:
+                            continue
+                        if ij <= kl:
+                            continue
+                        t_xyz_3 = coord[l]
+                        
+                        r_ij = coord[i] - coord[j]
+                        covalent_length_ij = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j])
+                        
+                        r_ik = coord[i] - coord[k]
+                        covalent_length_ik = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[k])
+                        
+                        r_il = coord[i] - coord[l]
+                        covalent_length_il = covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[l])
+                        
+                        r_ij_2 = np.sum(r_ij ** 2)
+                        r_ik_2 = np.sum(r_ik ** 2)
+                        r_il_2 = np.sum(r_il ** 2)
+                        norm_r_ij = np.sqrt(r_ij_2)
+                        norm_r_ik = np.sqrt(r_ik_2)
+                        norm_r_il = np.sqrt(r_il_2)
+                        
+                        # Skip if atoms are nearly collinear
+                        cosfi2 = np.dot(r_ij, r_ik) / np.sqrt(r_ij_2 * r_ik_2)
+                        if abs(abs(cosfi2) - 1.0) < 1.0e-1:
+                            continue
+                        cosfi3 = np.dot(r_ij, r_il) / np.sqrt(r_ij_2 * r_il_2)
+                        if abs(abs(cosfi3) - 1.0) < 1.0e-1:
+                            continue
+                        cosfi4 = np.dot(r_ik, r_il) / np.sqrt(r_ik_2 * r_il_2)
+                        if abs(abs(cosfi4) - 1.0) < 1.0e-1:
+                            continue
+                        
+                        # Get D3 parameters for each atom pair
+                        c6_ij, c8_ij, r0_ij = self.get_d3_parameters(element_list[i], element_list[j])
+                        c6_ik, c8_ik, r0_ik = self.get_d3_parameters(element_list[i], element_list[k])
+                        c6_il, c8_il, r0_il = self.get_d3_parameters(element_list[i], element_list[l])
+                        
+                        # Calculate D3 dispersion contributions
+                        d3_ij = self.calc_d3_force_const(norm_r_ij, c6_ij, c8_ij, r0_ij)
+                        d3_ik = self.calc_d3_force_const(norm_r_ik, c6_ik, c8_ik, r0_ik)
+                        d3_il = self.calc_d3_force_const(norm_r_il, c6_il, c8_il, r0_il)
+                        
+                        # Calculate bond force constants with D3 dispersion
+                        g_ij = self.calc_force_const(1.0, covalent_length_ij, norm_r_ij) + 0.5 * self.kd * d3_ij
+                        g_ik = self.calc_force_const(1.0, covalent_length_ik, norm_r_ik) + 0.5 * self.kd * d3_ik
+                        g_il = self.calc_force_const(1.0, covalent_length_il, norm_r_il) + 0.5 * self.kd * d3_il
+                        
+                        # Check if any atom is part of a cyano group
+                        is_cyano_involved = (i in cyano_set or j in cyano_set or 
+                                            k in cyano_set or l in cyano_set)
+                        
+                        # Adjust force constant if cyano group is involved
+                        if is_cyano_involved:
+                            t_ij = 0.5 * self.kt * g_ij * g_ik * g_il  # Reduce force constant for cyano
+                        else:
+                            t_ij = self.kt * g_ij * g_ik * g_il
+                        
+                        # Calculate out-of-plane angle and derivatives
+                        t_xyz = np.array([t_xyz_1, t_xyz_2, t_xyz_3, t_xyz_4])
+                        theta, c = outofplane2(t_xyz)
+                        
+                        s_i = c[0]
+                        s_j = c[1]
+                        s_k = c[2]
+                        s_l = c[3]
+                        
+                        # Update Hessian with out-of-plane contributions
+                        for n in range(3):
+                            for m in range(3):
+                                self.cart_hess[i * 3 + n][j * 3 + m] += t_ij * s_i[n] * s_j[m]
+                                self.cart_hess[i * 3 + n][k * 3 + m] += t_ij * s_i[n] * s_k[m]
+                                self.cart_hess[i * 3 + n][l * 3 + m] += t_ij * s_i[n] * s_l[m]
+                                self.cart_hess[j * 3 + n][k * 3 + m] += t_ij * s_j[n] * s_k[m]
+                                self.cart_hess[j * 3 + n][l * 3 + m] += t_ij * s_j[n] * s_l[m]
+                                self.cart_hess[k * 3 + n][l * 3 + m] += t_ij * s_k[n] * s_l[m]    
+                            
+                        # Update diagonal blocks
+                        for n in range(3):
+                            for m in range(n):
+                                self.cart_hess[i * 3 + n][i * 3 + m] += t_ij * s_i[n] * s_i[m]
+                                self.cart_hess[j * 3 + n][j * 3 + m] += t_ij * s_j[n] * s_j[m]
+                                self.cart_hess[k * 3 + n][k * 3 + m] += t_ij * s_k[n] * s_k[m]
+                                self.cart_hess[l * 3 + n][l * 3 + m] += t_ij * s_l[n] * s_l[m]
+                        
+        return
+
+    def main(self, coord, element_list, cart_gradient):
+        """Main method to calculate the approximate Hessian using Swart's model with D3 dispersion"""
+        print("Generating Swart's approximate hessian with D3 dispersion correction...")
+        self.cart_hess = np.zeros((len(coord)*3, len(coord)*3), dtype="float64")
+        
+        self.swart_bond(coord, element_list)
+        self.swart_angle(coord, element_list)
+        self.swart_dihedral_angle(coord, element_list)
+        self.swart_out_of_plane(coord, element_list)
+        
+        # Ensure symmetry of the Hessian matrix
+        for i in range(len(coord)*3):
+            for j in range(i):
+                if abs(self.cart_hess[i][j]) < 1.0e-10:
+                    self.cart_hess[i][j] = self.cart_hess[j][i]
+                elif abs(self.cart_hess[j][i]) < 1.0e-10:
+                    self.cart_hess[j][i] = self.cart_hess[i][j]
+                else:
+                    # Average if both elements are non-zero but different
+                    avg = (self.cart_hess[i][j] + self.cart_hess[j][i]) / 2.0
+                    self.cart_hess[i][j] = avg
+                    self.cart_hess[j][i] = avg
+        
+        # Project out translational and rotational modes
+        hess_proj = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.cart_hess, element_list, coord)
+        return hess_proj
     
 class SwartD2ApproxHessian:
     def __init__(self):
@@ -6432,46 +8904,404 @@ class MorseApproxHessian:
         return hessian
 
 
+
+class ShortRangeCorrectionHessian:
+    """
+    Class for calculating short-range correction to model Hessians, excluding bonded atom pairs.
+    
+    This class computes the second derivatives of the short-range part of
+    the Coulomb operator used in range-separated hybrid functionals (e.g., ωB97X-D).
+    The short-range part is defined as (1-erf(ω*r))/r, where ω is the range-separation parameter.
+    
+    References:
+    [1] J.-D. Chai and M. Head-Gordon, J. Chem. Phys., 2008, 128, 084106 (ωB97X)
+    [2] J.-D. Chai and M. Head-Gordon, Phys. Chem. Chem. Phys., 2008, 10, 6615 (ωB97X-D)
+    """
+    def __init__(self, omega=0.2, cx_sr=0.78, scaling_factor=0.5):
+        """Initialize the ShortRangeCorrectionHessian class.
+        
+        Parameters:
+        -----------
+        omega : float
+            Range-separation parameter in Bohr^-1 (default: 0.2 for ωB97X-D)
+        cx_sr : float
+            Short-range DFT exchange coefficient (default: 0.78 for ωB97X-D)
+        scaling_factor : float
+            Overall scaling factor for the correction (default: 0.5)
+        """
+        self.omega = omega                # Range-separation parameter (Bohr^-1)
+        self.cx_sr = cx_sr                # Short-range exchange coefficient
+        self.scaling_factor = scaling_factor  # Overall scaling factor
+        self.sr_cutoff = 15.0             # Cutoff distance for short-range interactions (Bohr)
+        
+    def detect_bonds(self, coord, element_list):
+        """Detect bonded atom pairs in the molecule.
+        
+        Parameters:
+        -----------
+        coord : numpy.ndarray
+            Atomic coordinates (Bohr)
+        element_list : list
+            List of element symbols
+            
+        Returns:
+        --------
+        set
+            Set of tuples (i,j) representing bonded atom pairs
+        """
+        # Use BondConnectivity class from BiasPotPy to detect bonds
+        bc = BondConnectivity()
+        bond_matrix = bc.bond_connect_matrix(element_list, coord)
+        
+        # Create a set of bonded atom pairs
+        bonded_pairs = set()
+        for i in range(len(coord)):
+            for j in range(i+1, len(coord)):
+                if bond_matrix[i, j] == 1:
+                    bonded_pairs.add((i, j))
+                    bonded_pairs.add((j, i))
+        
+        return bonded_pairs
+        
+    def sr_coulomb(self, r):
+        """Calculate short-range Coulomb potential.
+        
+        V_SR(r) = (1 - erf(ω*r)) / r
+        
+        Parameters:
+        -----------
+        r : float
+            Distance between two atoms (Bohr)
+            
+        Returns:
+        --------
+        float
+            Short-range Coulomb potential
+        """
+        if r < 1e-10:
+            # Use limit as r→0 (Taylor expansion)
+            return 2 * self.omega / np.sqrt(np.pi)
+        return (1.0 - erf(self.omega * r)) / r
+    
+    def sr_coulomb_first_derivative(self, r):
+        """Calculate first derivative of short-range Coulomb potential.
+        
+        dV_SR(r)/dr = -V_SR(r)/r - 2ω/√π * exp(-ω²r²)/r
+        
+        Parameters:
+        -----------
+        r : float
+            Distance between two atoms
+            
+        Returns:
+        --------
+        float
+            First derivative of short-range Coulomb potential
+        """
+        if r < 1e-10:
+            # Use limit as r→0 (Taylor expansion)
+            return -2 * self.omega**3 / (3 * np.sqrt(np.pi))
+        
+        # Error function term
+        erf_term = erf(self.omega * r)
+        
+        # Exponential term
+        exp_term = 2 * self.omega * np.exp(-(self.omega * r)**2) / (np.sqrt(np.pi) * r)
+        
+        # Coulomb term
+        coulomb_term = (erf_term - 1.0) / r**2
+        
+        return exp_term + coulomb_term
+    
+    def sr_coulomb_second_derivative(self, r):
+        """Calculate second derivative of short-range Coulomb potential.
+        
+        d²V_SR(r)/dr² = 2(1-erf(ω*r))/r³ + 2erf(ω*r)/r³ + 4ω/(√π*r²)*e^(-ω²r²) + 2ω³/√π*e^(-ω²r²)
+        
+        Parameters:
+        -----------
+        r : float
+            Distance between two atoms
+            
+        Returns:
+        --------
+        float
+            Second derivative of short-range Coulomb potential
+        """
+        if r < 1e-10:
+            # Use limit as r→0 (Taylor expansion)
+            return 0.0
+        
+        # Error function term
+        erf_term = erf(self.omega * r)
+        
+        # Exponential terms
+        exp_factor = np.exp(-(self.omega * r)**2) / np.sqrt(np.pi)
+        exp_term1 = 4 * self.omega * exp_factor / r**2
+        exp_term2 = 2 * (self.omega**3) * exp_factor
+        
+        # Coulomb term
+        coulomb_term = 2 * (2 * erf_term - 1) / r**3
+        
+        return coulomb_term + exp_term1 + exp_term2
+    
+    def estimate_atomic_charges(self, element_list):
+        """Estimate atomic charges based on Pauling electronegativity.
+        
+        Parameters:
+        -----------
+        element_list : list
+            List of element symbols
+            
+        Returns:
+        --------
+        numpy.ndarray
+            Estimated atomic charges
+        """
+        # Pauling electronegativity values
+        electronegativity = {
+            'H': 2.20, 'He': 0.00,
+            'Li': 0.98, 'Be': 1.57, 'B': 2.04, 'C': 2.55, 'N': 3.04, 
+            'O': 3.44, 'F': 3.98, 'Ne': 0.00,
+            'Na': 0.93, 'Mg': 1.31, 'Al': 1.61, 'Si': 1.90, 'P': 2.19, 
+            'S': 2.58, 'Cl': 3.16, 'Ar': 0.00,
+            'K': 0.82, 'Ca': 1.00, 'Sc': 1.36, 'Ti': 1.54, 'V': 1.63, 
+            'Cr': 1.66, 'Mn': 1.55, 'Fe': 1.83, 'Co': 1.88, 'Ni': 1.91, 
+            'Cu': 1.90, 'Zn': 1.65, 'Ga': 1.81, 'Ge': 2.01, 'As': 2.18, 
+            'Se': 2.55, 'Br': 2.96, 'Kr': 0.00
+        }
+        
+        n_atoms = len(element_list)
+        charges = np.zeros(n_atoms)
+        
+        # Calculate average electronegativity (reference value)
+        en_values = [electronegativity.get(element, 2.0) for element in element_list]
+        avg_en = sum(en_values) / len(en_values)
+        
+        # Assign charges based on electronegativity differences
+        for i, element in enumerate(element_list):
+            en = electronegativity.get(element, 2.0)
+            charges[i] = 0.2 * (avg_en - en)  # Scale by 0.2
+        
+        return charges
+    
+    def calculate_pair_hessian(self, r_vec, r_ij, atomic_charges, atom_i, atom_j):
+        """Calculate Hessian contribution from short-range Coulomb between atom pair.
+        
+        Parameters:
+        -----------
+        r_vec : numpy.ndarray
+            Relative position vector from atom i to atom j
+        r_ij : float
+            Distance between atoms i and j
+        atomic_charges : numpy.ndarray
+            Array of atomic charges
+        atom_i, atom_j : int
+            Atom indices
+            
+        Returns:
+        --------
+        numpy.ndarray
+            3x3 Hessian block matrix
+        """
+        # Return zeros if beyond cutoff distance
+        if r_ij > self.sr_cutoff:
+            return np.zeros((3, 3))
+        
+        # Unit direction vector
+        r_unit = r_vec / r_ij
+        
+        # Charge-based coefficient
+        q_i = atomic_charges[atom_i]
+        q_j = atomic_charges[atom_j]
+        q_factor = q_i * q_j * self.cx_sr * self.scaling_factor
+        
+        # Calculate second derivative
+        d2v = self.sr_coulomb_second_derivative(r_ij)
+        
+        # Calculate tensor using outer product
+        r_outer = np.outer(r_unit, r_unit)
+        
+        # Calculate Hessian block
+        identity = np.eye(3)
+        hessian_block = q_factor * (d2v * r_outer + 
+                           self.sr_coulomb_first_derivative(r_ij) / r_ij * (identity - r_outer))
+        
+        return hessian_block
+    
+    def calculate_correction_hessian(self, coord, element_list):
+        """Calculate complete short-range correction Hessian, excluding bonded pairs.
+        
+        Parameters:
+        -----------
+        coord : numpy.ndarray
+            Atomic coordinates (Bohr)
+        element_list : list
+            List of element symbols
+            
+        Returns:
+        --------
+        numpy.ndarray
+            Short-range correction Hessian
+        """
+        n_atoms = len(coord)
+        hessian = np.zeros((3 * n_atoms, 3 * n_atoms))
+        
+        # Detect bonded atom pairs
+        bonded_pairs = self.detect_bonds(coord, element_list)
+        
+        # Estimate atomic charges
+        atomic_charges = self.estimate_atomic_charges(element_list)
+        
+        # Number of bonded pairs and total pairs for statistics
+        num_total_pairs = n_atoms * (n_atoms - 1) // 2
+        num_bonded_pairs = len(bonded_pairs) // 2  # Divide by 2 because we stored both (i,j) and (j,i)
+        print(f"Detected {num_bonded_pairs} bonded pairs out of {num_total_pairs} total pairs")
+        print(f"Short-range correction will be applied to {num_total_pairs - num_bonded_pairs} non-bonded pairs only")
+        
+        # Loop over all atom pairs
+        for i in range(n_atoms):
+            for j in range(i+1, n_atoms):
+                # Skip bonded atom pairs
+                if (i, j) in bonded_pairs or (j, i) in bonded_pairs:
+                    continue
+                
+                # Calculate interatomic vector and distance
+                r_vec = coord[j] - coord[i]
+                r_ij = np.linalg.norm(r_vec)
+                
+                # Calculate Hessian block for this pair
+                hess_block = self.calculate_pair_hessian(
+                    r_vec, r_ij, atomic_charges, i, j
+                )
+                
+                # Add to the Hessian matrix
+                for a in range(3):
+                    for b in range(3):
+                        # Diagonal blocks
+                        hessian[3*i+a, 3*i+b] += hess_block[a, b]
+                        hessian[3*j+a, 3*j+b] += hess_block[a, b]
+                        
+                        # Off-diagonal blocks
+                        hessian[3*i+a, 3*j+b] -= hess_block[a, b]
+                        hessian[3*j+a, 3*i+b] -= hess_block[a, b]
+        
+        return hessian
+    
+    def apply_correction(self, base_hessian, coord, element_list):
+        """Apply short-range correction to an existing Hessian.
+        
+        Parameters:
+        -----------
+        base_hessian : numpy.ndarray
+            Base model Hessian
+        coord : numpy.ndarray
+            Atomic coordinates (Bohr)
+        element_list : list
+            List of element symbols
+            
+        Returns:
+        --------
+        numpy.ndarray
+            Corrected Hessian
+        """
+        tools = Calculationtools()
+        # Calculate short-range correction
+        correction = self.calculate_correction_hessian(coord, element_list)
+        correction = tools.project_out_hess_tr_and_rot_for_coord(correction, element_list, coord, display_eigval=False)
+        # Add correction to base Hessian
+        corrected_hessian = base_hessian + correction
+        
+        corrected_hessian = 0.5 * (corrected_hessian + corrected_hessian.T)  # Symmetrize
+        # Remove translational and rotational modes
+        
+        return corrected_hessian
+    
+    def main(self, coord, element_list, base_hessian):
+        """Main method to apply short-range correction to a model Hessian.
+        
+        Parameters:
+        -----------
+        coord : numpy.ndarray
+            Atomic coordinates (Bohr)
+        element_list : list
+            List of element symbols
+        base_hessian : numpy.ndarray
+            Base model Hessian
+            
+        Returns:
+        --------
+        numpy.ndarray
+            Hessian with short-range correction
+        """
+        print(f"Applying short-range correction (ω={self.omega:.3f}) to model Hessian...")
+        print("The correction will be applied only to non-bonded atom pairs.")
+        
+        # Apply correction
+        corrected_hessian = self.apply_correction(base_hessian, coord, element_list)
+        
+        # Handle NaN values
+        corrected_hessian = np.nan_to_num(corrected_hessian, nan=0.0)
+        
+        print("Short-range correction applied successfully")
+        return corrected_hessian
+
 class ApproxHessian:
     def __init__(self):
         return
     
     def main(self, coord, element_list, cart_gradient, approx_hess_type="lindh2007d3"):
         #coord: Bohr
-        if approx_hess_type.lower() == "lindh":
-            LAH = LindhApproxHessian(coord, element_list, cart_gradient)
-            hess_proj = LAH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "gfnff":
+        
+        
+        if "gfnff" in approx_hess_type.lower():
             GFNFFAH = GFNFFApproxHessian()
             hess_proj = GFNFFAH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "gfn0xtb":
+        elif "gfn0xtb" in approx_hess_type.lower():
             GFN0AH = GFN0XTBApproxHessian()
             hess_proj = GFN0AH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "fischerd3":
+        elif "fischerd3" in approx_hess_type.lower():
             FAHD3 = FischerD3ApproxHessian()
             hess_proj = FAHD3.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "fischerd4":
+        elif "fischerd4" in approx_hess_type.lower():
             FAHD4 = FischerD4ApproxHessian()
             hess_proj = FAHD4.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "schlegel":
+        
+        elif "schlegeld3" in approx_hess_type.lower():
+            SAHD3 = SchlegelD3ApproxHessian()
+            hess_proj = SAHD3.main(coord, element_list, cart_gradient)
+        elif "schlegeld4" in approx_hess_type.lower():
+            SAHD4 = SchlegelD4ApproxHessian()
+            hess_proj = SAHD4.main(coord, element_list, cart_gradient)
+        elif "schlegel" in approx_hess_type.lower():
             SAH = SchlegelApproxHessian()
             hess_proj = SAH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "swart":
+        
+        elif "swartd3" in approx_hess_type.lower():
+            SWHD3 = SwartD3ApproxHessian()
+            hess_proj = SWHD3.main(coord, element_list, cart_gradient)
+        elif "swartd4" in approx_hess_type.lower():
+            SWHD4 = SwartD4ApproxHessian()
+            hess_proj = SWHD4.main(coord, element_list, cart_gradient)
+        elif "swart" in approx_hess_type.lower():
             SWH = SwartD2ApproxHessian()
             hess_proj = SWH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "lindh2007":
-            LH2007 = Lindh2007D2ApproxHessian()
-            hess_proj = LH2007.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "lindh2007D3":
+        elif "lindh2007d3" in approx_hess_type.lower():
             LH2007D3 = Lindh2007D3ApproxHessian()
             hess_proj = LH2007D3.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "lindh2007d4":
+        elif "lindh2007d4" in approx_hess_type.lower():
             LH2007D4 = Lindh2007D4ApproxHessian()
             hess_proj = LH2007D4.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "fischer":
+        elif "lindh2007" in approx_hess_type.lower():
+            LH2007 = Lindh2007D2ApproxHessian()
+            hess_proj = LH2007.main(coord, element_list, cart_gradient)
+        elif "lindh" in approx_hess_type.lower():
+            LAH = LindhApproxHessian()
+            hess_proj = LAH.main(coord, element_list, cart_gradient)
+        elif "fischer" in approx_hess_type.lower():
             FH = FischerApproxHessian()
             hess_proj = FH.main(coord, element_list, cart_gradient)
-        elif approx_hess_type.lower() == "morse":
+        elif "morse" in approx_hess_type.lower():
             MH = MorseApproxHessian()
             hess_proj = MH.create_model_hessian(coord, element_list)
         else:
@@ -6482,6 +9312,10 @@ class ApproxHessian:
         if "ts" in approx_hess_type.lower():
             TSH = TransitionStateHessian()
             hess_proj = TSH.create_ts_hessian(hess_proj, cart_gradient)
+        
+        if "sr" in approx_hess_type.lower():
+            SRCH = ShortRangeCorrectionHessian()
+            hess_proj = SRCH.main(coord, element_list, hess_proj)
         
         return hess_proj#cart_hess
 

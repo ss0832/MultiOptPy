@@ -205,6 +205,7 @@ class Optimize:
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
             
             if self.iter % self.FC_COUNT == 0 or (self.use_model_hessian is not None and self.iter % self.mFC_COUNT == 0):
+        
                 if not allactive_flag:
                     self.Model_hess -= np.dot(self.Model_hess[:, fix_num], np.dot(inv_tmp_fix_hess, self.Model_hess[fix_num, :]))
                 
@@ -622,18 +623,20 @@ class Optimize:
         return
 
     def _check_converge_criteria(self, B_g, displacement_vector):
-        max_force = abs(B_g.max())
+        
+        max_force = np.abs(B_g).max()
         max_force_threshold = self.MAX_FORCE_THRESHOLD
         
-        rms_force = abs(np.sqrt(np.mean(B_g[B_g > 1e-10]**2.0)))
+        
+        rms_force = self.calculate_rms_safely(B_g)
         rms_force_threshold = self.RMS_FORCE_THRESHOLD
         
         delta_max_force_threshold = max(0.0, max_force_threshold -1 * max_force)
         delta_rms_force_threshold = max(0.0, rms_force_threshold -1 * rms_force)
         
-        max_displacement = abs(displacement_vector.max())
+        max_displacement = np.abs(displacement_vector).max()
         max_displacement_threshold = max(self.MAX_DISPLACEMENT_THRESHOLD, self.MAX_DISPLACEMENT_THRESHOLD + delta_max_force_threshold)
-        rms_displacement = abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean()))
+        rms_displacement = self.calculate_rms_safely(displacement_vector)
         rms_displacement_threshold = max(self.RMS_DISPLACEMENT_THRESHOLD, self.RMS_DISPLACEMENT_THRESHOLD + delta_rms_force_threshold)
         
         if max_force < max_force_threshold and rms_force < rms_force_threshold and max_displacement < max_displacement_threshold and rms_displacement < rms_displacement_threshold:#convergent criteria
@@ -794,18 +797,27 @@ class Optimize:
             
         return DC_exit_flag
     
+    def calculate_rms_safely(self, vector, threshold=1e-10):
+            filtered_vector = vector[np.abs(vector) > threshold]
+            if filtered_vector.size > 0:
+                return np.sqrt((filtered_vector**2).mean())
+            else:
+                return 0.0
+            
     def print_info(self, e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold):
         
-        rms_force = abs(np.sqrt((B_g[B_g > 1e-10]**2).mean())) + 1e-13
-        rms_displacement = abs(np.sqrt((displacement_vector[displacement_vector > 1e-10]**2).mean())) + 1e-13
-        
+
+        rms_force = self.calculate_rms_safely(np.abs(B_g))
+        rms_displacement = self.calculate_rms_safely(np.abs(displacement_vector))
+        max_B_g = np.abs(B_g).max()
+        max_displacement = np.abs(displacement_vector).max()
         print("caluculation results (unit a.u.):")
         print("                         Value                         Threshold ")
         print("ENERGY                : {:>15.12f} ".format(e))
         print("BIAS  ENERGY          : {:>15.12f} ".format(B_e))
-        print("Maximum  Force        : {0:>15.12f}             {1:>15.12f} ".format(abs(B_g.max()), self.MAX_FORCE_THRESHOLD))
+        print("Maximum  Force        : {0:>15.12f}             {1:>15.12f} ".format(max_B_g, self.MAX_FORCE_THRESHOLD))
         print("RMS      Force        : {0:>15.12f}             {1:>15.12f} ".format(rms_force, self.RMS_FORCE_THRESHOLD))
-        print("Maximum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(abs(displacement_vector.max()), max_displacement_threshold))
+        print("Maximum  Displacement : {0:>15.12f}             {1:>15.12f} ".format(max_displacement, max_displacement_threshold))
         print("RMS      Displacement : {0:>15.12f}             {1:>15.12f} ".format(rms_displacement, rms_displacement_threshold))
         print("ENERGY SHIFT          : {:>15.12f} ".format(e - pre_e))
         print("BIAS ENERGY SHIFT     : {:>15.12f} ".format(B_e - pre_B_e))
@@ -886,8 +898,6 @@ class Optimize:
         
         # Initialize model Hessians
         LL_Model_hess = np.eye(len(element_list)*3)
-       
-        
         HL_Model_hess = np.eye((len(high_layer_element_list))*3)
       
         self.microiter_num += 10 * len(element_list)
@@ -922,11 +932,11 @@ class Optimize:
         pre_model_HL_move_vector = np.zeros((len(high_layer_element_list), 3))
         
         # Initialize high layer optimizer
-        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list, self.args.saddle_order, self.FC_COUNT, self.temperature)
+        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list[:len(high_layer_atom_num)], self.args.saddle_order, self.FC_COUNT, self.temperature)
         HL_optimizer_instances = HL_CMV.initialization(force_data["opt_method"])
         
         for i in range(len(HL_optimizer_instances)):
-            HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+            HL_optimizer_instances[i].set_hessian(HL_Model_hess[:len(high_layer_atom_num)*3, :len(high_layer_atom_num)*3])
             if self.DELTA != "x":
                 HL_optimizer_instances[i].DELTA = self.DELTA      
         
@@ -939,7 +949,7 @@ class Optimize:
                         FUNCTIONAL=self.FUNCTIONAL,
                         FC_COUNT=self.FC_COUNT,
                         BPA_FOLDER_DIRECTORY=self.BPA_FOLDER_DIRECTORY,
-                        Model_hess=HL_Model_hess,
+                        Model_hess=HL_Model_hess[:len(high_layer_atom_num)*3, :len(high_layer_atom_num)*3],
                         unrestrict=self.unrestrict,
                         excited_state=self.excited_state,
                         electronic_charge=self.electronic_charge,
@@ -1011,9 +1021,7 @@ class Optimize:
             LL_optimizer_instances[0].display_flag = False
             
             # Variables for tracking convergence
-            prev_low_layer_rms_grad = float('inf')
-            prev_displacement_max = float('inf')
-            prev_displacement_rms = float('inf')
+       
             low_layer_converged = False
             
             for microiter in range(self.microiter_num):
@@ -1092,21 +1100,19 @@ class Optimize:
                 rms_displacement = np.sqrt((displacement_vector**2).mean()) if len(displacement_vector) > 0 else 0
                 
                 # Calculate changes from previous iteration
-                energy_shift = abs(pre_real_LL_B_e - real_LL_B_e)
-                grad_shift = abs(prev_low_layer_rms_grad - low_layer_rms_grad)
-                disp_max_shift = abs(prev_displacement_max - max_displacement)
-                disp_rms_shift = abs(prev_displacement_rms - rms_displacement)
+                energy_shift = -1 * pre_real_LL_B_e + real_LL_B_e
+             
                 if microiter % 10 == 0:
                     # Print current values
                     print(f"M. ITR. {microiter}")
                     print("Microiteration results:")
-                    print(f"LOW LAYER ENERGY:       {float(real_LL_e):10.8f}")
-                    print(f"LOW LAYER BIAS ENERGY:  {float(real_LL_B_e):10.8f}")
+                    print(f"LOW LAYER BIAS ENERGY : {float(real_LL_B_e):10.8f}")
+                    print(f"LOW LAYER ENERGY      : {float(real_LL_e):10.8f}")
+                    print(f"LOW LAYER MAX GRADIENT: {float(low_layer_grads.max()):10.8f}")                   
                     print(f"LOW LAYER RMS GRADIENT: {float(low_layer_rms_grad):10.8f}")
-                    print(f"LOW LAYER MAX GRADIENT: {float(low_layer_grads.max()):10.8f}")
-                    print(f"MAX DISPLACEMENT:       {float(max_displacement):10.8f}")
-                    print(f"RMS DISPLACEMENT:       {float(rms_displacement):10.8f}")
-                    print(f"ENERGY SHIFT:           {float(energy_shift):10.8f}")
+                    print(f"MAX DISPLACEMENT      : {float(max_displacement):10.8f}")
+                    print(f"RMS DISPLACEMENT      : {float(rms_displacement):10.8f}")
+                    print(f"ENERGY SHIFT          : {float(energy_shift):10.8f}")
                 
                 # Check convergence of microiterations with defaults from __init__
                 if (low_layer_rms_grad < 0.0003) and \
@@ -1123,9 +1129,7 @@ class Optimize:
                 pre_real_LL_g = real_LL_g
                 pre_real_LL_B_g = real_LL_B_g
                 pre_real_LL_move_vector = LL_move_vector
-                prev_low_layer_rms_grad = low_layer_rms_grad
-                prev_displacement_max = max_displacement
-                prev_displacement_rms = rms_displacement
+              
             
             if not low_layer_converged:
                 print("Reached maximum number of microiterations.")
@@ -1152,24 +1156,19 @@ class Optimize:
             
             # Apply high layer gradients to the real system
             for key, value in real_2_highlayer_label_connect_dict.items():
-                tmp_model_HL_B_g[key-1] += model_HL_g[value-1]
-                tmp_model_HL_g[key-1] += model_HL_g[value-1]
+                tmp_model_HL_B_g[key-1] += model_HL_g[value-1] - model_LL_g[value-1]
+                tmp_model_HL_g[key-1] += model_HL_g[value-1] - model_LL_g[value-1]
             
             # Extract high layer Hessian
             HL_BPA_hessian = LL_BPA_hessian[np.ix_(bool_list, bool_list)]
-            tmp_hl_len = len(HL_BPA_hessian)
-           
-            HL_BPA_hessian = np.hstack([HL_BPA_hessian, np.zeros((len(HL_BPA_hessian), len(linker_atom_pair_num)*3))])
-            tmp_bpa_hess = np.zeros((len(linker_atom_pair_num)*3, tmp_hl_len))
-            tmp_bpa_hess = np.hstack([tmp_bpa_hess, np.eye((len(linker_atom_pair_num)*3))])
+         
           
-            HL_BPA_hessian = np.vstack([HL_BPA_hessian, tmp_bpa_hess])
             # Update high layer optimizer Hessians
             for i in range(len(HL_optimizer_instances)):
                 HL_optimizer_instances[i].set_bias_hessian(HL_BPA_hessian)
                 
                 if iter % self.FC_COUNT == 0:
-                    HL_optimizer_instances[i].set_hessian(HL_Model_hess)
+                    HL_optimizer_instances[i].set_hessian(HL_Model_hess[:len(high_layer_atom_num)*3, :len(high_layer_atom_num)*3])
             
             # Apply fragment constraints if specified
             if len(force_data["opt_fragment"]) > 0:
@@ -1189,10 +1188,10 @@ class Optimize:
             # Calculate move vector for high layer
      
             high_layer_geom_num_list, move_vector, HL_optimizer_instances = HL_CMV.calc_move_vector(
-                iter, high_layer_geom_num_list, model_HL_B_g, pre_model_HL_B_g, 
-                pre_high_layer_geom_num_list, model_HL_B_e, pre_model_HL_B_e, 
-                pre_model_HL_move_vector, high_layer_pre_geom, 
-                model_HL_g, pre_model_HL_g, HL_optimizer_instances)
+                iter, high_layer_geom_num_list[:len(high_layer_atom_num)], model_HL_B_g[:len(high_layer_atom_num)], pre_model_HL_B_g[:len(high_layer_atom_num)], 
+                pre_high_layer_geom_num_list[:len(high_layer_atom_num)], model_HL_B_e, pre_model_HL_B_e, 
+                pre_model_HL_move_vector[:len(high_layer_atom_num)], high_layer_pre_geom[:len(high_layer_atom_num)], 
+                model_HL_g[:len(high_layer_atom_num)], pre_model_HL_g[:len(high_layer_atom_num)], HL_optimizer_instances)
             
             # Update full system geometry with high layer changes
             for l in range(len(high_layer_geom_num_list) - len(linker_atom_pair_num)):
