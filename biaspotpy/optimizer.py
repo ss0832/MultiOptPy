@@ -41,6 +41,7 @@ from Optimizer.adiis import ADIIS
 from Optimizer.kdiis import KrylovDIIS as KDIIS
 from Optimizer.gpr_step import GPRStep
 from Optimizer.gan_step import GANStep
+from Optimizer.rl_step import RLStepSizeOptimizer
 from Optimizer.component_wise_scaling import ComponentWiseScaling
 from Optimizer.coordinate_locking import CoordinateLocking
 from Optimizer.trust_radius import TrustRadius
@@ -180,7 +181,7 @@ class CalculateMoveVector:
         coordinate_wise_scaling_instances = []
         gpr_step_instances = []
         gan_step_instances = []
-      
+        rl_step_instances = []
         
 
         for i, m in enumerate(method):
@@ -208,7 +209,8 @@ class CalculateMoveVector:
                 
                 gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                      
+                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
+                
                        
                 
             elif any(key in lower_m for key in optimizer_mapping):
@@ -239,7 +241,7 @@ class CalculateMoveVector:
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                      
+                        rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                        
                         break
                     
@@ -266,7 +268,7 @@ class CalculateMoveVector:
                 
                 gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                
+                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                 
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
@@ -303,7 +305,7 @@ class CalculateMoveVector:
                         
                         gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                       
+                        rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                        
                         break
             else:
@@ -322,7 +324,7 @@ class CalculateMoveVector:
                 coordinate_wise_scaling_instances.append(None)
                 gpr_step_instances.append(None)
                 gan_step_instances.append(None)
-              
+                rl_step_instances.append(None)
             
         self.method = method
         self.newton_tag = newton_tag
@@ -338,7 +340,7 @@ class CalculateMoveVector:
         self.coordinate_wise_scaling_instances = coordinate_wise_scaling_instances
         self.gpr_step_instances = gpr_step_instances
         self.gan_step_instances = gan_step_instances
-       
+        self.rl_step_instances = rl_step_instances
         return optimizer_instances
             
 
@@ -464,7 +466,9 @@ class CalculateMoveVector:
             
             # GAN-based step prediction techniques
             [self.gan_step_instances, "apply_gan_step", [B_e, B_g]],
-          
+            
+            # Reinforcement learning-based step prediction techniques
+            [self.rl_step_instances, "apply_rl_step", [B_g, pre_B_g, B_e, pre_B_e]],
         
         ]
 
