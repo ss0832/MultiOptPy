@@ -76,7 +76,10 @@ class Calculation:
                                     basis = self.SUB_BASIS_SET,
                                     max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                     verbose=4)
-                if self.excited_state  == 0:
+                
+                scf_max_cycle = 300 + 10 * len(element_list)
+                
+                if self.excited_state == 0:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
                             mf = mol.UHF().density_fit()
@@ -88,29 +91,31 @@ class Calculation:
                         else:
                             mf = mol.RKS().density_fit()
                         mf.xc = self.FUNCTIONAL
-                    g = mf.run().nuc_grad_method().kernel()
+                
+                    mf.direct_scf = True
+                    g = mf.run(max_cycle=scf_max_cycle).nuc_grad_method().kernel()
                     e = float(vars(mf)["e_tot"])
                 else:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
-                            mf = mol.UHF().density_fit().run()
+                            mf = mol.UHF().density_fit().run(max_cycle=scf_max_cycle)
 
                         else:
-                            mf = mol.RHF().density_fit().run()
+                            mf = mol.RHF().density_fit().run(max_cycle=scf_max_cycle)
 
                     else:
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
-                            mf = mol.UKS().x2c().density_fit().run()
+                            mf = mol.UKS().x2c().density_fit().run(max_cycle=scf_max_cycle)
                             mf.xc = self.FUNCTIONAL
 
                         else:
-                            mf = mol.RKS().density_fit().run()
+                            mf = mol.RKS().density_fit().run(max_cycle=scf_max_cycle)
                             mf.xc = self.FUNCTIONAL
-                            
-
+                    
+                    mf.direct_scf = True
                     ground_e = float(vars(mf)["e_tot"])
                     mf = tdscf.TDA(mf)
-                    g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
+                    g = mf.run(max_cycle=scf_max_cycle).nuc_grad_method().kernel(state=self.excited_state)
                     e = vars(mf)["e"][self.excited_state-1]
                     e += ground_e
 
