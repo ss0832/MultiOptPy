@@ -1,7 +1,7 @@
 # BiasPotPy
-An optimizer for quantum chemical calculation including artificial force induced reaction method 
+Multifunctional geometry optimisation tools for quantum chemical calculations 
 
-This program reproduces AFIR method in python for learning purposes.
+This program implements many geometry optimisation methods in Python for learning purposes.
 
 If you think this repository is good, I would appreciate it if you would star it.
 
