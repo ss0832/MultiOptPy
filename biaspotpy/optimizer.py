@@ -29,7 +29,9 @@ from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.hybrid_rfo import HybridRFO
 from Optimizer.rfo import RationalFunctionOptimization
 from Optimizer.ric_rfo import RedundantInternalRFO
+from Optimizer.rsprfo import RSPRFO
 from Optimizer.newton import Newton
+from Optimizer.lbfgs import LBFGS
 from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
@@ -83,6 +85,14 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
+    "rsprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
     "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
@@ -269,7 +279,28 @@ class CalculateMoveVector:
                 gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
+            elif m in ["lbfgs"]:
+                optimizer_instances.append(LBFGS())
+                newton_tag.append(False)
+                lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
+                lars_instances.append(LARS() if "lars" in lower_m else None)
+                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+                if "gediis" in lower_m:
+                    gediis_instances.append(GEDIIS())
+                    ediis_instances.append(None)
+                else:
+                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                    gediis_instances.append(None)
+                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
                 
+                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
+                
+            
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
@@ -278,6 +309,9 @@ class CalculateMoveVector:
                             optimizer_instances.append(HybridRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
                         elif "ric_rfo" in key:
                             optimizer_instances.append(RedundantInternalRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+                        elif "rsprfo" in key:
+                            optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+                        
                         elif "rfo" in key:
                             optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
                        
