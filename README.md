@@ -1,7 +1,7 @@
 # BiasPotPy
 Multifunctional geometry optimisation tools for quantum chemical calculations
 
-This program implements many geometry optimisation methods in Python for learning purposes.
+This program implements many geometry optimization methods in Python for learning purposes.
 
 **Notice:** This program contains many experimental features, which may not work as intended. Please use them at your own risk.
 
