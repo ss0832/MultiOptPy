@@ -631,9 +631,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
 
                 elif self.mf_mode == "conical":
                     CMF = MF.ConicalModelFunction()
+                elif self.mf_mode == "mesx2":
+                    MESX = MF.OptMESX2()
+                
                 elif self.mf_mode == "mesx":
                     MESX = MF.OptMESX()
-                    
+                
                 elif self.mf_mode == "meci":
                     MECI_bare = MF.OptMECI()
                     MECI_bias = MF.OptMECI()
@@ -689,7 +692,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
 
-            elif self.mf_mode == "mesx":
+            elif self.mf_mode == "mesx" or self.mf_mode == "mesx2":
                 mf_energy = MESX.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
                 mf_bias_energy = MESX.calc_energy(tmp_bias_energy_list[0], tmp_bias_energy_list[1])
                 gp_grad = MESX.calc_grad(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1])
