@@ -23,6 +23,7 @@ from constraint_condition import ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
 from oniom import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
+from symmetry_analyzer import analyze_symmetry
 
 class Optimize:
     def __init__(self, args):
@@ -575,6 +576,7 @@ class Optimize:
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    orthogonal_bias_grad_list, orthogonal_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
+        
         self.optimized_flag = optimized_flag
         return
 
@@ -586,6 +588,10 @@ class Optimize:
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
+        self.symmetry = analyze_symmetry(self.element_list, self.final_geometry)
+        with open(self.BPA_FOLDER_DIRECTORY+"symmetry.txt", "w") as f:
+            f.write(f"Symmetry: {self.symmetry}")
+        print(f"Symmetry: {self.symmetry}")
 
     def calculate_orthogonal_gradients(self, pre_move_vector, B_g, g):
         norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector) * 3, 1)
