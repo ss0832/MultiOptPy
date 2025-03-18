@@ -1,11 +1,11 @@
-BiasPotPy Documentation
+MultiOptPy Documentation
 =======================
 
     **Version**: v1.4.5  
-    **Repository**: `https://github.com/ss0832/BiasPotPy <https://github.com/ss0832/BiasPotPy>`_  
+    **Repository**: `https://github.com/ss0832/MultiOptPy <https://github.com/ss0832/MultiOptPy>`_  
     *An optimizer for quantum chemical calculation including artificial force induced reaction method*
 
-BiasPotPy is a Python program that supports various types of calculations (e.g., geometry optimization, NEB, MD), allowing the application of bias potentials and external forces to facilitate advanced modeling in computational chemistry.
+MultiOptPy is a Python program that supports various types of calculations (e.g., geometry optimization, NEB, MD), allowing the application of bias potentials and external forces to facilitate advanced modeling in computational chemistry.
 
 Table of Contents
 ----------------
@@ -28,7 +28,7 @@ Installation
 
 .. code-block:: bash
 
-    git clone https://github.com/ss0832/BiasPotPy.git
+    git clone https://github.com/ss0832/MultiOptPy.git
 
 or download the latest version of this program (v1.4.5 (2025/3/5) ).
 
@@ -52,7 +52,7 @@ Optional
 Examples 
 --------
 
-Below are some examples of BiasPotPy usage.
+Below are some examples of MultiOptPy usage.
 
 After ``git clone``,
 
@@ -370,7 +370,7 @@ Basic Options
 Bias Potentials and Forces
 -------------------------
 
-BiasPotPy supports a variety of bias potentials and forces.
+MultiOptPy supports a variety of bias potentials and forces.
 
 Artificial Force-Induced Reaction (AFIR)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -491,7 +491,7 @@ The references for this program are embedded within the source code. Please refe
 License
 ------
 
-BiasPotPy is licensed under the **GNU General Public License v3.0**.
+MultiOptPy is licensed under the **GNU General Public License v3.0**.
 
 (C) 2023-2025 ss0832
 
