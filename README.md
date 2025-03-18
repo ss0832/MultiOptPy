@@ -1,4 +1,4 @@
-# BiasPotPy
+# MultiOptPy
 Multifunctional geometry optimisation tools for quantum chemical calculations 
 
 This program implements many geometry optimization methods in Python for learning purposes.
