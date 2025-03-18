@@ -1,10 +1,10 @@
 import sys
 import os
 import random
-sys.path.append('./biaspotpy')
-import biaspotpy.calc_tools
+sys.path.append('./multioptpy')
+import multioptpy.calc_tools
 
-import biaspotpy
+import multioptpy
 import numpy as np
 import itertools
 
@@ -154,7 +154,7 @@ def read_energy_file(file_name):
 def make_tgt_atom_pair(geom_num_list, element_list, target_atoms):
     norm_dist_min = 1.0
     norm_dist_max = 8.0
-    norm_distance_list = biaspotpy.calc_tools.calc_normalized_distance_list(geom_num_list, element_list)
+    norm_distance_list = multioptpy.calc_tools.calc_normalized_distance_list(geom_num_list, element_list)
     bool_tgt_atom_list = np.where((norm_dist_min < norm_distance_list) & (norm_distance_list < norm_dist_max), True, False)
     updated_target_atom_pairs = []
     for i, j in itertools.combinations(target_atoms, 2):
@@ -200,10 +200,10 @@ def switch_conformer(energy_list, temperature=298.15):
     return idx
 
 if __name__ == '__main__':
-    parser = biaspotpy.interface.init_parser()
+    parser = multioptpy.interface.init_parser()
     parser = conformation_search(parser)
     
-    args = biaspotpy.interface.optimizeparser(parser)
+    args = multioptpy.interface.optimizeparser(parser)
     no_stochastic = args.no_stochastic
     init_geom_num_list, init_element_list = read_xyz(args.INPUT)
     sampling_temperature = args.sampling_temperature
@@ -245,7 +245,7 @@ if __name__ == '__main__':
     reason = ""
     if len(energy_list) == 0:
         print("initial conformer.")
-        bpa = biaspotpy.optimization.Optimize(args)
+        bpa = multioptpy.optimization.Optimize(args)
         bpa.run()
         if not bpa.optimized_flag:
             print("Optimization is failed. Exit...")
@@ -288,7 +288,7 @@ if __name__ == '__main__':
         else:
             args.manual_AFIR = init_AFIR_CONFIG + [str(-args.base_force), str(atom_pair[0]+1), str(atom_pair[1]+1)]
         
-        bpa = biaspotpy.optimization.Optimize(args)
+        bpa = multioptpy.optimization.Optimize(args)
         bpa.run()
         DC_check_flag = bpa.DC_check_flag
         if not DC_check_flag:
@@ -297,7 +297,7 @@ if __name__ == '__main__':
             sample_file_name = save_xyz_file(bias_opted_geom_num_list, init_element_list, init_INPUT, "tmp")
             args.INPUT = sample_file_name
             args.manual_AFIR = init_AFIR_CONFIG
-            bpa = biaspotpy.optimization.Optimize(args)
+            bpa = multioptpy.optimization.Optimize(args)
             bpa.run()
             optimized_flag = bpa.optimized_flag
             energy = bpa.final_energy

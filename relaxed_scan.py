@@ -2,11 +2,11 @@ import sys
 import os
 import shutil
 import datetime
-sys.path.append('./biaspotpy')
-import biaspotpy.calc_tools
-from biaspotpy.parameter import UnitValueLib
+sys.path.append('./multioptpy')
+import multioptpy.calc_tools
+from multioptpy.parameter import UnitValueLib
 import numpy as np
-import biaspotpy
+import multioptpy
 
 # When you use psi4 with this script, segmentation fault may occur. Thus, I recommend to use pyscf, tblite and so on with the following script.
 
@@ -56,9 +56,9 @@ def make_scan_tgt(scan_list):
    
 
 if __name__ == '__main__':
-    parser = biaspotpy.interface.init_parser()
+    parser = multioptpy.interface.init_parser()
     parser = relaxed_scan_perser(parser)
-    args = biaspotpy.interface.optimizeparser(parser)
+    args = multioptpy.interface.optimizeparser(parser)
     first_only_flag = args.first_only
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     directory = os.path.splitext(args.INPUT)[0]+"_RScan_"+date+"/"
@@ -103,7 +103,7 @@ if __name__ == '__main__':
         for scan_tgt, atom_num, scan_value in zip(scan_tgt_list, atom_num_list, scan_job_list[i]):
             args.projection_constrain.extend(["manual", scan_tgt, atom_num, str(scan_value)])
             
-        bpa = biaspotpy.optimization.Optimize(args)
+        bpa = multioptpy.optimization.Optimize(args)
         bpa.run()
         
         opted_geometry = bpa.final_geometry * UnitValueLib().bohr2angstroms # get optimized geometry
