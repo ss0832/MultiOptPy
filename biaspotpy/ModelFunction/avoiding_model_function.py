@@ -23,3 +23,8 @@ class AvoidingModelFunction:
         smf_grad_2 = 0.5 * (grad_1 + grad_2) + 0.5 * (1.0 /a) * ( 2.0 * (energy_1 - energy_2) * (grad_1) + 8.0 * U * dU_dq1) + 0.5 * (1.0 /a) * (-2.0 * (energy_1 - energy_2) * (grad_2) + 8.0 * U * dU_dq2)
         
         return smf_grad_1, smf_grad_2
+
+    def calc_hess(self, energy_1, energy_2, grad_1, grad_2, hess_1, hess_2):
+        
+        
+        return

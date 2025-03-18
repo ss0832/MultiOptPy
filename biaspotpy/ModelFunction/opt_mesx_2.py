@@ -21,10 +21,29 @@ class OptMESX2:
         
         delta_grad = grad_1 - grad_2
         norm_delta_grad = np.linalg.norm(delta_grad)
-        projection = np.sum(grad_1 * delta_grad) / norm_delta_grad
+        if norm_delta_grad < 1e-8:
+            projection = np.zeros_like(delta_grad)
+        else:
+            projection = np.sum(grad_1 * delta_grad) / norm_delta_grad
+            
         parallel = grad_1 - delta_grad * projection / norm_delta_grad
         
         gp_grad = (energy_1 - energy_2) * 140 * delta_grad + 1.0 * parallel
         
         gp_grad = gp_grad.reshape(-1, 3)
         return gp_grad
+    
+    def calc_hess(self, grad_1, grad_2, hess_1, hess_2):
+        delta_grad = grad_1 - grad_2
+        norm_delta_grad = np.linalg.norm(delta_grad)
+        if norm_delta_grad < 1e-8:
+            dgv_vec = np.zeros_like(delta_grad)
+        else:
+            dgv_vec = delta_grad / norm_delta_grad
+        delta_grad = delta_grad.reshape(-1, 1)
+        dgv_vec = dgv_vec.reshape(-1, 1)
+        P_matrix = np.eye((len(dgv_vec))) -1 * np.dot(dgv_vec, dgv_vec.T)
+        P_matrix = 0.5 * (P_matrix + P_matrix.T)
+        
+        gp_hess = 2.0 * np.dot(delta_grad, dgv_vec.T) + np.dot(P_matrix, 0.5 * (hess_1 + hess_2))
+        return gp_hess
