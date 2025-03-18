@@ -590,7 +590,7 @@ class Optimize:
         self.final_bias_energy = B_e  # Hartree
         self.symmetry = analyze_symmetry(self.element_list, self.final_geometry)
         with open(self.BPA_FOLDER_DIRECTORY+"symmetry.txt", "w") as f:
-            f.write(f"Symmetry: {self.symmetry}")
+            f.write(f"Symmetry of final structure: {self.symmetry}")
         print(f"Symmetry: {self.symmetry}")
 
     def calculate_orthogonal_gradients(self, pre_move_vector, B_g, g):

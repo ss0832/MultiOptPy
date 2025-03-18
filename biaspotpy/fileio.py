@@ -184,7 +184,7 @@ class FileIO:
             tmp_geometry_list, element_list, _ = xyz2list(file, None)
             for j in range(len(element_list)):
                 sample.append(f"{element_list[j]:2}  {float(tmp_geometry_list[j][0]):>17.12f}   {float(tmp_geometry_list[j][1]):>17.12f}   {float(tmp_geometry_list[j][2]):>17.12f}")
-            with open(self.work_directory+self.NOEXT_START_FILE+"_collection.xyz","a") as w:
+            with open(self.work_directory+self.NOEXT_START_FILE+"_traj.xyz","a") as w:
                 atom_num = len(sample)
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")
@@ -209,7 +209,7 @@ class FileIO:
     def xyz_file_save_for_IRC(self, element_list, geometry_list):
         count = 0
         for geometry in geometry_list:
-            with open(self.work_directory+"IRC_path_collection.xyz","a") as w:
+            with open(self.work_directory+"IRC_path.xyz","a") as w:
                 atom_num = len(geometry)
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(count)+"\n")
@@ -237,7 +237,7 @@ class FileIO:
             for j in range(len(element_list)):
                 sample.append(f"{element_list[j]:2}  {float(tmp_geometry_list[j][0]):>17.12f}   {float(tmp_geometry_list[j][1]):>17.12f}   {float(tmp_geometry_list[j][2]):>17.12f}")
                 
-            with open(self.work_directory+self.NOEXT_START_FILE+"_path.xyz","a") as w:
+            with open(self.work_directory+self.NOEXT_START_FILE+"_traj.xyz","a") as w:
                 atom_num = len(sample)
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")

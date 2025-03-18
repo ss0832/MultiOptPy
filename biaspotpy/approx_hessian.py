@@ -8949,7 +8949,7 @@ class ShortRangeCorrectionHessian:
         set
             Set of tuples (i,j) representing bonded atom pairs
         """
-        # Use BondConnectivity class from BiasPotPy to detect bonds
+        # Use BondConnectivity class from MultiOptPy to detect bonds
         bc = BondConnectivity()
         bond_matrix = bc.bond_connect_matrix(element_list, coord)
         
