@@ -102,10 +102,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.microiter_num = args.microiter
         self.unrestrict = args.unrestrict
         self.mf_mode = args.model_function_mode
-        self.MAX_FORCE_THRESHOLD = 0.0003 #0.0003
-        self.RMS_FORCE_THRESHOLD = 0.0002 #0.0002
-        self.MAX_DISPLACEMENT_THRESHOLD = 0.0015 #0.0015 
-        self.RMS_DISPLACEMENT_THRESHOLD = 0.0010 #0.0010
+        self.MAX_FORCE_THRESHOLD = 0.0006 #0.0003
+        self.RMS_FORCE_THRESHOLD = 0.0004 #0.0002
+        self.MAX_DISPLACEMENT_THRESHOLD = 0.0030 #0.0015 
+        self.RMS_DISPLACEMENT_THRESHOLD = 0.0020 #0.0010
+
+        self.FC_COUNT = int(args.calc_exact_hess)
         return
         
         
@@ -528,7 +530,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          N_THREAD = self.N_THREAD,
                          SET_MEMORY = self.SET_MEMORY ,
                          FUNCTIONAL = self.FUNCTIONAL,
-                         FC_COUNT = -1,
+                         FC_COUNT = self.FC_COUNT,
                          BPA_FOLDER_DIRECTORY = self.iEIP_FOLDER_DIRECTORY,
                          Model_hess = np.eye(3*len(geometry_list_list[i])),
                          unrestrict=self.unrestrict, 
@@ -579,12 +581,16 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             tmp_gradient_list = []
             tmp_energy_list = []
             tmp_geometry_list = []
-            
+            exit_flag = False
             for j in range(len(SP_list)):
-                energy, gradient, geom_num_list, _ = SP_list[j].single_point(file_directory_list[j], element_list_list[j], iter, electric_charge_and_multiplicity_list[j], self.force_data["xtb"])
+                energy, gradient, geom_num_list, exit_flag = SP_list[j].single_point(file_directory_list[j], element_list_list[j], iter, electric_charge_and_multiplicity_list[j], self.force_data["xtb"])
+                if exit_flag:
+                    break
                 tmp_gradient_list.append(gradient)
                 tmp_energy_list.append(energy)
                 tmp_geometry_list.append(geom_num_list)
+            if exit_flag:
+                break
             
             tmp_gradient_list = np.array(tmp_gradient_list)
             tmp_energy_list = np.array(tmp_energy_list)
@@ -602,10 +608,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 PREV_e_LIST = []
                 PREV_MF_e = 0.0
                 PREV_MF_B_e = 0.0
-                CMV_LIST = []
+                CMV = None
                 
-                OPTIMIZER_INSTANCE_LIST = []
-                
+                optimizer_instances = None
                 for j in range(len(SP_list)):
                     PREV_GRAD_LIST.append(tmp_gradient_list[j] * 0.0)
                     PREV_BIAS_GRAD_LIST.append(tmp_gradient_list[j] * 0.0)
@@ -615,11 +620,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                     PREV_B_e_LIST.append(0.0)
                     PREV_e_LIST.append(0.0)
                    
-                    CMV_LIST.append(CalculateMoveVector("x", element_list_list[j], 0, SP_list[j].FC_COUNT, 0))
-                    OPTIMIZER_INSTANCE_LIST.append(CMV_LIST[j].initialization(self.force_data["opt_method"]))
-                    for l in range(len(OPTIMIZER_INSTANCE_LIST[j])):
-                        OPTIMIZER_INSTANCE_LIST[j][l].set_hessian(np.eye((len(geom_num_list)*3)))
+                CMV = CalculateMoveVector("x", element_list_list[j], 0, SP_list[j].FC_COUNT, 0)
                     
+                optimizer_instances = CMV.initialization(self.force_data["opt_method"])
+                for i in range(len(optimizer_instances)):
+
+                    optimizer_instances[i].set_hessian(np.eye((len(geom_num_list)*3)))
                     
                 init_geom_list = tmp_geometry_list
                 PREV_GEOM_LIST = tmp_geometry_list
@@ -644,19 +650,23 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 else:
                     print("Unexpected method. exit...")
                     raise
-                
+            
+                 
+
             BPC_LIST = []
             for j in range(len(SP_list)):
                 BPC_LIST.append(BiasPotentialCalculation(self.iEIP_FOLDER_DIRECTORY))
                 
             tmp_bias_energy_list = []
             tmp_bias_gradient_list = []
+            tmp_bias_hessian_list = []
             for j in range(len(SP_list)):
                 
                 _, bias_energy, bias_gradient, BPA_hessian = BPC_LIST[j].main(tmp_energy_list[j], tmp_gradient_list[j], tmp_geometry_list[j], element_list_list[j], self.force_data)
                 
-                for l in range(len(OPTIMIZER_INSTANCE_LIST[j])):
-                    OPTIMIZER_INSTANCE_LIST[j][l].set_bias_hessian(BPA_hessian)
+                for l in range(len(optimizer_instances)):
+                    optimizer_instances[l].set_bias_hessian(BPA_hessian)
+                tmp_bias_hessian_list.append(BPA_hessian)
                 tmp_bias_energy_list.append(bias_energy)
                 tmp_bias_gradient_list.append(bias_gradient)
  
@@ -673,6 +683,19 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 smf_bias_grad_1, smf_bias_grad_2 = SMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
+                if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                    hess_list = []
+                    for l in range(len(SP_list)):
+                        tmp_hess = 0.5 * (SP_list[l].Model_hess + SP_list[l].Model_hess.T)
+                        hess_list.append(tmp_hess)
+                    gp_hess = SMF.calc_hess(tmp_energy_list[0], tmp_energy_list[1], tmp_gradient_list[0], tmp_gradient_list[1], hess_list[0], hess_list[1])
+                    
+                    for l in range(len(optimizer_instances)):
+                        optimizer_instances[l].set_hessian(gp_hess)
+                   
+                bias_gp_hess = SMF.calc_hess(tmp_bias_energy_list[0] - tmp_energy_list[0], tmp_bias_energy_list[1] - tmp_energy_list[1], tmp_bias_gradient_list[0] - tmp_gradient_list[0], tmp_bias_gradient_list[1] - tmp_gradient_list[1], tmp_bias_hessian_list[0], tmp_bias_hessian_list[1])
+                for l in range(len(optimizer_instances)):
+                    optimizer_instances[l].set_bias_hessian(bias_gp_hess)
 
                 
             elif self.mf_mode == "avoiding":
@@ -682,6 +705,11 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 smf_bias_grad_1, smf_bias_grad_2 = AMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
+                
+                
+                if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                    raise NotImplementedError("Not implemented Hessian of AMF.")
+
 
 
             elif self.mf_mode == "conical":
@@ -691,6 +719,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 smf_bias_grad_1, smf_bias_grad_2 = CMF.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [smf_bias_grad_1, smf_bias_grad_2]
                 tmp_smf_grad_list = [smf_grad_1, smf_grad_2]
+                
+                if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                    raise NotImplementedError("Not implemented Hessian of CMF.")
+
 
             elif self.mf_mode == "mesx" or self.mf_mode == "mesx2":
                 mf_energy = MESX.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
@@ -699,10 +731,18 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 gp_bias_grad = MESX.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [gp_bias_grad, gp_bias_grad]
                 tmp_smf_grad_list = [gp_grad, gp_grad]
-                
-                for l in range(len(OPTIMIZER_INSTANCE_LIST[0])):
-                    OPTIMIZER_INSTANCE_LIST[0][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
-                    OPTIMIZER_INSTANCE_LIST[1][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
+                if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                    hess_list = []
+                    for l in range(len(SP_list)):
+                        tmp_hess = 0.5 * (SP_list[l].Model_hess + SP_list[l].Model_hess.T)
+                        hess_list.append(tmp_hess)
+                    gp_hess = MESX.calc_hess(tmp_gradient_list[0], tmp_gradient_list[1], hess_list[0], hess_list[1])
+                    
+                    for l in range(len(optimizer_instances)):
+                        optimizer_instances[l].set_hessian(gp_hess)
+                   
+             
+                       
                     
             elif self.mf_mode == "meci":
                 mf_energy = MECI_bare.calc_energy(tmp_energy_list[0], tmp_energy_list[1])
@@ -711,10 +751,18 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 gp_bias_grad = MECI_bias.calc_grad(tmp_bias_energy_list[0], tmp_bias_energy_list[1], tmp_bias_gradient_list[0], tmp_bias_gradient_list[1])
                 tmp_smf_bias_grad_list = [gp_bias_grad, gp_bias_grad]
                 tmp_smf_grad_list = [gp_grad, gp_grad]
-                
-                for l in range(len(OPTIMIZER_INSTANCE_LIST[0])):
-                    OPTIMIZER_INSTANCE_LIST[0][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)
-                    OPTIMIZER_INSTANCE_LIST[1][l].set_hessian(OPTIMIZER_INSTANCE_LIST[0][l].hessian)  
+                if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                    hess_list = []
+                    for l in range(len(SP_list)):
+                        tmp_hess = 0.5 * (SP_list[l].Model_hess + SP_list[l].Model_hess.T)
+                        hess_list.append(tmp_hess)
+                    gp_hess = MECI_bare.calc_hess(tmp_gradient_list[0], tmp_gradient_list[1], hess_list[0], hess_list[1])
+                    
+                    for l in range(len(optimizer_instances)):
+                        optimizer_instances[l].set_hessian(gp_hess)
+                   
+      
+                    
             else:
                 print("No model function is selected.")
                 raise
@@ -723,20 +771,15 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             tmp_smf_grad_list = np.array(tmp_smf_grad_list)            
             tmp_move_vector_list = []
             tmp_new_geometry_list = []
-            for j in range(len(SP_list)):
-                CMV_LIST[j].trust_radii = 0.1
-                tmp_new_geometry, tmp_move_vector, tmp_optimizer_instances = CMV_LIST[j].calc_move_vector(iter, tmp_geometry_list[j], tmp_smf_bias_grad_list[j], PREV_MF_BIAS_GRAD_LIST[j], PREV_GEOM_LIST[j], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[j], init_geom_list[j], tmp_smf_grad_list[j], PREV_GRAD_LIST[j], OPTIMIZER_INSTANCE_LIST[j])
-                tmp_move_vector_list.append(tmp_move_vector)
-                tmp_new_geometry_list.append(tmp_new_geometry)
-                OPTIMIZER_INSTANCE_LIST[j] = tmp_optimizer_instances
-             
-            if self.mf_mode == "mesx":
-                tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
-                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]
-            if self.mf_mode == "meci":
-                tmp_move_vector_list = [tmp_move_vector_list[0], tmp_move_vector_list[0]]
-                tmp_new_geometry_list = [tmp_new_geometry_list[0], tmp_new_geometry_list[0]]   
             
+            CMV.trust_radii = 0.1
+                
+            _, tmp_move_vector, _ = CMV.calc_move_vector(iter, tmp_geometry_list[0], tmp_smf_bias_grad_list[0], PREV_MF_BIAS_GRAD_LIST[0], PREV_GEOM_LIST[0], PREV_MF_e, PREV_MF_B_e, PREV_MOVE_VEC_LIST[0], init_geom_list[0], tmp_smf_grad_list[0], PREV_GRAD_LIST[0], optimizer_instances)
+            
+            for j in range(len(SP_list)):
+                tmp_move_vector_list.append(tmp_move_vector)
+                tmp_new_geometry_list.append((tmp_geometry_list[j]-tmp_move_vector)*self.bohr2angstroms)
+                        
             tmp_move_vector_list = np.array(tmp_move_vector_list)
             tmp_new_geometry_list = np.array(tmp_new_geometry_list)
 
@@ -757,9 +800,10 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 tmp_new_geometry_list_to_list[j].insert(0, electric_charge_and_multiplicity_list[j])
                 
             for j in range(len(SP_list)):
-                   
+                print(f"Input: {j}")
+                _ = FIO_img_list[j].print_geometry_list(tmp_new_geometry_list[j], element_list_list[j], [])
                 file_directory_list[j] = FIO_img_list[j].make_psi4_input_file([tmp_new_geometry_list_to_list[j]], iter+1)
-                  
+                print()
               
             PREV_GRAD_LIST = tmp_gradient_list
             PREV_BIAS_GRAD_LIST = tmp_bias_gradient_list

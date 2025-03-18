@@ -4,7 +4,7 @@ import numpy as np
 
 
 """
-    BiasPotPy
+    MultiOptPy
     Copyright (C) 2023-2025 ss0832
 
     This program is free software: you can redistribute it and/or modify
@@ -45,6 +45,7 @@ def ieipparser(parser):
     parser.add_argument("-es", "--excited_state", type=int, nargs="*", default=[0, 0],
                         help='calculate excited state (default: [0(initial state), 0(final state)]) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
     parser.add_argument("-mf", "--model_function_mode", help="use model function to optimization (seam, avoiding, conical, mesx, meci)", type=str, default='None',)
+    parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
     parser = parser_for_biasforce(parser)
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
