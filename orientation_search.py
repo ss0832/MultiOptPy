@@ -1,11 +1,11 @@
 import sys
 import os
 import random
-sys.path.append('./biaspotpy')
-import biaspotpy.calc_tools
+sys.path.append('./multioptpy')
+import multioptpy.calc_tools
 import numpy as np
 
-import biaspotpy
+import multioptpy
 
 def orientation_search(parser):
     parser.add_argument("-nsample", "--number_of_samples", type=int, default=5, help='the number of sampling orientations')
@@ -54,15 +54,15 @@ def make_random_orientation_xyz_file(coord_list, part_list, part_dist, input_fil
     # Random rotation
     rand_rotated_part_coord_list = []
     for i in range(len(part_coord_list)):
-        part_center = biaspotpy.calc_tools.Calculationtools().calc_center(part_coord_list[i], part_element_list[i])
+        part_center = multioptpy.calc_tools.Calculationtools().calc_center(part_coord_list[i], part_element_list[i])
         centered_part_coord_list = part_coord_list[i] - part_center 
         random_x_angle = random.uniform(0, 2*np.pi)
         random_y_angle = random.uniform(0, 2*np.pi)
         random_z_angle = random.uniform(0, 2*np.pi)
         print("Random angles (Radian): ", random_x_angle, random_y_angle, random_z_angle)
-        rotated_part_coord = biaspotpy.calc_tools.rotate_molecule(centered_part_coord_list, "x", random_x_angle)
-        rotated_part_coord = biaspotpy.calc_tools.rotate_molecule(rotated_part_coord, "y", random_y_angle)
-        rotated_part_coord = biaspotpy.calc_tools.rotate_molecule(rotated_part_coord, "z", random_z_angle)
+        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(centered_part_coord_list, "x", random_x_angle)
+        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(rotated_part_coord, "y", random_y_angle)
+        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(rotated_part_coord, "z", random_z_angle)
         rand_rotated_part_coord_list.append(rotated_part_coord)
 
 
@@ -100,9 +100,9 @@ def make_random_orientation_xyz_file(coord_list, part_list, part_dist, input_fil
 
 
 if __name__ == '__main__':
-    parser = biaspotpy.interface.init_parser()
+    parser = multioptpy.interface.init_parser()
     parser = orientation_search(parser)
-    args = biaspotpy.interface.optimizeparser(parser)
+    args = multioptpy.interface.optimizeparser(parser)
     
     part_dist = args.distance
     
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     for i in range(n_sample):
         print("Sampling orientation: ", i)    
         args.INPUT = make_random_orientation_xyz_file(coord_list, part_list, part_dist, original_input_file, i)
-        bpa = biaspotpy.optimization.Optimize(args)
+        bpa = multioptpy.optimization.Optimize(args)
         bpa.run()
     
         

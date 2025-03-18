@@ -1,9 +1,9 @@
 import sys
-sys.path.append('./biaspotpy')
+sys.path.append('./multioptpy')
 
-import biaspotpy
+import multioptpy
 
-parser = biaspotpy.interface.init_parser()
-args = biaspotpy.interface.nebparser(parser)
-NEB = biaspotpy.neb.NEB(args)
+parser = multioptpy.interface.init_parser()
+args = multioptpy.interface.nebparser(parser)
+NEB = multioptpy.neb.NEB(args)
 NEB.run()

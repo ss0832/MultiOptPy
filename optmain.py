@@ -1,13 +1,13 @@
 import sys
 #import os
 #from glob import glob
-sys.path.append('./biaspotpy')
+sys.path.append('./multioptpy')
 
-import biaspotpy
+import multioptpy
 
-parser = biaspotpy.interface.init_parser()
-args = biaspotpy.interface.optimizeparser(parser)    
-bpa = biaspotpy.optimization.Optimize(args)
+parser = multioptpy.interface.init_parser()
+args = multioptpy.interface.optimizeparser(parser)    
+bpa = multioptpy.optimization.Optimize(args)
 bpa.run()
 #print("----------------------------------------------------")
 #print("### gradients of bias potential parameters       ###")

@@ -1,9 +1,9 @@
 import sys
-sys.path.append('./biaspotpy')
+sys.path.append('./multioptpy')
 
-import biaspotpy
+import multioptpy
 
-parser = biaspotpy.interface.init_parser()
-args = biaspotpy.interface.mdparser(parser)
-MD = biaspotpy.moleculardynamics.MD(args)
+parser = multioptpy.interface.init_parser()
+args = multioptpy.interface.mdparser(parser)
+MD = multioptpy.moleculardynamics.MD(args)
 MD.run()

@@ -1,9 +1,9 @@
 import sys
-sys.path.append('./biaspotpy')
+sys.path.append('./multioptpy')
 
-import biaspotpy
+import multioptpy
 
-parser = biaspotpy.interface.init_parser()
-args = biaspotpy.interface.ieipparser(parser)
-iEIP = biaspotpy.ieip.iEIP(args)
+parser = multioptpy.interface.init_parser()
+args = multioptpy.interface.ieipparser(parser)
+iEIP = multioptpy.ieip.iEIP(args)
 iEIP.run()
