@@ -73,6 +73,7 @@ optimizer_mapping = {
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
     "gpmin": GPmin,
+    "lbfgs": LBFGS,
 }
 
 specific_cases = {
@@ -255,9 +256,9 @@ class CalculateMoveVector:
                        
                         break
                     
-            elif m in ["CG", "CG_PR", "CG_FR", "CG_HS", "CG_DY"]:
+            elif lower_m in ["cg", "cg_pr", "cg_fr", "cg_hs", "cg_dy"]:
                 optimizer_instances.append(ConjgateGradient(method=m))
-                if "linesearch" in settings:
+                if "linesearch" in m:
                     optimizer_instances[i].linesearchflag = True
                 newton_tag.append(False)
                 lookahead_instances.append(None)
@@ -279,8 +280,10 @@ class CalculateMoveVector:
                 gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-            elif m in ["lbfgs"]:
+            elif lower_m in ["lbfgs"]:
                 optimizer_instances.append(LBFGS())
+                if "linesearch" in lower_m:
+                    optimizer_instances[i].linesearchflag = True
                 newton_tag.append(False)
                 lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
                 lars_instances.append(LARS() if "lars" in lower_m else None)
