@@ -32,6 +32,7 @@ from Optimizer.ric_rfo import RedundantInternalRFO
 from Optimizer.rsprfo import RSPRFO
 from Optimizer.newton import Newton
 from Optimizer.lbfgs import LBFGS
+from Optimizer.tr_lbfgs import TRLBFGS
 from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
@@ -73,6 +74,7 @@ optimizer_mapping = {
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
     "gpmin": GPmin,
+    "tr_lbfgs": TRLBFGS,
     "lbfgs": LBFGS,
 }
 
@@ -258,8 +260,6 @@ class CalculateMoveVector:
                     
             elif lower_m in ["cg", "cg_pr", "cg_fr", "cg_hs", "cg_dy"]:
                 optimizer_instances.append(ConjgateGradient(method=m))
-                if "linesearch" in m:
-                    optimizer_instances[i].linesearchflag = True
                 newton_tag.append(False)
                 lookahead_instances.append(None)
                 lars_instances.append(None)
@@ -280,29 +280,7 @@ class CalculateMoveVector:
                 gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-            elif lower_m in ["lbfgs"]:
-                optimizer_instances.append(LBFGS())
-                if "linesearch" in lower_m:
-                    optimizer_instances[i].linesearchflag = True
-                newton_tag.append(False)
-                lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
-                lars_instances.append(LARS() if "lars" in lower_m else None)
-                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
-                if "gediis" in lower_m:
-                    gediis_instances.append(GEDIIS())
-                    ediis_instances.append(None)
-                else:
-                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
-                    gediis_instances.append(None)
-                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
-                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
-                
-                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
-                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
-                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-                
+           
             
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
