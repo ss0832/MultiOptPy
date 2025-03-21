@@ -134,7 +134,7 @@ class Newton:
 
 
         if self.iter > 0 and self.linesearchflag:
-            move_vector = new_move_vector
+            move_vector = -new_move_vector
             if self.optimal_step_flag or self.iter == 1:
                 self.prev_move_vector = move_vector    
                 
