@@ -52,13 +52,13 @@ class ConjgateGradient:
         alpha = self.calc_alpha()
         
         move_vector = self.DELTA * alpha * self.d_vector
-        if self.config["method"] == "CG_PR":
+        if self.config["method"].lower() == "cg_pr":
             beta = self.calc_beta_PR()
-        elif self.config["method"] == "CG_FR":
+        elif self.config["method"].lower() == "cg_fr":
             beta = self.calc_beta_FR()
-        elif self.config["method"] == "CG_HS":
+        elif self.config["method"].lower() == "cg_hs":
             beta = self.calc_beta_HS()
-        elif self.config["method"] == "CG_DY":
+        elif self.config["method"].lower() == "cg_dy":
             beta = self.calc_beta_DY()
         else: 
             beta = self.calc_beta()
