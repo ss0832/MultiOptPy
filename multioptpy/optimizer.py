@@ -14,6 +14,8 @@ from Optimizer.adamax import AdaMax
 from Optimizer.yogi import YOGI
 from Optimizer.nadam import NAdam
 from Optimizer.fire import FIRE
+from Optimizer.abc_fire import ABC_FIRE
+from Optimizer.fire2 import FIRE2
 from Optimizer.adadiff import AdaDiff
 from Optimizer.adamod import Adamod
 from Optimizer.radam import RADAM
@@ -69,6 +71,8 @@ optimizer_mapping = {
     "adamax": AdaMax,
     "nadam": NAdam,
     "rmspropgrave": RMSpropGrave,
+    "abcfire": ABC_FIRE,
+    "fire2": FIRE2,
     "fire": FIRE,
     "adaderivative": Adaderivative,
     "mwgradientdescent": MassWeightedGradientDescent,
