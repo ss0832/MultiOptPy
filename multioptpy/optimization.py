@@ -342,11 +342,20 @@ class Optimize:
                                 self.FC_COUNT, self.temperature, self.use_model_hessian)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
+        for i in range(len(optimizer_instances)):
+            if CMV.newton_tag[i] is False and self.FC_COUNT > 0:
+                print("Error: This optimizer method does not support exact Hessian calculations.")
+                print("Please either choose a different optimizer or set FC_COUNT=0 to disable exact Hessian calculations.")
+                sys.exit(0)
+        
+        
         # Initialize optimizer instances
         for i in range(len(optimizer_instances)):
             optimizer_instances[i].set_hessian(self.Model_hess)
             if self.DELTA != "x":
                 optimizer_instances[i].DELTA = self.DELTA
+            
+                
         
         # NRO analysis setup
         if self.NRO_analysis:
@@ -469,6 +478,8 @@ class Optimize:
         exit_flag = vars_dict['misc']['exit_flag']
         optimized_flag = vars_dict['misc']['optimized_flag']
         NRO = vars_dict['misc']['NRO']
+        
+        
         
 
         for iter in range(self.NSTEP):
