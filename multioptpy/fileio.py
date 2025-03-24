@@ -41,8 +41,8 @@ def read_software_path(file_path="./"):
     return software_path_dict
 
 def xyz2list(file_path, args_electric_charge_and_multiplicity):
-    pattern_xyz = r"\s*([A-Za-z]+)\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)(?:\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?))(?:\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?))\s*"    
-    pattern_cs = r"-*[0-9]+\s+-*[0-9]+\s*"
+    pattern_cs = get_pattern_cs()
+    pattern_xyz = get_pattern_xyz()
     electric_charge_and_multiplicity = None
     element_list = []
     with open(file_path, "r") as f:
@@ -59,6 +59,51 @@ def xyz2list(file_path, args_electric_charge_and_multiplicity):
    
     return geometry_list, element_list, electric_charge_and_multiplicity
 
+
+
+
+def traj2list(file_path, args_electric_charge_and_multiplicity):
+    pattern_cs = get_pattern_cs()
+    pattern_xyz = get_pattern_xyz()
+    
+    electric_charge_and_multiplicity = None
+    cs_flag = True
+    
+    with open(file_path, "r") as f:
+        words = f.read().splitlines()
+        
+    geometry_list = []
+    element_list = []
+    geometries = []
+    elements = []
+    for word in words:
+        if re.match(pattern_cs, word) and cs_flag:
+            electric_charge_and_multiplicity = list(map(str, word.split()))
+            cs_flag = False
+        if re.match(pattern_xyz, word):
+            geometry_list.append(word.split()[1:4])
+            element_list.append(word.split()[0])
+        else:
+            if len(geometry_list) != 0:
+                geometries.append(geometry_list)
+            if len(element_list) != 0:
+                elements.append(element_list)
+           
+            geometry_list = []
+            element_list = []
+        
+    if electric_charge_and_multiplicity is None:
+        electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
+   
+    return geometries, elements, electric_charge_and_multiplicity
+
+def get_pattern_xyz():
+    pattern_xyz = re.compile(r"\s*([A-Za-z]+)\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)(?:\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?))(?:\s+([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?))\s*")
+    return pattern_xyz
+
+def get_pattern_cs():
+    pattern_cs = re.compile(r"-*[0-9]+\s+-*[0-9]+\s*")
+    return pattern_cs
 
 class FileIO:
     def __init__(self, folder_dir, file):
