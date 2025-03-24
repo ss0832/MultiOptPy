@@ -48,7 +48,7 @@ from idpp import IDPP
 from Optimizer.rfo import RationalFunctionOptimization 
 from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
-from fileio import xyz2list
+from fileio import xyz2list, traj2list
 
 color_list = ["b"] #use for matplotlib
 
@@ -59,31 +59,7 @@ class NEB:
         self.basic_set_and_function = args.functional+"/"+args.basisset
         self.FUNCTIONAL = args.functional
         
-        if len(args.sub_basisset) % 2 != 0:
-            print("invaild input (-sub_bs)")
-            sys.exit(0)
-        
-        if args.pyscf:
-            self.SUB_BASIS_SET = {}
-            if len(args.sub_basisset) > 0:
-                self.SUB_BASIS_SET["default"] = str(args.basisset) # 
-                for j in range(int(len(args.sub_basisset)/2)):
-                    self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
-                print("Basis Sets defined by User are detected.")
-                print(self.SUB_BASIS_SET) #
-            else:
-                self.SUB_BASIS_SET = { "default" : args.basisset}
-            
-        else:#psi4
-            self.SUB_BASIS_SET = args.basisset # 
-            
-            
-            if len(args.sub_basisset) > 0:
-                self.SUB_BASIS_SET +="\nassign "+str(args.basisset)+"\n" # 
-                for j in range(int(len(args.sub_basisset)/2)):
-                    self.SUB_BASIS_SET += "assign "+args.sub_basisset[2*j]+" "+args.sub_basisset[2*j+1]+"\n"
-                print("Basis Sets defined by User are detected.")
-                print(self.SUB_BASIS_SET) #
+        self.set_sub_basisset(args)
         
         self.cpcm_solv_model = args.cpcm_solv_model
         self.alpb_solv_model = args.alpb_solv_model  
@@ -108,7 +84,7 @@ class NEB:
         self.FIRE_a_start = 0.1
         self.FIRE_dt_max = 1.0
         self.APPLY_CI_NEB = args.apply_CI_NEB
-        self.start_folder = args.INPUT
+        self.init_input = args.INPUT
         self.om = args.OM
         self.lup = args.LUP
         self.dneb = args.DNEB
@@ -127,16 +103,24 @@ class NEB:
         self.climbing_image_start = args.climbing_image[0]
         self.climbing_image_interval = args.climbing_image[1]
         self.apply_convergence_criteria = args.apply_convergence_criteria
-        if args.usextb == "None" and args.usedxtb == "None":
-            self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
-        else:
-            if self.usextb != "None":
-                self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
-            else:
-                self.NEB_FOLDER_DIRECTORY = args.INPUT+"_NEB_"+self.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
-        self.args = args
+        self.node_distance = args.node_distance
+        self.NEB_FOLDER_DIRECTORY = self.make_neb_work_directory(args)
+        
         os.mkdir(self.NEB_FOLDER_DIRECTORY)
        
+        self.set_fixed_edges(args)
+            
+        self.global_quasi_newton = args.global_quasi_newton
+        self.force_const_for_cineb = 0.01
+        if self.FC_COUNT > 0 and args.usextb != "None":
+            print("Currently, you can't use exact hessian calculation with extended tight binding method.")
+            self.FC_COUNT = -1
+        self.electronic_charge = args.electronic_charge
+        self.spin_multiplicity = args.spin_multiplicity
+        self.args = args
+        return
+
+    def set_fixed_edges(self, args):
         if args.fixedges <= 0:
             self.fix_init_edge = False
             self.fix_end_edge = False
@@ -149,32 +133,82 @@ class NEB:
         else:
             self.fix_init_edge = True
             self.fix_end_edge = True
-        self.global_quasi_newton = args.global_quasi_newton
-        self.force_const_for_cineb = 0.01
-        if self.FC_COUNT > 0 and args.usextb != "None":
-            print("Currently, you can't use exact hessian calculation with extended tight binding method.")
-            self.FC_COUNT = -1
-        self.electronic_charge = args.electronic_charge
-        self.spin_multiplicity = args.spin_multiplicity
+
+    def set_sub_basisset(self, args):
+        if len(args.sub_basisset) % 2 != 0:
+            print("invaild input (-sub_bs)")
+            sys.exit(0)
         
-        return
+        if args.pyscf:
+            self.SUB_BASIS_SET = {}
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET["default"] = str(args.basisset)
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET)
+            else:
+                self.SUB_BASIS_SET = {"default": args.basisset}
+        else:
+            self.SUB_BASIS_SET = args.basisset
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET += "\nassign " + str(args.basisset) + "\n"
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET += "assign " + args.sub_basisset[2*j] + " " + args.sub_basisset[2*j+1] + "\n"
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET)
+
+
+    def make_neb_work_directory(self, args):
+        """Return NEB folder directory path based on user arguments."""
+        
+        if os.path.splitext(args.INPUT)[1] == ".xyz":
+            tmp_name = os.path.splitext(args.INPUT)[0] 
+        else:
+            pass 
+        
+        if args.usextb == "None" and args.usedxtb == "None":
+            return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + str(time.time()).replace(".", "_") + "/"
+        else:
+            if self.usextb != "None":
+                return tmp_name + "_NEB_" + self.usextb + "_" + str(time.time()).replace(".", "_") + "/"
+            else:
+                return tmp_name + "_NEB_" + self.usedxtb + "_" + str(time.time()).replace(".", "_") + "/"
+
 
     def force2velocity(self, gradient_list, element_list):
         velocity_list = gradient_list
         return np.array(velocity_list, dtype="float64")
 
-    def make_geometry_list(self, start_folder, partition_function):
-        start_file_list = sum([sorted(glob.glob(os.path.join(start_folder, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+    def make_geometry_list(self, init_input, partition_function):
+        if os.path.splitext(init_input)[1] == ".xyz":
+            self.init_input = os.path.splitext(init_input)[0]
+            xyz_flag = True
+        else:
+            xyz_flag = False 
+            
+        start_file_list = sum([sorted(glob.glob(os.path.join(init_input, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
 
         loaded_geometry_list = []
 
-        for start_file in start_file_list:
-            tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(start_file, [self.electronic_charge, self.spin_multiplicity])
-            tmp_data = [electric_charge_and_multiplicity]
+        if xyz_flag:
+            geometry_list, elements, electric_charge_and_multiplicity = traj2list(init_input, [self.electronic_charge, self.spin_multiplicity])
+            
+            element_list = elements[0]
+            
+            for i in range(len(geometry_list)):
+                loaded_geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(geometry_list[i])])
+        
+        
+        else:
+            for start_file in start_file_list:
+                tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(start_file, [self.electronic_charge, self.spin_multiplicity])
+                tmp_data = [electric_charge_and_multiplicity]
 
-            for i in range(len(tmp_geometry_list)):
-                tmp_data.append([element_list[i]] + list(map(str, tmp_geometry_list[i])))
-            loaded_geometry_list.append(tmp_data)
+                for i in range(len(tmp_geometry_list)):
+                    tmp_data.append([element_list[i]] + list(map(str, tmp_geometry_list[i])))
+                loaded_geometry_list.append(tmp_data)
+            
         
         electric_charge_and_multiplicity = loaded_geometry_list[0][0]
         element_list = [row[0] for row in loaded_geometry_list[0][1:]]
@@ -202,8 +236,13 @@ class NEB:
             IDPP_obj = IDPP()
             tmp_data = IDPP_obj.opt_path(tmp_data)
   
+        
+        
         if self.align_distances > 0:
             tmp_data = distribute_geometry(tmp_data)
+        
+        if self.node_distance is not None:
+            tmp_data = distribute_geometry_by_length(tmp_data, self.node_distance)
         
         for data in tmp_data:
             geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(data)])        
@@ -227,7 +266,7 @@ class NEB:
         return geometry_list
 
     def make_psi4_input_file(self, geometry_list, optimize_num):
-        file_directory = self.NEB_FOLDER_DIRECTORY+"path_ITR_"+str(optimize_num)+"_"+str(self.start_folder)
+        file_directory = self.NEB_FOLDER_DIRECTORY+"path_ITR_"+str(optimize_num)+"_"+str(self.init_input)
         try:
             os.mkdir(file_directory)
         except:
@@ -244,7 +283,7 @@ class NEB:
                 if len(geom) == 2 and re.match(r"-*\d+", str(geom[0])) and re.match(r"-*\d+", str(geom[1])):
                     tmp_cs = geom   
                     
-            with open(file_directory+"/"+self.start_folder+"_"+str(y)+".xyz","w") as w:
+            with open(file_directory+"/"+self.init_input+"_"+str(y)+".xyz","w") as w:
                 w.write(str(len(tmp_geometry))+"\n")
                 w.write(str(tmp_cs[0])+" "+str(tmp_cs[1])+"\n")
                 for rows in tmp_geometry:
@@ -284,7 +323,7 @@ class NEB:
             try:
                 print("\n",input_file,"\n")
             
-                logfile = file_directory+"/"+self.start_folder+'_'+str(num)+'.log'
+                logfile = file_directory+"/"+self.init_input+'_'+str(num)+'.log'
                 #psi4.set_options({'pcm': True})
                 #psi4.pcm_helper(pcm)
                 
@@ -704,12 +743,12 @@ class NEB:
         for m, file in enumerate(file_list):
             tmp_geometry_list, element_list, _ = xyz2list(file, None)
             atom_num = len(tmp_geometry_list)
-            with open(file_directory+"/"+self.start_folder+"_path.xyz","a") as w:
+            with open(file_directory+"/"+self.init_input+"_path.xyz","a") as w:
                 w.write(str(atom_num)+"\n")
                 w.write("Frame "+str(m)+"\n")
                 for i in range(len(tmp_geometry_list)):
                     w.write(f"{element_list[i]:2}   {float(tmp_geometry_list[i][0]):17.12f}  {float(tmp_geometry_list[i][1]):17.12f}  {float(tmp_geometry_list[i][2]):17.12f}\n")
-        print("\ncollecting geometry was complete...\n")
+        print("\ncollecting geometries was complete...\n")
         return
 
 
@@ -1036,7 +1075,7 @@ class NEB:
         return new_geometry
     
     def run(self):
-        geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.start_folder, self.partition)
+        geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.init_input, self.partition)
         self.element_list = element_list
         
         file_directory = self.make_psi4_input_file(geometry_list, 0)
@@ -1281,5 +1320,25 @@ def distribute_geometry(geometry_list):
         delta_t = (dist - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
         new_geometry = geometry_list[j] + (geometry_list[j+1] - geometry_list[j]) * delta_t
         new_geometry_list.append(new_geometry)
+    new_geometry_list.append(geometry_list[-1])
+    return new_geometry_list
+
+def distribute_geometry_by_length(geometry_list, angstrom_spacing):
+    path_length_list = calc_path_length_list(geometry_list)
+    total_length = path_length_list[-1]
+    new_geometry_list = [geometry_list[0]]
+    
+    max_steps = int(total_length // angstrom_spacing)
+    for i in range(1, max_steps):
+        dist = i * angstrom_spacing
+       
+        for j in range(len(path_length_list) - 1):
+            if path_length_list[j] <= dist <= path_length_list[j+1]:
+                break
+      
+        delta_t = (dist - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
+        new_geometry = geometry_list[j] + (geometry_list[j+1] - geometry_list[j]) * delta_t
+        new_geometry_list.append(new_geometry)
+
     new_geometry_list.append(geometry_list[-1])
     return new_geometry_list
