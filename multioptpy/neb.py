@@ -165,7 +165,7 @@ class NEB:
         if os.path.splitext(args.INPUT)[1] == ".xyz":
             tmp_name = os.path.splitext(args.INPUT)[0] 
         else:
-            pass 
+            tmp_name = args.INPUT 
         
         if args.usextb == "None" and args.usedxtb == "None":
             return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + str(time.time()).replace(".", "_") + "/"
