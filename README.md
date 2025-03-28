@@ -91,7 +91,8 @@ Available optimization methods:
 
 Recommended optimization methods:
 
-- FIRE (suitable for finding locally optimal solutions)
+- FIRE (Robust method)
+- TR_LBFGS (Limited-memory BFGS method with trust radius method, Faster convergence than FIRE without Hessian)
 - RFO_FSB (can use quasi-Newton method)
 - RFO3_Bofill (for calculation of saddle point)
 
