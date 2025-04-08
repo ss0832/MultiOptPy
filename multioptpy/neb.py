@@ -43,6 +43,7 @@ from pathopt_dneb_force import CaluculationDNEB
 from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
+from pathopt_ewbneb_force import CaluculationEWBNEB
 from calc_tools import Calculationtools
 from idpp import IDPP
 from Optimizer.rfo import RationalFunctionOptimization 
@@ -90,6 +91,7 @@ class NEB:
         self.dneb = args.DNEB
         self.nesb = args.NESB
         self.bneb = args.BNEB
+        self.ewbneb = args.EWBNEB
         self.mix = args.MIX
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances #integer
@@ -1110,6 +1112,8 @@ class NEB:
         elif self.mix:
             STRING_FORCE_CALC_1 = CaluculationBNEB(self.APPLY_CI_NEB)
             STRING_FORCE_CALC_2 = CaluculationOM(self.APPLY_CI_NEB)
+        elif self.ewbneb:
+            STRING_FORCE_CALC = CaluculationEWBNEB(self.APPLY_CI_NEB)
         else:
             STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
         
