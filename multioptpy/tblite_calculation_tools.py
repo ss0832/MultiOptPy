@@ -100,7 +100,7 @@ class Calculation:
         for num, input_file in enumerate(file_list):
             try:
                 if geom_num_list is None:
-                    print("\n",input_file,"\n")
+                    
                     positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                     
                 else:
@@ -165,6 +165,7 @@ class Calculation:
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")
+                print("Input file: ",file_list,"\n")
                 finish_frag = True
                 return np.array([0]), np.array([0]), positions, finish_frag 
             

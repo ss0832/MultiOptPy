@@ -10,7 +10,7 @@ import numpy as np
 
 from optimizer import CalculateMoveVector
 from visualization import Graph
-from fileio import FileIO, xyz2list
+from fileio import FileIO
 from parameter import UnitValueLib, element_number
 from interface import force_data_parser
 from approx_hessian import ApproxHessian
@@ -599,11 +599,12 @@ class Optimize:
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
+        
         self.symmetry = analyze_symmetry(self.element_list, self.final_geometry)
         with open(self.BPA_FOLDER_DIRECTORY+"symmetry.txt", "w") as f:
             f.write(f"Symmetry of final structure: {self.symmetry}")
         print(f"Symmetry: {self.symmetry}")
-
+       
     def calculate_orthogonal_gradients(self, pre_move_vector, B_g, g):
         norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector) * 3, 1)
         orthogonal_bias_grad = B_g.reshape(len(B_g) * 3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
