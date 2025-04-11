@@ -63,12 +63,13 @@ class Calculation:
                 psi4.set_options({"cubeprop_tasks": ["esp"],'cubeprop_filepath': file_directory})
                 
                 if geom_num_list is None:
-                    print("\n",input_file,"\n")
+                    
                     input_data = ""
-                    positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    position, element_list, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
+                    input_data_for_display = np.array(position, dtype="float64")/psi4.constants.bohr2angstroms
                     input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
-                    for j in range(len(positions)):
-                        input_data += element_list[j]+" "+" ".join(positions[j])+"\n"
+                    for j in range(len(position)):
+                        input_data += element_list[j]+" "+" ".join(position[j])+"\n"
                 else:
                     print("Input data is given as a numpy array.")
                     input_data = ""
@@ -76,11 +77,11 @@ class Calculation:
                     input_data += " ".join(list(map(str, electric_charge_and_multiplicity)))+"\n"
                     for j in range(len(geom_num_list)):
                         input_data += element_list[j]+" "+" ".join(list(map(str, geom_num_list[j].tolist())))+"\n"
-                   
+                    input_data_for_display = geom_num_list / psi4.constants.bohr2angstroms
                 
                 input_data = psi4.geometry(input_data)#ang.
-                input_data_for_display = np.array(input_data.geometry(), dtype = "float64")#Bohr
                 
+            
                 g, wfn = psi4.gradient(self.FUNCTIONAL, molecule=input_data, return_wfn=True)
 
                 e = float(wfn.energy())
@@ -133,6 +134,7 @@ class Calculation:
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")
+                print("Input file: ",file_list,"\n")
                 finish_frag = True
                 return np.array([0]), np.array([0]), input_data_for_display, finish_frag 
                 

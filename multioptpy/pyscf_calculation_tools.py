@@ -69,7 +69,6 @@ class Calculation:
                     input_data_for_display = np.array(positions, dtype="float64")/self.bohr2angstroms
                 
                     
-                    print("\n",input_file,"\n")
                     mol = pyscf.gto.M(atom = input_file,
                                     charge = self.electronic_charge,
                                     spin = self.spin_multiplicity,
@@ -146,6 +145,7 @@ class Calculation:
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")
+                print("Input file: ",file_list,"\n")
                 finish_frag = True
                 return np.array([0]), np.array([0]), input_data_for_display, finish_frag
              
