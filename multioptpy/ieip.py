@@ -281,12 +281,12 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 total_disp_1 = self.lbfgs_update(s_list_1, y_list_1, -microiter_force_1)
             else:
                 total_disp_1 = microiter_force_1.reshape(-1)
-                
+            total_disp_1[0] = 0.0  # Keep the first component fixed
             if len(s_list_2) > 0:
                 total_disp_2 = self.lbfgs_update(s_list_2, y_list_2, -microiter_force_2)
             else:
                 total_disp_2 = microiter_force_2.reshape(-1)
-            
+            total_disp_2[0] = 0.0  # Keep the first component fixed
             # Create component-wise weight masks for polar coordinates
             # Polar coordinate structure: [r, theta, phi, r, theta, phi, ...]
             weights_1 = np.ones_like(total_disp_1)
