@@ -230,7 +230,6 @@ class NEB:
                 frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
                 tmp_data.append(frame_geom)
                 
-        tmp_data.append(loaded_geometry_num_list[-1])
         tmp_data = np.array(tmp_data, dtype="float64")
         
         
