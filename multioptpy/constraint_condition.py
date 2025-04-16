@@ -7,7 +7,8 @@ from calc_tools import (calc_bond_length_from_vec,
                         calc_dihedral_angle_from_vec, change_atom_distance_both_side, 
                         change_bond_angle_both_side, 
                         change_torsion_angle_both_side,
-                        change_fragm_distance_both_side
+                        change_fragm_distance_both_side,
+                        Calculationtools
                         )
 from redundant_coordinations import (TorchDerivatives, 
                                      partial_stretch_B_matirx,
@@ -390,7 +391,11 @@ class ProjectOutConstrain:
             
             elif self.constraint_name[i] == "z":
                 tmp_init_constraint.append(geom_num_list[self.constraint_atoms_list[i][0] - 1][2])
-                
+            
+            elif self.constraint_name[i] == "rot":
+
+                tmp_init_constraint.append(geom_num_list)
+            
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
@@ -405,6 +410,9 @@ class ProjectOutConstrain:
                         self.init_constraint.append(self.constraint_constant[i] / UnitValueLib().bohr2angstroms)
                     elif self.constraint_name[i] == "angle" or self.constraint_name[i] == "dihedral":
                         self.init_constraint.append(np.deg2rad(self.constraint_constant[i]))
+                        
+                    elif self.constraint_name[i] == "rot":
+                        self.init_constraint.append(None)
                     else:
                         print("error")
                         raise "error (invaild input of constraint conditions)"
@@ -417,6 +425,15 @@ class ProjectOutConstrain:
         print("Adjusting initial coordinates... (SHAKE-like method) ")
         jiter = 10000
         shake_like_method_threshold = 1.0e-10
+        for i_constrain in range(len(self.constraint_name)):
+           
+            if self.constraint_name[i_constrain] == "rot":
+                print("fix fragment rotation... (Experimental Implementation)")     
+                atom_label = self.constraint_atoms_list[i_constrain]
+                init_coord = self.init_constraint[i_constrain]
+                coord = rotate_partial_struct(coord, init_coord, atom_label)
+        
+        
         for jter in range(jiter): # SHAKE-like algorithm
             for i_constrain in range(len(self.constraint_name)):
                 if self.constraint_name[i_constrain] == "bond":
@@ -455,7 +472,8 @@ class ProjectOutConstrain:
                 elif self.constraint_name[i_constrain] == "z":
                     atom_label = self.constraint_atoms_list[i_constrain][0] - 1 
                     coord[atom_label][2] = self.init_constraint[i_constrain]
-                
+            
+                    
                 else:
                     pass
         
@@ -464,7 +482,9 @@ class ProjectOutConstrain:
             if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_like_method_threshold:
                 print("Adjusted!!! : ITR. ", jter)
                 break
-
+        
+        
+        
         return coord
 
 
@@ -479,7 +499,7 @@ class ProjectOutConstrain:
             if self.constraint_name[i_constrain] == "bond":
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
-            
+                
             elif self.constraint_name[i_constrain] == "fbond":
 
                 divide_index = self.constraint_atoms_list[i_constrain][-1]
@@ -510,6 +530,10 @@ class ProjectOutConstrain:
                 tmp_b_mat = torch.zeros(1, 3*natom)
                 atom_label = self.constraint_atoms_list[i_constrain][0]
                 tmp_b_mat[0][3*(atom_label - 1) + 2] = 1.0
+            elif self.constraint_name[i_constrain] == "rot":
+                atom_label = self.constraint_atoms_list[i_constrain]
+                tmp_b_mat = constract_partial_rot_B_mat(coord, atom_label)
+                
             
             else:
                 print("error")
@@ -539,7 +563,8 @@ class ProjectOutConstrain:
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
                 tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
-
+               
+               
             elif self.constraint_name[i_constrain] == "fbond":
                 divide_index = self.constraint_atoms_list[i_constrain][-1]
                 fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64) 
@@ -547,6 +572,7 @@ class ProjectOutConstrain:
                 atom_label = [fragm_1, fragm_2]
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
                 tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy()
+
                 
             elif self.constraint_name[i_constrain] == "angle":
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
@@ -576,6 +602,12 @@ class ProjectOutConstrain:
                 tmp_b_mat[0][3*(atom_label - 1) + 2] = 1.0
                 tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label,atom_label], torch_calc_distance)).detach().numpy() 
             
+            elif self.constraint_name[i_constrain] == "rot":
+                pass
+            ##    atom_label = self.constraint_atoms_list[i_constrain]
+            #    tmp_b_mat = constract_partial_rot_B_mat(coord, atom_label)
+            #    tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label[0],atom_label[0]], torch_calc_distance)).detach().numpy() #TODO: implement this function
+            
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
@@ -587,17 +619,52 @@ class ProjectOutConstrain:
             else:  
                 B_mat = np.vstack((B_mat, tmp_b_mat))
                 B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
-       
-        int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
-        proj_hess = tmp_hessian
-        int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-        couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-        eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
-        proj_hess = proj_hess - eff_hess
+        
+        if tmp_b_mat_1st_derivative is None:
+            proj_hess = tmp_hessian
+        else:
+            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+            proj_hess = tmp_hessian
+            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+            couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+            eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
+            proj_hess = proj_hess - eff_hess
      
         
         return proj_hess
     
     
     
+def constract_partial_rot_B_mat(geom_num_list, target_atoms_list):#1-based index
+    target_atoms_list = np.array(target_atoms_list, dtype=np.int32) - 1
+    center = np.mean(geom_num_list[target_atoms_list], axis=0)
+    centroid_geom_num_list = geom_num_list[target_atoms_list] - center
+    B_mat = np.zeros((3 * len(target_atoms_list), 3 * len(geom_num_list)))
+    for j in range(len(target_atoms_list)):
+        i = target_atoms_list[j]
+      
+        B_mat[3*j][3*i+0] = 0.0
+        B_mat[3*j][3*i+1] = centroid_geom_num_list[i][2]
+        B_mat[3*j][3*i+2] = -1 * centroid_geom_num_list[i][1]
+        B_mat[3*j+1][3*i+0] = -1 * centroid_geom_num_list[i][2]
+        B_mat[3*j+1][3*i+1] = 0.0
+        B_mat[3*j+1][3*i+2] = centroid_geom_num_list[i][0]
+        B_mat[3*j+2][3*i+0] = centroid_geom_num_list[i][1]
+        B_mat[3*j+2][3*i+1] = -1 * centroid_geom_num_list[i][0]
+        B_mat[3*j+2][3*i+2] = 0.0
+    
+    return B_mat
 
+def constract_partial_rot_B_mat_1st_derivative(geom_num_list, target_atoms_list):#1-based index
+    return
+
+def rotate_partial_struct(geom_num_list, init_geom_num_list, target_atoms_list):#1-based index
+    target_atoms_list = np.array(target_atoms_list, dtype=np.int32) - 1
+    center = np.mean(geom_num_list[target_atoms_list], axis=0)
+    
+    partial_geom_num_list = geom_num_list[target_atoms_list]
+    init_partial_geom_num_list = init_geom_num_list[target_atoms_list]
+    rotated_partial_geom_num_list, _ = Calculationtools().kabsch_algorithm(partial_geom_num_list, init_partial_geom_num_list)
+    rotated_partial_geom_num_list = rotated_partial_geom_num_list + center
+    geom_num_list[target_atoms_list] = rotated_partial_geom_num_list
+    return geom_num_list
