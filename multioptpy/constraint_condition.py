@@ -393,7 +393,6 @@ class ProjectOutConstrain:
                 tmp_init_constraint.append(geom_num_list[self.constraint_atoms_list[i][0] - 1][2])
             
             elif self.constraint_name[i] == "rot":
-
                 tmp_init_constraint.append(geom_num_list)
             
             else:
@@ -425,6 +424,8 @@ class ProjectOutConstrain:
         print("Adjusting initial coordinates... (SHAKE-like method) ")
         jiter = 10000
         shake_like_method_threshold = 1.0e-10
+        
+        
         for i_constrain in range(len(self.constraint_name)):
            
             if self.constraint_name[i_constrain] == "rot":
@@ -432,7 +433,7 @@ class ProjectOutConstrain:
                 atom_label = self.constraint_atoms_list[i_constrain]
                 init_coord = self.init_constraint[i_constrain]
                 coord = rotate_partial_struct(coord, init_coord, atom_label)
-        
+            
         
         for jter in range(jiter): # SHAKE-like algorithm
             for i_constrain in range(len(self.constraint_name)):
@@ -440,7 +441,7 @@ class ProjectOutConstrain:
                     atom_label_1 = self.constraint_atoms_list[i_constrain][0] - 1
                     atom_label_2 = self.constraint_atoms_list[i_constrain][1] - 1
                     coord = change_atom_distance_both_side(coord, atom_label_1, atom_label_2, self.init_constraint[i_constrain])
-                
+                  
                 elif self.constraint_name[i_constrain] == "fbond":
                     divide_index = self.constraint_atoms_list[i_constrain][-1]
                     fragm_1 = np.array(self.constraint_atoms_list[i_constrain][:divide_index], dtype=np.int32) - 1
@@ -477,9 +478,18 @@ class ProjectOutConstrain:
                 else:
                     pass
         
-            current_coord = np.array(self.initialize(coord))
+            tmp_current_coord = self.initialize(coord)
+            current_coord = []
+            tmp_init_constraint = []
+            for i_constrain in range(len(self.constraint_name)):
+                if self.constraint_name[i_constrain] != "rot":
+                    current_coord.append(tmp_current_coord[i_constrain])
+                    tmp_init_constraint.append(self.init_constraint[i_constrain])
+                
             
-            if np.linalg.norm(current_coord - np.array(self.init_constraint)) < shake_like_method_threshold:
+            current_coord = np.array(current_coord)
+            tmp_init_constraint = np.array(tmp_init_constraint)
+            if np.linalg.norm(current_coord - tmp_init_constraint) < shake_like_method_threshold:
                 print("Adjusted!!! : ITR. ", jter)
                 break
         
