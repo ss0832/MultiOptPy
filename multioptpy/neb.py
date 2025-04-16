@@ -219,7 +219,7 @@ class NEB:
 
         geometry_list = [loaded_geometry_list[0]] 
 
-        tmp_data = [loaded_geometry_num_list[0]]
+        tmp_data = []
         
         
         for k in range(len(loaded_geometry_list) - 1):

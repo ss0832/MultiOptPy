@@ -22,7 +22,7 @@ class CaluculationEWBNEB():# Wilson's B-matrix-constrained EW-NEB
     def __init__(self, APPLY_CI_NEB=99999):
         self.APPLY_CI_NEB = APPLY_CI_NEB
         # Energy-Weighted spring const: J. Chem. Theory Comput. 2021, 17, 8, 4929–4945
-        self.upper_spring_constant = 0.01
+        self.upper_spring_constant = 0.005
         self.lower_spring_constant = 0.0001
         return
     
@@ -35,7 +35,7 @@ class CaluculationEWBNEB():# Wilson's B-matrix-constrained EW-NEB
         return ci_force
     
     def calc_force(self, geometry_num_list, energy_list, gradient_list, optimize_num, element_list):
-        print("BNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEBBNEB")
+        print("EWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEBEWBNEB")
         nnode = len(energy_list)
         local_max_energy_list_index, local_min_energy_list_index = extremum_list_index(energy_list)
         max_ene = max(energy_list)
@@ -89,14 +89,24 @@ class CaluculationEWBNEB():# Wilson's B-matrix-constrained EW-NEB
             
             # add spring force
             norm_tangent_grad = np.linalg.norm(tangent_grad)
-            if norm_tangent_grad > 1e-8:
-                unit_tangent_grad = tangent_grad / norm_tangent_grad
-            else:
-                unit_tangent_grad = np.zeros_like(tangent_grad)
+           
+            fwd_vec = geometry_num_list[i+1] - geometry_num_list[i]
+            bwd_vec = geometry_num_list[i] - geometry_num_list[i-1]
             
-            norm_fwd_vec = np.linalg.norm(geometry_num_list[i+1] - geometry_num_list[i])
-            norm_bwd_vec = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1])
-            spring_force = (spring_force_list[i] * norm_fwd_vec - spring_force_list[i-1] * norm_bwd_vec) * unit_tangent_grad
+            norm_fwd_vec = np.linalg.norm(fwd_vec)
+            norm_bwd_vec = np.linalg.norm(bwd_vec)
+            
+            if norm_fwd_vec > 1e-8:
+                norm_fwd_vec = fwd_vec / norm_fwd_vec
+            else:
+                norm_fwd_vec = np.zeros_like(fwd_vec)
+            
+            if norm_bwd_vec > 1e-8:
+                norm_bwd_vec = bwd_vec / norm_bwd_vec
+            else:
+                norm_bwd_vec = np.zeros_like(bwd_vec)
+            
+            spring_force = (spring_force_list[i] * norm_fwd_vec - spring_force_list[i-1] * norm_bwd_vec).reshape(-1, 1)
             force = force + spring_force
             
             total_force_list.append(-1*force.reshape(-1, 3)) 
