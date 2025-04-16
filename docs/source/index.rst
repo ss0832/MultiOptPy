@@ -89,13 +89,13 @@ After ``git clone``,
     python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -pyscf
 
     # Constraint optimization (fix the distance between 1st-atom and 5th atom)
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -ns 50 -pc bond 1,5 -ma 95 1 5 50 3 11
+    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc bond 1,5 -ma 95 1 5 50 3 11
 
     # Constraint optimization (fix ∠1st_atom-5th_atom-6th_atom)
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -ns 50 -pc angle 1,5,6 -ma 95 1 5 50 3 11
+    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc angle 1,5,6 -ma 95 1 5 50 3 11
 
     # Constraint optimization (fix dihedral angle of φ(8-6-5-7))
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -ns 50 -pc dihedral 8,6,5,7 -ma 95 1 5 50 3 11
+    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc dihedral 8,6,5,7 -ma 95 1 5 50 3 11
 
 
 Main Commands
