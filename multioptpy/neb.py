@@ -1286,7 +1286,11 @@ class NEB:
 def calc_path_length_list(geometry_list):
     path_length_list = [0.0]
     for i in range(len(geometry_list)-1):
-        path_length = path_length_list[-1] + np.linalg.norm(geometry_list[i+1] - geometry_list[i])
+        tmp_geometry_list_j = geometry_list[i+1] - np.mean(geometry_list[i+1], axis=0)
+        tmp_geometry_list_i = geometry_list[i] - np.mean(geometry_list[i], axis=0)
+        
+        
+        path_length = path_length_list[-1] + np.linalg.norm(tmp_geometry_list_j - tmp_geometry_list_i)
         path_length_list.append(path_length)
     return path_length_list
 
