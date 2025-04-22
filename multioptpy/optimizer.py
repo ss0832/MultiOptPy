@@ -31,7 +31,7 @@ from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.hybrid_rfo import HybridRFO
 from Optimizer.rfo import RationalFunctionOptimization
 from Optimizer.ric_rfo import RedundantInternalRFO
-from Optimizer.rsprfo import RSPRFO
+from Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
 from Optimizer.newton import Newton
 from Optimizer.lbfgs import LBFGS
 from Optimizer.tr_lbfgs import TRLBFGS
@@ -92,6 +92,15 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
+
+    "ersprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "ersprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    
     "rsprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_bofill": {"delta": 0.50, "rfo_type": 1},
@@ -99,6 +108,14 @@ quasi_newton_mapping = {
     "rsprfo_sr1": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+
+    "sirfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_fsb": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_bofill": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    "sirfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
     
     "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
     "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
@@ -294,12 +311,13 @@ class CalculateMoveVector:
                             optimizer_instances.append(HybridRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
                         elif "ric_rfo" in key:
                             optimizer_instances.append(RedundantInternalRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+                        elif "ersprfo" in key:
+                            optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
                         elif "rsprfo" in key:
                             optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
-                        
+   
                         elif "rfo" in key:
                             optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
-                       
                         else:
                             optimizer_instances.append(Newton(method=m))
                         optimizer_instances[i].DELTA = settings["delta"]
