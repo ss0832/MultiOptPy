@@ -11,7 +11,7 @@ MSP
 class ModelHessianUpdate:
     def __init__(self):
         self.Initialization = True
-        self.denom_threshold = 1e-10
+        self.denom_threshold = 1e-7
         return
     def flowchart_hessian_update(self, hess, displacement, delta_grad, method):
         #Theor Chem Acc  (2016) 135:84 
@@ -43,9 +43,11 @@ class ModelHessianUpdate:
     def BFGS_hessian_update(self, hess, displacement, delta_grad):
         demon_1 = np.dot(displacement.T, delta_grad)
         if np.abs(demon_1) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         demon_2 = np.dot(np.dot(displacement.T, hess), displacement)
         if np.abs(demon_2) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         
         delta_hess = (np.dot(delta_grad, delta_grad.T)) / demon_1 - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ demon_2)
@@ -56,19 +58,23 @@ class ModelHessianUpdate:
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_SR1_denominator = np.dot(A.T, displacement)
         if np.abs(delta_hess_SR1_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         delta_hess_SR1 = np.dot(A, A.T) / delta_hess_SR1_denominator
         delta_hess_BFGS_denominator_1 = np.dot(displacement.T, delta_grad)
         if np.abs(delta_hess_BFGS_denominator_1) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         delta_hess_BFGS_denominator_2 = np.dot(np.dot(displacement.T, hess), displacement)
         if np.abs(delta_hess_BFGS_denominator_2) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         
         delta_hess_BFGS = (np.dot(delta_grad, delta_grad.T) / delta_hess_BFGS_denominator_1) - (np.dot(np.dot(np.dot(hess, displacement) , displacement.T), hess.T)/ delta_hess_BFGS_denominator_2)
         Bofill_const_denominator = np.dot(np.dot(np.dot(A.T, A), displacement.T), displacement)
         if np.abs(Bofill_const_denominator) < self.denom_threshold:
-            Bofill_const_denominator += self.denom_threshold
+            print("denominator is too small!!! Stop performing Hessian update.")
+            return np.zeros((len(delta_grad), len(delta_grad)))
         
         Bofill_const = np.dot(np.dot(np.dot(A.T, displacement), A.T), displacement) / Bofill_const_denominator
         delta_hess = np.sqrt(Bofill_const)*delta_hess_SR1 + (1 - np.sqrt(Bofill_const))*delta_hess_BFGS
@@ -79,6 +85,7 @@ class ModelHessianUpdate:
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_SR1_denominator = np.dot(A.T, displacement)
         if np.abs(delta_hess_SR1_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
             
         delta_hess_SR1 = np.dot(A, A.T) / delta_hess_SR1_denominator
@@ -86,6 +93,7 @@ class ModelHessianUpdate:
         block_1 = delta_grad - 1 * np.dot(hess, displacement) 
         block_2_denominator = np.dot(displacement.T, displacement)
         if np.abs(block_2_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         
         block_2 = np.dot(displacement, displacement.T) / block_2_denominator
@@ -101,6 +109,7 @@ class ModelHessianUpdate:
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_SR1_denominator = np.dot(A.T, displacement)
         if np.abs(delta_hess_SR1_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         delta_hess_SR1 = np.dot(A, A.T) / delta_hess_SR1_denominator
         return delta_hess_SR1
@@ -110,6 +119,7 @@ class ModelHessianUpdate:
         block_1 = delta_grad - 1 * np.dot(hess, displacement) 
         block_2_denominator = np.dot(displacement.T, displacement)
         if np.abs(block_2_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         block_2 = np.dot(displacement, displacement.T) / block_2_denominator ** 2
         
@@ -121,12 +131,14 @@ class ModelHessianUpdate:
         A = delta_grad - np.dot(hess, displacement)
         delta_hess_MS_denominator = np.dot(A.T, displacement)
         if np.abs(delta_hess_MS_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         
         delta_hess_MS = np.dot(A, A.T) / delta_hess_MS_denominator #SR1
         block_1 = delta_grad - 1 * np.dot(hess, displacement) 
         block_2_denominator = np.dot(displacement.T, displacement)
         if np.abs(block_2_denominator) < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
         
         block_2 = np.dot(displacement, displacement.T) / block_2_denominator ** 2
@@ -135,6 +147,7 @@ class ModelHessianUpdate:
         A_norm = np.linalg.norm(A)
         displacement_norm = np.linalg.norm(displacement)
         if displacement_norm * A_norm < self.denom_threshold:
+            print("denominator is too small!!! Stop performing Hessian update.")
             return np.zeros((len(delta_grad), len(delta_grad)))
             
         
