@@ -708,8 +708,8 @@ class RationalFunctionOptimization:
                 print(f"Warning: Lambda calculation failed: {e}, using default value")
             
             # Constants for numerical stability
-            EIGENVAL_THRESHOLD = 1e-7
-            DENOM_THRESHOLD = 1e-10
+            EIGENVAL_THRESHOLD = 1e-6
+            DENOM_THRESHOLD = 1e-7
             
             # Calculate move vector with improved stability in scaled space
             scaled_move_vector = np.zeros((n_coords, 1))
@@ -721,7 +721,7 @@ class RationalFunctionOptimization:
                 
                 # Skip processing if eigenvalue is too small
                 if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
-                    continue
+                    hess_eigenvalue[idx] *= EIGENVAL_THRESHOLD / np.abs(hess_eigenvalue[idx]) 
                     
                 tmp_vector = hess_eigenvector[idx].reshape(1, n_coords)
                 proj_magnitude = np.dot(tmp_vector, scaled_gradient.reshape(n_coords, 1))
