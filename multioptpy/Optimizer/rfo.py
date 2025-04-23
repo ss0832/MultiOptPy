@@ -721,7 +721,7 @@ class RationalFunctionOptimization:
                 
                 # Skip processing if eigenvalue is too small
                 if np.abs(hess_eigenvalue[idx]) < EIGENVAL_THRESHOLD:
-                    hess_eigenvalue[idx] *= EIGENVAL_THRESHOLD / np.abs(hess_eigenvalue[idx]) 
+                    continue
                     
                 tmp_vector = hess_eigenvector[idx].reshape(1, n_coords)
                 proj_magnitude = np.dot(tmp_vector, scaled_gradient.reshape(n_coords, 1))
