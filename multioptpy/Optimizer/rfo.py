@@ -580,11 +580,9 @@ class RationalFunctionOptimization:
         scaled_hessian = np.zeros_like(hessian)
         
         # Apply scaling: H'_ij = H_ij / (s_i * s_j)
-        for i in range(n):
-            for j in range(n):
-                scaled_hessian[i,j] = hessian[i,j] / (scaling[i] * scaling[j])
-                
-        return scaled_hessian
+        scaled_hessian = hessian / np.outer(scaling, scaling)
+                 
+        return scaled_hessian / n ** 0.5
     
     
     def unscale_step(self, step, scaling):
@@ -604,9 +602,9 @@ class RationalFunctionOptimization:
         """
         # Ensure gradient is 1D array matching the scaling size
         gradient = np.asarray(gradient)
-        
+        grad_len = len(gradient.shape) 
         # If gradient is not 1D, flatten it
-        if len(gradient.shape) > 1:
+        if grad_len > 1:
             
             gradient = gradient.flatten()
             
@@ -625,7 +623,7 @@ class RationalFunctionOptimization:
                 gradient = temp
         
         # Apply scaling
-        return gradient / scaling
+        return gradient / scaling / grad_len ** 0.5
     
     def unscale_step(self, step, scaling):
         """Convert scaled step back to original coordinate system"""
