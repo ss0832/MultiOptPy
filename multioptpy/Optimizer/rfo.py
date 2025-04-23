@@ -582,7 +582,7 @@ class RationalFunctionOptimization:
         # Apply scaling: H'_ij = H_ij / (s_i * s_j)
         scaled_hessian = hessian / np.outer(scaling, scaling)
                  
-        return scaled_hessian / n ** 0.5
+        return scaled_hessian 
     
     
     def unscale_step(self, step, scaling):
@@ -623,7 +623,7 @@ class RationalFunctionOptimization:
                 gradient = temp
         
         # Apply scaling
-        return gradient / scaling / grad_len ** 0.5
+        return gradient / scaling 
     
     def unscale_step(self, step, scaling):
         """Convert scaled step back to original coordinate system"""
