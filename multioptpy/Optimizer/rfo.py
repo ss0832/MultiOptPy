@@ -989,7 +989,7 @@ class RFOSecularSolverIterative:
                  max_iter=10000,
                  tol=1e-10,
                  delta=1e-4,
-                 eigval_threshold=1e-7):
+                 eigval_threshold=1e-6):
         """
         :param scale: Scalar factor applied to λ in the denominator (commonly 1.0).
         :param max_iter: Maximum number of iterations.
