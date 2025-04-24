@@ -982,34 +982,38 @@ class RFOSecularSolverIterative:
     Implements a robust iterative method for the Rational Function Optimization (RFO) secular equation:
     F(λ) = ∑ (sigma_j^2 / (scale*λ - eigval_j)) - λ = 0
     
-    Fully vectorized implementation for high performance.
+    Fully vectorized implementation with safeguards against small eigenvalues.
     """
     def __init__(self,
                  scale=1.0,
                  max_iter=10000,
                  tol=1e-10,
-                 delta=1e-4):
+                 delta=1e-4,
+                 eigval_threshold=1e-7):
         """
         :param scale: Scalar factor applied to λ in the denominator (commonly 1.0).
         :param max_iter: Maximum number of iterations.
         :param tol: Convergence threshold for the iterative method.
         :param delta: Determines how aggressively to adjust λ if the Newton step is unstable.
+        :param eigval_threshold: Threshold below which eigenvalues (by absolute value) are excluded from calculation.
         """
         self.scale = scale
         self.max_iter = max_iter
         self.tol = tol
         self.delta = delta
+        self.eigval_threshold = eigval_threshold
 
     def calc_rfo_lambda_and_step(self, hess_eigvec, hess_eigval, init_lambda_val, B_g, order):
         """
         Computes λ and the updated geometry step vector using a vectorized iterative approach.
+        Terms with eigenvalues below the threshold are excluded from calculation.
         
         :param hess_eigvec: Eigenvectors of the Hessian, shape (n, n).
         :param hess_eigval: Eigenvalues of the Hessian, length n.
         :param init_lambda_val: Initial guess for λ.
         :param B_g: Gradient vector in the chosen basis, shape (n, 1) or (n,).
         :param order: Number of eigenvalues to treat with positive sign.
-        :return: (final_lambda, move_vector)
+        :return: final_lambda value for RFO step calculation
         """
         print("Perform lambda optimization to calculate appropriate step size...")
         # Flatten gradient vector for consistent operations
@@ -1030,6 +1034,21 @@ class RFOSecularSolverIterative:
         sign_array = np.ones(n)
         sign_array[order:] = -1
         
+        # Create mask for eigenvalues with sufficient magnitude
+        # This mask remains constant throughout iterations
+        valid_eigval_mask = np.abs(hess_eigval) >= self.eigval_threshold
+        
+        # Count valid eigenvalues for diagnostics
+        valid_eigval_count = np.sum(valid_eigval_mask)
+        if valid_eigval_count < n:
+            print(f"{n - valid_eigval_count} eigenvalues excluded due to small magnitude (< {self.eigval_threshold})")
+            # Filter eigenvalues and related data
+            hess_eigval = hess_eigval[valid_eigval_mask]
+            sigma_values = sigma_values[valid_eigval_mask]
+            sigma_squared = sigma_squared[valid_eigval_mask]
+            sign_array = sign_array[valid_eigval_mask]
+            n = valid_eigval_count  # Update n to the new size
+        
         # Try multiple starting points to ensure global solution
         lambda_candidates = np.linspace(init_lambda_val + 10, init_lambda_val - 100.0, 15)
         best_lambda = None
@@ -1044,19 +1063,30 @@ class RFOSecularSolverIterative:
                 # scale*λ - eigval_j for j >= order
                 denominators = self.scale * current_lambda + sign_array * hess_eigval
                 
-                # Add small value to avoid division by zero (vectorized)
-                safe_denom = np.where(np.abs(denominators) < 1e-10, 
-                                     np.sign(denominators) * 1e-10, 
-                                     denominators)
+                # Create masks for valid denominators (non-zero)
+                # This is a secondary check to avoid division by zero
+                valid_denom_mask = np.abs(denominators) >= 1e-12
+                
+                # If no valid denominators remain, adjust lambda and retry
+                if np.sum(valid_denom_mask) == 0:
+                    current_lambda += self.delta
+                    continue
+                
+                # Filter sigma_squared and denominators using the denom mask
+                valid_sigma_squared = sigma_squared[valid_denom_mask]
+                valid_denominators = denominators[valid_denom_mask]
                 
                 # Evaluate secular function F(λ) = ∑(σ²/(scale*λ±eigval)) - λ
-                f_value = np.sum(sigma_squared / safe_denom) - current_lambda
+                # Only sum over terms with valid denominators
+                f_value = np.sum(valid_sigma_squared / valid_denominators) - current_lambda
                 
                 # First derivative: F'(λ) = -∑(scale*σ²/(scale*λ±eigval)²) - 1
-                f_prime = -np.sum(self.scale * sigma_squared / safe_denom**2) - 1.0
+                # Only sum over terms with valid denominators
+                f_prime = -np.sum(self.scale * valid_sigma_squared / valid_denominators**2) - 1.0
                 
                 # Second derivative (Hessian): F''(λ) = 2*∑(scale²*σ²/(scale*λ±eigval)³)
-                f_double_prime = 2.0 * np.sum(self.scale**2 * sigma_squared / safe_denom**3)
+                # Only sum over terms with valid denominators
+                f_double_prime = 2.0 * np.sum(self.scale**2 * valid_sigma_squared / valid_denominators**3)
                 
                 # Check for convergence
                 if np.abs(f_value) < self.tol:
@@ -1102,7 +1132,5 @@ class RFOSecularSolverIterative:
         else:
             print(f"Optimization result: {init_lambda_val:.10f} -> {best_lambda:.10f}")
         
-        # Calculate the step vector using the optimal lambda (vectorized)
-        
         return best_lambda
-   
+  
