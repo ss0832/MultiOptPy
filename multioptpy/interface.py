@@ -107,7 +107,7 @@ def optimizeparser(parser):
     class ModelhessAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
             if values is None:
-                setattr(namespace, self.dest, 'lindh2007d3')
+                setattr(namespace, self.dest, 'fischerd3')
             else:
                 setattr(namespace, self.dest, values)
     
