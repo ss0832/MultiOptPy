@@ -5,37 +5,36 @@ from parameter import UnitValueLib, atomic_mass
 from calc_tools import Calculationtools
 
 from Optimizer.adabelief import Adabelief
-from Optimizer.fastadabelief import FastAdabelief
-from Optimizer.adaderivative import Adaderivative
-from Optimizer.sadam import SAdam
-from Optimizer.samsgrad import SAMSGrad
-from Optimizer.QHAdam import QHAdam
-from Optimizer.adamax import AdaMax
-from Optimizer.yogi import YOGI
+#from Optimizer.fastadabelief import FastAdabelief
+#from Optimizer.adaderivative import Adaderivative
+#from Optimizer.sadam import SAdam
+#from Optimizer.samsgrad import SAMSGrad
+#from Optimizer.QHAdam import QHAdam
+#from Optimizer.adamax import AdaMax
+#from Optimizer.yogi import YOGI
 from Optimizer.nadam import NAdam
 from Optimizer.fire import FIRE
 from Optimizer.abc_fire import ABC_FIRE
 from Optimizer.fire2 import FIRE2
-from Optimizer.adadiff import AdaDiff
-from Optimizer.adamod import Adamod
+#from Optimizer.adadiff import AdaDiff
+#from Optimizer.adamod import Adamod
 from Optimizer.radam import RADAM
 from Optimizer.eve import EVE
 from Optimizer.adamw import AdamW
 from Optimizer.adam import Adam
-from Optimizer.adafactor import Adafactor
+#from Optimizer.adafactor import Adafactor
 from Optimizer.prodigy import Prodigy
-# from Optimizer.adabound import AdaBound
-from Optimizer.adadelta import Adadelta
-
+#from Optimizer.adabound import AdaBound
+#from Optimizer.adadelta import Adadelta
 from Optimizer.conjugate_gradient import ConjgateGradient
 from Optimizer.hybrid_rfo import HybridRFO
 from Optimizer.rfo import RationalFunctionOptimization
 from Optimizer.ric_rfo import RedundantInternalRFO
 from Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
-from Optimizer.newton import Newton
+#from Optimizer.newton import Newton
 from Optimizer.lbfgs import LBFGS
 from Optimizer.tr_lbfgs import TRLBFGS
-from Optimizer.rmspropgrave import RMSpropGrave
+#from Optimizer.rmspropgrave import RMSpropGrave
 from Optimizer.lookahead import LookAhead
 from Optimizer.lars import LARS
 from Optimizer.gdiis import GDIIS
@@ -55,26 +54,26 @@ from Optimizer.gpmin import GPmin
 
 optimizer_mapping = {
     "adabelief": Adabelief,
-    "fastadabelief": FastAdabelief,
+    #"fastadabelief": FastAdabelief,
     "radam": RADAM,
-    "adamod": Adamod,
-    "yogi": YOGI,
-    "sadam": SAdam,
-    "qhadam": QHAdam,
-    "samsgrad": SAMSGrad,
-    "adadelta": Adadelta,
+    #"adamod": Adamod,
+    #"yogi": YOGI,
+    #"sadam": SAdam,
+    #"qhadam": QHAdam,
+    #"samsgrad": SAMSGrad,
+    #"adadelta": Adadelta,
     "adamw": AdamW,
-    "adadiff": AdaDiff,
-    "adafactor": Adafactor,
+    #"adadiff": AdaDiff,
+    #"adafactor": Adafactor,
     "eve": EVE,
     "prodigy": Prodigy,
-    "adamax": AdaMax,
+    #"adamax": AdaMax,
     "nadam": NAdam,
-    "rmspropgrave": RMSpropGrave,
+    #"rmspropgrave": RMSpropGrave,
     "abcfire": ABC_FIRE,
     "fire2": FIRE2,
     "fire": FIRE,
-    "adaderivative": Adaderivative,
+    #"adaderivative": Adaderivative,
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
     "gpmin": GPmin,
@@ -168,16 +167,6 @@ quasi_newton_mapping = {
     "rfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
-
-    "bfgs": {"delta": 0.10, "linesearch": False},
-    "fsb": {"delta": 0.10, "linesearch": False},
-    "bofill": {"delta": 0.10, "linesearch": False},
-    "msp": {"delta": 0.10, "linesearch": False},
-    "bfgs_ls": {"delta": 0.50, "linesearch": True},
-    "fsb_ls": {"delta": 0.50, "linesearch": True},
-    "bofill_ls": {"delta": 0.50, "linesearch": True},
-    "msp_ls": {"delta": 0.50, "linesearch": True},
-
 }
 
 
@@ -251,7 +240,7 @@ class CalculateMoveVector:
                 for key, optimizer_class in optimizer_mapping.items():
                     if key in lower_m:
                         optimizer_instances.append(optimizer_class())
-                        if lower_m == "mwgradientdescent":
+                        if lower_m == "mwgradientdescent":#Eulur method to calculate IRC path.
                             optimizer_instances[i].element_list = self.element_list
                             optimizer_instances[i].atomic_mass = atomic_mass # function in parameter.py
                         
@@ -319,7 +308,10 @@ class CalculateMoveVector:
                         elif "rfo" in key:
                             optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
                         else:
-                            optimizer_instances.append(Newton(method=m))
+                            print("This method is not implemented. :", m, " Thus, exiting.")
+                            exit()
+                            
+
                         optimizer_instances[i].DELTA = settings["delta"]
                         if "linesearch" in settings:
                             optimizer_instances[i].linesearchflag = True

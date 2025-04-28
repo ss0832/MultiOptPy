@@ -583,6 +583,10 @@ class Optimize:
             
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+        else:
+            print("Reached maximum number of iterations. This is not converged.")
+            with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
+                f.write("Reached maximum number of iterations. This is not converged.")   
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    orthogonal_bias_grad_list, orthogonal_grad_list,
@@ -632,7 +636,6 @@ class Optimize:
 
         self._save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
 
-        print("Complete...")
         self.SP = SP
         self.final_file_directory = file_directory
         self.final_geometry = geom_num_list  # Bohr
@@ -1286,8 +1289,10 @@ class Optimize:
             # Create input for next iteration
             geometry_list = FIO.print_geometry_list(geom_num_list*self.bohr2angstroms, element_list, electric_charge_and_multiplicity)
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
-            
-          
+        else:
+            print("Reached maximum number of iterations. This is not converged.")
+            with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
+                f.write("Reached maximum number of iterations. This is not converged.")
                 
         # Generate plots and save results
         G = Graph(self.BPA_FOLDER_DIRECTORY)
@@ -1310,7 +1315,6 @@ class Optimize:
         self._save_energy_profiles(real_orthogonal_bias_grad_list, real_orthogonal_grad_list, real_grad_list)
         
         # Store final results
-        print("Complete...")
         self.final_file_directory = file_directory
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = real_e  # Hartree
@@ -1355,6 +1359,6 @@ class Optimize:
                     hessian = None
                 EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
                 EXEC_IRC.run()
-            print(f"Geometry optimization of {file} was completed.")
-        print("All calculations are completed.")
+            print(f"Trial of geometry optimization ({file}) was completed.")
+        print("All calculations were completed.")
         return

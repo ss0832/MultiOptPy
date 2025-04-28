@@ -8529,8 +8529,7 @@ class Lindh2007D4ApproxHessian:
         
         # Adjust eigenvalues for stability based on gradient magnitude
         eigenvalues, eigenvectors = np.linalg.eigh(hess_proj)
-        hess_proj = np.dot(np.dot(eigenvectors, np.diag(np.abs(eigenvalues) * eigval_scale)), 
-                          np.transpose(eigenvectors))
+        hess_proj = np.dot(np.dot(eigenvectors, np.diag(np.abs(eigenvalues) * eigval_scale)), np.transpose(eigenvectors))
         
         return hess_proj
 
