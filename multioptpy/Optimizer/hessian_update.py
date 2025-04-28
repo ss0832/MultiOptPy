@@ -11,7 +11,7 @@ MSP
 class ModelHessianUpdate:
     def __init__(self):
         self.Initialization = True
-        self.denom_threshold = 1e-7
+        self.denom_threshold = 1e-10
         return
     def flowchart_hessian_update(self, hess, displacement, delta_grad, method):
         #Theor Chem Acc  (2016) 135:84 

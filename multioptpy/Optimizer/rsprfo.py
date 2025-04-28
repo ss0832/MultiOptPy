@@ -11,8 +11,9 @@ class RSPRFO:
         # [3] Baker, J. Comput. Chem., 7, 385-395 (1986)
         # [4] Besalú and Bofill, Theor. Chem. Acc., 100, 265-274 (1998)
         
-        # Trust radius for step restriction
-        self.trust_radius = config.get("trust_radius", 0.1)
+        
+        
+        
         # Initial alpha parameter for RS-RFO
         self.alpha0 = config.get("alpha0", 1.0)
         # Maximum number of micro-cycles
@@ -39,10 +40,11 @@ class RSPRFO:
         # Define which mode(s) to maximize along based on saddle order
         self.roots = list(range(self.saddle_order))
         
-        # Check for valid saddle_order
+        # Trust radius for step restriction
         if self.saddle_order == 0:
-            self.log("Warning: Using RSPRFO for minimum search (saddle_order=0). This is unusual.")
-            
+            self.trust_radius = config.get("trust_radius", 0.5)
+        else:
+            self.trust_radius = config.get("trust_radius", 0.1)    
         # Initialize the hessian update module
         self.hessian_updater = ModelHessianUpdate()
         return
@@ -344,12 +346,16 @@ class EnhancedRSPRFO:
         [5] Jensen and Jørgensen, J. Chem. Phys., 80, 1204 (1984) [Eigenvector following]
         """
         # Standard RSPRFO parameters
-        self.trust_radius = config.get("trust_radius", 0.1)
         self.alpha0 = config.get("alpha0", 1.0)
         self.max_micro_cycles = config.get("max_micro_cycles", 1)
         self.saddle_order = config.get("saddle_order", 1)
         self.hessian_update_method = config.get("method", "auto")
         self.display_flag = config.get("display_flag", True)
+        # Trust radius for step restriction
+        if self.saddle_order == 0:
+            self.trust_radius = config.get("trust_radius", 0.5)
+        else:
+            self.trust_radius = config.get("trust_radius", 0.1)    
         self.config = config
         self.Initialization = True
         
@@ -377,9 +383,6 @@ class EnhancedRSPRFO:
         # Define modes based on saddle order
         self.roots = list(range(self.saddle_order))
         
-        # Check for valid saddle_order
-        if self.saddle_order == 0:
-            self.log("Warning: Using RSPRFO for minimum search (saddle_order=0). This is unusual.")
             
         # Initialize the hessian update module
         self.hessian_updater = ModelHessianUpdate()
