@@ -220,6 +220,9 @@ class RationalFunctionOptimization:
             self.lambda_s_scale = 0.1
             self.Initialization = False
             return self.DELTA*B_g
+        
+        n_coords = len(geom_num_list)
+        n_variable = n_coords - 6
         print("saddle order:", self.saddle_order)
         delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
         displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
@@ -237,7 +240,7 @@ class RationalFunctionOptimization:
         
         matrix_for_RFO = np.append(matrix_for_RFO, tmp, axis=0)
         eigenvalue, _ = np.linalg.eigh(matrix_for_RFO)
-        eigenvalue = np.sort(eigenvalue)
+        eigenvalue = np.sort(eigenvalue) 
         lambda_for_calc = float(eigenvalue[self.saddle_order])
         
         print("lambda   : ",lambda_for_calc)
