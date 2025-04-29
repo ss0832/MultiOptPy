@@ -49,10 +49,14 @@ from idpp import IDPP
 from Optimizer.rfo import RationalFunctionOptimization 
 from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
-from fileio import xyz2list, traj2list
+from fileio import xyz2list, traj2list, FileIO
+from multioptpy.Optimizer import lbfgs_neb 
+#from multioptpy.Optimizer import afire_neb
+#from multioptpy.Optimizer import quickmin_neb
+from multioptpy.Optimizer import conjugate_gradient_neb
+from multioptpy.Optimizer import trust_radius_neb 
 
 color_list = ["b"] #use for matplotlib
-
 
 class NEB:
     def __init__(self, args):
@@ -120,6 +124,9 @@ class NEB:
         self.electronic_charge = args.electronic_charge
         self.spin_multiplicity = args.spin_multiplicity
         self.args = args
+        
+        self.cg_method = args.conjugate_gradient
+        self.lbfgs_method = args.memory_limited_BFGS
         return
 
     def set_fixed_edges(self, args):
@@ -322,7 +329,7 @@ class NEB:
        
         for num, input_file in enumerate(file_list):
             try:
-                print("\n",input_file,"\n")
+                print(input_file)
             
                 logfile = file_directory+"/"+self.init_input+'_'+str(num)+'.log'
                 #psi4.set_options({'pcm': True})
@@ -431,7 +438,7 @@ class NEB:
         for num, input_file in enumerate(file_list):
             try:
             
-                print("\n",input_file,"\n")
+                print(input_file)
                 geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 words = []
                 for i in range(len(geometry_list)):
@@ -555,7 +562,7 @@ class NEB:
         
         for num, input_file in enumerate(file_list):
             try:
-                print("\n",input_file,"\n")
+                print(input_file)
 
                     
                 positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
@@ -566,7 +573,7 @@ class NEB:
                 else:
                     calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))                
                 calc.set("max-iter", 500)
-                calc.set("verbosity", 1)
+                calc.set("verbosity", 0)
                 if not self.cpcm_solv_model is None:        
                     print("Apply CPCM solvation model")
                     calc.add("cpcm-solvation", self.cpcm_solv_model)
@@ -634,7 +641,7 @@ class NEB:
         hess_count = 0
         for num, input_file in enumerate(file_list):
             try:
-                print("\n",input_file,"\n")
+                print(input_file)
                 positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 
                 
@@ -790,111 +797,14 @@ class NEB:
             total_delta = self.dt * total_velocity
 
         # Calculate the movement vector using TR_calc
-        move_vector = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        move_vector = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
 
         # Update geometry using the move vector
         new_geometry = (geometry_num_list + move_vector) * self.bohr2angstroms
 
         return new_geometry
 
-    def check_convergence(self, total_force_list, move_vec_list):
-        threshold_max_force = 0.00045
-        threshold_rms_force = 0.00030
-        threshold_max_displacement = 0.0018
-        threshold_rms_displacement = 0.0012
-        
-        for i in range(1, len(total_force_list)-1):
-            max_grad = np.max(total_force_list[i])
-            rms_grad = np.sqrt(np.sum(total_force_list[i]**2)/(len(total_force_list[i])*3))
-            max_move = np.max(move_vec_list[i])
-            rms_move = np.sqrt(np.sum(move_vec_list[i]**2)/(len(move_vec_list[i])*3))
-            print("--------------------")
-            print("NODE #"+str(i))
-            print(f"MAXIMUM NEB FORCE    :    {float(max_grad):12.8f}")
-            print(f"RMS NEB FORCE        :    {float(rms_grad):12.8f}")
-            print(f"MAXIMUM DISPLACEMENT :    {float(max_move):12.8f}")
-            print(f"RMS DISPLACEMENT     :    {float(rms_move):12.8f}")
-            
-            if max_grad < threshold_max_force and rms_grad < threshold_rms_force and max_move < threshold_max_displacement and rms_move < threshold_rms_displacement:
-                print("Converged?: YES")
-                move_vec_list[i] = move_vec_list[i]*0.0
-            else:
-                print("Converged?: NO")
-        print("--------------------")
-        return move_vec_list
 
-    def TR_calc(self, geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom):
-        if self.fix_init_edge:
-            move_vector = [total_delta[0]*0.0]
-        else:
-            move_vector = [total_force_list[0]]
-        trust_radii_1_list = []
-        trust_radii_2_list = []
-        
-        for i in range(1, len(total_delta)-1):
-            #if biased_energy_list[i] > pre_biased_energy_list[i] and pre_geom is not None:
-            #    total_delta[i] = pre_geom[i] - geometry_num_list[i]
-            #    print("Energy increased... ")
-            
-            trust_radii_1 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1]) / 2.0
-            trust_radii_2 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i+1]) / 2.0
-            
-            trust_radii_1_list.append(str(trust_radii_1*2))
-            trust_radii_2_list.append(str(trust_radii_2*2))
-            
-            normalized_vec_1 = (geometry_num_list[i-1] - geometry_num_list[i])/(np.linalg.norm(geometry_num_list[i-1] - geometry_num_list[i]) + 1e-15)
-            normalized_vec_2 = (geometry_num_list[i+1] - geometry_num_list[i])/(np.linalg.norm(geometry_num_list[i+1] - geometry_num_list[i]) + 1e-15)
-            normalized_delta =  total_delta[i] / np.linalg.norm(total_delta[i])
-            
-            cos_1 = np.sum(normalized_vec_1 * normalized_delta) 
-            cos_2 = np.sum(normalized_vec_2 * normalized_delta)
-            
-            force_move_vec_cos = np.sum(total_force_list[i] * total_delta[i]) / (np.linalg.norm(total_force_list[i]) * np.linalg.norm(total_delta[i])) 
-            
-            if force_move_vec_cos >= 0: #Projected velocity-verlet algorithm
-                if (cos_1 > 0 and cos_2 < 0) or (cos_1 < 0 and cos_2 > 0):
-                    if np.linalg.norm(total_delta[i]) > trust_radii_1 and cos_1 > 0:
-                        move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                        
-                    elif np.linalg.norm(total_delta[i]) > trust_radii_2 and cos_2 > 0:
-                        move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                        
-                    else:
-                        move_vector.append(total_delta[i])
-                        
-                elif (cos_1 < 0 and cos_2 < 0):
-                    move_vector.append(total_delta[i])
-                    
-                else:
-                    if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                        move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-                        
-                    elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                        move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-                        
-                    else:
-                        move_vector.append(total_delta[i])      
-            else:
-                print("no displacements (Projected velocity-verlet algorithm): # NODE "+str(i))
-                move_vector.append(total_delta[i] * 0.0) 
-            
-            
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_1.csv", "a") as f:
-            f.write(",".join(trust_radii_1_list)+"\n")
-        
-        with open(self.NEB_FOLDER_DIRECTORY+"Procrustes_distance_2.csv", "a") as f:
-            f.write(",".join(trust_radii_2_list)+"\n")
-        
-        if self.fix_end_edge:
-            move_vector.append(total_force_list[-1]*0.0)
-        else:
-            move_vector.append(total_force_list[-1])
-        
-        if self.apply_convergence_criteria:
-            move_vector = self.check_convergence(total_force_list, move_vector)
-        
-        return move_vector        
-    
     def GRFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list):
         natoms = len(geometry_num_list[0])
         nnode_minus2 = len(geometry_num_list) - 2
@@ -993,7 +903,7 @@ class NEB:
         np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(nnode-1)+".npy", min_hess)
         
         # calculate move vector
-        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
         
         new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
         
@@ -1040,7 +950,7 @@ class NEB:
             hessian = OPT.get_hessian()
             np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
         
-        move_vector_list = self.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
         
         new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
         
@@ -1087,7 +997,10 @@ class NEB:
         else:
             projection_constraint_flag = False        
         #prepare for FIRE method 
-    
+        self.NEB_TR = trust_radius_neb.TR_NEB(NEB_FOLDER_DIRECTORY=self.NEB_FOLDER_DIRECTORY, 
+         fix_init_edge=self.fix_init_edge,
+         fix_end_edge=self.fix_end_edge,
+         apply_convergence_criteria=self.apply_convergence_criteria,) 
         
         
         element_number_list = []
@@ -1125,6 +1038,18 @@ class NEB:
         pre_total_force = None
         pre_total_velocity = []
         total_velocity = []
+        
+        if self.cg_method and self.lbfgs_method: 
+            print("You can not use CG and LBFGS at the same time.")
+            exit()
+            
+        if self.cg_method:
+            CGOptimizer = conjugate_gradient_neb.ConjugateGradientNEB(TR_NEB=self.NEB_TR, cg_method=self.cg_method)
+        
+        if self.lbfgs_method:
+            LBFGSOptimizer = lbfgs_neb.LBFGS_NEB(TR_NEB=self.NEB_TR)
+        #AFIREOptimizer = afire_neb.AFIRE_NEB(TR_NEB=self.NEB_TR)
+        #QuickMinOptimizer = quickmin_neb.QuickMin_NEB(TR_NEB=self.NEB_TR)
         #------------------
         for optimize_num in range(self.NEB_NUM):
             exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
@@ -1231,11 +1156,18 @@ class NEB:
             elif self.FC_COUNT != -1:
                 new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list)
             
-            
             elif optimize_num < self.sd:
+                
                 total_velocity = self.force2velocity(total_force, element_list)
-                new_geometry  = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-             
+                
+                if self.lbfgs_method:
+                    new_geometry  = LBFGSOptimizer.LBFGS_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+                if self.cg_method:
+                    new_geometry  = CGOptimizer.CG_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+                else:
+                    new_geometry = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+                    #new_geometry = AFIREOptimizer.AFIRE_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+                    #new_geometry = QuickMinOptimizer.QuickMin_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
             else:
                 new_geometry = self.SD_calc(geometry_num_list, total_force)
                 
@@ -1267,6 +1199,12 @@ class NEB:
                 tmp_new_geometry = distribute_geometry(np.array(new_geometry))
                 for k in range(len(new_geometry)):
                     new_geometry[k] = copy.copy(tmp_new_geometry[k])
+            
+            tmp_instance_fileio = FileIO(file_directory+"/", "dummy.txt")
+            tmp_instance_fileio.argrelextrema_txt_save(biased_energy_list, "approx_TS_node", "max")
+            tmp_instance_fileio.argrelextrema_txt_save(biased_energy_list, "approx_EQ_node", "min")
+            tmp_instance_fileio.argrelextrema_txt_save(bias_force_rms_list, "local_min_bias_grad_node", "min")
+            
             #------------------
             pre_geom = geometry_num_list
             

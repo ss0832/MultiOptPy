@@ -189,8 +189,20 @@ def nebparser(parser):
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
     parser.add_argument("-cineb", "--apply_CI_NEB",  type=int, default='99999', help='apply CI_NEB method')
     parser.add_argument("-sd", "--steepest_descent",  type=int, default='99999', help='apply steepest_descent method')
+    
+    class CGAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            if values is None:
+                setattr(namespace, self.dest, 'HS')
+            else:
+                setattr(namespace, self.dest, values)
+    
+    parser.add_argument("-cg", "--conjugate_gradient", nargs='?', help='apply conjugate_gradient method for path optimization (Available update method of CG parameters :FR, PR, HS, DY, HZ), default update method is HS.) ', action=CGAction, default=False)
+    parser.add_argument("-lbfgs", "--memory_limited_BFGS", action='store_true', help='apply L-BFGS method for path optimization ')
+    
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
-    parser.add_argument("-gqnt", "--global_quasi_newton",  action='store_true', help='use global quasi-Newton method') 
+    parser.add_argument("-gqnt", "--global_quasi_newton",  action='store_true', help='use global quasi-Newton method')
+    
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
