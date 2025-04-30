@@ -31,6 +31,7 @@ from Optimizer.hybrid_rfo import HybridRFO
 from Optimizer.rfo import RationalFunctionOptimization
 from Optimizer.ric_rfo import RedundantInternalRFO
 from Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
+from Optimizer.rsirfo import RSIRFO
 #from Optimizer.newton import Newton
 from Optimizer.lbfgs import LBFGS
 from Optimizer.tr_lbfgs import TRLBFGS
@@ -91,6 +92,13 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
+    "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
 
     "ersprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "ersprfo_fsb": {"delta": 0.50, "rfo_type": 1},
@@ -304,7 +312,8 @@ class CalculateMoveVector:
                             optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
                         elif "rsprfo" in key:
                             optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
-   
+                        elif "rsirfo" in key:
+                            optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))   
                         elif "rfo" in key:
                             optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
                         else:
