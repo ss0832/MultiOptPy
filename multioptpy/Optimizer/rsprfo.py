@@ -94,6 +94,7 @@ class RSPRFO:
         # Ensure gradient is properly shaped as a 1D array
         gradient = np.asarray(B_g).flatten()
         H = self.hessian + self.bias_hessian if self.bias_hessian is not None else self.hessian
+       
             
         # Compute eigenvalues and eigenvectors of the hessian
         eigvals, eigvecs = np.linalg.eigh(H)
@@ -618,7 +619,10 @@ class EnhancedRSPRFO:
         
         self.log(f"Initialized EnhancedRSPRFO with trust radius={self.trust_radius:.6f}, "
                 f"bounds=[{self.trust_radius_min:.6f}, {self.trust_radius_max:.6f}]")
-    
+
+
+
+
     def compute_reduction_ratio(self, gradient, hessian, step, actual_reduction):
         """
         Compute ratio between actual and predicted reduction in energy
@@ -765,7 +769,7 @@ class EnhancedRSPRFO:
                 
                 # Complete Hessian for the reduction ratio calculation
                 H = self.hessian + self.bias_hessian if self.bias_hessian is not None else self.hessian
-                
+                H = project_out_hess_tr_and_rot_for_coord(H, geom_num_list, display_eigval=False)
                 # Compute reduction ratio
                 reduction_ratio = self.compute_reduction_ratio(
                     self.prev_gradient, H, self.prev_move_vector, actual_energy_change)
@@ -1567,4 +1571,82 @@ class EnhancedRSPRFO:
         """
         return self.trust_radius_history
     
+
+
+def project_out_hess_tr_and_rot_for_coord(hessian, geometry, display_eigval=True):#do not consider atomic mass
+    def gram_schmidt(vectors):
+        basis = []
+        for v in vectors:
+            w = v.copy()
+            for b in basis:
+                w -= np.dot(v, b) * b
+            norm = np.linalg.norm(w)
+            if norm > 1e-10:
+                basis.append(w / norm)
+        return np.array(basis)
     
+    natoms = len(geometry) // 3
+    # Center the geometry
+    geometry = geometry - calc_center(geometry, element_list=[])
+    
+    # Initialize arrays for translation and rotation vectors
+    tr_vectors = np.zeros((3, 3 * natoms))
+    rot_vectors = np.zeros((3, 3 * natoms))
+    
+    # Create translation vectors (mass-weighted normalization is not used as specified)
+    for i in range(3):
+        tr_vectors[i, i::3] = 1.0
+    
+    # Create rotation vectors
+    for atom in range(natoms):
+        # Get atom coordinates
+        x, y, z = geometry[atom]
+        
+        # Rotation around x-axis: (0, -z, y)
+        rot_vectors[0, 3*atom:3*atom+3] = np.array([0.0, -z, y])
+        
+        # Rotation around y-axis: (z, 0, -x)
+        rot_vectors[1, 3*atom:3*atom+3] = np.array([z, 0.0, -x])
+        
+        # Rotation around z-axis: (-y, x, 0)
+        rot_vectors[2, 3*atom:3*atom+3] = np.array([-y, x, 0.0])
+
+    # Combine translation and rotation vectors
+    TR_vectors = np.vstack([tr_vectors, rot_vectors])
+    
+
+    
+    # Orthonormalize the translation and rotation vectors
+    TR_vectors = gram_schmidt(TR_vectors)
+    
+    # Calculate projection matrix
+    P = np.eye(3 * natoms)
+    for vector in TR_vectors:
+        P -= np.outer(vector, vector)
+    P = 0.5 * (P + P.T)
+    # Project the Hessian
+    hess_proj = np.dot(np.dot(P.T, hessian), P)
+    
+    # Make the projected Hessian symmetric (numerical stability)
+    hess_proj = (hess_proj + hess_proj.T) / 2
+    
+    if display_eigval:
+        eigenvalues, _ = np.linalg.eigh(hess_proj)
+        eigenvalues = np.sort(eigenvalues)
+        # Filter out near-zero eigenvalues
+        idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-6)[0]
+        print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
+        for i in range(0, len(idx_eigenvalues), 6):
+            tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
+            print(" ".join(f"{val:12.8f}" for val in tmp_arr))
+        
+    return hess_proj  
+    
+def calc_center(geomerty, element_list=[]):#geomerty:Bohr
+    center = np.array([0.0, 0.0, 0.0], dtype="float64")
+    for i in range(len(geomerty)):
+        
+        center += geomerty[i] 
+    center /= float(len(geomerty))
+    
+    return center
