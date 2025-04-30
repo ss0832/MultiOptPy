@@ -3,6 +3,7 @@ from numpy.linalg import norm
 import copy
 from .hessian_update import ModelHessianUpdate
 
+
 class RSPRFO:
     def __init__(self, **config):
         # Rational Step P-RFO (Rational Function Optimization) for transition state searches
@@ -12,17 +13,18 @@ class RSPRFO:
         # [3] Baker, J. Comput. Chem., 7, 385-395 (1986)
         # [4] Besalú and Bofill, Theor. Chem. Acc., 100, 265-274 (1998)
         
-        
-        
-        
         # Initial alpha parameter for RS-RFO
         self.alpha0 = config.get("alpha0", 1.0)
         # Maximum number of micro-cycles
-        self.max_micro_cycles = config.get("max_micro_cycles", 1)
+        self.max_micro_cycles = config.get("max_micro_cycles", 20)
         # Saddle order (0=minimum, 1=first-order saddle/TS, 2=second-order saddle, etc.)
         self.saddle_order = config.get("saddle_order", 1)
         # Hessian update method ('BFGS', 'SR1', 'FSB', 'Bofill', 'PSB', 'MSP', 'auto')
         self.hessian_update_method = config.get("method", "auto")
+        
+        # Alpha constraints to prevent numerical instability
+        self.alpha_max = config.get("alpha_max", 1e6)
+        self.alpha_step_max = config.get("alpha_step_max", 10.0)
         
         self.display_flag = config.get("display_flag", True)
         self.config = config
@@ -51,10 +53,28 @@ class RSPRFO:
         return
         
     def log(self, message):
+        """Print a message if display flag is enabled"""
         if self.display_flag:
             print(message)
             
     def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
+        """
+        Execute one step of the RS-P-RFO optimization
+        
+        Parameters:
+        geom_num_list: Current geometry coordinates
+        B_g: Current gradient
+        pre_B_g: Previous gradient
+        pre_geom: Previous geometry
+        B_e: Current energy
+        pre_B_e: Previous energy
+        pre_move_vector: Previous step vector
+        initial_geom_num_list: Initial geometry
+        g, pre_g: Alternative gradient representations
+        
+        Returns:
+        Optimization step vector
+        """
         if self.Initialization:
             self.prev_eigvec_max = None
             self.prev_eigvec_min = None
@@ -73,7 +93,7 @@ class RSPRFO:
             
         # Ensure gradient is properly shaped as a 1D array
         gradient = np.asarray(B_g).flatten()
-        H = self.hessian + self.bias_hessian
+        H = self.hessian + self.bias_hessian if self.bias_hessian is not None else self.hessian
             
         # Compute eigenvalues and eigenvectors of the hessian
         eigvals, eigvecs = np.linalg.eigh(H)
@@ -95,92 +115,259 @@ class RSPRFO:
         alpha = self.alpha0
         step = np.zeros_like(gradient_trans)  # This ensures step is 1D
         
+        # For tracking step quality throughout micro-cycles
+        prev_step_norms = []
+        best_step = None
+        best_step_norm_diff = float('inf')
+        
+        # Add history of step norms for debugging purposes
+        step_norm_history = []
+        
         for mu in range(self.max_micro_cycles):
             self.log(f"RS-PRFO micro cycle {mu:02d}, alpha={alpha:.6f}")
             
-            # Only process max_indices if there are any
-            if len(max_indices) > 0:
-                # Maximize energy along the chosen saddle direction(s)
-                H_aug_max = self.get_augmented_hessian(
-                    eigvals[max_indices], gradient_trans[max_indices], alpha
-                )
-                step_max, eigval_max, nu_max, self.prev_eigvec_max = self.solve_rfo(
-                    H_aug_max, "max", prev_eigvec=self.prev_eigvec_max
-                )
-                step[max_indices] = step_max
-            else:
-                eigval_max = 0
-                step_max = np.array([])
-            
-            # Only process min_indices if there are any
-            if len(min_indices) > 0:
-                # Minimize energy along all other modes
-                H_aug_min = self.get_augmented_hessian(
-                    eigvals[min_indices], gradient_trans[min_indices], alpha
-                )
-                step_min, eigval_min, nu_min, self.prev_eigvec_min = self.solve_rfo(
-                    H_aug_min, "min", prev_eigvec=self.prev_eigvec_min
-                )
-                step[min_indices] = step_min
-            else:
-                eigval_min = 0
-                step_min = np.array([])
-            
-            # Calculate step norm
-            step_norm = np.linalg.norm(step)
-            
-            if len(max_indices) > 0:
-                self.log(f"norm(step_max)={np.linalg.norm(step_max):.6f}")
-            if len(min_indices) > 0:
-                self.log(f"norm(step_min)={np.linalg.norm(step_min):.6f}")
+            try:
+                # Recalculate step vector for this cycle to ensure we use fresh values
+                step_this_cycle = np.zeros_like(gradient_trans)
                 
-            self.log(f"norm(step)={step_norm:.6f}")
-            
-            # Check if step is within trust radius
-            inside_trust = step_norm <= self.trust_radius
-            if inside_trust:
-                self.log(f"Restricted step satisfies trust radius of {self.trust_radius:.6f}")
-                self.log(f"Micro-cycles converged in cycle {mu:02d} with alpha={alpha:.6f}!")
+                # Only process max_indices if there are any
+                if len(max_indices) > 0:
+                    # Maximize energy along the chosen saddle direction(s)
+                    H_aug_max = self.get_augmented_hessian(
+                        eigvals[max_indices], gradient_trans[max_indices], alpha
+                    )
+                    step_max, eigval_max, nu_max, eigvec_max = self.solve_rfo(
+                        H_aug_max, "max", prev_eigvec=self.prev_eigvec_max
+                    )
+                    # Directly assign to the new step array
+                    step_this_cycle[max_indices] = step_max
+                else:
+                    eigval_max = 0
+                    step_max = np.array([])
+                
+                # Only process min_indices if there are any
+                if len(min_indices) > 0:
+                    # Minimize energy along all other modes
+                    H_aug_min = self.get_augmented_hessian(
+                        eigvals[min_indices], gradient_trans[min_indices], alpha
+                    )
+                    step_min, eigval_min, nu_min, eigvec_min = self.solve_rfo(
+                        H_aug_min, "min", prev_eigvec=self.prev_eigvec_min
+                    )
+                    # Directly assign to the new step array
+                    step_this_cycle[min_indices] = step_min
+                else:
+                    eigval_min = 0
+                    step_min = np.array([])
+                
+                # Update the step vector with the newly calculated values
+                step = step_this_cycle.copy()
+                
+                # Calculate current step norms
+                step_max_norm = np.linalg.norm(step_max) if len(max_indices) > 0 else 0.0
+                step_min_norm = np.linalg.norm(step_min) if len(min_indices) > 0 else 0.0
+                step_norm = np.linalg.norm(step)
+                
+                # Record step norm for history tracking
+                step_norm_history.append(step_norm)
+                
+                if len(max_indices) > 0:
+                    self.log(f"norm(step_max)={step_max_norm:.6f}")
+                if len(min_indices) > 0:
+                    self.log(f"norm(step_min)={step_min_norm:.6f}")
+                    
+                self.log(f"norm(step)={step_norm:.6f}")
+                
+                # Save this step if it's closest to the trust radius (as backup)
+                norm_diff = abs(step_norm - self.trust_radius)
+                if norm_diff < best_step_norm_diff:
+                    best_step = step.copy()  # Use copy() to ensure we have our own instance
+                    best_step_norm_diff = norm_diff
+                
+                # Check if step is within trust radius
+                inside_trust = step_norm <= self.trust_radius
+                if inside_trust:
+                    self.log(f"Restricted step satisfies trust radius of {self.trust_radius:.6f}")
+                    self.log(f"Micro-cycles converged in cycle {mu:02d} with alpha={alpha:.6f}!")
+                    break
+                    
+                # If step is too large, adjust alpha parameter
+                try:
+                    # Calculate derivatives only if the corresponding subspaces exist
+                    dstep2_dalpha_max = 0
+                    if len(max_indices) > 0:
+                        # Add rigorous error checking
+                        try:
+                            denom_max = 1 + np.dot(step_max, step_max) * alpha
+                            if abs(denom_max) < 1e-10:
+                                denom_max = 1e-10 * np.sign(denom_max) if denom_max != 0 else 1e-10
+                                
+                            # Check for zero values in denominators
+                            eigvals_modified = eigvals[max_indices].copy()
+                            denom_terms = eigvals_modified - eigval_max * alpha
+                            
+                            # Handle very small denominators
+                            small_denoms = np.abs(denom_terms) < 1e-10
+                            if np.any(small_denoms):
+                                self.log(f"Small denominators detected in max subspace: {np.sum(small_denoms)}")
+                                for i in np.where(small_denoms)[0]:
+                                    denom_terms[i] = 1e-10 * np.sign(denom_terms[i]) if denom_terms[i] != 0 else 1e-10
+                            
+                            dstep2_dalpha_max = (
+                                2
+                                * eigval_max
+                                / denom_max
+                                * np.sum(
+                                    gradient_trans[max_indices] ** 2
+                                    / denom_terms ** 3
+                                )
+                            )
+                        except Exception as e:
+                            self.log(f"Error calculating dstep2_dalpha_max: {str(e)}")
+                            dstep2_dalpha_max = 0
+                        
+                    dstep2_dalpha_min = 0
+                    if len(min_indices) > 0:
+                        # Add rigorous error checking
+                        try:
+                            denom_min = 1 + np.dot(step_min, step_min) * alpha
+                            if abs(denom_min) < 1e-10:
+                                denom_min = 1e-10 * np.sign(denom_min) if denom_min != 0 else 1e-10
+                                
+                            # Check for zero values in denominators
+                            eigvals_modified = eigvals[min_indices].copy()
+                            denom_terms = eigvals_modified - eigval_min * alpha
+                            
+                            # Handle very small denominators
+                            small_denoms = np.abs(denom_terms) < 1e-10
+                            if np.any(small_denoms):
+                                self.log(f"Small denominators detected in min subspace: {np.sum(small_denoms)}")
+                                for i in np.where(small_denoms)[0]:
+                                    denom_terms[i] = 1e-10 * np.sign(denom_terms[i]) if denom_terms[i] != 0 else 1e-10
+                            
+                            dstep2_dalpha_min = (
+                                2
+                                * eigval_min
+                                / denom_min
+                                * np.sum(
+                                    gradient_trans[min_indices] ** 2
+                                    / denom_terms ** 3
+                                )
+                            )
+                        except Exception as e:
+                            self.log(f"Error calculating dstep2_dalpha_min: {str(e)}")
+                            dstep2_dalpha_min = 0
+                        
+                    dstep2_dalpha = dstep2_dalpha_max + dstep2_dalpha_min
+                    
+                    # Avoid division by zero or very small values
+                    if abs(dstep2_dalpha) < 1e-10:
+                        old_alpha = alpha
+                        # More aggressive alpha update (double instead of 1.5x)
+                        alpha = min(alpha * 2.0, self.alpha_max)  # Limit maximum alpha
+                        self.log(f"Small derivative, using heuristic: alpha {old_alpha:.6f} -> {alpha:.6f}")
+                    else:
+                        # Calculate alpha step with safeguards
+                        alpha_step_raw = 2 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
+                        
+                        # Limit the step size to prevent numerical instability
+                        alpha_step = np.clip(alpha_step_raw, -self.alpha_step_max, self.alpha_step_max)
+                        
+                        if abs(alpha_step) != abs(alpha_step_raw):
+                            self.log(f"Limited alpha step from {alpha_step_raw:.6f} to {alpha_step:.6f}")
+                        
+                        # Update alpha with bounds checking
+                        old_alpha = alpha
+                        alpha = min(alpha + alpha_step, self.alpha_max)
+                        
+                        # Detect if alpha is hitting the upper limit
+                        if alpha == self.alpha_max:
+                            self.log(f"Warning: alpha reached maximum value ({self.alpha_max})")
+                            # Try a more conservative approach - use the best step found so far
+                            if best_step is not None:
+                                self.log("Using best step since alpha reached maximum")
+                                step = best_step.copy()
+                                break
+                    
+                    # Check if alpha update is not making progress
+                    if mu >= 2:  # At least from the third iteration
+                        # Use only the 3 most recent step norms
+                        recent_norms = step_norm_history[-3:] if len(step_norm_history) >= 3 else step_norm_history
+                        
+                        # Check if norm is barely changing (more strict check)
+                        if len(recent_norms) >= 3:
+                            changes = [abs(recent_norms[i] - recent_norms[i-1]) for i in range(1, len(recent_norms))]
+                            if all(change < 1e-6 for change in changes):
+                                self.log(f"Step norm not changing significantly: {recent_norms}")
+                                self.log("Breaking micro-cycle loop")
+                                
+                                # Better fallback strategy
+                                if best_step is not None and best_step_norm_diff < abs(step_norm - self.trust_radius):
+                                    step = best_step.copy()
+                                    self.log("Using best step found so far")
+                                else:
+                                    # Force step adjustment through scaling
+                                    if step_norm > self.trust_radius:
+                                        self.log("Scaling step to trust radius")
+                                        scale_factor = self.trust_radius / step_norm
+                                        step = step * scale_factor
+                                break
+                
+                except Exception as e:
+                    self.log(f"Error in alpha update: {str(e)}")
+                    # Use the best step found so far or current step
+                    if best_step is not None:
+                        self.log("Using best step found so far due to error")
+                        step = best_step.copy()
+                    else:
+                        # Force scaling of step
+                        if step_norm > self.trust_radius:
+                            scale_factor = self.trust_radius / step_norm
+                            step = step * scale_factor
+                            self.log(f"Scaled step to trust radius: {self.trust_radius:.6f}")
+                    break
+                    
+                # Save new eigenvector values for next iteration
+                if len(max_indices) > 0:
+                    self.prev_eigvec_max = eigvec_max
+                if len(min_indices) > 0:
+                    self.prev_eigvec_min = eigvec_min
+                
+            except Exception as e:
+                self.log(f"Error in micro-cycle calculation: {str(e)}")
+                # Use best step found or fallback to a simpler approach
+                if best_step is not None:
+                    self.log("Using best step found so far due to error")
+                    step = best_step.copy()
+                else:
+                    # Simple gradient-based step as fallback
+                    self.log("Using gradient-based step as fallback")
+                    sd_step = -gradient_trans
+                    sd_norm = np.linalg.norm(sd_step)
+                    if sd_norm > self.trust_radius:
+                        step = sd_step / sd_norm * self.trust_radius
+                    else:
+                        step = sd_step
                 break
                 
-            # If step is too large, adjust alpha to restrict step size
-            # Calculate derivatives only if the corresponding subspaces exist
-            dstep2_dalpha_max = 0
-            if len(max_indices) > 0:
-                dstep2_dalpha_max = (
-                    2
-                    * eigval_max
-                    / (1 + np.dot(step_max, step_max) * alpha)
-                    * np.sum(
-                        gradient_trans[max_indices] ** 2
-                        / (eigvals[max_indices] - eigval_max * alpha) ** 3
-                    )
-                )
-                
-            dstep2_dalpha_min = 0
-            if len(min_indices) > 0:
-                dstep2_dalpha_min = (
-                    2
-                    * eigval_min
-                    / (1 + np.dot(step_min, step_min) * alpha)
-                    * np.sum(
-                        gradient_trans[min_indices] ** 2
-                        / (eigvals[min_indices] - eigval_min * alpha) ** 3
-                    )
-                )
-                
-            dstep2_dalpha = dstep2_dalpha_max + dstep2_dalpha_min
+        else:
+            # If micro cycles did not converge
+            self.log(
+                f"RS-P-RFO algorithm did not converge in {self.max_micro_cycles} cycles. "
+                "Using best step found or scaling the last computed step."
+            )
             
-            # Avoid division by zero
-            if abs(dstep2_dalpha) < 1e-10:
-                alpha *= 1.5  # Simple heuristic if derivative is very small
+            # Use the best step found or scale the current step
+            if best_step is not None and best_step_norm_diff < abs(np.linalg.norm(step) - self.trust_radius):
+                self.log(f"Using previously found step with norm closest to trust radius")
+                step = best_step.copy()
             else:
-                # Update alpha
-                alpha_step = (
-                    2 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
-                )
-                alpha += alpha_step
-            
+                # Scale current step
+                step_norm = np.linalg.norm(step)
+                if step_norm > self.trust_radius:
+                    self.log(f"Scaling final step to trust radius")
+                    step = step / step_norm * self.trust_radius
+        
         # Transform step back to original coordinates
         move_vector = eigvecs.dot(step)
         step_norm = np.linalg.norm(move_vector)
@@ -299,15 +486,23 @@ class RSPRFO:
             
         # Check if we need to flip the eigenvector to maintain consistency with the previous step
         if prev_eigvec is not None:
-            overlap = np.dot(eigvecs[:, idx], prev_eigvec)
-            if overlap < 0:
-                eigvecs[:, idx] *= -1
+            try:
+                overlap = np.dot(eigvecs[:, idx], prev_eigvec)
+                if overlap < 0:
+                    eigvecs[:, idx] *= -1
+            except Exception as e:
+                # Handle potential dimension mismatch
+                pass
                 
         eigval = eigvals[idx]
         eigvec = eigvecs[:, idx]
         
         # The last component is nu
         nu = eigvec[-1]
+        
+        # Add safeguard against very small nu values
+        if abs(nu) < 1e-10:
+            nu = np.sign(nu) * max(1e-10, abs(nu))
         
         # The step is -p/nu where p are the first n components of the eigenvector
         step = -eigvec[:-1] / nu
@@ -319,20 +514,23 @@ class RSPRFO:
         return np.dot(gradient, step) + 0.5 * np.dot(step, np.dot(hessian, step))
     
     def set_hessian(self, hessian):
+        """Set the Hessian matrix"""
         self.hessian = hessian
         return
 
     def set_bias_hessian(self, bias_hessian):
+        """Set the bias Hessian matrix"""
         self.bias_hessian = bias_hessian
         return
     
     def get_hessian(self):
+        """Get the current Hessian matrix"""
         return self.hessian
     
     def get_bias_hessian(self):
+        """Get the current bias Hessian matrix"""
         return self.bias_hessian
-
-
+    
 
 class EnhancedRSPRFO:
     def __init__(self, **config):
@@ -350,11 +548,15 @@ class EnhancedRSPRFO:
         """
         # Standard RSPRFO parameters
         self.alpha0 = config.get("alpha0", 1.0)
-        self.max_micro_cycles = config.get("max_micro_cycles", 1)
+        self.max_micro_cycles = config.get("max_micro_cycles", 20)  # Increased from 1 to 20
         self.saddle_order = config.get("saddle_order", 1)
         self.hessian_update_method = config.get("method", "auto")
         self.display_flag = config.get("display_flag", True)
         self.debug = config.get("debug", False)
+        
+        # Alpha constraints to prevent numerical instability
+        self.alpha_max = config.get("alpha_max", 1e6)
+        self.alpha_step_max = config.get("alpha_step_max", 10.0)
         
         # Trust region parameters
         if self.saddle_order == 0:
@@ -640,103 +842,213 @@ class EnhancedRSPRFO:
         # Set minimization directions (all directions not in max_indices)
         min_indices = [i for i in range(gradient.size) if i not in max_indices]
             
+        # Initialize alpha parameter
         alpha = self.alpha0
-        step = np.zeros_like(gradient_trans)
         
-        # Micro-cycle loop for trust radius adjustment
+        # Tracking variables
+        best_step = None
+        best_step_norm_diff = float('inf')
+        step_norm_history = []
+        
+        # NEW IMPLEMENTATION: Micro-cycle loop with improved alpha calculation
         for mu in range(self.max_micro_cycles):
             self.log(f"RS-PRFO micro cycle {mu:02d}, alpha={alpha:.6f}, trust radius={self.trust_radius:.6f}")
             
-            # Calculate step for maximization directions (usually the TS mode)
-            if len(max_indices) > 0:
-                H_aug_max = self.get_augmented_hessian(
-                    eigvals[max_indices], gradient_trans[max_indices], alpha
-                )
-                step_max, eigval_max, nu_max, self.prev_eigvec_max = self.solve_rfo(
-                    H_aug_max, "max", prev_eigvec=self.prev_eigvec_max
-                )
-                step[max_indices] = step_max
-            else:
-                eigval_max = 0
+            try:
+                # Make a fresh step vector for this cycle - essential to ensure proper recalculation
+                step = np.zeros_like(gradient_trans)
+                
+                # Maximization subspace calculation
                 step_max = np.array([])
-            
-            # Calculate step for minimization directions (all other modes)
-            if len(min_indices) > 0:
-                H_aug_min = self.get_augmented_hessian(
-                    eigvals[min_indices], gradient_trans[min_indices], alpha
-                )
-                step_min, eigval_min, nu_min, self.prev_eigvec_min = self.solve_rfo(
-                    H_aug_min, "min", prev_eigvec=self.prev_eigvec_min
-                )
-                step[min_indices] = step_min
-            else:
-                eigval_min = 0
+                eigval_max = 0
+                if len(max_indices) > 0:
+                    # Calculate augmented Hessian
+                    H_aug_max = self.get_augmented_hessian(
+                        eigvals[max_indices], gradient_trans[max_indices], alpha
+                    )
+                    
+                    # Solve RFO equations
+                    step_max, eigval_max, nu_max, eigvec_max = self.solve_rfo(
+                        H_aug_max, "max", prev_eigvec=self.prev_eigvec_max
+                    )
+                    
+                    # Store eigenvector for next iteration
+                    self.prev_eigvec_max = eigvec_max
+                    
+                    # Copy step to the main step vector
+                    step[max_indices] = step_max
+                
+                # Minimization subspace calculation
                 step_min = np.array([])
-            
-            # Calculate step norm
-            step_norm = norm(step)
-            
-            if len(max_indices) > 0:
-                self.log(f"norm(step_max)={norm(step_max):.6f}")
-            if len(min_indices) > 0:
-                self.log(f"norm(step_min)={norm(step_min):.6f}")
+                eigval_min = 0
+                if len(min_indices) > 0:
+                    # Calculate augmented Hessian
+                    H_aug_min = self.get_augmented_hessian(
+                        eigvals[min_indices], gradient_trans[min_indices], alpha
+                    )
+                    
+                    # Solve RFO equations
+                    step_min, eigval_min, nu_min, eigvec_min = self.solve_rfo(
+                        H_aug_min, "min", prev_eigvec=self.prev_eigvec_min
+                    )
+                    
+                    # Store eigenvector for next iteration
+                    self.prev_eigvec_min = eigvec_min
+                    
+                    # Copy step to the main step vector
+                    step[min_indices] = step_min
                 
-            self.log(f"norm(step)={step_norm:.6f}")
-            
-            # Check if step is within trust radius
-            inside_trust = step_norm <= self.trust_radius
-            if inside_trust:
-                self.log(f"Restricted step satisfies trust radius of {self.trust_radius:.6f}")
-                self.log(f"Micro-cycles converged in cycle {mu:02d} with alpha={alpha:.6f}!")
+                # Calculate norms of the current step
+                step_max_norm = np.linalg.norm(step_max) if len(max_indices) > 0 else 0.0
+                step_min_norm = np.linalg.norm(step_min) if len(min_indices) > 0 else 0.0
+                step_norm = np.linalg.norm(step)
+                
+                # Log the current norms
+                if len(max_indices) > 0:
+                    self.log(f"norm(step_max)={step_max_norm:.6f}")
+                if len(min_indices) > 0:
+                    self.log(f"norm(step_min)={step_min_norm:.6f}")
+                
+                self.log(f"norm(step)={step_norm:.6f}")
+                
+                # Keep track of step norm history for convergence detection
+                step_norm_history.append(step_norm)
+                
+                # Save this step if it's closest to trust radius (for later use)
+                norm_diff = abs(step_norm - self.trust_radius)
+                if norm_diff < best_step_norm_diff:
+                    best_step = step.copy()
+                    best_step_norm_diff = norm_diff
+                
+                # Check if step is already within trust radius
+                if step_norm <= self.trust_radius:
+                    self.log(f"Step satisfies trust radius {self.trust_radius:.6f}")
+                    break
+                
+                # Calculate alpha update for each subspace
+                # Max subspace
+                alpha_step_max = 0.0
+                if len(max_indices) > 0:
+                    alpha_step_max = self.get_alpha_step(
+                        alpha, eigval_max, step_max_norm, eigvals[max_indices], 
+                        gradient_trans[max_indices], "max"
+                    )
+                
+                # Min subspace
+                alpha_step_min = 0.0
+                if len(min_indices) > 0:
+                    alpha_step_min = self.get_alpha_step(
+                        alpha, eigval_min, step_min_norm, eigvals[min_indices], 
+                        gradient_trans[min_indices], "min"
+                    )
+                
+                # Combine alpha steps with appropriate weighting
+                alpha_step = 0.0
+                if alpha_step_max != 0.0 and alpha_step_min != 0.0:
+                    # Weight by squared norms
+                    w_max = step_max_norm**2 if step_max_norm > 0.0 else 0.0
+                    w_min = step_min_norm**2 if step_min_norm > 0.0 else 0.0
+                    if w_max + w_min > 0.0:
+                        alpha_step = (w_max * alpha_step_max + w_min * alpha_step_min) / (w_max + w_min)
+                    else:
+                        alpha_step = alpha_step_max if abs(alpha_step_max) > abs(alpha_step_min) else alpha_step_min
+                else:
+                    alpha_step = alpha_step_max if alpha_step_max != 0.0 else alpha_step_min
+                
+                # If alpha_step is still 0, use a direct calculation with the total step
+                if abs(alpha_step) < 1e-10 and step_norm > 0.0:
+                    try:
+                        # Calculate derivative directly using analytic formula
+                        dstep2_dalpha = self.calculate_step_derivative(
+                            alpha, eigval_max, eigval_min, eigvals, 
+                            max_indices, min_indices, gradient_trans, step_norm
+                        )
+                        
+                        if abs(dstep2_dalpha) > 1e-10:
+                            alpha_step = 2.0 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
+                            self.log(f"Direct alpha_step calculation: {alpha_step:.6f}")
+                    except Exception as e:
+                        self.log(f"Error in direct derivative calculation: {str(e)}")
+                        alpha_step = 0.0
+                
+                # Update alpha with proper bounds
+                old_alpha = alpha
+                
+                # If derivative-based approach fails, use heuristic
+                if abs(alpha_step) < 1e-10:
+                    # Apply a more aggressive heuristic - double alpha
+                    alpha = min(alpha * 2.0, self.alpha_max)
+                    self.log(f"Using heuristic alpha update: {old_alpha:.6f} -> {alpha:.6f}")
+                else:
+                    # Apply safety bounds to alpha_step
+                    alpha_step_limited = np.clip(alpha_step, -self.alpha_step_max, self.alpha_step_max)
+                    
+                    if abs(alpha_step_limited) != abs(alpha_step):
+                        self.log(f"Limited alpha_step from {alpha_step:.6f} to {alpha_step_limited:.6f}")
+                    
+                    # Ensure alpha remains positive and within bounds
+                    alpha = min(max(old_alpha + alpha_step_limited, 1e-6), self.alpha_max)
+                    self.log(f"Updated alpha: {old_alpha:.6f} -> {alpha:.6f}")
+                
+                # Check if alpha reached its maximum value
+                if alpha == self.alpha_max:
+                    self.log(f"Alpha reached maximum value ({self.alpha_max}), using best step found")
+                    if best_step is not None:
+                        step = best_step.copy()
+                    break
+                
+                # Check for progress in step norm adjustments
+                if len(step_norm_history) >= 3:
+                    # Calculate consecutive changes in step norm
+                    recent_changes = [abs(step_norm_history[-i] - step_norm_history[-(i+1)]) 
+                                      for i in range(1, min(3, len(step_norm_history)))]
+                    
+                    # If step norms are not changing significantly, break the loop
+                    if all(change < 1e-6 for change in recent_changes):
+                        self.log(f"Step norms not changing significantly: {step_norm_history[-3:]}")
+                        self.log("Breaking micro-cycle loop")
+                        
+                        # Use the best step found so far
+                        if best_step is not None and best_step_norm_diff < norm_diff:
+                            step = best_step.copy()
+                            self.log("Using best step found so far")
+                        
+                        break
+                
+            except Exception as e:
+                self.log(f"Error in micro-cycle: {str(e)}")
+                # Use best step if available, otherwise scale current step
+                if best_step is not None:
+                    self.log("Using best step due to error")
+                    step = best_step.copy()
+                else:
+                    # Simple scaling fallback
+                    if step_norm > 0 and step_norm > self.trust_radius:
+                        scale_factor = self.trust_radius / step_norm
+                        step = step * scale_factor
+                        self.log(f"Scaled step to trust radius due to error")
                 break
-                
-            # If step is too large, adjust alpha parameter
-            # Calculate derivatives only if the corresponding subspaces exist
-            dstep2_dalpha_max = 0
-            if len(max_indices) > 0:
-                dstep2_dalpha_max = (
-                    2
-                    * eigval_max
-                    / (1 + np.dot(step_max, step_max) * alpha)
-                    * np.sum(
-                        gradient_trans[max_indices] ** 2
-                        / (eigvals[max_indices] - eigval_max * alpha) ** 3
-                    )
-                )
-                
-            dstep2_dalpha_min = 0
-            if len(min_indices) > 0:
-                dstep2_dalpha_min = (
-                    2
-                    * eigval_min
-                    / (1 + np.dot(step_min, step_min) * alpha)
-                    * np.sum(
-                        gradient_trans[min_indices] ** 2
-                        / (eigvals[min_indices] - eigval_min * alpha) ** 3
-                    )
-                )
-                
-            dstep2_dalpha = dstep2_dalpha_max + dstep2_dalpha_min
-            
-            # Update alpha value for next micro-cycle
-            if abs(dstep2_dalpha) < 1e-10:
-                alpha *= 1.5  # Simple heuristic if derivative is very small
-            else:
-                # Update alpha using analytical formula
-                alpha_step = (
-                    2 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
-                )
-                alpha += alpha_step
+        
+        else:
+            # If micro-cycles did not converge
+            self.log(f"Micro-cycles did not converge in {self.max_micro_cycles} iterations")
+            # Use the best step if available
+            if best_step is not None and best_step_norm_diff < abs(step_norm - self.trust_radius):
+                self.log("Using best step found during micro-cycles")
+                step = best_step.copy()
         
         # Transform step back to original coordinates
         move_vector = eigvecs.dot(step)
         step_norm = norm(move_vector)
         
-        # Scale step if necessary to enforce trust radius
+        # Only scale down steps that exceed the trust radius
         if step_norm > self.trust_radius:
-            move_vector = move_vector / step_norm * self.trust_radius
-            self.log(f"Step scaled to trust radius: {self.trust_radius:.6f}")
-            
+            self.log(f"Step norm {step_norm:.6f} exceeds trust radius {self.trust_radius:.6f}, scaling down")
+            move_vector = move_vector * (self.trust_radius / step_norm)
+            step_norm = self.trust_radius
+        else:
+            self.log(f"Step norm {step_norm:.6f} is within trust radius {self.trust_radius:.6f}, no scaling needed")
+        
         self.log(f"Final norm(step)={norm(move_vector):.6f}")
         
         # Apply maxstep constraint if specified in config
@@ -757,12 +1069,12 @@ class EnhancedRSPRFO:
                 move_vector = move_vector * (maxstep / longest_step)
                 self.log(f"Step constrained by maxstep={maxstep:.6f}")
         
-        # Calculate predicted energy change for convergence assessment and trust radius update
+        # Calculate predicted energy change
         predicted_energy_change = self.rfo_model(gradient, H, move_vector)
         self.predicted_energy_changes.append(predicted_energy_change)
         self.log(f"Predicted energy change: {predicted_energy_change:.6f}")
         
-        # Store current geometry, gradient and energy for next iteration
+        # Store current geometry, gradient, energy, and move vector for next iteration
         self.prev_geometry = copy.deepcopy(geom_num_list)
         self.prev_gradient = copy.deepcopy(B_g)
         self.prev_energy = B_e
@@ -772,7 +1084,133 @@ class EnhancedRSPRFO:
         self.iter += 1
         
         return move_vector.reshape(-1, 1)
+
+    def get_alpha_step(self, alpha, rfo_eigval, step_norm, eigvals, gradient, mode="min"):
+        """
+        Calculate alpha step update for a specific subspace using the improved method
         
+        Parameters:
+        alpha: float - Current alpha value
+        rfo_eigval: float - RFO eigenvalue for this subspace
+        step_norm: float - Norm of the step in this subspace
+        eigvals: numpy.ndarray - Eigenvalues for this subspace
+        gradient: numpy.ndarray - Gradient components in this subspace
+        mode: str - "min" or "max" for minimization or maximization subspace
+        
+        Returns:
+        float: Calculated alpha step update
+        """
+        try:
+            # Calculate denominators with safety checks
+            denominators = eigvals - rfo_eigval * alpha
+            
+            # Handle small denominators
+            small_denoms = np.abs(denominators) < 1e-10
+            if np.any(small_denoms):
+                self.log(f"Small denominators detected in {mode} subspace: {np.sum(small_denoms)}")
+                safe_denoms = denominators.copy()
+                for i in np.where(small_denoms)[0]:
+                    safe_denoms[i] = 1e-10 * np.sign(safe_denoms[i]) if safe_denoms[i] != 0 else 1e-10
+                denominators = safe_denoms
+            
+            # Calculate quotient term
+            numerator = gradient**2
+            denominator = denominators**3
+            quot = np.sum(numerator / denominator)
+            self.log(f"{mode} subspace quot={quot:.6e}")
+            
+            # Calculate step term with safety
+            step_term = 1.0 + step_norm**2 * alpha
+            if abs(step_term) < 1e-10:
+                step_term = 1e-10 * np.sign(step_term) if step_term != 0 else 1e-10
+            
+            # Calculate derivative of squared step norm with respect to alpha
+            dstep2_dalpha = 2.0 * rfo_eigval / step_term * quot
+            self.log(f"{mode} subspace d(step^2)/dα={dstep2_dalpha:.6e}")
+            
+            # Return 0 if derivative is too small
+            if abs(dstep2_dalpha) < 1e-10:
+                return 0.0
+            
+            # Calculate alpha step using the trust radius formula
+            alpha_step = 2.0 * (self.trust_radius * step_norm - step_norm**2) / dstep2_dalpha
+            self.log(f"{mode} subspace alpha_step={alpha_step:.6f}")
+            
+            return alpha_step
+            
+        except Exception as e:
+            self.log(f"Error in get_alpha_step ({mode}): {str(e)}")
+            return 0.0
+    
+    def calculate_step_derivative(self, alpha, eigval_max, eigval_min, eigvals, max_indices, min_indices, gradient_trans, step_norm):
+        """
+        Calculate the derivative of the squared step norm with respect to alpha
+        for the combined step from both subspaces
+        
+        Parameters:
+        alpha: float - Current alpha value
+        eigval_max, eigval_min: float - RFO eigenvalues from max and min subspaces
+        eigvals: numpy.ndarray - All eigenvalues
+        max_indices, min_indices: list - Indices of max and min subspaces
+        gradient_trans: numpy.ndarray - Transformed gradient
+        step_norm: float - Current total step norm
+        
+        Returns:
+        float: Combined derivative of squared step norm with respect to alpha
+        """
+        try:
+            dstep2_dalpha_max = 0.0
+            if len(max_indices) > 0:
+                # Calculate denominator for max subspace
+                denom_max = 1.0 + np.dot(gradient_trans[max_indices], gradient_trans[max_indices]) * alpha
+                if abs(denom_max) < 1e-10:
+                    denom_max = 1e-10 * np.sign(denom_max) if denom_max != 0 else 1e-10
+                
+                # Handle small denominators in eigenvalue terms
+                eigvals_max = eigvals[max_indices].copy()
+                denom_terms_max = eigvals_max - eigval_max * alpha
+                
+                small_denoms = np.abs(denom_terms_max) < 1e-10
+                if np.any(small_denoms):
+                    for i in np.where(small_denoms)[0]:
+                        denom_terms_max[i] = 1e-10 * np.sign(denom_terms_max[i]) if denom_terms_max[i] != 0 else 1e-10
+                
+                # Calculate derivative component for max subspace
+                dstep2_dalpha_max = (
+                    2.0 * eigval_max / denom_max * np.sum(gradient_trans[max_indices]**2 / denom_terms_max**3)
+                )
+            
+            dstep2_dalpha_min = 0.0
+            if len(min_indices) > 0:
+                # Calculate denominator for min subspace
+                denom_min = 1.0 + np.dot(gradient_trans[min_indices], gradient_trans[min_indices]) * alpha
+                if abs(denom_min) < 1e-10:
+                    denom_min = 1e-10 * np.sign(denom_min) if denom_min != 0 else 1e-10
+                
+                # Handle small denominators in eigenvalue terms
+                eigvals_min = eigvals[min_indices].copy()
+                denom_terms_min = eigvals_min - eigval_min * alpha
+                
+                small_denoms = np.abs(denom_terms_min) < 1e-10
+                if np.any(small_denoms):
+                    for i in np.where(small_denoms)[0]:
+                        denom_terms_min[i] = 1e-10 * np.sign(denom_terms_min[i]) if denom_terms_min[i] != 0 else 1e-10
+                
+                # Calculate derivative component for min subspace
+                dstep2_dalpha_min = (
+                    2.0 * eigval_min / denom_min * np.sum(gradient_trans[min_indices]**2 / denom_terms_min**3)
+                )
+            
+            # Combine derivatives from both subspaces
+            dstep2_dalpha = dstep2_dalpha_max + dstep2_dalpha_min
+            self.log(f"Combined dstep2_dalpha={dstep2_dalpha:.6e}")
+            
+            return dstep2_dalpha
+            
+        except Exception as e:
+            self.log(f"Error in calculate_step_derivative: {str(e)}")
+            return 0.0
+
     def find_corresponding_mode(self, eigvals, eigvecs, prev_eigvecs, target_mode_idx):
         """
         Find corresponding mode in current step based on eigenvector overlap
@@ -914,15 +1352,25 @@ class EnhancedRSPRFO:
             
         # Check if we need to flip the eigenvector to maintain consistency
         if prev_eigvec is not None:
-            overlap = np.dot(eigvecs[:, idx], prev_eigvec)
-            if overlap < 0:
-                eigvecs[:, idx] *= -1
+            try:
+                overlap = np.dot(eigvecs[:, idx], prev_eigvec)
+                if overlap < 0:
+                    eigvecs[:, idx] *= -1
+            except Exception as e:
+                # Handle dimension mismatch or other errors
+                self.log(f"Error in eigenvector consistency check: {str(e)}")
+                # Continue without flipping
                 
         eigval = eigvals[idx]
         eigvec = eigvecs[:, idx]
         
         # The last component is nu
         nu = eigvec[-1]
+        
+        # Add safeguard against very small nu values
+        if abs(nu) < 1e-10:
+            self.log(f"Warning: Very small nu value: {nu}. Using safe value.")
+            nu = np.sign(nu) * max(1e-10, abs(nu))
         
         # The step is -p/nu where p are the first n components of the eigenvector
         step = -eigvec[:-1] / nu
