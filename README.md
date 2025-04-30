@@ -44,7 +44,7 @@ python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
 ```
 For SADDLE calculation 
 ```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rfo3_bofill_lars -order 1 -fc 5
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
 
 For NEB method
@@ -96,7 +96,7 @@ Recommended optimization methods:
 - FIRE (Robust method)
 - TR_LBFGS (Limited-memory BFGS method with trust radius method, Faster convergence than FIRE without Hessian)
 - RFO_FSB 
-- RFO3_Bofill (for calculation of saddle point)
+- RSIRFO_Bofill (for calculation of saddle point)
 
 `-ma`
 
