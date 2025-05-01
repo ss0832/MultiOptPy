@@ -2,6 +2,7 @@ import numpy as np
 from numpy.linalg import norm
 import copy
 from .hessian_update import ModelHessianUpdate
+from scipy.optimize import brentq
 
 class RSIRFO:
     def __init__(self, **config):
@@ -50,6 +51,11 @@ class RSIRFO:
         self.energy_change_threshold = config.get("energy_change_threshold", 1e-6)
         self.gradient_norm_threshold = config.get("gradient_norm_threshold", 1e-4)
         
+        # Tolerance for step norm to be considered close to trust radius
+        self.step_norm_tolerance = config.get("step_norm_tolerance", 1e-3)
+        
+        # Debug mode flag
+        self.debug_mode = config.get("debug_mode", False)
         self.display_flag = config.get("display_flag", True)
         self.config = config
         self.Initialization = True
@@ -73,11 +79,23 @@ class RSIRFO:
         
         # Initialize the hessian update module
         self.hessian_updater = ModelHessianUpdate()
+        
+        # Multiple initial alpha values to try (-10 to 10 with 20 values)
+        # Note: We'll make sure to handle negative alpha values properly in the RFO calculations
+        # For safety, we'll use 0.001 as the minimum positive value
+        alpha_values = np.linspace(0.001, 10.0, 20)
+        self.alpha_init_values = alpha_values
         return
         
-    def log(self, message):
-        """Print message if display flag is enabled"""
-        if self.display_flag:
+    def log(self, message, force=False):
+        """
+        Print message if display flag is enabled and either force is True or in debug mode
+        
+        Parameters:
+        message: str - Message to display
+        force: bool - If True, print regardless of debug mode
+        """
+        if self.display_flag and (force or self.debug_mode):
             print(message)
             
     def filter_small_eigvals(self, eigvals, eigvecs, mask=False):
@@ -108,7 +126,8 @@ class RSIRFO:
         if small_num > 6:
             self.log(
                 f"Warning: Found {small_num} small eigenvalues, which is more than expected. "
-                "This may indicate numerical issues. Proceeding with caution."
+                "This may indicate numerical issues. Proceeding with caution.", 
+                force=True
             )
         
         if mask:
@@ -136,7 +155,7 @@ class RSIRFO:
         numpy.ndarray - Optimization step vector
         """
         # Print iteration header
-        self.log(f"\n{'='*50}\nRS-I-RFO Iteration {self.iteration}\n{'='*50}")
+        self.log(f"\n{'='*50}\nRS-I-RFO Iteration {self.iteration}\n{'='*50}", force=True)
         
         # Initialize on first call
         if self.Initialization:
@@ -169,17 +188,17 @@ class RSIRFO:
             
         # Check for convergence based on gradient
         gradient_norm = np.linalg.norm(B_g)
-        self.log(f"Gradient norm: {gradient_norm:.6f}")
+        self.log(f"Gradient norm: {gradient_norm:.6f}", force=True)
         
         if gradient_norm < self.gradient_norm_threshold:
-            self.log(f"Converged: Gradient norm {gradient_norm:.6f} below threshold {self.gradient_norm_threshold:.6f}")
+            self.log(f"Converged: Gradient norm {gradient_norm:.6f} below threshold {self.gradient_norm_threshold:.6f}", force=True)
             self.converged = True
         
         # Check for convergence based on energy change
         if len(self.actual_energy_changes) > 0:
             last_energy_change = abs(self.actual_energy_changes[-1])
             if last_energy_change < self.energy_change_threshold:
-                self.log(f"Converged: Energy change {last_energy_change:.6f} below threshold {self.energy_change_threshold:.6f}")
+                self.log(f"Converged: Energy change {last_energy_change:.6f} below threshold {self.energy_change_threshold:.6f}", force=True)
                 self.converged = True
             
         # Store current energy
@@ -194,7 +213,7 @@ class RSIRFO:
         
         # Count negative eigenvalues for diagnostic purposes
         neg_eigvals = sum(eigvals < -1e-6)
-        self.log(f"Found {neg_eigvals} negative eigenvalues (target for this saddle order: {self.saddle_order})")
+        self.log(f"Found {neg_eigvals} negative eigenvalues (target for this saddle order: {self.saddle_order})", force=True)
         
         # Create the projection matrix for RS-I-RFO
         self.log(f"Using projection to construct image potential gradient and hessian for root(s) {self.roots}.")
@@ -233,7 +252,7 @@ class RSIRFO:
         predicted_energy_change = self.rfo_model(gradient, H, move_vector)
         self.predicted_energy_changes.append(predicted_energy_change)
         
-        self.log(f"Predicted energy change: {predicted_energy_change:.6f}")
+        self.log(f"Predicted energy change: {predicted_energy_change:.6f}", force=True)
         
         # Evaluate step quality if we have history
         if len(self.actual_energy_changes) > 0 and len(self.predicted_energy_changes) > 1:
@@ -266,7 +285,7 @@ class RSIRFO:
         # Calculate ratio between actual and predicted changes
         ratio = actual_change / predicted_change
         
-        self.log(f"Energy change: actual={actual_change:.6f}, predicted={predicted_change:.6f}, ratio={ratio:.3f}")
+        self.log(f"Energy change: actual={actual_change:.6f}, predicted={predicted_change:.6f}, ratio={ratio:.3f}", force=True)
         
         old_trust_radius = self.trust_radius
         
@@ -276,16 +295,16 @@ class RSIRFO:
             self.trust_radius = min(self.trust_radius * self.trust_radius_increase_factor, 
                                     self.trust_radius_max)
             if self.trust_radius != old_trust_radius:
-                self.log(f"Good step quality (ratio={ratio:.3f}), increasing trust radius to {self.trust_radius:.6f}")
+                self.log(f"Good step quality (ratio={ratio:.3f}), increasing trust radius to {self.trust_radius:.6f}", force=True)
         elif ratio < self.poor_step_threshold:
             # Poor agreement - decrease trust radius
             self.trust_radius = max(self.trust_radius * self.trust_radius_decrease_factor, 
                                     self.trust_radius_min)
             if self.trust_radius != old_trust_radius:
-                self.log(f"Poor step quality (ratio={ratio:.3f}), decreasing trust radius to {self.trust_radius:.6f}")
+                self.log(f"Poor step quality (ratio={ratio:.3f}), decreasing trust radius to {self.trust_radius:.6f}", force=True)
         else:
             # Acceptable agreement - keep trust radius
-            self.log(f"Acceptable step quality (ratio={ratio:.3f}), keeping trust radius at {self.trust_radius:.6f}")
+            self.log(f"Acceptable step quality (ratio={ratio:.3f}), keeping trust radius at {self.trust_radius:.6f}", force=True)
     
     def evaluate_step_quality(self):
         """
@@ -319,12 +338,13 @@ class RSIRFO:
         else:
             quality = "poor"
             
-        self.log(f"Step quality assessment: {quality} (avg ratio: {avg_ratio:.3f})")
+        self.log(f"Step quality assessment: {quality} (avg ratio: {avg_ratio:.3f})", force=True)
         return quality
     
     def get_rs_step(self, eigvals, eigvecs, gradient):
         """
-        Compute the Rational Step using the RS-I-RFO algorithm
+        Compute the Rational Step using the RS-I-RFO algorithm with multiple
+        initial alpha values to find the best step
         
         Parameters:
         eigvals: numpy.ndarray - Eigenvalues of the image Hessian
@@ -337,243 +357,350 @@ class RSIRFO:
         # Transform gradient to basis of eigenvectors
         gradient_trans = eigvecs.T.dot(gradient).flatten()
 
-        # Start with the initial alpha value
-        alpha = self.alpha0
+        # Try multiple initial alpha values and select the best step
+        best_overall_step = None
+        best_overall_norm_diff = float('inf')
+        best_alpha_value = None
         
-        # Track step norms for convergence detection
+        # Only show number of trials in debug mode or when forced
+        self.log(f"Trying {len(self.alpha_init_values)} different initial alpha values:", force=True)
+        
+        for trial_idx, alpha_init in enumerate(self.alpha_init_values):
+            # Only print detailed trial info in debug mode
+            if self.debug_mode:
+                self.log(f"\n--- Alpha Trial {trial_idx+1}/{len(self.alpha_init_values)}: alpha_init = {alpha_init:.6f} ---")
+            
+            # Try to compute a step using this initial alpha
+            try:
+                step_, step_norm, alpha_final = self.compute_rsprfo_step(
+                    eigvals, gradient_trans, alpha_init
+                )
+                
+                # Evaluate how close this step is to the trust radius
+                norm_diff = abs(step_norm - self.trust_radius)
+                
+                # Only print detailed trial results in debug mode
+                if self.debug_mode:
+                    self.log(f"Alpha trial {trial_idx+1}: alpha_init={alpha_init:.6f} -> alpha_final={alpha_final:.6f}, "
+                             f"step_norm={step_norm:.6f}, diff={norm_diff:.6f}")
+                
+                # Check if this is the best step so far
+                # Prioritize steps within trust radius, then minimize distance to trust radius
+                is_better = False
+                
+                if best_overall_step is None:
+                    is_better = True
+                elif step_norm <= self.trust_radius and best_overall_norm_diff > self.trust_radius:
+                    # This step is within trust radius but current best is not
+                    is_better = True
+                elif (step_norm <= self.trust_radius) == (best_overall_norm_diff <= self.trust_radius):
+                    # Both steps are either within or outside trust radius, choose the closest
+                    if norm_diff < best_overall_norm_diff:
+                        is_better = True
+                        
+                if is_better:
+                    best_overall_step = step_.copy()
+                    best_overall_norm_diff = norm_diff
+                    best_alpha_value = alpha_init
+                
+            except Exception as e:
+                # Only log errors in debug mode
+                if self.debug_mode:
+                    self.log(f"Error in alpha trial {trial_idx+1}: {str(e)}")
+                
+        if best_overall_step is None:
+            # If all trials failed, use a steepest descent step
+            self.log("All alpha trials failed, using steepest descent step as fallback", force=True)
+            sd_step = -gradient_trans
+            sd_norm = np.linalg.norm(sd_step)
+            
+            if sd_norm > self.trust_radius:
+                best_overall_step = sd_step / sd_norm * self.trust_radius
+            else:
+                best_overall_step = sd_step
+        else:
+            # Only show final selected alpha value (simplified output)
+            self.log(f"Selected alpha value: {best_alpha_value:.6f}", force=True)
+            
+        # Transform step back to original basis
+        step = eigvecs.dot(best_overall_step)
+        
+        step_norm = np.linalg.norm(step)
+        self.log(f"Final norm(step)={step_norm:.6f}", force=True)
+        
+        return step
+    
+    def compute_rsprfo_step(self, eigvals, gradient_trans, alpha_init):
+        """
+        Compute an RS-P-RFO step using a specific initial alpha value
+        
+        Parameters:
+        eigvals: numpy.ndarray - Eigenvalues of the image Hessian
+        gradient_trans: numpy.ndarray - Transformed gradient components
+        alpha_init: float - Initial alpha value
+        
+        Returns:
+        tuple - (step vector, step norm, final alpha value)
+        """
+        # Create proxy functions for step norm calculation and its derivative
+        def calculate_step(alpha):
+            """Calculate RFO step for a given alpha value"""
+            try:
+                H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
+                step, _, _, _ = self.solve_rfo(H_aug, "min")
+                return step
+            except Exception as e:
+                self.log(f"Error in step calculation: {str(e)}")
+                raise
+                
+        def step_norm_squared(alpha):
+            """Calculate ||step||^2 for a given alpha value"""
+            step = calculate_step(alpha)
+            return np.dot(step, step)
+            
+        def objective_function(alpha):
+            """U(a) = ||step||^2 - R^2"""
+            return step_norm_squared(alpha) - self.trust_radius**2
+        
+        # Find alpha that gives step with norm close to trust radius
+        # First, try bracketing the root
+        alpha_lo = 1e-6  # Very small alpha gives large step
+        alpha_hi = self.alpha_max  # Very large alpha gives small step
+        
+        # Check step norms at boundaries to establish bracket
+        try:
+            step_lo = calculate_step(alpha_lo)
+            norm_lo = np.linalg.norm(step_lo)
+            obj_lo = norm_lo**2 - self.trust_radius**2
+            
+            step_hi = calculate_step(alpha_hi) 
+            norm_hi = np.linalg.norm(step_hi)
+            obj_hi = norm_hi**2 - self.trust_radius**2
+            
+            self.log(f"Bracket search: alpha_lo={alpha_lo:.6e}, step_norm={norm_lo:.6f}, obj={obj_lo:.6e}")
+            self.log(f"Bracket search: alpha_hi={alpha_hi:.6e}, step_norm={norm_hi:.6f}, obj={obj_hi:.6e}")
+            
+            # Check if we have a proper bracket (signs differ)
+            if obj_lo * obj_hi >= 0:
+                # No bracket, so use initial alpha and proceed with Newton iterations
+                self.log("Could not establish bracket with opposite signs, proceeding with Newton iterations")
+                alpha = alpha_init
+            else:
+                # We have a bracket, use Brent's method for robust root finding
+                self.log("Bracket established, using Brent's method for root finding")
+                try:
+                    alpha = brentq(objective_function, alpha_lo, alpha_hi, 
+                                   xtol=1e-6, rtol=1e-6, maxiter=50)
+                    self.log(f"Brent's method converged to alpha={alpha:.6e}")
+                except Exception as e:
+                    self.log(f"Brent's method failed: {str(e)}, using initial alpha")
+                    alpha = alpha_init
+        except Exception as e:
+            self.log(f"Error establishing bracket: {str(e)}, using initial alpha")
+            alpha = alpha_init
+            
+        # Use Newton iterations to refine alpha
+        alpha = alpha_init if 'alpha' not in locals() else alpha
         step_norm_history = []
-        
-        # Variables for the backup strategy
         best_step = None
         best_step_norm_diff = float('inf')
+        
+        # Variables to track bracketing
+        alpha_left = None
+        alpha_right = None
+        objval_left = None
+        objval_right = None
         
         for mu in range(self.max_micro_cycles):
             self.log(f"RS-I-RFO micro cycle {mu:02d}, alpha={alpha:.6f}")
             
             try:
-                # Create a fresh augmented Hessian matrix for this cycle
-                H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
+                # Calculate current step and its properties
+                step = calculate_step(alpha)
+                step_norm = np.linalg.norm(step)
+                self.log(f"norm(step)={step_norm:.6f}")
                 
-                # Solve RFO equations to get the step
-                rfo_step, eigval_min, nu, current_eigvec_min = self.solve_rfo(
-                    H_aug, "min", prev_eigvec=self.prev_eigvec_min
-                )
-                
-                # Store current eigenvector for the next iteration
-                self.prev_eigvec_min = current_eigvec_min
-                
-                # Calculate the norm of the current step
-                rfo_norm = np.linalg.norm(rfo_step)
-                self.log(f"norm(rfo step)={rfo_norm:.6f}")
-                
-                # Track step norms for convergence detection
-                step_norm_history.append(rfo_norm)
-                
-                # Save this step if it's closest to the trust radius (as backup)
-                norm_diff = abs(rfo_norm - self.trust_radius)
+                # Keep track of the best step seen so far (closest to trust radius)
+                norm_diff = abs(step_norm - self.trust_radius)
                 if norm_diff < best_step_norm_diff:
-                    best_step = rfo_step.copy()
+                    best_step = step.copy()
                     best_step_norm_diff = norm_diff
                 
-                # Check if step is within trust radius
-                if rfo_norm <= self.trust_radius:
-                    step_ = rfo_step.copy()
-                    self.log(f"Step satisfies trust radius of {self.trust_radius:.6f}")
-                    break
-    
-                # Update alpha using the improved method
-                try:
-                    # Calculate the derivative of squared step norm with respect to alpha
-                    dstep2_dalpha = self.get_step_derivative(alpha, eigval_min, eigvals, gradient_trans)
-                    self.log(f"d(step^2)/dα={dstep2_dalpha:.6e}")
-                    
-                    # Check for very small derivative to avoid unstable updates
-                    if abs(dstep2_dalpha) < 1e-10:
-                        # Use more aggressive heuristic (double alpha)
-                        old_alpha = alpha
-                        alpha = min(alpha * 2.0, self.alpha_max)
-                        self.log(f"Small derivative, using heuristic: alpha {old_alpha:.6f} -> {alpha:.6f}")
-                    else:
-                        # Calculate alpha step using the trust radius formula
-                        alpha_step_raw = 2.0 * (self.trust_radius * rfo_norm - rfo_norm**2) / dstep2_dalpha
-                        
-                        # Limit the step size to prevent numerical instability
-                        alpha_step = np.clip(alpha_step_raw, -self.alpha_step_max, self.alpha_step_max)
-                        
-                        if abs(alpha_step) != abs(alpha_step_raw):
-                            self.log(f"Limited alpha step from {alpha_step_raw:.6f} to {alpha_step:.6f}")
-                        
-                        # Update alpha with bounds checking
-                        old_alpha = alpha
-                        alpha = min(max(old_alpha + alpha_step, 1e-6), self.alpha_max)
-                        self.log(f"Updated alpha: {old_alpha:.6f} -> {alpha:.6f}")
-                    
-                    # Detect if alpha is hitting the upper limit
-                    if alpha == self.alpha_max:
-                        self.log(f"Warning: alpha reached maximum value ({self.alpha_max})")
-                        if best_step is not None:
-                            self.log("Using best step found since alpha reached maximum")
-                            step_ = best_step.copy()
-                            break
-                    
-                    # Check if alpha update is not making progress
-                    if len(step_norm_history) >= 3:
-                        # Calculate consecutive changes in step norm
-                        recent_changes = [abs(step_norm_history[i] - step_norm_history[i-1]) 
-                                        for i in range(len(step_norm_history)-1, max(0, len(step_norm_history)-3), -1)]
-                        
-                        # If step norms are not changing significantly, break the loop
-                        if all(change < 1e-6 for change in recent_changes):
-                            self.log(f"Step norm not changing significantly: {step_norm_history[-3:]}")
-                            self.log("Breaking micro-cycle loop")
-                            
-                            # Use the best step found so far
-                            if best_step is not None:
-                                step_ = best_step.copy()
-                                self.log("Using best step found so far")
-                            else:
-                                step_ = rfo_step.copy()
-                            break
+                # Calculate objective function value U(a) = ||step||^2 - R^2
+                objval = step_norm**2 - self.trust_radius**2
+                self.log(f"U(a)={objval:.6e}")
                 
-                except Exception as e:
-                    self.log(f"Error in alpha update: {str(e)}")
-                    # Use best step or scale the current step
-                    if best_step is not None:
-                        self.log("Using best step found so far due to error")
-                        step_ = best_step.copy()
-                    else:
-                        # Only scale if the step exceeds trust radius
-                        if rfo_norm > self.trust_radius:
-                            self.log("Scaling step to trust radius due to error")
-                            step_ = rfo_step / rfo_norm * self.trust_radius
-                        else:
-                            step_ = rfo_step.copy()
-                    break
-            
-            except Exception as e:
-                self.log(f"Error in RFO solution: {str(e)}")
-                # Reset prev_eigvec_min and try again without it
-                if self.prev_eigvec_min is not None:
-                    self.log("Resetting previous eigenvector and retrying")
-                    self.prev_eigvec_min = None
-                    try:
-                        H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
-                        rfo_step_, eigval_min, nu, _ = self.solve_rfo(H_aug, "min")
-                        step_ = rfo_step_
+                # Update bracketing information
+                if objval < 0 and (alpha_left is None or alpha > alpha_left):
+                    alpha_left = alpha
+                    objval_left = objval
+                elif objval > 0 and (alpha_right is None or alpha < alpha_right):
+                    alpha_right = alpha
+                    objval_right = objval
+                
+                # Check if we're already very close to the target radius
+                if abs(objval) < 1e-8 or norm_diff < self.step_norm_tolerance:
+                    self.log(f"Step norm {step_norm:.6f} is sufficiently close to trust radius")
+                    
+                    # Even if we're within tolerance, do at least one or two iterations to try to improve
+                    if mu >= 1:
                         break
-                    except Exception as e2:
-                        self.log(f"Second attempt also failed: {str(e2)}")
                 
-                # Use a fallback step based on steepest descent with trust radius
-                self.log("Using fallback steepest descent step")
-                sd_step = -gradient_trans
-                sd_norm = np.linalg.norm(sd_step)
-                if sd_norm > self.trust_radius:
-                    step_ = sd_step / sd_norm * self.trust_radius
+                # Track step norm history for convergence detection
+                step_norm_history.append(step_norm)
+                
+                # Compute derivative of squared step norm with respect to alpha
+                dstep2_dalpha = self.get_step_derivative(alpha, eigvals, gradient_trans, step)
+                self.log(f"d(||step||^2)/dα={dstep2_dalpha:.6e}")
+                
+                # Update alpha with correct Newton formula: a' = a - U(a)/U'(a)
+                if abs(dstep2_dalpha) < 1e-10:
+                    # Small derivative - use bisection if bracket is available
+                    if alpha_left is not None and alpha_right is not None:
+                        alpha_new = (alpha_left + alpha_right) / 2
+                        self.log(f"Small derivative, using bisection: alpha {alpha:.6f} -> {alpha_new:.6f}")
+                    else:
+                        # No bracket yet, use heuristic scaling
+                        if objval > 0:  # Step too small, need smaller alpha
+                            alpha_new = max(alpha / 2, 1e-6)
+                        else:  # Step too large, need larger alpha
+                            alpha_new = min(alpha * 2, self.alpha_max)
+                        self.log(f"Small derivative, no bracket, using heuristic: alpha {alpha:.6f} -> {alpha_new:.6f}")
                 else:
-                    step_ = sd_step
-                break
+                    # Use Newton update with proper U(a)/U'(a)
+                    alpha_step_raw = -objval / dstep2_dalpha
+                    
+                    # Apply safeguards to Newton step
+                    alpha_step = np.clip(alpha_step_raw, -self.alpha_step_max, self.alpha_step_max)
+                    if abs(alpha_step) != abs(alpha_step_raw):
+                        self.log(f"Limited alpha step from {alpha_step_raw:.6f} to {alpha_step:.6f}")
+                    
+                    alpha_new = alpha + alpha_step
+                    
+                    # Additional protection: if bracket available, ensure we stay within bracket
+                    if alpha_left is not None and alpha_right is not None:
+                        # Safeguard to keep alpha within established bracket
+                        alpha_new = max(min(alpha_new, alpha_right * 0.99), alpha_left * 1.01)
+                        if alpha_new != alpha + alpha_step:
+                            self.log(f"Safeguarded alpha to stay within bracket: {alpha_new:.6f}")
+                
+                # Update alpha with bounds checking
+                old_alpha = alpha
+                alpha = min(max(alpha_new, 1e-6), self.alpha_max)
+                self.log(f"Updated alpha: {old_alpha:.6f} -> {alpha:.6f}")
+                
+                # Check if alpha is hitting limits
+                if alpha == self.alpha_max or alpha == 1e-6:
+                    self.log(f"Alpha hit boundary at {alpha:.6e}, stopping iterations")
+                    break
+                
+                # Check for convergence in step norm
+                if len(step_norm_history) >= 3:
+                    recent_changes = [abs(step_norm_history[i] - step_norm_history[i-1]) 
+                                     for i in range(len(step_norm_history)-1, len(step_norm_history)-3, -1)]
+                    if all(change < 1e-6 for change in recent_changes):
+                        self.log("Step norm not changing significantly, stopping iterations")
+                        break
+                        
+            except Exception as e:
+                self.log(f"Error in micro-cycle {mu}: {str(e)}")
+                # If we have a good step, use it and stop
+                if best_step is not None:
+                    self.log("Using best step found so far due to error")
+                    step = best_step
+                    step_norm = np.linalg.norm(step)
+                    break
+                else:
+                    # Last resort: steepest descent
+                    self.log("Falling back to steepest descent due to errors")
+                    step = -gradient_trans
+                    step_norm = np.linalg.norm(step)
+                    if step_norm > self.trust_radius:
+                        step = step / step_norm * self.trust_radius
+                        step_norm = self.trust_radius
+                    break
         else:
-            # If micro cycles did not converge
-            self.log(
-                f"RS-I-RFO algorithm did not converge in {self.max_micro_cycles} cycles. "
-                "Using best step found or scaling the last computed step."
-            )
-            
-            # Use the best step found or the last computed step
-            if best_step is not None and best_step_norm_diff < abs(rfo_norm - self.trust_radius):
-                self.log(f"Using previously found step with norm closest to trust radius")
-                step_ = best_step.copy()
-            else:
-                # Only scale if the step exceeds the trust radius
-                if rfo_norm > self.trust_radius:
-                    self.log(f"Scaling step to trust radius")
-                    step_ = rfo_step / rfo_norm * self.trust_radius
-                else:
-                    self.log(f"Using last computed step (within trust radius)")
-                    step_ = rfo_step.copy()
-
-        # Transform step back to original basis
-        step = eigvecs.dot(step_)
+            # If we exhausted micro-cycles without converging
+            self.log(f"RS-I-RFO did not converge in {self.max_micro_cycles} cycles")
+            if best_step is not None:
+                self.log("Using best step found during iterations")
+                step = best_step
+                step_norm = np.linalg.norm(step)
         
-        step_norm = np.linalg.norm(step)
-        self.log(f"Final norm(step)={step_norm:.6f}")
-        
-        return step
+        return step, step_norm, alpha
     
-    def get_step_derivative(self, alpha, eigval_min, eigvals, gradient_trans):
+    def get_step_derivative(self, alpha, eigvals, gradient_trans, step=None):
         """
-        Compute derivative of squared step norm with respect to alpha
-        with improved numerical stability
+        Compute derivative of squared step norm with respect to alpha directly
+        using proper analytical formula
         
         Parameters:
         alpha: float - Current alpha value
-        eigval_min: float - Minimum eigenvalue of the augmented Hessian
         eigvals: numpy.ndarray - Eigenvalues of the Hessian
         gradient_trans: numpy.ndarray - Gradient in the eigenvector basis
+        step: numpy.ndarray - Optional current step vector (to avoid recomputation)
         
         Returns:
         float - Derivative of squared step norm with respect to alpha
         """
-        # Safeguard against potential numerical issues with eigval_min
-        if abs(eigval_min) < 1e-12:
-            # Return a small but non-zero value with appropriate sign
-            self.log(f"Warning: Very small eigval_min ({eigval_min}), using safe replacement")
-            return 1e-8 if eigval_min >= 0 else -1e-8
+        # If step was not provided, compute it
+        if step is None:
+            try:
+                H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
+                step, eigval_min, _, _ = self.solve_rfo(H_aug, "min")
+            except Exception as e:
+                self.log(f"Error in step calculation for derivative: {str(e)}")
+                return 1e-8  # Return a small value as fallback
         
         try:
-            # Calculate denominators with safety checks
+            # Get the minimum eigenvalue from the augmented Hessian
+            H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
+            _, eigval_min, _, _ = self.solve_rfo(H_aug, "min")
+            
+            # Calculate the denominators with safety
             denominators = eigvals - eigval_min * alpha
             
-            # Handle small denominators
+            # Handle small denominators safely
             small_denoms = np.abs(denominators) < 1e-8
             if np.any(small_denoms):
-                self.log(f"Warning: {np.sum(small_denoms)} small denominators detected in derivative calculation")
                 safe_denoms = denominators.copy()
                 for i in np.where(small_denoms)[0]:
-                    if safe_denoms[i] != 0:  # Avoid changing zero to non-zero
-                        sign = 1 if safe_denoms[i] > 0 else -1
-                        safe_denoms[i] = sign * max(1e-8, abs(safe_denoms[i]))
-                    else:
-                        safe_denoms[i] = 1e-8  # Handle zero case
+                    sign = np.sign(safe_denoms[i]) if safe_denoms[i] != 0 else 1
+                    safe_denoms[i] = sign * max(1e-8, abs(safe_denoms[i]))
                 denominators = safe_denoms
-            
-            # Compute numerator and denominator terms for the derivative
+                
+            # Calculate the summation term
             numerator = gradient_trans**2
             denominator = denominators**3
             
-            # Check for valid indices to avoid division by very small values
+            # Avoid division by very small values
             valid_indices = np.abs(denominator) > 1e-10
             
             if not np.any(valid_indices):
-                self.log("All denominators too small, using safe derivative value")
-                return 1e-8  # Return a small positive value as a fallback
-            
-            # Calculate sum terms with protection against extreme values
+                return 1e-8  # Return a small positive value if no valid indices
+                
             sum_terms = np.zeros_like(numerator)
             sum_terms[valid_indices] = numerator[valid_indices] / denominator[valid_indices]
             
-            # Clip extremely large values to prevent overflow
+            # Clip extremely large values
             max_magnitude = 1e20
             if np.any(np.abs(sum_terms) > max_magnitude):
-                self.log(f"Warning: Extremely large terms detected (max={np.max(np.abs(sum_terms))}), clipping to {max_magnitude}")
                 sum_terms = np.clip(sum_terms, -max_magnitude, max_magnitude)
-            
-            # Sum the terms and calculate derivative
+                
             sum_term = np.sum(sum_terms)
+            
+            # Calculate the derivative with protection
             dstep2_dalpha = 2.0 * eigval_min * sum_term
             
-            # Additional safety check for the final result
-            if abs(dstep2_dalpha) > max_magnitude:
-                self.log(f"Warning: Extreme derivative value ({dstep2_dalpha}), clipping")
-                dstep2_dalpha = np.sign(dstep2_dalpha) * max_magnitude
+            # Additional safety check
+            if not np.isfinite(dstep2_dalpha) or abs(dstep2_dalpha) > max_magnitude:
+                dstep2_dalpha = np.sign(dstep2_dalpha) * max_magnitude if dstep2_dalpha != 0 else 1e-8
                 
             return dstep2_dalpha
             
         except Exception as e:
-            self.log(f"Error in step derivative calculation: {str(e)}")
-            # Return a small non-zero value as a fallback
-            return 1e-8
+            self.log(f"Error in derivative calculation: {str(e)}")
+            return 1e-8  # Return a small positive value as fallback
     
     def update_hessian(self, current_geom, current_grad, previous_geom, previous_grad):
         """
@@ -816,4 +943,4 @@ class RSIRFO:
         Reset trust radius to its initial value
         """
         self.trust_radius = self.trust_radius_initial
-        self.log(f"Trust radius reset to initial value: {self.trust_radius:.6f}")
+        self.log(f"Trust radius reset to initial value: {self.trust_radius:.6f}", force=True)
