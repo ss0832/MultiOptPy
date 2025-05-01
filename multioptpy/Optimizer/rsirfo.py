@@ -18,7 +18,7 @@ class RSIRFO:
         # Initial alpha parameter for RS-RFO
         self.alpha0 = config.get("alpha0", 1.0)
         # Maximum number of micro-cycles
-        self.max_micro_cycles = config.get("max_micro_cycles", 20)
+        self.max_micro_cycles = config.get("max_micro_cycles", 40)
         # Saddle order (0=minimum, 1=first-order saddle/TS, 2=second-order saddle, etc.)
         self.saddle_order = config.get("saddle_order", 1)
         # Hessian update method ('BFGS', 'SR1', 'FSB', 'Bofill', 'PSB', 'MSP', 'auto')
@@ -83,7 +83,7 @@ class RSIRFO:
         # Multiple initial alpha values to try (-10 to 10 with 20 values)
         # Note: We'll make sure to handle negative alpha values properly in the RFO calculations
         # For safety, we'll use 0.001 as the minimum positive value
-        alpha_values = np.linspace(0.001, 10.0, 20)
+        alpha_values = np.linspace(0.001, 10.0, 15)
         self.alpha_init_values = alpha_values
         return
         
@@ -249,7 +249,7 @@ class RSIRFO:
         self.prev_eigvec_size = current_eigvec_size
         
         # Calculate predicted energy change
-        predicted_energy_change = self.rfo_model(gradient, H, move_vector)
+        predicted_energy_change = -1*self.rfo_model(gradient, H, move_vector)
         self.predicted_energy_changes.append(predicted_energy_change)
         
         self.log(f"Predicted energy change: {predicted_energy_change:.6f}", force=True)
@@ -317,10 +317,11 @@ class RSIRFO:
         if len(self.predicted_energy_changes) < 2 or len(self.actual_energy_changes) < 2:
             return "unknown"
             
-        # Calculate average prediction accuracy
+        # Calculate ratios correctly considering the sign
         ratios = []
         for actual, predicted in zip(self.actual_energy_changes[-2:], self.predicted_energy_changes[-2:]):
             if abs(predicted) > 1e-10:
+                # Directly use the raw ratio without taking absolute values
                 ratios.append(actual / predicted)
                 
         if not ratios:
@@ -328,12 +329,16 @@ class RSIRFO:
             
         avg_ratio = sum(ratios) / len(ratios)
         
-        # Check if energy is consistently decreasing
-        energy_decreasing = all(change < 0 for change in self.actual_energy_changes[-2:])
+        # Check if energy is decreasing (energy changes have same sign and in expected direction)
+        same_direction = all(
+            (actual * predicted > 0) for actual, predicted in zip(
+                self.actual_energy_changes[-2:], self.predicted_energy_changes[-2:]
+            )
+        )
         
-        if 0.8 < avg_ratio < 1.2 and energy_decreasing:
+        if 0.8 < avg_ratio < 1.2 and same_direction:
             quality = "good"
-        elif 0.5 < avg_ratio < 1.5 and energy_decreasing:
+        elif 0.5 < avg_ratio < 1.5 and same_direction:
             quality = "acceptable"
         else:
             quality = "poor"
@@ -356,7 +361,29 @@ class RSIRFO:
         """
         # Transform gradient to basis of eigenvectors
         gradient_trans = eigvecs.T.dot(gradient).flatten()
-
+        
+        # First, check if the default alpha (alpha0) gives a step within trust radius
+        try:
+            # Calculate step with default alpha
+            H_aug_initial = self.get_augmented_hessian(eigvals, gradient_trans, self.alpha0)
+            initial_step, _, _, _ = self.solve_rfo(H_aug_initial, "min")
+            initial_step_norm = np.linalg.norm(initial_step)
+            
+            self.log(f"Initial step with alpha={self.alpha0:.6f} has norm={initial_step_norm:.6f}", force=True)
+            
+            # If the step is already within trust radius, use it directly without optimization
+            if initial_step_norm <= self.trust_radius:
+                self.log(f"Initial step is within trust radius ({self.trust_radius:.6f}), using it directly", force=True)
+                # Transform step back to original basis
+                final_step = eigvecs.dot(initial_step)
+                return final_step
+                
+            # Otherwise, proceed with alpha optimization
+            self.log(f"Initial step exceeds trust radius, optimizing alpha...", force=True)
+        except Exception as e:
+            self.log(f"Error calculating initial step: {str(e)}", force=True)
+            # Continue with optimization as a fallback
+            
         # Try multiple initial alpha values and select the best step
         best_overall_step = None
         best_overall_norm_diff = float('inf')
@@ -944,3 +971,4 @@ class RSIRFO:
         """
         self.trust_radius = self.trust_radius_initial
         self.log(f"Trust radius reset to initial value: {self.trust_radius:.6f}", force=True)
+        
