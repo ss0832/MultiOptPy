@@ -12,7 +12,7 @@ from Optimizer.adabelief import Adabelief
 #from Optimizer.QHAdam import QHAdam
 #from Optimizer.adamax import AdaMax
 #from Optimizer.yogi import YOGI
-from Optimizer.nadam import NAdam
+#from Optimizer.nadam import NAdam
 from Optimizer.fire import FIRE
 from Optimizer.abc_fire import ABC_FIRE
 from Optimizer.fire2 import FIRE2
@@ -20,16 +20,16 @@ from Optimizer.fire2 import FIRE2
 #from Optimizer.adamod import Adamod
 from Optimizer.radam import RADAM
 from Optimizer.eve import EVE
-from Optimizer.adamw import AdamW
+#from Optimizer.adamw import AdamW
 from Optimizer.adam import Adam
 #from Optimizer.adafactor import Adafactor
 from Optimizer.prodigy import Prodigy
 #from Optimizer.adabound import AdaBound
 #from Optimizer.adadelta import Adadelta
 from Optimizer.conjugate_gradient import ConjgateGradient
-from Optimizer.hybrid_rfo import HybridRFO
+#from Optimizer.hybrid_rfo import HybridRFO
 from Optimizer.rfo import RationalFunctionOptimization
-from Optimizer.ric_rfo import RedundantInternalRFO
+#from Optimizer.ric_rfo import RedundantInternalRFO
 from Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
 from Optimizer.rsirfo import RSIRFO
 #from Optimizer.newton import Newton
@@ -63,13 +63,13 @@ optimizer_mapping = {
     #"qhadam": QHAdam,
     #"samsgrad": SAMSGrad,
     #"adadelta": Adadelta,
-    "adamw": AdamW,
+    #"adamw": AdamW,
     #"adadiff": AdaDiff,
     #"adafactor": Adafactor,
     "eve": EVE,
     "prodigy": Prodigy,
     #"adamax": AdaMax,
-    "nadam": NAdam,
+    #"nadam": NAdam,
     #"rmspropgrave": RMSpropGrave,
     "abcfire": ABC_FIRE,
     "fire2": FIRE2,
@@ -141,21 +141,21 @@ quasi_newton_mapping = {
     "rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
     
     
-    "ric_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    "ric_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    #"ric_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
-    "hybrid_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    "hybrid_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    #"hybrid_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
     
     "mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
@@ -304,11 +304,7 @@ class CalculateMoveVector:
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
                         print(key)
-                        if "hybrid_rfo" in key:
-                            optimizer_instances.append(HybridRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))          
-                        elif "ric_rfo" in key:
-                            optimizer_instances.append(RedundantInternalRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
-                        elif "ersprfo" in key:
+                        if "ersprfo" in key:
                             optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
                         elif "rsprfo" in key:
                             optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
