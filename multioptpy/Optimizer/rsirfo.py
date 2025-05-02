@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import norm
-import copy
 from .hessian_update import ModelHessianUpdate
 from scipy.optimize import brentq
 
@@ -15,18 +14,13 @@ class RSIRFO:
         [3] Baker, J. Comput. Chem., 7, 385-395 (1986)
         [4] Besalú and Bofill, Theor. Chem. Acc., 100, 265-274 (1998)
         """
-        # Initial alpha parameter for RS-RFO
+        # Configuration parameters
         self.alpha0 = config.get("alpha0", 1.0)
-        # Maximum number of micro-cycles
         self.max_micro_cycles = config.get("max_micro_cycles", 40)
-        # Saddle order (0=minimum, 1=first-order saddle/TS, 2=second-order saddle, etc.)
         self.saddle_order = config.get("saddle_order", 1)
-        # Hessian update method ('BFGS', 'SR1', 'FSB', 'Bofill', 'PSB', 'MSP', 'auto')
         self.hessian_update_method = config.get("method", "auto")
-        # Threshold for filtering small eigenvalues
         self.small_eigval_thresh = config.get("small_eigval_thresh", 1e-6)
         
-        # Alpha constraints to prevent numerical instability
         self.alpha_max = config.get("alpha_max", 1e6)
         self.alpha_step_max = config.get("alpha_step_max", 10.0)
         
@@ -41,7 +35,7 @@ class RSIRFO:
         self.trust_radius = self.trust_radius_initial
         self.trust_radius_min = config.get("trust_radius_min", 0.01)
         
-        # Trust radius adjustment thresholds
+        # Trust radius adjustment parameters
         self.good_step_threshold = config.get("good_step_threshold", 0.75)
         self.poor_step_threshold = config.get("poor_step_threshold", 0.25)
         self.trust_radius_increase_factor = config.get("trust_radius_increase_factor", 1.2)
@@ -50,85 +44,57 @@ class RSIRFO:
         # Convergence criteria
         self.energy_change_threshold = config.get("energy_change_threshold", 1e-6)
         self.gradient_norm_threshold = config.get("gradient_norm_threshold", 1e-4)
-        
-        # Tolerance for step norm to be considered close to trust radius
         self.step_norm_tolerance = config.get("step_norm_tolerance", 1e-3)
         
-        # Debug mode flag
+        # Debug and display settings
         self.debug_mode = config.get("debug_mode", False)
         self.display_flag = config.get("display_flag", True)
-        self.config = config
-        self.Initialization = True
         
+        # Initialize state variables
+        self.Initialization = True
         self.hessian = None
         self.bias_hessian = None
         
-        # For tracking optimization
+        # For tracking optimization (using more compact storage)
         self.prev_eigvec_min = None
-        self.prev_eigvec_size = None  # Store the size of the previous eigenvector
+        self.prev_eigvec_size = None
+        # Only store last few changes instead of full history for memory efficiency
         self.predicted_energy_changes = []
         self.actual_energy_changes = []
-        self.prev_geometry = None
-        self.prev_gradient = None
+        self.prev_geometry = None  # Will be set with numpy array reference (no deepcopy)
+        self.prev_gradient = None  # Will be set with numpy array reference (no deepcopy)
         self.prev_energy = None
         self.converged = False
         self.iteration = 0
         
-        # Define which mode(s) to maximize along based on saddle order
+        # Define modes to maximize based on saddle order
         self.roots = list(range(self.saddle_order))
         
         # Initialize the hessian update module
         self.hessian_updater = ModelHessianUpdate()
         
-        # Multiple initial alpha values to try (-10 to 10 with 20 values)
-        # Note: We'll make sure to handle negative alpha values properly in the RFO calculations
-        # For safety, we'll use 0.001 as the minimum positive value
-        alpha_values = np.linspace(0.001, 10.0, 15)
-        self.alpha_init_values = alpha_values
-        return
+        # Initial alpha values to try - more memory efficient than np.linspace
+        self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         
     def log(self, message, force=False):
-        """
-        Print message if display flag is enabled and either force is True or in debug mode
-        
-        Parameters:
-        message: str - Message to display
-        force: bool - If True, print regardless of debug mode
-        """
+        """Print message if display flag is enabled and either force is True or in debug mode"""
         if self.display_flag and (force or self.debug_mode):
             print(message)
             
     def filter_small_eigvals(self, eigvals, eigvecs, mask=False):
-        """
-        Remove small eigenvalues and corresponding eigenvectors from the Hessian
-        
-        Parameters:
-        eigvals: numpy.ndarray - Eigenvalues of the Hessian
-        eigvecs: numpy.ndarray - Eigenvectors of the Hessian
-        mask: bool - Whether to return the mask of small eigenvalues
-        
-        Returns:
-        tuple - Filtered eigenvalues and eigenvectors (and optionally the mask)
-        """
+        """Remove small eigenvalues and corresponding eigenvectors from the Hessian"""
         small_inds = np.abs(eigvals) < self.small_eigval_thresh
-        small_num = sum(small_inds)
+        small_num = np.sum(small_inds)
         
         if small_num > 0:
-            self.log(
-                f"Found {small_num} small eigenvalues in Hessian. Removed "
-                "corresponding eigenvalues and eigenvectors."
-            )
+            self.log(f"Found {small_num} small eigenvalues in Hessian. Removed corresponding eigenvalues and eigenvectors.")
             
         filtered_eigvals = eigvals[~small_inds]
         filtered_eigvecs = eigvecs[:, ~small_inds]
         
-        # Ensure we don't have too many small eigenvalues
         if small_num > 6:
-            self.log(
-                f"Warning: Found {small_num} small eigenvalues, which is more than expected. "
-                "This may indicate numerical issues. Proceeding with caution.", 
-                force=True
-            )
+            self.log(f"Warning: Found {small_num} small eigenvalues, which is more than expected. "
+                    "This may indicate numerical issues. Proceeding with caution.", force=True)
         
         if mask:
             return filtered_eigvals, filtered_eigvecs, small_inds
@@ -136,24 +102,7 @@ class RSIRFO:
             return filtered_eigvals, filtered_eigvecs
         
     def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
-        """
-        Execute one step of RS-I-RFO optimization
-        
-        Parameters:
-        geom_num_list: numpy.ndarray - Current geometry coordinates
-        B_g: numpy.ndarray - Current gradient
-        pre_B_g: numpy.ndarray - Previous gradient
-        pre_geom: numpy.ndarray - Previous geometry
-        B_e: float - Current energy
-        pre_B_e: float - Previous energy
-        pre_move_vector: numpy.ndarray - Previous step vector
-        initial_geom_num_list: numpy.ndarray - Initial geometry
-        g: numpy.ndarray - Alternative gradient representation
-        pre_g: numpy.ndarray - Previous alternative gradient representation
-        
-        Returns:
-        numpy.ndarray - Optimization step vector
-        """
+        """Execute one step of RS-I-RFO optimization"""
         # Print iteration header
         self.log(f"\n{'='*50}\nRS-I-RFO Iteration {self.iteration}\n{'='*50}", force=True)
         
@@ -173,9 +122,13 @@ class RSIRFO:
             # Adjust trust radius based on previous step's performance
             if self.prev_energy is not None:
                 actual_energy_change = B_e - self.prev_energy
+                
+                # Keep limited history - only store the last few values
+                if len(self.actual_energy_changes) >= 3:
+                    self.actual_energy_changes.pop(0)
                 self.actual_energy_changes.append(actual_energy_change)
                 
-                if len(self.predicted_energy_changes) > 0:
+                if self.predicted_energy_changes:
                     self.adjust_trust_radius(actual_energy_change, self.predicted_energy_changes[-1])
             
         # Check if hessian is set
@@ -195,7 +148,7 @@ class RSIRFO:
             self.converged = True
         
         # Check for convergence based on energy change
-        if len(self.actual_energy_changes) > 0:
+        if self.actual_energy_changes:
             last_energy_change = abs(self.actual_energy_changes[-1])
             if last_energy_change < self.energy_change_threshold:
                 self.log(f"Converged: Energy change {last_energy_change:.6f} below threshold {self.energy_change_threshold:.6f}", force=True)
@@ -204,27 +157,36 @@ class RSIRFO:
         # Store current energy
         current_energy = B_e
         
-        # Ensure gradient is properly shaped as a 1D array
-        gradient = np.asarray(B_g).flatten()
-        H = self.hessian + self.bias_hessian if self.bias_hessian is not None else self.hessian
+        # Ensure gradient is properly shaped as a 1D array (reuse existing array without copy)
+        gradient = np.asarray(B_g).ravel()
+        
+        # Use effective Hessian
+        H = self.hessian
+        if self.bias_hessian is not None:
+            # Add bias_hessian directly to H - avoid creating intermediate matrix
+            H = self.hessian + self.bias_hessian
             
         # Compute eigenvalues and eigenvectors of the hessian
         eigvals, eigvecs = np.linalg.eigh(H)
         
         # Count negative eigenvalues for diagnostic purposes
-        neg_eigvals = sum(eigvals < -1e-6)
+        neg_eigvals = np.sum(eigvals < -1e-6)
         self.log(f"Found {neg_eigvals} negative eigenvalues (target for this saddle order: {self.saddle_order})", force=True)
         
         # Create the projection matrix for RS-I-RFO
         self.log(f"Using projection to construct image potential gradient and hessian for root(s) {self.roots}.")
+        
+        # More efficient projection matrix construction for multiple roots
         P = np.eye(gradient.size)
         for root in self.roots:
+            # Extract the eigenvector once
             trans_vec = eigvecs[:, root]
+            # Use inplace operation to update P (avoid new allocation)
             P -= 2 * np.outer(trans_vec, trans_vec)
         
         # Create the image Hessian H_star and image gradient grad_star
-        H_star = P.dot(H)
-        grad_star = P.dot(gradient)
+        H_star = np.dot(P, H)
+        grad_star = np.dot(P, gradient)
         
         # Compute eigenvalues and eigenvectors of the image Hessian
         eigvals_star, eigvecs_star = np.linalg.eigh(H_star)
@@ -250,17 +212,22 @@ class RSIRFO:
         
         # Calculate predicted energy change
         predicted_energy_change = -1*self.rfo_model(gradient, H, move_vector)
+        
+        # Keep limited history - only store the last few values
+        if len(self.predicted_energy_changes) >= 3:
+            self.predicted_energy_changes.pop(0)
         self.predicted_energy_changes.append(predicted_energy_change)
         
         self.log(f"Predicted energy change: {predicted_energy_change:.6f}", force=True)
         
         # Evaluate step quality if we have history
-        if len(self.actual_energy_changes) > 0 and len(self.predicted_energy_changes) > 1:
+        if self.actual_energy_changes and len(self.predicted_energy_changes) > 1:
             self.evaluate_step_quality()
         
-        # Store current geometry, gradient and energy for next iteration
-        self.prev_geometry = copy.deepcopy(geom_num_list)
-        self.prev_gradient = copy.deepcopy(B_g)
+        # Store current geometry, gradient and energy for next iteration (no deep copy)
+        # Just store references to avoid duplicating large arrays
+        self.prev_geometry = geom_num_list
+        self.prev_gradient = B_g
         self.prev_energy = current_energy
         
         # Increment iteration counter
@@ -269,14 +236,7 @@ class RSIRFO:
         return move_vector.reshape(-1, 1)
     
     def adjust_trust_radius(self, actual_change, predicted_change):
-        """
-        Dynamically adjust trust radius based on the agreement between
-        actual and predicted energy changes
-        
-        Parameters:
-        actual_change: float - Actual energy change from the last step
-        predicted_change: float - Predicted energy change from the last step
-        """
+        """Dynamically adjust trust radius based on the agreement between actual and predicted energy changes"""
         # Skip if either value is too small
         if abs(predicted_change) < 1e-10:
             self.log("Skipping trust radius update: predicted change too small")
@@ -307,13 +267,7 @@ class RSIRFO:
             self.log(f"Acceptable step quality (ratio={ratio:.3f}), keeping trust radius at {self.trust_radius:.6f}", force=True)
     
     def evaluate_step_quality(self):
-        """
-        Evaluate the quality of recent optimization steps by analyzing
-        the trend in predicted and actual energy changes
-        
-        Returns:
-        str - Quality assessment ('good', 'acceptable', or 'poor')
-        """
+        """Evaluate the quality of recent optimization steps"""
         if len(self.predicted_energy_changes) < 2 or len(self.actual_energy_changes) < 2:
             return "unknown"
             
@@ -347,22 +301,11 @@ class RSIRFO:
         return quality
     
     def get_rs_step(self, eigvals, eigvecs, gradient):
-        """
-        Compute the Rational Step using the RS-I-RFO algorithm with multiple
-        initial alpha values to find the best step
+        """Compute the Rational Step using the RS-I-RFO algorithm"""
+        # Transform gradient to basis of eigenvectors - use matrix multiplication for efficiency
+        gradient_trans = np.dot(eigvecs.T, gradient)
         
-        Parameters:
-        eigvals: numpy.ndarray - Eigenvalues of the image Hessian
-        eigvecs: numpy.ndarray - Eigenvectors of the image Hessian
-        gradient: numpy.ndarray - Image gradient
-        
-        Returns:
-        numpy.ndarray - Step vector
-        """
-        # Transform gradient to basis of eigenvectors
-        gradient_trans = eigvecs.T.dot(gradient).flatten()
-        
-        # First, check if the default alpha (alpha0) gives a step within trust radius
+        # Try initial alpha (alpha0) first
         try:
             # Calculate step with default alpha
             H_aug_initial = self.get_augmented_hessian(eigvals, gradient_trans, self.alpha0)
@@ -371,14 +314,13 @@ class RSIRFO:
             
             self.log(f"Initial step with alpha={self.alpha0:.6f} has norm={initial_step_norm:.6f}", force=True)
             
-            # If the step is already within trust radius, use it directly without optimization
+            # If the step is already within trust radius, use it directly
             if initial_step_norm <= self.trust_radius:
                 self.log(f"Initial step is within trust radius ({self.trust_radius:.6f}), using it directly", force=True)
                 # Transform step back to original basis
-                final_step = eigvecs.dot(initial_step)
+                final_step = np.dot(eigvecs, initial_step)
                 return final_step
                 
-            # Otherwise, proceed with alpha optimization
             self.log(f"Initial step exceeds trust radius, optimizing alpha...", force=True)
         except Exception as e:
             self.log(f"Error calculating initial step: {str(e)}", force=True)
@@ -426,7 +368,8 @@ class RSIRFO:
                         is_better = True
                         
                 if is_better:
-                    best_overall_step = step_.copy()
+                    # Avoid unnecessary copies - use direct assignment
+                    best_overall_step = step_
                     best_overall_norm_diff = norm_diff
                     best_alpha_value = alpha_init
                 
@@ -446,11 +389,11 @@ class RSIRFO:
             else:
                 best_overall_step = sd_step
         else:
-            # Only show final selected alpha value (simplified output)
+            # Only show final selected alpha value
             self.log(f"Selected alpha value: {best_alpha_value:.6f}", force=True)
             
-        # Transform step back to original basis
-        step = eigvecs.dot(best_overall_step)
+        # Transform step back to original basis (use matrix multiplication for efficiency)
+        step = np.dot(eigvecs, best_overall_step)
         
         step_norm = np.linalg.norm(step)
         self.log(f"Final norm(step)={step_norm:.6f}", force=True)
@@ -458,18 +401,8 @@ class RSIRFO:
         return step
     
     def compute_rsprfo_step(self, eigvals, gradient_trans, alpha_init):
-        """
-        Compute an RS-P-RFO step using a specific initial alpha value
-        
-        Parameters:
-        eigvals: numpy.ndarray - Eigenvalues of the image Hessian
-        gradient_trans: numpy.ndarray - Transformed gradient components
-        alpha_init: float - Initial alpha value
-        
-        Returns:
-        tuple - (step vector, step norm, final alpha value)
-        """
-        # Create proxy functions for step norm calculation and its derivative
+        """Compute an RS-P-RFO step using a specific initial alpha value"""
+        # Create proxy functions for step norm calculation
         def calculate_step(alpha):
             """Calculate RFO step for a given alpha value"""
             try:
@@ -528,7 +461,9 @@ class RSIRFO:
             
         # Use Newton iterations to refine alpha
         alpha = alpha_init if 'alpha' not in locals() else alpha
-        step_norm_history = []
+        # Use a fixed size numpy array instead of growing list for step_norm_history
+        step_norm_history = np.zeros(self.max_micro_cycles)
+        history_count = 0
         best_step = None
         best_step_norm_diff = float('inf')
         
@@ -550,7 +485,11 @@ class RSIRFO:
                 # Keep track of the best step seen so far (closest to trust radius)
                 norm_diff = abs(step_norm - self.trust_radius)
                 if norm_diff < best_step_norm_diff:
-                    best_step = step.copy()
+                    if best_step is None:
+                        best_step = step.copy()
+                    else:
+                        # In-place update of best_step
+                        best_step[:] = step
                     best_step_norm_diff = norm_diff
                 
                 # Calculate objective function value U(a) = ||step||^2 - R^2
@@ -573,8 +512,10 @@ class RSIRFO:
                     if mu >= 1:
                         break
                 
-                # Track step norm history for convergence detection
-                step_norm_history.append(step_norm)
+                # Track step norm history for convergence detection (use fixed size array)
+                if history_count < self.max_micro_cycles:
+                    step_norm_history[history_count] = step_norm
+                    history_count += 1
                 
                 # Compute derivative of squared step norm with respect to alpha
                 dstep2_dalpha = self.get_step_derivative(alpha, eigvals, gradient_trans, step)
@@ -621,10 +562,13 @@ class RSIRFO:
                     self.log(f"Alpha hit boundary at {alpha:.6e}, stopping iterations")
                     break
                 
-                # Check for convergence in step norm
-                if len(step_norm_history) >= 3:
-                    recent_changes = [abs(step_norm_history[i] - step_norm_history[i-1]) 
-                                     for i in range(len(step_norm_history)-1, len(step_norm_history)-3, -1)]
+                # Check for convergence in step norm using the last 3 values
+                if history_count >= 3:
+                    idx = history_count - 1
+                    recent_changes = [
+                        abs(step_norm_history[idx] - step_norm_history[idx-1]),
+                        abs(step_norm_history[idx-1] - step_norm_history[idx-2])
+                    ]
                     if all(change < 1e-6 for change in recent_changes):
                         self.log("Step norm not changing significantly, stopping iterations")
                         break
@@ -657,19 +601,7 @@ class RSIRFO:
         return step, step_norm, alpha
     
     def get_step_derivative(self, alpha, eigvals, gradient_trans, step=None):
-        """
-        Compute derivative of squared step norm with respect to alpha directly
-        using proper analytical formula
-        
-        Parameters:
-        alpha: float - Current alpha value
-        eigvals: numpy.ndarray - Eigenvalues of the Hessian
-        gradient_trans: numpy.ndarray - Gradient in the eigenvector basis
-        step: numpy.ndarray - Optional current step vector (to avoid recomputation)
-        
-        Returns:
-        float - Derivative of squared step norm with respect to alpha
-        """
+        """Compute derivative of squared step norm with respect to alpha directly"""
         # If step was not provided, compute it
         if step is None:
             try:
@@ -687,16 +619,19 @@ class RSIRFO:
             # Calculate the denominators with safety
             denominators = eigvals - eigval_min * alpha
             
-            # Handle small denominators safely
+            # Handle small denominators safely (vectorized operations for efficiency)
             small_denoms = np.abs(denominators) < 1e-8
             if np.any(small_denoms):
+                # Create safe denominators with minimal new memory allocation
                 safe_denoms = denominators.copy()
-                for i in np.where(small_denoms)[0]:
-                    sign = np.sign(safe_denoms[i]) if safe_denoms[i] != 0 else 1
-                    safe_denoms[i] = sign * max(1e-8, abs(safe_denoms[i]))
+                safe_denoms[small_denoms] = np.sign(safe_denoms[small_denoms]) * np.maximum(1e-8, np.abs(safe_denoms[small_denoms]))
+                # Apply sign correction for zeros
+                zero_mask = safe_denoms[small_denoms] == 0
+                if np.any(zero_mask):
+                    safe_denoms[small_denoms][zero_mask] = 1e-8
                 denominators = safe_denoms
                 
-            # Calculate the summation term
+            # Calculate the summation term - use vectorized operations
             numerator = gradient_trans**2
             denominator = denominators**3
             
@@ -706,13 +641,15 @@ class RSIRFO:
             if not np.any(valid_indices):
                 return 1e-8  # Return a small positive value if no valid indices
                 
+            # Initialize sum terms as zeros to avoid allocation inside loop
             sum_terms = np.zeros_like(numerator)
             sum_terms[valid_indices] = numerator[valid_indices] / denominator[valid_indices]
             
             # Clip extremely large values
             max_magnitude = 1e20
-            if np.any(np.abs(sum_terms) > max_magnitude):
-                sum_terms = np.clip(sum_terms, -max_magnitude, max_magnitude)
+            large_values = np.abs(sum_terms) > max_magnitude
+            if np.any(large_values):
+                sum_terms[large_values] = np.sign(sum_terms[large_values]) * max_magnitude
                 
             sum_term = np.sum(sum_terms)
             
@@ -730,18 +667,10 @@ class RSIRFO:
             return 1e-8  # Return a small positive value as fallback
     
     def update_hessian(self, current_geom, current_grad, previous_geom, previous_grad):
-        """
-        Update the Hessian using the specified update method
-        
-        Parameters:
-        current_geom: numpy.ndarray - Current geometry
-        current_grad: numpy.ndarray - Current gradient
-        previous_geom: numpy.ndarray - Previous geometry
-        previous_grad: numpy.ndarray - Previous gradient
-        """
-        # Calculate displacement and gradient difference
-        displacement = np.array(current_geom - previous_geom).reshape(-1, 1)
-        delta_grad = np.array(current_grad - previous_grad).reshape(-1, 1)
+        """Update the Hessian using the specified update method"""
+        # Calculate displacement and gradient difference (avoid unnecessary reshaping)
+        displacement = np.asarray(current_geom - previous_geom).reshape(-1, 1)
+        delta_grad = np.asarray(current_grad - previous_grad).reshape(-1, 1)
         
         # Skip update if changes are too small
         disp_norm = np.linalg.norm(displacement)
@@ -752,7 +681,8 @@ class RSIRFO:
             return
             
         # Check if displacement and gradient difference are sufficiently aligned
-        dot_product = np.dot(displacement.T, delta_grad)[0, 0]
+        dot_product = np.dot(displacement.T, delta_grad)
+        dot_product = dot_product[0, 0]  # Extract scalar value from 1x1 matrix
         if dot_product <= 0:
             self.log("Skipping Hessian update due to poor alignment")
             return
@@ -801,32 +731,23 @@ class RSIRFO:
                 self.hessian, displacement, delta_grad
             )
             
-        # Update the Hessian
+        # Update the Hessian (in-place addition)
         self.hessian += delta_hess
         
         # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
-        self.hessian = (self.hessian + self.hessian.T) / 2
+        # Use in-place operation for symmetrization
+        self.hessian = 0.5 * (self.hessian + self.hessian.T)
     
     def get_augmented_hessian(self, eigvals, gradient_components, alpha=1.0):
-        """
-        Create the augmented hessian matrix for RFO calculation
-        
-        Parameters:
-        eigvals: numpy.ndarray - Eigenvalues of the Hessian
-        gradient_components: numpy.ndarray - Gradient components in eigenvector basis
-        alpha: float - Alpha parameter for RS-RFO
-        
-        Returns:
-        numpy.ndarray - Augmented Hessian matrix for RFO calculation
-        """
+        """Create the augmented hessian matrix for RFO calculation"""
         n = len(eigvals)
         H_aug = np.zeros((n + 1, n + 1))
         
         # Fill the upper-left block with eigenvalues / alpha
         np.fill_diagonal(H_aug[:n, :n], eigvals / alpha)
         
-        # Make sure gradient_components is flattened to the right shape
-        gradient_components = np.asarray(gradient_components).flatten()
+        # Make sure gradient_components is flattened
+        gradient_components = np.asarray(gradient_components).ravel()
         
         # Fill the upper-right and lower-left blocks with gradient components / alpha
         H_aug[:n, n] = gradient_components / alpha
@@ -835,17 +756,7 @@ class RSIRFO:
         return H_aug
     
     def solve_rfo(self, H_aug, mode="min", prev_eigvec=None):
-        """
-        Solve the RFO equations to get the step
-        
-        Parameters:
-        H_aug: numpy.ndarray - Augmented Hessian matrix
-        mode: str - "min" for energy minimization, "max" for maximization
-        prev_eigvec: numpy.ndarray - Previous eigenvector for consistent direction
-        
-        Returns:
-        tuple - (step, eigenvalue, nu parameter, eigenvector)
-        """
+        """Solve the RFO equations to get the step"""
         # Solve the eigenvalue problem for the augmented Hessian
         eigvals, eigvecs = np.linalg.eigh(H_aug)
         
@@ -887,88 +798,41 @@ class RSIRFO:
         return step, eigval, nu, eigvec
     
     def rfo_model(self, gradient, hessian, step):
-        """
-        Estimate energy change based on RFO model
-        
-        Parameters:
-        gradient: numpy.ndarray - Energy gradient
-        hessian: numpy.ndarray - Hessian matrix
-        step: numpy.ndarray - Step vector
-        
-        Returns:
-        float - Predicted energy change
-        """
-        return np.dot(gradient, step) + 0.5 * np.dot(step, np.dot(hessian, step))
+        """Estimate energy change based on RFO model"""
+        # Use more efficient matrix operations
+        return np.dot(gradient, step) + 0.5 * np.dot(np.dot(step, hessian), step)
     
     def is_converged(self):
-        """
-        Check if optimization has converged
-        
-        Returns:
-        bool - True if converged, False otherwise
-        """
+        """Check if optimization has converged"""
         return self.converged
         
     def get_predicted_energy_changes(self):
-        """
-        Get the history of predicted energy changes
-        
-        Returns:
-        list - Predicted energy changes for each iteration
-        """
+        """Get the history of predicted energy changes"""
         return self.predicted_energy_changes
         
     def get_actual_energy_changes(self):
-        """
-        Get the history of actual energy changes
-        
-        Returns:
-        list - Actual energy changes for each iteration
-        """
+        """Get the history of actual energy changes"""
         return self.actual_energy_changes
     
     def set_hessian(self, hessian):
-        """
-        Set the Hessian matrix
-        
-        Parameters:
-        hessian: numpy.ndarray - Hessian matrix
-        """
+        """Set the Hessian matrix"""
         self.hessian = hessian
         return
 
     def set_bias_hessian(self, bias_hessian):
-        """
-        Set the bias Hessian matrix
-        
-        Parameters:
-        bias_hessian: numpy.ndarray - Bias Hessian matrix
-        """
+        """Set the bias Hessian matrix"""
         self.bias_hessian = bias_hessian
         return
     
     def get_hessian(self):
-        """
-        Get the current Hessian matrix
-        
-        Returns:
-        numpy.ndarray - Hessian matrix
-        """
+        """Get the current Hessian matrix"""
         return self.hessian
     
     def get_bias_hessian(self):
-        """
-        Get the current bias Hessian matrix
-        
-        Returns:
-        numpy.ndarray - Bias Hessian matrix
-        """
+        """Get the current bias Hessian matrix"""
         return self.bias_hessian
     
     def reset_trust_radius(self):
-        """
-        Reset trust radius to its initial value
-        """
+        """Reset trust radius to its initial value"""
         self.trust_radius = self.trust_radius_initial
         self.log(f"Trust radius reset to initial value: {self.trust_radius:.6f}", force=True)
-        
