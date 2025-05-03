@@ -966,5 +966,9 @@ class UnitValueLib:
         self.mol2au = 6.02214076 * 10 ** 23
         self.deg2rad = 0.017453292519943295
         self.au2sec = 2.418884326505 * 10 ** (-17)
+        self.boltzmann_constant = 1.380649 * 10 ** (-23) # J/K
+        self.planck_constant = 6.62607015 * 10 ** (-34) # J.s
+        self.vacume_light_speed = 2.99792458 * 10 ** 8 # m/s
+        
         return
         

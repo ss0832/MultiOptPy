@@ -24,6 +24,7 @@ from irc import IRC
 from bond_connectivity import judge_shape_condition
 from oniom import separate_high_layer_and_low_layer, specify_link_atom_pairs, link_number_high_layer_and_low_layer
 from symmetry_analyzer import analyze_symmetry
+from normal_mode_analyzer import MolecularVibrations
 
 class Optimize:
     def __init__(self, args):
@@ -39,8 +40,8 @@ class Optimize:
         if args.tight_convergence_criteria and not args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.000015
             self.RMS_FORCE_THRESHOLD = 0.000010
-            self.MAX_DISPLACEMENT_THRESHOLD = 0.00060
-            self.RMS_DISPLACEMENT_THRESHOLD = 0.00040
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.000060
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.000040
         elif not args.tight_convergence_criteria and args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.0030
             self.RMS_FORCE_THRESHOLD = 0.0020
@@ -88,6 +89,9 @@ class Optimize:
         self.DC_check_flag = False
         self.oniom = args.oniom_flag
         self.use_model_hessian = args.use_model_hessian
+        self.freq_analysis = args.frequency_analysis
+        self.thermo_temperature = float(args.temperature)
+        self.thermo_pressure = float(args.pressure)
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -320,8 +324,7 @@ class Optimize:
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         grad_list = []
         bias_grad_list = []
-        orthogonal_bias_grad_list = []
-        orthogonal_grad_list = []
+
         
         # Element information
         element_number_list = np.array([element_number(elem) for elem in element_list], dtype="int")
@@ -405,8 +408,6 @@ class Optimize:
             'pre_B_g': pre_B_g,
             'grad_list': grad_list,
             'bias_grad_list': bias_grad_list,
-            'orthogonal_bias_grad_list': orthogonal_bias_grad_list,
-            'orthogonal_grad_list': orthogonal_grad_list,
             'pre_move_vector': pre_move_vector
         }
         
@@ -463,8 +464,6 @@ class Optimize:
         pre_B_g = vars_dict['gradients']['pre_B_g']
         grad_list = vars_dict['gradients']['grad_list']
         bias_grad_list = vars_dict['gradients']['bias_grad_list']
-        orthogonal_bias_grad_list = vars_dict['gradients']['orthogonal_bias_grad_list']
-        orthogonal_grad_list = vars_dict['gradients']['orthogonal_grad_list']
         pre_move_vector = vars_dict['gradients']['pre_move_vector']
         
         # Constraint related
@@ -479,10 +478,15 @@ class Optimize:
         optimized_flag = vars_dict['misc']['optimized_flag']
         NRO = vars_dict['misc']['NRO']
         
-        
+        exact_hess_flag = False
         
 
         for iter in range(self.NSTEP):
+            if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+                exact_hess_flag = True
+            else:
+                exact_hess_flag = False
+                
             self.iter = iter
             exit_flag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
             if exit_flag:
@@ -494,7 +498,7 @@ class Optimize:
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
             self.Model_hess = copy.copy(SP.Model_hess)
-          
+            
             if exit_flag:
                 break
                 
@@ -549,20 +553,12 @@ class Optimize:
             grad_list.append(np.sqrt((g[g > 1e-10]**2).mean()))
             bias_grad_list.append(np.sqrt((B_g[B_g > 1e-10]**2).mean()))
             
-            if iter > 0:
-                RMS_ortho_B_g, RMS_ortho_g = self.calculate_orthogonal_gradients(pre_move_vector, B_g, g)
-                orthogonal_bias_grad_list.append(RMS_ortho_B_g)
-                orthogonal_grad_list.append(RMS_ortho_g)
+     
             
             if self.NRO_analysis:
                 NRO.run(SP, geom_num_list, move_vector)
             
-            if converge_flag:
-                if projection_constrain and iter == 0:
-                    pass
-                else:
-                    optimized_flag = True
-                    break
+
 
             new_geometry = self._reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
             #dissociation check
@@ -582,21 +578,64 @@ class Optimize:
             
             
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
+            
+            if converge_flag:
+                if projection_constrain and iter == 0:
+                    pass
+                else:
+                    optimized_flag = True
+                    print("\n=====================================================")
+                    print("converged!!!")
+                    print("=====================================================")
+                    break
+            
+            
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
+            
         else:
             print("Reached maximum number of iterations. This is not converged.")
             with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
-                f.write("Reached maximum number of iterations. This is not converged.")   
+                f.write("Reached maximum number of iterations. This is not converged.")
+        if self.DC_check_flag:
+            print("Dissociation is detected. Optimization stopped.")
+            with open(self.BPA_FOLDER_DIRECTORY+"dissociation_is_detected.txt", "w") as f:
+                f.write("Dissociation is detected. Optimization stopped.")
+        self.optimized_flag = optimized_flag
+        if self.freq_analysis and not exit_flag and not self.DC_check_flag:
+            self._perform_vibrational_analysis(SP, geom_num_list, element_list, initial_geom_num_list, force_data, exact_hess_flag, file_directory, iter, electric_charge_and_multiplicity, xtb_method, e)
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
-                                   orthogonal_bias_grad_list, orthogonal_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
         
-        self.optimized_flag = optimized_flag
+        
         return
 
-    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
-        self._save_opt_results(FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
+    def _perform_vibrational_analysis(self, SP, geom_num_list, element_list, initial_geom_num_list, force_data, exact_hess_flag, file_directory, iter, electric_charge_and_multiplicity, xtb_method, e):
+        print("\n====================================================")
+        print("Performing vibrational analysis...")
+        print("====================================================\n")
+        if not exact_hess_flag:
+            e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity, xtb_method)
+        else:
+            g = np.zeros_like(geom_num_list, dtype="float64")
+            exit_flag = False
+        if exit_flag:
+            print("Error: QM calculation failed.")
+            return
+        _, B_e, _, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g="", iter=iter, initial_geom_num_list="")
+        
+        MV = MolecularVibrations(atoms=element_list, coordinates=geom_num_list, hessian=SP.Model_hess+BPA_hessian)
+        results = MV.calculate_thermochemistry(e_tot=B_e, temperature=self.thermo_temperature, pressure=self.thermo_pressure)
+        MV.print_thermochemistry(output_file=self.BPA_FOLDER_DIRECTORY+"/thermochemistry.txt")
+        MV.print_normal_modes(output_file=self.BPA_FOLDER_DIRECTORY+"/normal_modes.txt")
+        MV.create_vibration_animation(output_dir=self.BPA_FOLDER_DIRECTORY+"/vibration_animation")
+        if not self.optimized_flag:
+            print("Warning: Vibrational analysis was performed, but the optimization did not converge. The result of thermochemistry is useless.")
+            
+        return
+
+    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
+        self._save_opt_results(FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
         self.bias_pot_params_grad_list = self.CalcBiaspot.bias_pot_params_grad_list
         self.bias_pot_params_grad_name_list = self.CalcBiaspot.bias_pot_params_grad_name_list
         self.final_file_directory = file_directory
@@ -609,15 +648,7 @@ class Optimize:
             f.write(f"Symmetry of final structure: {self.symmetry}")
         print(f"Symmetry: {self.symmetry}")
        
-    def calculate_orthogonal_gradients(self, pre_move_vector, B_g, g):
-        norm_pre_move_vec = (pre_move_vector / np.linalg.norm(pre_move_vector)).reshape(len(pre_move_vector) * 3, 1)
-        orthogonal_bias_grad = B_g.reshape(len(B_g) * 3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
-        orthogonal_grad = g.reshape(len(g) * 3, 1) * (1.0 - np.dot(norm_pre_move_vec, norm_pre_move_vec.T))
-        RMS_ortho_B_g = abs(np.sqrt((orthogonal_bias_grad**2).mean()))
-        RMS_ortho_g = abs(np.sqrt((orthogonal_grad**2).mean()))
-        return RMS_ortho_B_g, RMS_ortho_g
-
-    def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, orthogonal_bias_grad_list, orthogonal_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
+    def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
@@ -634,7 +665,7 @@ class Optimize:
         FIO.argrelextrema_txt_save(self.ENERGY_LIST_FOR_PLOTTING, "approx_EQ", "min")
         FIO.argrelextrema_txt_save(grad_list, "local_min_grad", "min")
 
-        self._save_energy_profiles(orthogonal_bias_grad_list, orthogonal_grad_list, grad_list)
+        self._save_energy_profiles()
 
         self.SP = SP
         self.final_file_directory = file_directory
@@ -745,27 +776,8 @@ class Optimize:
             #-------------------
         return
     
-    def _save_energy_profiles(self, orthogonal_bias_grad_list, orthogonal_grad_list, grad_list):
-        if len(orthogonal_bias_grad_list) != 0 and len(orthogonal_grad_list) != 0:
-            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_profile.csv","w") as f:
-                f.write("ITER.,orthogonal bias gradient[a.u.]\n")
-                for i in range(len(orthogonal_bias_grad_list)):
-                    f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]))+"\n")
-            
-            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_profile.csv","w") as f:
-                f.write("ITER.,orthogonal gradient[a.u.]\n")
-                for i in range(len(orthogonal_bias_grad_list)):
-                    f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]))+"\n")
-            
-            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_gradient_diff_profile.csv","w") as f:
-                f.write("ITER.,orthogonal gradient[a.u.]\n")
-                for i in range(len(orthogonal_grad_list)):
-                    f.write(str(i+1)+","+str(float(orthogonal_grad_list[i]-grad_list[i+1]))+"\n")
-            with open(self.BPA_FOLDER_DIRECTORY+"orthogonal_bias_gradient_diff_profile.csv","w") as f:
-                f.write("ITER.,orthogonal gradient[a.u.]\n")
-                for i in range(len(orthogonal_bias_grad_list)):
-                    f.write(str(i+1)+","+str(float(orthogonal_bias_grad_list[i]-grad_list[i+1]))+"\n")  
-        
+    def _save_energy_profiles(self):
+    
         with open(self.BPA_FOLDER_DIRECTORY+"energy_profile_kcalmol.csv","w") as f:
             f.write("ITER.,energy[kcal/mol]\n")
             for i in range(len(self.ENERGY_LIST_FOR_PLOTTING)):
@@ -855,7 +867,6 @@ class Optimize:
             for atom_num in fragment:
                 calced_gradient[atom_num-1] = copy.copy(tmp_grad)
         return calced_gradient
-
 
     def optimize_oniom(self):
         """
@@ -996,8 +1007,6 @@ class Optimize:
         self.cos_list = [[] for i in range(len(force_data["geom_info"]))]
         real_grad_list = []
         real_bias_grad_list = []
-        real_orthogonal_bias_grad_list = []
-        real_orthogonal_grad_list = []
         self.NUM_LIST = []
         self.ENERGY_LIST_FOR_PLOTTING = []
         self.BIAS_ENERGY_LIST_FOR_PLOTTING = []
@@ -1293,7 +1302,11 @@ class Optimize:
             print("Reached maximum number of iterations. This is not converged.")
             with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
                 f.write("Reached maximum number of iterations. This is not converged.")
-                
+        
+        if DC_exit_flag:
+            with open(self.BPA_FOLDER_DIRECTORY+"dissociation_is_detected.txt", "w") as f:
+                f.write("These molecules are dissociated.")
+        
         # Generate plots and save results
         G = Graph(self.BPA_FOLDER_DIRECTORY)
         self.NUM_LIST = np.array([i for i in range(len(self.ENERGY_LIST_FOR_PLOTTING))])
@@ -1312,7 +1325,7 @@ class Optimize:
         FIO.argrelextrema_txt_save(real_grad_list, "local_min_grad", "min")
         
         # Save energy profiles
-        self._save_energy_profiles(real_orthogonal_bias_grad_list, real_orthogonal_grad_list, real_grad_list)
+        self._save_energy_profiles()
         
         # Store final results
         self.final_file_directory = file_directory
