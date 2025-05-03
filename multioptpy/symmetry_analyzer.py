@@ -54,8 +54,12 @@ class SymmetryAnalyzer:
         max_n_fold : int
             Maximum n-fold rotation to check
         """
+        
         self.atoms = atoms
-        self.coordinates = np.array(coordinates)
+        if coordinates is None:
+            self.coordinates = None
+        else:
+            self.coordinates = np.array(coordinates)
         self.n_atoms = len(atoms)
         self.dist_tol = dist_tol
         self.max_n_fold = max_n_fold
@@ -105,6 +109,8 @@ class SymmetryAnalyzer:
     
     def analyze(self):
         """Analyze molecular symmetry and determine point group"""
+        if self.coordinates is None:
+            return "Unknown" 
         self._find_rotation_axes()
         self._find_reflection_planes()
         self._find_inversion_center()

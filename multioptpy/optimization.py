@@ -37,15 +37,15 @@ class Optimize:
 
     def _set_convergence_criteria(self, args):
         if args.tight_convergence_criteria and not args.loose_convergence_criteria:
-            self.MAX_FORCE_THRESHOLD = 0.00012
-            self.RMS_FORCE_THRESHOLD = 0.00008
-            self.MAX_DISPLACEMENT_THRESHOLD = 0.0006
-            self.RMS_DISPLACEMENT_THRESHOLD = 0.0003
+            self.MAX_FORCE_THRESHOLD = 0.000015
+            self.RMS_FORCE_THRESHOLD = 0.000010
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.00060
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.00040
         elif not args.tight_convergence_criteria and args.loose_convergence_criteria:
             self.MAX_FORCE_THRESHOLD = 0.0030
             self.RMS_FORCE_THRESHOLD = 0.0020
-            self.MAX_DISPLACEMENT_THRESHOLD = 0.0150
-            self.RMS_DISPLACEMENT_THRESHOLD = 0.0100
+            self.MAX_DISPLACEMENT_THRESHOLD = 0.0100
+            self.RMS_DISPLACEMENT_THRESHOLD = 0.0070
         else:
             self.MAX_FORCE_THRESHOLD = 0.0003
             self.RMS_FORCE_THRESHOLD = 0.0002
@@ -494,7 +494,7 @@ class Optimize:
             SP.Model_hess = copy.copy(self.Model_hess)
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_number_list, iter, electric_charge_and_multiplicity, xtb_method)
             self.Model_hess = copy.copy(SP.Model_hess)
-            
+          
             if exit_flag:
                 break
                 
