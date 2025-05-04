@@ -559,10 +559,19 @@ class Optimize:
                 NRO.run(SP, geom_num_list, move_vector)
             
 
-
             new_geometry = self._reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
             #dissociation check
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
+
+            if converge_flag:
+                if projection_constrain and iter == 0:
+                    pass
+                else:
+                    optimized_flag = True
+                    print("\n=====================================================")
+                    print("converged!!!")
+                    print("=====================================================")
+                    break
             
             if DC_exit_flag:
                 self.DC_check_flag = True
@@ -576,20 +585,7 @@ class Optimize:
             pre_geom = geom_num_list#Bohr
             pre_move_vector = move_vector
             
-            
             geometry_list = FIO.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
-            
-            if converge_flag:
-                if projection_constrain and iter == 0:
-                    pass
-                else:
-                    optimized_flag = True
-                    print("\n=====================================================")
-                    print("converged!!!")
-                    print("=====================================================")
-                    break
-            
-            
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
             
         else:
