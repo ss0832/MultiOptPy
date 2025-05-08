@@ -605,7 +605,7 @@ class IRC:
                     float(words[i].split()[2]), 
                     float(words[i].split()[3])
                 ])
-
+        geom_num_list = np.array(geom_num_list)
         # Calculate energy, gradient and hessian
         init_e, init_g, geom_num_list, finish_frag = self.QM_interface.single_point(
             self.final_directory, 
