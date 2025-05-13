@@ -602,7 +602,7 @@ class Optimize:
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
-        
+        print("The result of optimization is saved in the directory: ", self.BPA_FOLDER_DIRECTORY)
         
         return
 
