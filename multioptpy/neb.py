@@ -922,7 +922,7 @@ class NEB:
         for num, total_force in enumerate(total_force_list):
             hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
             if num == 0 or num == len(total_force_list) - 1:
-                OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
+                OPT = RationalFunctionOptimization(method="rsirfo_fsb", saddle_order=0, trust_radius=0.1)
             else:
                 OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1, trust_radius=0.1)
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
