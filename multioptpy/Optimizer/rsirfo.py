@@ -2,6 +2,7 @@ import numpy as np
 from numpy.linalg import norm
 from .hessian_update import ModelHessianUpdate
 from scipy.optimize import brentq
+from multioptpy.calc_tools import Calculationtools
 
 class RSIRFO:
     def __init__(self, **config):
@@ -733,7 +734,7 @@ class RSIRFO:
             
         # Update the Hessian (in-place addition)
         self.hessian += delta_hess
-        
+        self.hessian = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.hessian, current_geom.reshape(-1, 3), current_geom.reshape(-1, 3), False)
         # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
