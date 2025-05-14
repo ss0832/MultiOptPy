@@ -187,6 +187,7 @@ class RSIRFO:
         
         # Create the image Hessian H_star and image gradient grad_star
         H_star = np.dot(P, H)
+        H_star = 0.5 * (H_star + H_star.T)  # Symmetrize the Hessian
         grad_star = np.dot(P, gradient)
         
         # Compute eigenvalues and eigenvectors of the image Hessian
