@@ -622,7 +622,9 @@ class Optimize:
         print("Is Exact Hessian calculated? : ", exact_hess_flag)
         if exact_hess_flag is False:
             print("Calculate exact Hessian...")
+            SP.hessian_flag = True
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity, xtb_method)
+            SP.hessian_flag = False
         else:
             g = np.zeros_like(geom_num_list, dtype="float64")
             exit_flag = False
