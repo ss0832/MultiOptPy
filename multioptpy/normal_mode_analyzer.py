@@ -322,12 +322,18 @@ class MolecularVibrations:
         exp_neg_rt = np.exp(-rt)
 
         ZPE = R_Eh * 0.5 * vib_temperature.sum()
+        
         results['ZPE'] = (ZPE, 'Eh')
-
-        results['S_vib'] = (R_Eh * (rt * exp_neg_rt / (1 - exp_neg_rt) - np.log(1 - exp_neg_rt)).sum(), 'Eh/K')
-        results['Cv_vib'] = results['Cp_vib'] = (R_Eh * (exp_neg_rt * rt ** 2 / (1 - exp_neg_rt) ** 2).sum(), 'Eh/K')
+        
+        tmp_denom = 1 - exp_neg_rt
+        mask = np.abs(tmp_denom) < 1e-10
+        tmp_denom[mask] = 1e-10
+        
+      
+        results['S_vib'] = (R_Eh * (rt * exp_neg_rt / tmp_denom - np.log(tmp_denom)).sum(), 'Eh/K')
+        results['Cv_vib'] = results['Cp_vib'] = (R_Eh * (exp_neg_rt * rt ** 2 / tmp_denom ** 2).sum(), 'Eh/K')
         results['E_vib'] = results['H_vib'] = (
-            ZPE + R_Eh * temperature * (rt * exp_neg_rt / (1 - exp_neg_rt)).sum(), 'Eh')
+            ZPE + R_Eh * temperature * (rt * exp_neg_rt / tmp_denom).sum(), 'Eh')
 
         results['G_elec'] = (results['H_elec'][0] - temperature * results['S_elec'][0], 'Eh')
         results['G_trans'] = (results['H_trans'][0] - temperature * results['S_trans'][0], 'Eh')
