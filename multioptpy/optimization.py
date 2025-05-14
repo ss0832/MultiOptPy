@@ -482,10 +482,7 @@ class Optimize:
         
 
         for iter in range(self.NSTEP):
-            if iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
-                exact_hess_flag = True
-            else:
-                exact_hess_flag = False
+
                 
             self.iter = iter
             exit_flag = os.path.exists(self.BPA_FOLDER_DIRECTORY+"end.txt")
@@ -592,6 +589,18 @@ class Optimize:
             print("Reached maximum number of iterations. This is not converged.")
             with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
                 f.write("Reached maximum number of iterations. This is not converged.")
+
+        ## --------------------
+        # Check if exact hessian is already computed.
+        ## --------------------
+        if self.FC_COUNT == -1:
+            exact_hess_flag = False
+        elif self.iter % self.FC_COUNT == 0 and self.FC_COUNT > 0:
+            exact_hess_flag = True
+        else:
+            exact_hess_flag = False
+        # --------------------
+        
         if self.DC_check_flag:
             print("Dissociation is detected. Optimization stopped.")
             with open(self.BPA_FOLDER_DIRECTORY+"dissociation_is_detected.txt", "w") as f:
@@ -602,7 +611,7 @@ class Optimize:
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
                                    file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
-        print("The result of optimization is saved in the directory: ", self.BPA_FOLDER_DIRECTORY)
+        
         
         return
 
@@ -610,7 +619,9 @@ class Optimize:
         print("\n====================================================")
         print("Performing vibrational analysis...")
         print("====================================================\n")
-        if not exact_hess_flag:
+        print("Is Exact Hessian calculated? : ", exact_hess_flag)
+        if exact_hess_flag is False:
+            print("Calculate exact Hessian...")
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity, xtb_method)
         else:
             g = np.zeros_like(geom_num_list, dtype="float64")
