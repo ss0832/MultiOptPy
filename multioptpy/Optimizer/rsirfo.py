@@ -67,7 +67,7 @@ class RSIRFO:
         self.prev_energy = None
         self.converged = False
         self.iteration = 0
-        
+  
         # Define modes to maximize based on saddle order
         self.roots = list(range(self.saddle_order))
         
@@ -165,8 +165,9 @@ class RSIRFO:
         H = self.hessian
         if self.bias_hessian is not None:
             # Add bias_hessian directly to H - avoid creating intermediate matrix
-            H = self.hessian + self.bias_hessian
             
+            H = self.hessian + self.bias_hessian
+        H = Calculationtools().project_out_hess_tr_and_rot_for_coord(H, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
         # Compute eigenvalues and eigenvectors of the hessian
         eigvals, eigvecs = np.linalg.eigh(H)
         
@@ -739,7 +740,7 @@ class RSIRFO:
             
         # Update the Hessian (in-place addition)
         self.hessian += delta_hess
-        self.hessian = Calculationtools().project_out_hess_tr_and_rot_for_coord(self.hessian, current_geom.reshape(-1, 3), current_geom.reshape(-1, 3), False)
+      
         # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
