@@ -18,7 +18,10 @@ class TR_NEB:
         if self.fix_init_edge:
             move_vector = [total_delta[0]*0.0]
         else:
-            move_vector = [total_force_list[0]]
+            init_norm_move_vector = np.linalg.norm(total_delta[0])
+            init_tr = min(0.5, init_norm_move_vector) 
+            move_vector = [init_tr * total_delta[0] / init_norm_move_vector]
+            
         trust_radii_1_list = []
         trust_radii_2_list = []
         
@@ -77,9 +80,11 @@ class TR_NEB:
             f.write(",".join(trust_radii_2_list)+"\n")
         
         if self.fix_end_edge:
-            move_vector.append(total_force_list[-1]*0.0)
+            move_vector.append(total_delta[-1]*0.0)
         else:
-            move_vector.append(total_force_list[-1])
+            end_norm_move_vector = np.linalg.norm(total_delta[-1])
+            end_tr = min(0.5, end_norm_move_vector) 
+            move_vector.append(end_tr * total_delta[-1] / end_norm_move_vector)
         
         if self.apply_convergence_criteria:
             move_vector = self.check_convergence(total_force_list, move_vector)
