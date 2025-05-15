@@ -179,12 +179,16 @@ class RSIRFO:
         
         # More efficient projection matrix construction for multiple roots
         P = np.eye(gradient.size)
-        for root in self.roots:
-            # Extract the eigenvector once
-            trans_vec = eigvecs[:, root]
-            # Use inplace operation to update P (avoid new allocation)
-            P -= 2 * np.outer(trans_vec, trans_vec)
-        
+        root_num = 0
+        i = 0
+        while root_num < len(self.roots):
+            if np.abs(eigvals[i]) > 1e-10: 
+                # Extract the eigenvector once
+                trans_vec = eigvecs[:, i]
+                # Use inplace operation to update P (avoid new allocation)
+                P -= 2 * np.outer(trans_vec, trans_vec)
+                root_num += 1
+            i += 1
         # Create the image Hessian H_star and image gradient grad_star
         H_star = np.dot(P, H)
         H_star = 0.5 * (H_star + H_star.T)  # Symmetrize the Hessian
