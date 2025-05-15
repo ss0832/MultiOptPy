@@ -125,22 +125,12 @@ class Calculation:
                 
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
-                    pass
-                
+                    if self.hessian_flag:
+                        self.exact_hessian(element_list, input_data_for_display, mf)
+        
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     
-                    """exact hessian"""
-                    exact_hess = mf.Hessian().kernel()
-                    
-                    freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
-                    exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
-                    print("frequencies: \n",freqs["freq_wavenumber"])
-                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    #print("=== hessian (before add bias potential) ===")
-                    #print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
-
-                    self.Model_hess = exact_hess
+                    self.exact_hessian(element_list, input_data_for_display, mf)
 
             except Exception as error:
                 print(error)
@@ -154,6 +144,20 @@ class Calculation:
         self.coordinate = input_data_for_display
         
         return e, g, input_data_for_display, finish_frag
+
+    def exact_hessian(self, element_list, input_data_for_display, mf):
+        """exact hessian"""
+        exact_hess = mf.Hessian().kernel()
+                    
+        freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
+        exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
+        print("frequencies: \n",freqs["freq_wavenumber"])
+                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
+        exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
+
+        self.Model_hess = exact_hess
     
     
     

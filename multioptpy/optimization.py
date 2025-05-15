@@ -18,7 +18,6 @@ from cmds_analysis import CMDSPathAnalysis
 from pca_analysis import PCAPathAnalysis
 from potential import BiasPotentialCalculation
 from calc_tools import CalculationStructInfo, Calculationtools
-from MO_analysis import NROAnalysis
 from constraint_condition import ProjectOutConstrain
 from irc import IRC
 from bond_connectivity import judge_shape_condition
@@ -72,8 +71,6 @@ class Optimize:
         self.mFC_COUNT = args.calc_model_hess
         self.DC_check_dist = float(args.dissociate_check)
         self.unrestrict = args.unrestrict
-        self.NRO_analysis = args.NRO_analysis
-        self._check_NRO_analysis(args)
         self.irc = args.intrinsic_reaction_coordinates
         self.force_data = force_data_parser(self.args)
         self.final_file_directory = None
@@ -119,11 +116,7 @@ class Optimize:
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
 
-    def _check_NRO_analysis(self, args):
-        if self.NRO_analysis:
-            if args.usextb == "None":
-                print("Currently, Natural Reaction Orbital analysis is only available for xTB method.")
-                sys.exit(0)
+
         
 
     def _make_init_directory(self, file):
@@ -131,7 +124,7 @@ class Optimize:
         Create initial directory for optimization results.
         """
         self.START_FILE = file
-        timestamp = str(time.time()).replace(".", "_")
+        timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]
         date = datetime.datetime.now().strftime("%Y_%m_%d")
         base_dir = f"{date}/{self.START_FILE[:-4]}_OPT_"
 
@@ -360,15 +353,7 @@ class Optimize:
             
                 
         
-        # NRO analysis setup
-        if self.NRO_analysis:
-            NRO = NROAnalysis(file_directory=self.BPA_FOLDER_DIRECTORY, 
-                            xtb=xtb_method, 
-                            element_list=element_list, 
-                            electric_charge_and_multiplicity=electric_charge_and_multiplicity)
-        else:
-            NRO = None
-        
+    
         
         # Final status flag
         optimized_flag = False
@@ -422,7 +407,6 @@ class Optimize:
         vars_dict['misc'] = {
             'exit_flag': exit_flag,
             'optimized_flag': optimized_flag,
-            'NRO': NRO
         }
         
 
@@ -476,8 +460,7 @@ class Optimize:
         # Miscellaneous
         exit_flag = vars_dict['misc']['exit_flag']
         optimized_flag = vars_dict['misc']['optimized_flag']
-        NRO = vars_dict['misc']['NRO']
-        
+  
         exact_hess_flag = False
         
 
@@ -547,15 +530,9 @@ class Optimize:
             
             self.print_info(e, B_e, B_g, displacement_vector, pre_e, pre_B_e, max_displacement_threshold, rms_displacement_threshold)
             
-            grad_list.append(np.sqrt((g[g > 1e-10]**2).mean()))
-            bias_grad_list.append(np.sqrt((B_g[B_g > 1e-10]**2).mean()))
+            grad_list.append(self.calculate_rms_safely(g))
+            bias_grad_list.append(self.calculate_rms_safely(B_g))
             
-     
-            
-            if self.NRO_analysis:
-                NRO.run(SP, geom_num_list, move_vector)
-            
-
             new_geometry = self._reset_fixed_atom_positions(new_geometry, initial_geom_num_list, allactive_flag, force_data)
             #dissociation check
             DC_exit_flag = self.dissociation_check(new_geometry, element_list)
@@ -610,7 +587,7 @@ class Optimize:
             self._perform_vibrational_analysis(SP, geom_num_list, element_list, initial_geom_num_list, force_data, exact_hess_flag, file_directory, iter, electric_charge_and_multiplicity, xtb_method, e)
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
-                                   file_directory, self.force_data, geom_num_list, e, B_e, SP, NRO)
+                                   file_directory, self.force_data, geom_num_list, e, B_e, SP)
         
         
         return
@@ -620,20 +597,23 @@ class Optimize:
         print("Performing vibrational analysis...")
         print("====================================================\n")
         print("Is Exact Hessian calculated? : ", exact_hess_flag)
-        if exact_hess_flag is False:
+        if exact_hess_flag:
+            g = np.zeros_like(geom_num_list, dtype="float64")
+            exit_flag = False
+            
+        else:
             print("Calculate exact Hessian...")
             SP.hessian_flag = True
             e, g, geom_num_list, exit_flag = SP.single_point(file_directory, element_list, iter, electric_charge_and_multiplicity, xtb_method)
             SP.hessian_flag = False
-        else:
-            g = np.zeros_like(geom_num_list, dtype="float64")
-            exit_flag = False
+            
         if exit_flag:
             print("Error: QM calculation failed.")
             return
         _, B_e, _, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g="", iter=iter, initial_geom_num_list="")
-        
-        MV = MolecularVibrations(atoms=element_list, coordinates=geom_num_list, hessian=SP.Model_hess+BPA_hessian)
+        tmp_hess = copy.copy(SP.Model_hess)
+        tmp_hess += BPA_hessian
+        MV = MolecularVibrations(atoms=element_list, coordinates=geom_num_list, hessian=tmp_hess)
         results = MV.calculate_thermochemistry(e_tot=B_e, temperature=self.thermo_temperature, pressure=self.thermo_pressure)
         MV.print_thermochemistry(output_file=self.BPA_FOLDER_DIRECTORY+"/thermochemistry.txt")
         MV.print_normal_modes(output_file=self.BPA_FOLDER_DIRECTORY+"/normal_modes.txt")
@@ -643,8 +623,8 @@ class Optimize:
             
         return
 
-    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
-        self._save_opt_results(FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO)
+    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP):
+        self._save_opt_results(FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP)
         self.bias_pot_params_grad_list = self.CalcBiaspot.bias_pot_params_grad_list
         self.bias_pot_params_grad_name_list = self.CalcBiaspot.bias_pot_params_grad_name_list
         self.final_file_directory = file_directory
@@ -657,14 +637,12 @@ class Optimize:
             f.write(f"Symmetry of final structure: {self.symmetry}")
         print(f"Symmetry: {self.symmetry}")
        
-    def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, NRO):
+    def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP):
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
         G.single_plot(self.NUM_LIST, grad_list, file_directory, "", axis_name_2="gradient (RMS) [a.u.]", name="gradient")
         G.single_plot(self.NUM_LIST, bias_grad_list, file_directory, "", axis_name_2="bias gradient (RMS) [a.u.]", name="bias_gradient")
         
-        if self.NRO_analysis:
-            NRO.save_results(self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)
-
+    
         if len(force_data["geom_info"]) > 1:
             for num, i in enumerate(force_data["geom_info"]):
                 G.single_plot(self.NUM_LIST, self.cos_list[num], file_directory, i)
@@ -775,13 +753,13 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
                 f.write("gradient (RMS) [hartree/Bohr] \n")
         with open(self.BPA_FOLDER_DIRECTORY+"gradient_profile.csv","a") as f:
-            f.write(str(np.sqrt((g[g > 1e-10]**2).mean()))+"\n")
+            f.write(str(self.calculate_rms_safely(g))+"\n")
         #-------------------
         if iter == 0:
             with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
                 f.write("bias gradient (RMS) [hartree/Bohr] \n")
         with open(self.BPA_FOLDER_DIRECTORY+"bias_gradient_profile.csv","a") as f:
-            f.write(str(np.sqrt((B_g[B_g > 1e-10]**2).mean()))+"\n")
+            f.write(str(self.calculate_rms_safely(B_g))+"\n")
             #-------------------
         return
     

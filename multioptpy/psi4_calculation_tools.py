@@ -115,21 +115,11 @@ class Calculation:
                 print("\n")
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
-                    pass
+                    if self.hessian_flag:
+                        self.exact_hessian(element_list, input_data_for_display, wfn)
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    # calculate an exact hessian
-                    _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
-                    exact_hess = np.array(wfn.hessian())
-                    
-                    freqs = np.array(wfn.frequencies())
-                    
-                    print("frequencies: \n",freqs)
-                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    #print("=== hessian (before add bias potential) ===")
-                    #print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
-                    self.Model_hess = exact_hess
+                    self.exact_hessian(element_list, input_data_for_display, wfn)
                 
             except Exception as error:
                 print(error)
@@ -149,3 +139,17 @@ class Calculation:
             
         
         return e, g, input_data_for_display, finish_frag
+
+    def exact_hessian(self, element_list, input_data_for_display, wfn):
+        """exact hessian"""
+        _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
+        exact_hess = np.array(wfn.hessian())
+                    
+        freqs = np.array(wfn.frequencies())
+                    
+        print("frequencies: \n",freqs)
+        #eigenvalues, _ = np.linalg.eigh(exact_hess)
+        #print("=== hessian (before add bias potential) ===")
+        #print("eigenvalues: ", eigenvalues)
+        exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
+        self.Model_hess = exact_hess

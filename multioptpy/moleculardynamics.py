@@ -314,12 +314,12 @@ class MD:
 
     def md(self):
         if self.args.othersoft != "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(time.time()).replace(".","_")+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_ASE_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
 
         elif self.args.usextb == "None":
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(time.time()).replace(".","_")+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_"+self.FUNCTIONAL+"_"+self.BASIS_SET+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
         else:
-            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_"+self.args.usextb+"_"+str(time.time()).replace(".","_")+"/"
+            self.BPA_FOLDER_DIRECTORY = str(datetime.datetime.now().strftime("%Y_%m_%d"))+"/"+self.START_FILE[:-4]+"_MD_"+self.args.usextb+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
         
         xtb_method = None
         FIO = FileIO(self.BPA_FOLDER_DIRECTORY, self.START_FILE)

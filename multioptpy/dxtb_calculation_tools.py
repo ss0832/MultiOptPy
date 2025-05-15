@@ -107,26 +107,12 @@ class Calculation:
                 #    f.write(",".join(tmp)+"\n")
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
-                    pass
+                    if self.hessian_flag:
+                        self.exact_hessian(element_number_list, electric_charge_and_multiplicity, positions, torch_positions, calc)
+                      
 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    """exact autograd hessian"""
-                    
-                    pos = torch_positions.clone().requires_grad_(True)
-                    if int(electric_charge_and_multiplicity[1]) > 1:
-                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
-                    else:
-                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]))
-                    exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
-                    return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
-                    
-                    #eigenvalues, _ = np.linalg.eigh(return_exact_hess)
-                    #print("=== hessian (before add bias potential) ===")
-                    #print("eigenvalues: ", eigenvalues)
-                    
-                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions, display_eigval=False))
-                    self.Model_hess = copy.copy(return_exact_hess)
-                    calc.reset()
+                    self.exact_hessian(element_number_list, electric_charge_and_multiplicity, positions, torch_positions, calc)
                    
 
 
@@ -144,6 +130,25 @@ class Calculation:
         self.coordinate = positions
         
         return return_e, return_g, positions, finish_frag
+
+    def exact_hessian(self, element_number_list, electric_charge_and_multiplicity, positions, torch_positions, calc):
+        """exact autograd hessian"""
+                    
+        pos = torch_positions.clone().requires_grad_(True)
+        if int(electric_charge_and_multiplicity[1]) > 1:
+            exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
+        else:
+            exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]))
+        exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
+        return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
+                    
+                    #eigenvalues, _ = np.linalg.eigh(return_exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
+                    
+        return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions, display_eigval=False))
+        self.Model_hess = copy.copy(return_exact_hess)
+        calc.reset()
     
     def ir(self, geom_num_list, element_number_list, electric_charge_and_multiplicity, method):
         finish_frag = False
