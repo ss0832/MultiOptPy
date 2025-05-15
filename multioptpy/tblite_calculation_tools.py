@@ -149,18 +149,12 @@ class Calculation:
                     f.write(",".join(tmp)+"\n")
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
-                    pass
+                    if self.hessian_flag:
+                        self.exact_hessian(element_number_list, electric_charge_and_multiplicity, method, positions)
+
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    """exact numerical hessian"""
-                    exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
-
-                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    #print("=== hessian (before add bias potential) ===")
-                    #print("eigenvalues: ", eigenvalues)
-                    
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions, display_eigval=False)
-                    self.Model_hess = exact_hess
+                    self.exact_hessian(element_number_list, electric_charge_and_multiplicity, method, positions)
 
             except Exception as error:
                 print(error)
@@ -174,6 +168,17 @@ class Calculation:
         self.coordinate = positions
         
         return e, g, positions, finish_frag
+
+    def exact_hessian(self, element_number_list, electric_charge_and_multiplicity, method, positions):
+        """exact numerical hessian"""
+        exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
+
+                    #eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    #print("=== hessian (before add bias potential) ===")
+                    #print("eigenvalues: ", eigenvalues)
+                    
+        exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions, display_eigval=False)
+        self.Model_hess = exact_hess
     
     def single_point_no_directory(self, positions, element_number_list, electric_charge_and_multiplicity, method):#positions:Bohr
         """execute extended tight binding method calclation."""
