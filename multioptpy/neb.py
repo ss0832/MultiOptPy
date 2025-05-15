@@ -449,7 +449,7 @@ class NEB:
                 
                 mol = pyscf.gto.M(atom = words,
                                   charge = int(electric_charge_and_multiplicity[0]),
-                                  spin = int(electric_charge_and_multiplicity[1])-1,
+                                  spin = int(electric_charge_and_multiplicity[1]),
                                   basis = self.SUB_BASIS_SET,
                                   max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                   verbose=4)
