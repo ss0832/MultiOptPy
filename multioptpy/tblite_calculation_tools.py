@@ -30,6 +30,7 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
+        self.dft_grid = kwarg["dft_grid"]
         self.hessian_flag = False
         self.cpcm_solv_model = None
         self.alpb_solv_model = None

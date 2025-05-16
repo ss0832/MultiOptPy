@@ -36,50 +36,7 @@ def convergence_check(grad, MAX_FORCE_THRESHOLD, RMS_FORCE_THRESHOLD):
     else:
         return False
 
-def taylor(energy, gradient, hessian, step):
-    """Taylor series expansion of the energy to second order.
-    
-    Parameters
-    ----------
-    energy : float
-        Energy at expansion point
-    gradient : numpy.ndarray
-        Gradient at expansion point
-    hessian : numpy.ndarray
-        Hessian at expansion point
-    step : numpy.ndarray
-        Displacement vector from expansion point
-        
-    Returns
-    -------
-    float
-        Expanded energy value
-    """
-    flat_step = step.flatten()
-    flat_grad = gradient.flatten()
-    return energy + flat_step @ flat_grad + 0.5 * flat_step @ hessian @ flat_step
 
-
-def taylor_grad(gradient, hessian, step):
-    """Gradient of a Taylor series expansion of the energy to second order.
-    
-    Parameters
-    ----------
-    gradient : numpy.ndarray
-        Gradient at expansion point
-    hessian : numpy.ndarray
-        Hessian at expansion point
-    step : numpy.ndarray
-        Displacement vector from expansion point
-        
-    Returns
-    -------
-    numpy.ndarray
-        Expanded gradient vector
-    """
-    flat_step = step.flatten()
-    result = gradient.flatten() + hessian @ flat_step
-    return result.reshape(gradient.shape)
 
 
 class RK4:
