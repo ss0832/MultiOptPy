@@ -1,8 +1,7 @@
 import os
 import sys
-import time
+import datetime
 import glob
-import copy
 import numpy as np
 
 from potential import BiasPotentialCalculation
@@ -84,14 +83,14 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.basic_set_and_function = args.functional+"/"+args.basisset
         self.force_data = force_data_parser(args)
         if args.usextb == "None" and args.usedxtb == "None":
-            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(time.time()).replace(".","_")+"/"
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
         else:
             if args.usedxtb != "None":
-                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usedxtb+"_"+str(time.time()).replace(".","_")+"/"
+                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usedxtb+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
                 self.force_data["xtb"] = self.usedxtb
             
             else:
-                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(time.time()).replace(".","_")+"/"
+                self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.usextb+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
                 self.force_data["xtb"] = self.usextb
         
         
@@ -109,6 +108,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
         self.RMS_DISPLACEMENT_THRESHOLD = 0.0020 #0.0010
 
         self.FC_COUNT = int(args.calc_exact_hess)
+        self.dft_grid = int(args.dft_grid)
         return
         
         
@@ -624,7 +624,7 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                 break
             
             if delta_geometry > prev_delta_geometry:
-                self.BETA *= 1.01
+                self.BETA *= 1.02
         else:
             print("Reached maximum number of iterations. This is not converged.")
             with open(self.iEIP_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
@@ -746,7 +746,8 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          SUB_BASIS_SET = self.SUB_BASIS_SET,
                          electronic_charge = self.electronic_charge[i] or electric_charge_and_multiplicity_list[i][0],
                          spin_multiplicity = self.spin_multiplicity[i] or electric_charge_and_multiplicity_list[i][1],
-                         excited_state = self.excite_state_list[i]))
+                         excited_state = self.excite_state_list[i],
+                         dft_grid=self.dft_grid))
             
             SP_list[i].cpcm_solv_model = self.cpcm_solv_model
             SP_list[i].alpb_solv_model = self.alpb_solv_model

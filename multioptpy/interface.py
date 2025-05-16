@@ -56,6 +56,7 @@ def ieipparser(parser):
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
+    parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
 
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
@@ -99,7 +100,7 @@ def optimizeparser(parser):
     parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
     parser.add_argument('-irc','--intrinsic_reaction_coordinates', help="Calculate intrinsic reaction coordinates. (ex.) [[step_size], [max_step], [IRC_method]] (Recommended) [0.5 300 lqa]", nargs="*", type=str, default=[])    
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method doesnot work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
-    
+    parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
     parser.add_argument('-lcc','--loose_convergence_criteria', help="apply loose opt criteria.", action='store_true')
@@ -219,6 +220,8 @@ def nebparser(parser):
     parser.add_argument("-ci", "--climbing_image", type=int, default=[999999, 999999], nargs="*", help='climbing image for NEB calculation. (start of ITR., interval) The default setting is not using climbing image.')
     parser.add_argument("-elec", "--electronic_charge", type=int, default=0, help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
+    parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
+
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 
@@ -266,7 +269,9 @@ def mdparser(parser):
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
     parser.add_argument('-pca','--pca', help="Apply principal component analysis to calculated approx. reaction path.", action='store_true')
+    parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
 
+    
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
     args.geom_info = ["0"]

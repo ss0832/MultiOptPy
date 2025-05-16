@@ -33,6 +33,7 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
+        self.dft_grid = kwarg["dft_grid"]
         self.hessian_flag = False
     
     def single_point(self, file_directory, element_number_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):

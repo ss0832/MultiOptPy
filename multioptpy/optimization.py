@@ -89,6 +89,7 @@ class Optimize:
         self.freq_analysis = args.frequency_analysis
         self.thermo_temperature = float(args.temperature)
         self.thermo_pressure = float(args.pressure)
+        self.dft_grid = int(args.dft_grid)
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -724,7 +725,8 @@ class Optimize:
             BASIS_SET=self.BASIS_SET,
             spin_multiplicity=self.spin_multiplicity,
             electronic_charge=self.electronic_charge,
-            excited_state=self.excited_state)
+            excited_state=self.excited_state,
+            dft_grid=self.dft_grid)
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model
         return SP

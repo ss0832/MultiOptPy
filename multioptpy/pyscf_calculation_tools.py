@@ -35,6 +35,7 @@ class Calculation:
         self.electronic_charge = kwarg["electronic_charge"]
         self.spin_multiplicity = kwarg["spin_multiplicity"]
         self.unrestrict = kwarg["unrestrict"]
+        self.dft_grid = kwarg["dft_grid"]
         self.hessian_flag = False
         if kwarg["excited_state"]:
             self.excited_state = kwarg["excited_state"] # Available up to third excited state
@@ -76,7 +77,7 @@ class Calculation:
                                     max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                     verbose=4)
                 
-                scf_max_cycle = 300 + 10 * len(element_list)
+                scf_max_cycle = 500 + 5 * len(element_list)
                 
                 if self.excited_state == 0:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
@@ -90,7 +91,8 @@ class Calculation:
                         else:
                             mf = mol.RKS().density_fit()
                         mf.xc = self.FUNCTIONAL
-                
+                        mf.grids.level = self.dft_grid
+                    print("dft grid: ", self.dft_grid)
                     mf.direct_scf = True
                     g = mf.run(max_cycle=scf_max_cycle).nuc_grad_method().kernel()
                     e = float(vars(mf)["e_tot"])
@@ -105,13 +107,13 @@ class Calculation:
                     else:
                         if int(self.spin_multiplicity) > 0 or self.unrestrict:
                             mf = mol.UKS().x2c().density_fit().run(max_cycle=scf_max_cycle)
-                            mf.xc = self.FUNCTIONAL
-
+                        
                         else:
                             mf = mol.RKS().density_fit().run(max_cycle=scf_max_cycle)
-                            mf.xc = self.FUNCTIONAL
-                    
+                        mf.xc = self.FUNCTIONAL
+                        mf.grids.level = self.dft_grid
                     mf.direct_scf = True
+                    print("dft grid: ", self.dft_grid)
                     ground_e = float(vars(mf)["e_tot"])
                     mf = tdscf.TDA(mf)
                     g = mf.run(max_cycle=scf_max_cycle).nuc_grad_method().kernel(state=self.excited_state)

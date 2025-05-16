@@ -275,6 +275,8 @@ class MD:
         self.args = args
         self.cpcm_solv_model = args.cpcm_solv_model
         self.alpb_solv_model = args.alpb_solv_model
+        
+        self.dft_grid = int(args.dft_grid)
         return
     
 
@@ -386,7 +388,8 @@ class MD:
                          software_type = self.args.othersoft,
                          spin_multiplicity = self.spin_multiplicity,
                          electronic_charge = self.electronic_charge,
-                         excited_state = self.excited_state
+                         excited_state = self.excited_state,
+                         dft_grid=self.dft_grid
                          )
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model

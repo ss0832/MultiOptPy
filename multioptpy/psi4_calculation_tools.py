@@ -24,12 +24,33 @@ class Calculation:
         self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
         self.Model_hess = kwarg["Model_hess"]
         self.unrestrict = kwarg["unrestrict"]
+        self.dft_grid = kwarg["dft_grid"]
         self.hessian_flag = False
         if kwarg["excited_state"]:
             self.excited_state = kwarg["excited_state"]
         else:
             self.excited_state = 0
         return
+    
+    def set_dft_grid(self):
+        """set dft grid"""
+        if self.dft_grid == 0 or self.dft_grid == 1:
+            psi4.set_options({'DFT_RADIAL_POINTS': 50, 'DFT_SPHERICAL_POINTS': 194})
+            print("DFT Grid (50, 194): SG1")
+        elif self.dft_grid == 2 or self.dft_grid == 3:
+            psi4.set_options({'DFT_RADIAL_POINTS': 75, 'DFT_SPHERICAL_POINTS': 302})
+            print("DFT Grid (70, 302): Default")
+        elif self.dft_grid == 4 or self.dft_grid == 5:
+            psi4.set_options({'DFT_RADIAL_POINTS': 99, 'DFT_SPHERICAL_POINTS': 590})
+            print("DFT Grid (99, 590): Fine")
+        elif self.dft_grid == 6 or self.dft_grid == 7:
+            psi4.set_options({'DFT_RADIAL_POINTS': 150, 'DFT_SPHERICAL_POINTS': 770})
+            print("DFT Grid (150, 770): UltraFine")
+        elif self.dft_grid == 8 or self.dft_grid == 9:
+            psi4.set_options({'DFT_RADIAL_POINTS': 250, 'DFT_SPHERICAL_POINTS': 974})
+            print("DFT Grid (250, 974): SuperFine")
+        else:
+            raise ValueError("Invalid dft grid setting.")
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """execute QM calclation."""
@@ -46,7 +67,8 @@ class Calculation:
                 if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 logfile = file_directory+"/"+self.START_FILE[:-4]+'_'+str(num)+'.log'
-                psi4.set_options({"MAXITER": 1000})
+                psi4.set_options({"MAXITER": 500})
+                self.set_dft_grid()
                 if len(self.SUB_BASIS_SET) > 0:
                     psi4.basis_helper(self.SUB_BASIS_SET, name='User_Basis_Set', set_option=False)
                     psi4.set_options({"basis":'User_Basis_Set'})

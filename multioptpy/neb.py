@@ -2,7 +2,7 @@ import os
 import numpy as np
 import sys
 import glob
-import time
+import datetime
 import matplotlib.pyplot as plt
 import random
 import copy
@@ -127,7 +127,31 @@ class NEB:
         
         self.cg_method = args.conjugate_gradient
         self.lbfgs_method = args.memory_limited_BFGS
+        
+        self.dft_grid = int(args.dft_grid)
         return
+
+    def set_psi4_dft_grid(self):
+        """set dft grid"""
+        if self.dft_grid == 0 or self.dft_grid == 1:
+            psi4.set_options({'DFT_RADIAL_POINTS': 50, 'DFT_SPHERICAL_POINTS': 194})
+            print("DFT Grid (50, 194): SG1")
+        elif self.dft_grid == 2 or self.dft_grid == 3:
+            psi4.set_options({'DFT_RADIAL_POINTS': 75, 'DFT_SPHERICAL_POINTS': 302})
+            print("DFT Grid (70, 302): Default")
+        elif self.dft_grid == 4 or self.dft_grid == 5:
+            psi4.set_options({'DFT_RADIAL_POINTS': 99, 'DFT_SPHERICAL_POINTS': 590})
+            print("DFT Grid (99, 590): Fine")
+        elif self.dft_grid == 6 or self.dft_grid == 7:
+            psi4.set_options({'DFT_RADIAL_POINTS': 150, 'DFT_SPHERICAL_POINTS': 770})
+            print("DFT Grid (150, 770): UltraFine")
+        elif self.dft_grid == 8 or self.dft_grid == 9:
+            psi4.set_options({'DFT_RADIAL_POINTS': 250, 'DFT_SPHERICAL_POINTS': 974})
+            print("DFT Grid (250, 974): SuperFine")
+        else:
+            raise ValueError("Invalid dft grid setting.")
+
+
 
     def set_fixed_edges(self, args):
         if args.fixedges <= 0:
@@ -177,12 +201,12 @@ class NEB:
             tmp_name = args.INPUT 
         
         if args.usextb == "None" and args.usedxtb == "None":
-            return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + str(time.time()).replace(".", "_") + "/"
+            return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" +str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+ "/"
         else:
             if self.usextb != "None":
-                return tmp_name + "_NEB_" + self.usextb + "_" + str(time.time()).replace(".", "_") + "/"
+                return tmp_name + "_NEB_" + self.usextb + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
             else:
-                return tmp_name + "_NEB_" + self.usedxtb + "_" + str(time.time()).replace(".", "_") + "/"
+                return tmp_name + "_NEB_" + self.usedxtb + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
 
 
     def force2velocity(self, gradient_list, element_list):
@@ -338,6 +362,7 @@ class NEB:
                 psi4.set_output_file(logfile)
                 psi4.set_num_threads(nthread=self.N_THREAD)
                 psi4.set_memory(self.SET_MEMORY)
+                self.set_psi4_dft_grid() 
                 if self.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 
@@ -455,16 +480,17 @@ class NEB:
                                   verbose=4)
                 if self.excited_state  == 0:
                     if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
-                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                        if int(electric_charge_and_multiplicity[1]) > 0 or self.unrestrict:
                             mf = mol.UHF().density_fit()
                         else:
                             mf = mol.RHF().density_fit()
                     else:
-                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                        if int(electric_charge_and_multiplicity[1]) > 0 or self.unrestrict:
                             mf = mol.UKS().x2c().density_fit()
                         else:
                             mf = mol.RKS().density_fit()
                         mf.xc = self.FUNCTIONAL
+                        mf.grids.level = self.dft_grid 
                     g = mf.run().nuc_grad_method().kernel()
                     e = float(vars(mf)["e_tot"])
                 else:
@@ -476,11 +502,13 @@ class NEB:
                     else:
                         if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
                             mf = mol.UKS().x2c().density_fit().run()
-                            mf.xc = self.FUNCTIONAL
                         else:
                             mf = mol.RKS().density_fit().run()
-                            mf.xc = self.FUNCTIONAL
+                        mf.xc = self.FUNCTIONAL
+                        mf.grids.level = self.dft_grid
+                        
                     ground_e = float(vars(mf)["e_tot"])
+                    
                     mf = tdscf.TDA(mf)
                     g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
                     e = vars(mf)["e"][self.excited_state-1]
