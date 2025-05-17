@@ -180,8 +180,13 @@ class NEB:
                     self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
+                tmp_sub_basis_set = copy.copy(self.SUB_BASIS_SET)
+                tmp_sub_basis_set.pop("default", None)
+                self.ECP = tmp_sub_basis_set
+                
             else:
                 self.SUB_BASIS_SET = {"default": args.basisset}
+                self.ECP = {}
         else:
             self.SUB_BASIS_SET = args.basisset
             if len(args.sub_basisset) > 0:
@@ -476,6 +481,7 @@ class NEB:
                                   charge = int(electric_charge_and_multiplicity[0]),
                                   spin = int(electric_charge_and_multiplicity[1]),
                                   basis = self.SUB_BASIS_SET,
+                                  ecp = self.ECP,
                                   max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                   verbose=4)
                 if self.excited_state  == 0:
