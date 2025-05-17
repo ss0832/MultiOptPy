@@ -1,6 +1,7 @@
 import pyscf
 import glob
 import os
+import copy
 
 import numpy as np
 
@@ -25,6 +26,9 @@ class Calculation:
         self.hartree2eV = UVL.hartree2eV
         self.START_FILE = kwarg["START_FILE"]
         self.SUB_BASIS_SET = kwarg["SUB_BASIS_SET"]
+        tmp_basis_set_dict = copy.copy(kwarg["SUB_BASIS_SET"])
+        tmp_basis_set_dict.pop("default", None)
+        self.ECP = tmp_basis_set_dict
         self.BASIS_SET = kwarg["BASIS_SET"]
         self.N_THREAD = kwarg["N_THREAD"]
         self.SET_MEMORY = kwarg["SET_MEMORY"]
@@ -62,6 +66,7 @@ class Calculation:
                     mol = pyscf.gto.M(atom = input_data,
                                     charge = self.electronic_charge,
                                     spin = self.spin_multiplicity,
+                                    ecp = self.ECP,
                                     basis = self.SUB_BASIS_SET,
                                     max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                     verbose=4)
@@ -74,6 +79,7 @@ class Calculation:
                                     charge = self.electronic_charge,
                                     spin = self.spin_multiplicity,
                                     basis = self.SUB_BASIS_SET,
+                                    ecp = self.ECP,
                                     max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
                                     verbose=4)
                 
