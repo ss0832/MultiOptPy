@@ -1,7 +1,7 @@
 import pyscf
 import glob
 import os
-import copy
+
 
 import numpy as np
 
@@ -26,9 +26,7 @@ class Calculation:
         self.hartree2eV = UVL.hartree2eV
         self.START_FILE = kwarg["START_FILE"]
         self.SUB_BASIS_SET = kwarg["SUB_BASIS_SET"]
-        tmp_basis_set_dict = copy.copy(kwarg["SUB_BASIS_SET"])
-        tmp_basis_set_dict.pop("default", None)
-        self.ECP = tmp_basis_set_dict
+        self.ECP = kwarg["SUB_BASIS_SET"]
         self.BASIS_SET = kwarg["BASIS_SET"]
         self.N_THREAD = kwarg["N_THREAD"]
         self.SET_MEMORY = kwarg["SET_MEMORY"]
