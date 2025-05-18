@@ -180,9 +180,8 @@ class NEB:
                     self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
-                tmp_sub_basis_set = copy.copy(self.SUB_BASIS_SET)
-                tmp_sub_basis_set.pop("default", None)
-                self.ECP = tmp_sub_basis_set
+
+                self.ECP = tmp_sself.SUB_BASIS_SET
                 
             else:
                 self.SUB_BASIS_SET = {"default": args.basisset}
