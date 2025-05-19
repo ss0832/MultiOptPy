@@ -233,8 +233,8 @@ class MD:
         self.electronic_charge = args.electronic_charge
         self.spin_multiplicity = args.spin_multiplicity
         self.electric_charge_and_multiplicity = [int(args.electronic_charge), int(args.spin_multiplicity)]
+        
         if args.pyscf:
-
             self.SUB_BASIS_SET = {}
             if len(args.sub_basisset) > 0:
                 self.SUB_BASIS_SET["default"] = str(self.BASIS_SET) # 
@@ -252,7 +252,22 @@ class MD:
                     self.SUB_BASIS_SET += "assign "+args.sub_basisset[2*j]+" "+args.sub_basisset[2*j+1]+"\n"
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET) #
+        #-----------------------------
+        if len(args.effective_core_potential) % 2 != 0:
+            print("invaild input (-ecp)")
+            sys.exit(0)
             
+        if args.pyscf:
+            self.ECP = {}
+            if len(args.effective_core_potential) > 0:
+                for j in range(int(len(args.effective_core_potential)/2)):
+                    self.ECP[args.effective_core_potential[2*j]] = args.effective_core_potential[2*j+1]
+             
+        else:
+            self.ECP = ""
+        
+        
+        
         #-----------------------------
 
         self.mdtype = args.mdtype
@@ -389,7 +404,8 @@ class MD:
                          spin_multiplicity = self.spin_multiplicity,
                          electronic_charge = self.electronic_charge,
                          excited_state = self.excited_state,
-                         dft_grid=self.dft_grid
+                         dft_grid=self.dft_grid,
+                         ECP = self.ECP
                          )
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model

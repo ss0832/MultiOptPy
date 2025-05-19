@@ -37,6 +37,7 @@ def ieipparser(parser):
     
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calclation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) RFO_FSB, RFO_BFGS, RFO3_Bifill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+    parser.add_argument("-ecp", "--effective_core_potential", type=str, nargs="*", default='', help='ECP (ex. I LanL2DZ) (notice) If you assign ECP to all atoms of inputs, type "default (basis_set name)". ')
     parser.add_argument("-gfix", "--gradient_fix_atoms", nargs="*",  type=str, default="", help='set the gradient of internal coordinates between atoms to zero  (ex.) [[atoms (ex.) 1,2] ...]')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mi", "--microiter",  type=int, default=0, help='microiteration for relaxing reaction pathways')
@@ -73,6 +74,7 @@ def optimizeparser(parser):
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+    parser.add_argument("-ecp", "--effective_core_potential", type=str, nargs="*", default='', help='ECP (ex. I LanL2DZ) (notice) If you assign ECP to all atoms of inputs, type "default (basis_set name)". ')
     parser.add_argument("-es", "--excited_state", type=int, default=0, help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
     parser.add_argument("-ns", "--NSTEP",  type=int, default='1000', help='number of iteration (default: 1000)')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
@@ -172,6 +174,7 @@ def nebparser(parser):
     parser.add_argument("INPUT", help='input folder')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+    parser.add_argument("-ecp", "--effective_core_potential", type=str, nargs="*", default='', help='ECP (ex. I LanL2DZ) (notice) If you assign ECP to all atoms of inputs, type "default (basis_set name)". ')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-es", "--excited_state", type=int, default=0, help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
@@ -238,6 +241,7 @@ def mdparser(parser):
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
+    parser.add_argument("-ecp", "--effective_core_potential", type=str, nargs="*", default='', help='ECP (ex. I LanL2DZ) (notice) If you assign ECP to all atoms of inputs, type "default (basis_set name)". ')
     parser.add_argument("-es", "--excited_state", type=int, default=0,
                         help='calculate excited state (default: 0) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
     parser.add_argument("-addint", "--additional_inputs", type=int, nargs="*", default=[], help=' (ex.) [(excited state) (fromal charge) (spin multiplicity) ...]')
