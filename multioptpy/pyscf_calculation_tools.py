@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 
-from pyscf import gto, scf, dft, tddft, tdscf
+from pyscf import tdscf
 from pyscf.hessian import thermo
 
 from calc_tools import Calculationtools
@@ -26,7 +26,7 @@ class Calculation:
         self.hartree2eV = UVL.hartree2eV
         self.START_FILE = kwarg["START_FILE"]
         self.SUB_BASIS_SET = kwarg["SUB_BASIS_SET"]
-        self.ECP = kwarg["SUB_BASIS_SET"]
+        self.ECP = kwarg["ECP"]
         self.BASIS_SET = kwarg["BASIS_SET"]
         self.N_THREAD = kwarg["N_THREAD"]
         self.SET_MEMORY = kwarg["SET_MEMORY"]

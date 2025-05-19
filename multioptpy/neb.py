@@ -180,11 +180,11 @@ class NEB:
                     self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
-                self.ECP = self.SUB_BASIS_SET
+                
                 
             else:
                 self.SUB_BASIS_SET = {"default": args.basisset}
-                self.ECP = {"default": args.basisset}
+                
         else:
             self.SUB_BASIS_SET = args.basisset
             if len(args.sub_basisset) > 0:
@@ -193,6 +193,21 @@ class NEB:
                     self.SUB_BASIS_SET += "assign " + args.sub_basisset[2*j] + " " + args.sub_basisset[2*j+1] + "\n"
                 print("Basis Sets defined by User are detected.")
                 print(self.SUB_BASIS_SET)
+                
+        if len(args.effective_core_potential) % 2 != 0:
+            print("invaild input (-ecp)")
+            sys.exit(0)
+            
+        if args.pyscf:
+            self.ECP = {}
+            if len(args.effective_core_potential) > 0:
+                for j in range(int(len(args.effective_core_potential)/2)):
+                    self.ECP[args.effective_core_potential[2*j]] = args.effective_core_potential[2*j+1]
+                
+        else:
+            self.ECP = ""
+         
+   
 
 
     def make_neb_work_directory(self, args):
