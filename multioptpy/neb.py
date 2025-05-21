@@ -20,7 +20,7 @@ except:
     print("You can't use extended tight binding method.")
 try:
     import pyscf
-    from pyscf import gto, scf, dft, tddft, tdscf
+    from pyscf import tdscf
     from pyscf.hessian import thermo
 except:
     print("You can't use pyscf.")
@@ -412,7 +412,7 @@ class NEB:
                 
                 elif optimize_num % self.FC_COUNT == 0:
                     """exact hessian"""
-                    _, wfn = psi4.frequencies(self.FUNCTIONAL, return_wfn=True, ref_gradient=wfn.gradient())
+                    _, wfn = psi4.frequencies(self.basic_set_and_function, return_wfn=True, ref_gradient=wfn.gradient())
                     exact_hess = np.array(wfn.hessian())
                     freqs = np.array(wfn.frequencies())
                     print("frequencies: \n",freqs)

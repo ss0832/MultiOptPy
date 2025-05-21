@@ -141,22 +141,6 @@ quasi_newton_mapping = {
     "rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
     
     
-    #"ric_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    #"ric_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-    
-    #"hybrid_rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    #"hybrid_rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-    
     
     "mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
     "mrfo_fsb": {"delta": 0.30, "rfo_type": 1},
@@ -180,7 +164,7 @@ quasi_newton_mapping = {
 
 
 class CalculateMoveVector:
-    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None):
+    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None, max_trust_radius=None):
         self.DELTA = DELTA
         self.temperature = temperature
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
@@ -190,12 +174,21 @@ class CalculateMoveVector:
         self.MIN_MAX_FORCE_SWITCHING_THRESHOLD = 0.0010
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
+        self.max_trust_radius = max_trust_radius
         self.CALC_TRUST_RADII = TrustRadius()
+        if self.max_trust_radius is not None:
+            if self.max_trust_radius <= 0.0:
+                print("max_trust_radius must be greater than 0.0")
+                exit()
+                
+            self.CALC_TRUST_RADII.set_max_trust_radius(self.max_trust_radius)
+        
         self.trust_radii = 0.5
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
         self.model_hess_flag = model_hess_flag
+
         
     def initialization(self, method):
         optimizer_instances = []
@@ -399,21 +392,27 @@ class CalculateMoveVector:
                 B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii
             )
 
-        # If saddle order is positive, constrain the trust radii
-        if self.saddle_order > 0:
-            self.trust_radii = min(self.trust_radii, 0.1)
-
-        # If this is the first iteration but not full-coordinate -1 check
-        if self.iter == 0 and self.FC_COUNT != -1:
+        if self.max_trust_radius is not None:
+            print("user_difined_max_trust_radius: ", self.max_trust_radius)
+        else:
+            # If saddle order is positive, constrain the trust radii
             if self.saddle_order > 0:
                 self.trust_radii = min(self.trust_radii, 0.1)
+
+            # If this is the first iteration but not full-coordinate -1 check
+            if self.iter == 0 and self.FC_COUNT != -1:
+                if self.saddle_order > 0:
+                    self.trust_radii = min(self.trust_radii, 0.1)
 
     def handle_projection_constraint(self, projection_constrain):
         """
         Constrain the trust radii if projection constraint is enabled.
         """
         if projection_constrain:
-            self.trust_radii = min(self.trust_radii, 0.1)
+            if self.max_trust_radius is not None:
+                pass
+            else:
+                self.trust_radii = min(self.trust_radii, 0.1)
 
 
 
