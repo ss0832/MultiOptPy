@@ -76,7 +76,14 @@ class RSIRFO:
         
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
-        
+        self.NEB_mode = False
+    
+    def switch_NEB_mode(self):
+        if self.NEB_mode:
+            self.NEB_mode = False
+        else:
+            self.NEB_mode = True
+            
     def log(self, message, force=False):
         """Print message if display flag is enabled and either force is True or in debug mode"""
         if self.display_flag and (force or self.debug_mode):
@@ -187,7 +194,10 @@ class RSIRFO:
                 # Extract the eigenvector once
                 trans_vec = eigvecs[:, i]
                 # Use inplace operation to update P (avoid new allocation)
-                P -= 2 * np.outer(trans_vec, trans_vec)
+                if self.NEB_mode:
+                    P -= np.outer(trans_vec, trans_vec)
+                else:
+                    P -= 2 * np.outer(trans_vec, trans_vec)
                 root_num += 1
             i += 1
         # Create the image Hessian H_star and image gradient grad_star
