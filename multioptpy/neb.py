@@ -8,6 +8,7 @@ import random
 import copy
 import re
 
+from scipy.signal import argrelextrema
 
 try:
     import psi4
@@ -55,6 +56,7 @@ from multioptpy.Optimizer import lbfgs_neb
 #from multioptpy.Optimizer import quickmin_neb
 from multioptpy.Optimizer import conjugate_gradient_neb
 from multioptpy.Optimizer import trust_radius_neb 
+from multioptpy.Optimizer import rsirfo
 
 color_list = ["b"] #use for matplotlib
 
@@ -96,7 +98,7 @@ class NEB:
         self.nesb = args.NESB
         self.bneb = args.BNEB
         self.ewbneb = args.EWBNEB
-        self.mix = args.MIX
+     
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances #integer
         self.excited_state = args.excited_state
@@ -116,7 +118,6 @@ class NEB:
        
         self.set_fixed_edges(args)
             
-        self.global_quasi_newton = args.global_quasi_newton
         self.force_const_for_cineb = 0.01
         if self.FC_COUNT > 0 and args.usextb != "None":
             print("Currently, you can't use exact hessian calculation with extended tight binding method.")
@@ -852,129 +853,30 @@ class NEB:
         return new_geometry
 
 
-    def GRFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list):
+   
+    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, optimize_num, biased_energy_list, pre_biased_energy_list, pre_total_velocity, total_velocity, cos_list, pre_geom, STRING_FORCE_CALC):
+        
         natoms = len(geometry_num_list[0])
-        nnode_minus2 = len(geometry_num_list) - 2
-        nnode = len(geometry_num_list)
-        total_delta = []
-        if optimize_num % self.FC_COUNT == 0 and self.FC_COUNT > 0:
-            for num in range(1, len(total_force_list)-1):
-                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
-                proj_hess = STRING_FORCE_CALC.projection_hessian(geometry_num_list[num-1], geometry_num_list[num], geometry_num_list[num+1], biased_gradient_list[num-1:num+2], hess, biased_energy_list[num-1:num+2])
-                np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", proj_hess)
         
+        proj_total_force_list = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, total_force_list, optimize_num, self.element_list)
         
-        if optimize_num == 0:
-            global_hess = np.eye(3*natoms*nnode_minus2)
-            if self.FC_COUNT < 1:
-                for i in range(nnode):
-                    indentity_hess = np.eye(3*natoms)
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", indentity_hess)
-        else:
-            global_hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_global_hessian.npy")
-        
-        if optimize_num % self.FC_COUNT == 0:
-            for num in range(nnode_minus2):
-                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
-                global_hess[3*natoms*num:3*natoms*(num+1), 3*natoms*num:3*natoms*(num+1)] = hess
-        
-        # Opt for node 0
-        min_hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_0.npy")
-        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
-        OPTmin.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
-        OPTmin.set_hessian(min_hess)
-        if optimize_num == 0:
-            OPTmin.Initialization = True
-            pre_B_g = None
-            pre_geom = None
-        else:
-            OPTmin.Initialization = False
-            OPTmin.lambda_clip_flag = True
-            OPTmin.lambda_s_scale = 0.1 * 1.0 / (1.0 + np.exp(np.linalg.norm(total_force_list[0]) - 5.0))
-            pre_B_g = -1 * prev_total_force_list[0].reshape(-1, 1)
-            pre_geom = prev_geometry_num_list[0].reshape(-1, 1)
-        geom_num_list = geometry_num_list[0].reshape(-1, 1)    
-        B_g = -1 * total_force_list[0].reshape(-1, 1)    
-        move_vec = -1 * OPTmin.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
-        total_delta.append(move_vec.reshape(-1, 3))
-        min_hess = OPTmin.get_hessian()
-        np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_0.npy", min_hess)
-        
-        # Opt for node 1 to nnode-1
-        globalOPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1, trust_radius=0.1)
-        globalOPT.set_bias_hessian(np.zeros((3*natoms*nnode_minus2, 3*natoms*nnode_minus2)))
-        globalOPT.set_hessian(global_hess)
-       
-        if optimize_num == 0:
-            globalOPT.Initialization = True
-            pre_B_g = None
-            pre_geom = None
-        else:
-            globalOPT.Initialization = False
-            globalOPT.lambda_clip_flag = True
-            globalOPT.lambda_s_scale = 0.1 * 1.0 / (1.0 + np.exp(np.linalg.norm(total_force_list[0]) - 5.0))
-            pre_B_g = -1 * prev_total_force_list[1:nnode-1].reshape(-1, 1)
-            pre_geom = prev_geometry_num_list[1:nnode-1].reshape(-1, 1)
-        geom_num_list = geometry_num_list[1:nnode-1].reshape(-1, 1)
-        B_g = -1 * total_force_list[1:nnode-1].reshape(-1, 1)
-       
-        move_vec = -1 * globalOPT.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
-        for i in range(nnode_minus2):
-            total_delta.append(move_vec[3*natoms*(i):3*natoms*(i+1)].reshape(-1, 3))
-        global_hess = globalOPT.get_hessian()
-        
-        np.save(self.NEB_FOLDER_DIRECTORY+"tmp_global_hessian.npy", global_hess)
-        del globalOPT
-        del global_hess
-        # Opt for node nnode
-        
-        min_hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(nnode-1)+".npy")
-        OPTmin = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
-        OPTmin.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
-        OPTmin.set_hessian(min_hess)
-        if optimize_num == 0:
-            OPTmin.Initialization = True
-            pre_B_g = None
-            pre_geom = None
-        else:
-            OPTmin.Initialization = False
-            OPTmin.lambda_clip_flag = True
-            OPTmin.lambda_s_scale = 0.1 * 1.0 / (1.0 + np.exp(np.linalg.norm(total_force_list[-1]) - 5.0))
-            pre_B_g = -1 * prev_total_force_list[-1].reshape(-1, 1)
-            pre_geom = prev_geometry_num_list[-1].reshape(-1, 1)
-        geom_num_list = geometry_num_list[-1].reshape(-1, 1)    
-        B_g = -1 * total_force_list[-1].reshape(-1, 1)    
-        move_vec = -1 * OPTmin.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
-        total_delta.append(move_vec.reshape(-1, 3))
-        min_hess = OPTmin.get_hessian()
-        np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(nnode-1)+".npy", min_hess)
-        
-        # calculate move vector
-        move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
-        
-        new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
-        
-        return new_geometry_list
-    
-    
-    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list):
-        natoms = len(geometry_num_list[0])
-        if optimize_num % self.FC_COUNT == 0:
-            for num in range(1, len(total_force_list)-1):
-                hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
-                proj_hess = STRING_FORCE_CALC.projection_hessian(geometry_num_list[num-1], geometry_num_list[num], geometry_num_list[num+1], biased_gradient_list[num-1:num+2], hess, biased_energy_list[num-1:num+2])
-                np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", proj_hess)
-        
+        maxima_indices = argrelextrema(biased_energy_list, np.greater)[0]
         total_delta = []
         for num, total_force in enumerate(total_force_list):
             hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
             if num == 0 or num == len(total_force_list) - 1:
-                OPT = RationalFunctionOptimization(method="rfo_fsb", saddle_order=0, trust_radius=0.1)
+                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.5)
+               
             else:
-                OPT = RationalFunctionOptimization(method="rfo_neb_bofill", saddle_order=1, trust_radius=0.1)
+                OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=1, trust_radius=0.1)
+                if num in maxima_indices:
+                    pass
+                else:
+                    OPT.switch_NEB_mode()
+            OPT.iteration = optimize_num
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             OPT.set_hessian(hessian)
-            OPT.iter = optimize_num
+           
             
             if optimize_num == 0:
                 OPT.Initialization = True
@@ -982,23 +884,45 @@ class NEB:
                 pre_geom = None
             else:
                 OPT.Initialization = False
-                OPT.lambda_clip_flag = True
-                OPT.lambda_s_scale = 0.1 * 1.0 / (1.0 + np.exp(np.linalg.norm(total_force) - 5.0))
-                
-                pre_B_g = -1 * prev_total_force_list[num].reshape(-1, 1)
+                pre_B_g = prev_total_force_list[num].reshape(-1, 1)
                 pre_geom = prev_geometry_num_list[num].reshape(-1, 1)        
             geom_num_list = geometry_num_list[num].reshape(-1, 1)
            
-            B_g = -1 * total_force.reshape(-1, 1)
+            B_g = total_force.reshape(-1, 1)
             
-            move_vec = -1 * OPT.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
+            move_vec = OPT.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
+            if num == 0 or num == len(total_force_list) - 1:
+                move_vec_norm = np.linalg.norm(move_vec)
+                if move_vec_norm > 1e-8:
+                    move_vec = move_vec / move_vec_norm * min(0.5, move_vec_norm)
+               
+            else:
+                move_vec_norm = np.linalg.norm(move_vec)
+                if move_vec_norm > 1e-8:
+                    move_vec = move_vec / move_vec_norm * min(0.1, move_vec_norm)
           
             total_delta.append(move_vec.reshape(-1, 3))
             hessian = OPT.get_hessian()
             np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
+        print("RFO_TR")
+        rfo_move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        print("RFO_TR end")
         
-        move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        tmp_new_geom = self.FIRE_calc(geometry_num_list, proj_total_force_list, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+        tmp_new_geom = np.array(tmp_new_geom, dtype="float64") / self.bohr2angstroms
+        fire_move_vector_list = tmp_new_geom - geometry_num_list
         
+        
+        move_vector_list = []
+        for i in range(len(geometry_num_list)):
+            if i == 0 or i == len(geometry_num_list) - 1:
+                move_vector_list.append(-1.0 * rfo_move_vector_list[i])
+            elif i in maxima_indices or i-1 in maxima_indices or i+1 in maxima_indices:
+                move_vector_list.append(-1.0 * rfo_move_vector_list[i])
+            else:
+                move_vector_list.append(0.5 * fire_move_vector_list[i] - 0.5 * rfo_move_vector_list[i])
+                
+        move_vector_list = np.array(move_vector_list, dtype="float64")
         new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
         
         return new_geometry_list
@@ -1029,7 +953,7 @@ class NEB:
         else:
             move_vector.append(total_delta[-1])
         #--------------------
-        new_geometry = (geometry_num_list + move_vector)*self.bohr2angstroms
+        new_geometry = (geometry_num_list + move_vector) * self.bohr2angstroms
         return new_geometry
     
     def run(self):
@@ -1068,9 +992,6 @@ class NEB:
             STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
         elif self.bneb:
             STRING_FORCE_CALC = CaluculationBNEB2(self.APPLY_CI_NEB)
-        elif self.mix:
-            STRING_FORCE_CALC_1 = CaluculationBNEB(self.APPLY_CI_NEB)
-            STRING_FORCE_CALC_2 = CaluculationOM(self.APPLY_CI_NEB)
         elif self.ewbneb:
             STRING_FORCE_CALC = CaluculationEWBNEB(self.APPLY_CI_NEB)
         else:
@@ -1083,6 +1004,7 @@ class NEB:
         
         pre_geom = None
         pre_total_force = None
+        pre_biased_gradient_list = None
         pre_total_velocity = []
         total_velocity = []
         
@@ -1151,12 +1073,8 @@ class NEB:
 
             #------------------
             #calculate force
-            if self.mix:
-                total_force_1 = STRING_FORCE_CALC_1.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list) / 2
-                total_force_2 = STRING_FORCE_CALC_2.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list) / 2
-                total_force =  total_force_1 + total_force_2
-            else:
-                total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+            
+            total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
 
             #------------------
             cos_list = []
@@ -1194,18 +1112,15 @@ class NEB:
             with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
                 f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
             
-
+            total_velocity = self.force2velocity(total_force, element_list)
             #------------------
             #relax path
-            if self.global_quasi_newton:
-                new_geometry = self.GRFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list)
-            
-            elif self.FC_COUNT != -1:
-                new_geometry = self.RFO_calc(geometry_num_list, total_force, pre_geom, pre_total_force, biased_gradient_list, optimize_num, STRING_FORCE_CALC, biased_energy_list, pre_biased_energy_list)
+            if self.FC_COUNT != -1:
+                new_geometry = self.RFO_calc(geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, optimize_num, biased_energy_list, pre_biased_energy_list, pre_total_velocity, total_velocity, cos_list, pre_geom, STRING_FORCE_CALC)
             
             elif optimize_num < self.sd:
                 
-                total_velocity = self.force2velocity(total_force, element_list)
+
                 
                 if self.lbfgs_method:
                     new_geometry  = LBFGSOptimizer.LBFGS_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
@@ -1258,6 +1173,7 @@ class NEB:
             geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
             file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
             pre_total_force = total_force
+            pre_biased_gradient_list = biased_gradient_list
             pre_total_velocity = total_velocity
             pre_biased_energy_list = biased_energy_list
             #------------------
