@@ -1,21 +1,15 @@
-import itertools
 
 import numpy as np
+import itertools
+from collections import defaultdict
+
+
 
 from bond_connectivity import BondConnectivity
 from parameter import UnitValueLib, number_element, element_number, covalent_radii_lib, UFF_effective_charge_lib, UFF_VDW_distance_lib, UFF_VDW_well_depth_lib, atomic_mass, D2_VDW_radii_lib, D2_C6_coeff_lib, D2_S6_parameter, double_covalent_radii_lib, triple_covalent_radii_lib, D3Parameters, D4Parameters, GFNFFParameters, GFN0Parameters, GNB_radii_lib
 from redundant_coordinations import RedundantInternalCoordinates
 from calc_tools import Calculationtools
 from scipy.special import erf
-
-import numpy as np
-import itertools
-from collections import defaultdict
-
-from bond_connectivity import BondConnectivity
-from parameter import UnitValueLib, number_element, element_number, covalent_radii_lib
-from calc_tools import Calculationtools
-from redundant_coordinations import RedundantInternalCoordinates
 
 
 

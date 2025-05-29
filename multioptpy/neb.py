@@ -28,6 +28,7 @@ except:
 #reference about LUP method:J. Chem. Phys. 94, 751–760 (1991) https://doi.org/10.1063/1.460343
 try:
     import dxtb
+    dxtb.timer.disable()
 except:
     print("You can't use dxtb.")
     
@@ -57,6 +58,7 @@ from multioptpy.Optimizer import lbfgs_neb
 from multioptpy.Optimizer import conjugate_gradient_neb
 from multioptpy.Optimizer import trust_radius_neb 
 from multioptpy.Optimizer import rsirfo
+from approx_hessian import ApproxHessian
 
 color_list = ["b"] #use for matplotlib
 
@@ -130,6 +132,9 @@ class NEB:
         self.lbfgs_method = args.memory_limited_BFGS
         
         self.dft_grid = int(args.dft_grid)
+        self.model_hessian = args.use_model_hessian
+        self.MFC_COUNT = int(args.calc_model_hess)
+        
         return
 
     def set_psi4_dft_grid(self):
@@ -754,10 +759,10 @@ class NEB:
                 
             except Exception as error:
                 print(error)
-                try:
-                    calc.reset()
-                except:
-                    pass
+                
+        
+                calc.reset()
+                    
                 
                 print("This molecule could not be optimized.")
                 if optimize_num != 0:
@@ -865,7 +870,7 @@ class NEB:
         for num, total_force in enumerate(total_force_list):
             hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
             if num == 0 or num == len(total_force_list) - 1:
-                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.5)
+                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.2)
                
             else:
                 OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=1, trust_radius=0.1)
@@ -894,7 +899,7 @@ class NEB:
             if num == 0 or num == len(total_force_list) - 1:
                 move_vec_norm = np.linalg.norm(move_vec)
                 if move_vec_norm > 1e-8:
-                    move_vec = move_vec / move_vec_norm * min(0.5, move_vec_norm)
+                    move_vec = move_vec / move_vec_norm * min(0.2, move_vec_norm)
                
             else:
                 move_vec_norm = np.linalg.norm(move_vec)
@@ -1048,9 +1053,20 @@ class NEB:
             
             biased_energy_list = []
             biased_gradient_list = []
+            
+            
+            if self.FC_COUNT == -1 and self.model_hessian and optimize_num % self.MFC_COUNT == 0:
+                #calculate model hessian
+                for i in range(len(geometry_num_list)):
+                    hessian = ApproxHessian().main(geometry_num_list[i], element_list, gradient_list[i], approx_hess_type=self.model_hessian)
+                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", hessian)
+            
+            
+            
+            
             for i in range(len(energy_list)):
                 _, B_e, B_g, B_hess = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
-                if self.FC_COUNT > 0:
+                if self.FC_COUNT > 0 or (self.MFC_COUNT > 0 and self.model_hessian):
                     hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy")
                     np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", B_hess + hess)
                 biased_energy_list.append(B_e)
@@ -1115,7 +1131,7 @@ class NEB:
             total_velocity = self.force2velocity(total_force, element_list)
             #------------------
             #relax path
-            if self.FC_COUNT != -1:
+            if self.FC_COUNT != -1 or (self.MFC_COUNT != -1 and self.model_hessian):
                 new_geometry = self.RFO_calc(geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, optimize_num, biased_energy_list, pre_biased_energy_list, pre_total_velocity, total_velocity, cos_list, pre_geom, STRING_FORCE_CALC)
             
             elif optimize_num < self.sd:

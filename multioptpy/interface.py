@@ -226,6 +226,16 @@ def nebparser(parser):
     parser.add_argument("-spin", "--spin_multiplicity", type=int, default=1, help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
     parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
 
+    class ModelhessAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            if values is None:
+                setattr(namespace, self.dest, 'fischerd3')
+            else:
+                setattr(namespace, self.dest, values)
+                
+    parser.add_argument('-modelhess','--use_model_hessian', nargs='?', help="use model hessian. (Default: not using model hessian If you specify only option, Improved Lindh + Grimme's D3 dispersion model hessian is used.) (ex. lindh, gfnff, gfn0xtb, fischer, fischerd3, fischerd4, schlegel, swart, lindh2007, lindh2007d3, lindh2007d4)", action=ModelhessAction, default=None)
+    parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
+
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
 
