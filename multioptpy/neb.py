@@ -7,31 +7,33 @@ import matplotlib.pyplot as plt
 import random
 import copy
 import re
-
 from scipy.signal import argrelextrema
+from abc import ABC, abstractmethod
 
 try:
     import psi4
 except:
     psi4 = None
     print("You can't use psi4.")
+
 try:
     from tblite.interface import Calculator
 except:
     print("You can't use extended tight binding method.")
+
 try:
     import pyscf
     from pyscf import tdscf
     from pyscf.hessian import thermo
 except:
     print("You can't use pyscf.")
-#reference about LUP method:J. Chem. Phys. 94, 751–760 (1991) https://doi.org/10.1063/1.460343
+
 try:
     import dxtb
     dxtb.timer.disable()
 except:
     print("You can't use dxtb.")
-    
+
 try:
     import torch
 except:
@@ -53,35 +55,77 @@ from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
 from fileio import xyz2list, traj2list, FileIO
 from multioptpy.Optimizer import lbfgs_neb 
-#from multioptpy.Optimizer import afire_neb
-#from multioptpy.Optimizer import quickmin_neb
 from multioptpy.Optimizer import conjugate_gradient_neb
 from multioptpy.Optimizer import trust_radius_neb 
 from multioptpy.Optimizer import rsirfo
 from approx_hessian import ApproxHessian
 
-color_list = ["b"] #use for matplotlib
 
-class NEB:
-    def __init__(self, args):
+class NEBConfig:
+    """Configuration management class for NEB calculations"""
     
-        self.basic_set_and_function = args.functional+"/"+args.basisset
+    def __init__(self, args):
+        # Basic calculation settings
+        self.functional = args.functional
+        self.basisset = args.basisset
+        self.basic_set_and_function = args.functional + "/" + args.basisset
         self.FUNCTIONAL = args.functional
         
-        self.set_sub_basisset(args)
-        
+        # Solvent model settings
         self.cpcm_solv_model = args.cpcm_solv_model
-        self.alpb_solv_model = args.alpb_solv_model  
+        self.alpb_solv_model = args.alpb_solv_model
+        
+        # Computational settings
         self.N_THREAD = args.N_THREAD
         self.SET_MEMORY = args.SET_MEMORY
+        self.pyscf = args.pyscf
+        self.usextb = args.usextb
+        self.usedxtb = args.usedxtb
+        
+        # NEB specific settings
         self.NEB_NUM = args.NSTEP
         self.partition = args.partition
-        #please input psi4 inputfile.
-        self.pyscf = args.pyscf
-        self.spring_constant_k = 0.01
+        self.APPLY_CI_NEB = args.apply_CI_NEB
+        self.om = args.OM
+        self.lup = args.LUP
+        self.dneb = args.DNEB
+        self.nesb = args.NESB
+        self.bneb = args.BNEB
+        self.ewbneb = args.EWBNEB
+        
+        # Optimization settings
+        self.FC_COUNT = args.calc_exact_hess
+        self.MFC_COUNT = int(args.calc_model_hess)
+        self.model_hessian = args.use_model_hessian
+        self.climbing_image_start = args.climbing_image[0]
+        self.climbing_image_interval = args.climbing_image[1]
+        self.sd = args.steepest_descent
+        self.cg_method = args.conjugate_gradient
+        self.lbfgs_method = args.memory_limited_BFGS
+        
+        # Flags
+        self.IDPP_flag = args.use_image_dependent_pair_potential
+        self.align_distances = args.align_distances
+        self.excited_state = args.excited_state
+        self.unrestrict = args.unrestrict
+        self.save_pict = args.save_pict
+        self.apply_convergence_criteria = args.apply_convergence_criteria
+        self.node_distance = args.node_distance
+        
+        # Electronic state settings
+        self.electronic_charge = args.electronic_charge
+        self.spin_multiplicity = args.spin_multiplicity
+        
+        # Constants
         self.bohr2angstroms = 0.52917721067
         self.hartree2kcalmol = 627.509
-        #parameter_for_FIRE_method
+        
+        # Additional settings
+        self.dft_grid = int(args.dft_grid)
+        self.spring_constant_k = 0.01
+        self.force_const_for_cineb = 0.01
+        
+        # FIRE method parameters
         self.FIRE_dt = 0.1
         self.dt = 0.5
         self.a = 0.10
@@ -92,74 +136,55 @@ class NEB:
         self.FIRE_f_decelerate = 0.5
         self.FIRE_a_start = 0.1
         self.FIRE_dt_max = 1.0
-        self.APPLY_CI_NEB = args.apply_CI_NEB
-        self.init_input = args.INPUT
-        self.om = args.OM
-        self.lup = args.LUP
-        self.dneb = args.DNEB
-        self.nesb = args.NESB
-        self.bneb = args.BNEB
-        self.ewbneb = args.EWBNEB
-     
-        self.IDPP_flag = args.use_image_dependent_pair_potential
-        self.align_distances = args.align_distances #integer
-        self.excited_state = args.excited_state
-        self.FC_COUNT = args.calc_exact_hess
-        self.usextb = args.usextb
-        self.usedxtb = args.usedxtb
-        self.sd = args.steepest_descent
-        self.unrestrict = args.unrestrict
-        self.save_pict = args.save_pict
-        self.climbing_image_start = args.climbing_image[0]
-        self.climbing_image_interval = args.climbing_image[1]
-        self.apply_convergence_criteria = args.apply_convergence_criteria
-        self.node_distance = args.node_distance
-        self.NEB_FOLDER_DIRECTORY = self.make_neb_work_directory(args)
         
-        os.mkdir(self.NEB_FOLDER_DIRECTORY)
-       
+        # Initialize derived settings
+        self.set_sub_basisset(args)
         self.set_fixed_edges(args)
-            
-        self.force_const_for_cineb = 0.01
-        if self.FC_COUNT > 0 and args.usextb != "None":
-            print("Currently, you can't use exact hessian calculation with extended tight binding method.")
-            self.FC_COUNT = -1
-        self.electronic_charge = args.electronic_charge
-        self.spin_multiplicity = args.spin_multiplicity
-        self.args = args
         
-        self.cg_method = args.conjugate_gradient
-        self.lbfgs_method = args.memory_limited_BFGS
+        # Input file and directory settings
+        self.init_input = args.INPUT
+        self.NEB_FOLDER_DIRECTORY = self.make_neb_work_directory(args.INPUT)
         
-        self.dft_grid = int(args.dft_grid)
-        self.model_hessian = args.use_model_hessian
-        self.MFC_COUNT = int(args.calc_model_hess)
+    def set_sub_basisset(self, args):
+        """Set up basis set configuration"""
+        if len(args.sub_basisset) % 2 != 0:
+            print("invalid input (-sub_bs)")
+            sys.exit(0)
         
-        return
-
-    def set_psi4_dft_grid(self):
-        """set dft grid"""
-        if self.dft_grid == 0 or self.dft_grid == 1:
-            psi4.set_options({'DFT_RADIAL_POINTS': 50, 'DFT_SPHERICAL_POINTS': 194})
-            print("DFT Grid (50, 194): SG1")
-        elif self.dft_grid == 2 or self.dft_grid == 3:
-            psi4.set_options({'DFT_RADIAL_POINTS': 75, 'DFT_SPHERICAL_POINTS': 302})
-            print("DFT Grid (70, 302): Default")
-        elif self.dft_grid == 4 or self.dft_grid == 5:
-            psi4.set_options({'DFT_RADIAL_POINTS': 99, 'DFT_SPHERICAL_POINTS': 590})
-            print("DFT Grid (99, 590): Fine")
-        elif self.dft_grid == 6 or self.dft_grid == 7:
-            psi4.set_options({'DFT_RADIAL_POINTS': 150, 'DFT_SPHERICAL_POINTS': 770})
-            print("DFT Grid (150, 770): UltraFine")
-        elif self.dft_grid == 8 or self.dft_grid == 9:
-            psi4.set_options({'DFT_RADIAL_POINTS': 250, 'DFT_SPHERICAL_POINTS': 974})
-            print("DFT Grid (250, 974): SuperFine")
+        if args.pyscf:
+            self.SUB_BASIS_SET = {}
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET["default"] = str(args.basisset)
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET)
+            else:
+                self.SUB_BASIS_SET = {"default": args.basisset}
         else:
-            raise ValueError("Invalid dft grid setting.")
-
-
-
+            self.SUB_BASIS_SET = args.basisset
+            if len(args.sub_basisset) > 0:
+                self.SUB_BASIS_SET += "\nassign " + str(args.basisset) + "\n"
+                for j in range(int(len(args.sub_basisset)/2)):
+                    self.SUB_BASIS_SET += "assign " + args.sub_basisset[2*j] + " " + args.sub_basisset[2*j+1] + "\n"
+                print("Basis Sets defined by User are detected.")
+                print(self.SUB_BASIS_SET)
+        
+        # ECP settings
+        if len(args.effective_core_potential) % 2 != 0:
+            print("invalid input (-ecp)")
+            sys.exit(0)
+            
+        if args.pyscf:
+            self.ECP = {}
+            if len(args.effective_core_potential) > 0:
+                for j in range(int(len(args.effective_core_potential)/2)):
+                    self.ECP[args.effective_core_potential[2*j]] = args.effective_core_potential[2*j+1]
+        else:
+            self.ECP = ""
+    
     def set_fixed_edges(self, args):
+        """Set up edge fixing configuration"""
         if args.fixedges <= 0:
             self.fix_init_edge = False
             self.fix_end_edge = False
@@ -172,195 +197,111 @@ class NEB:
         else:
             self.fix_init_edge = True
             self.fix_end_edge = True
-
-    def set_sub_basisset(self, args):
-        if len(args.sub_basisset) % 2 != 0:
-            print("invaild input (-sub_bs)")
-            sys.exit(0)
-        
-        if args.pyscf:
-            self.SUB_BASIS_SET = {}
-            if len(args.sub_basisset) > 0:
-                self.SUB_BASIS_SET["default"] = str(args.basisset)
-                for j in range(int(len(args.sub_basisset)/2)):
-                    self.SUB_BASIS_SET[args.sub_basisset[2*j]] = args.sub_basisset[2*j+1]
-                print("Basis Sets defined by User are detected.")
-                print(self.SUB_BASIS_SET)
-                
-                
-            else:
-                self.SUB_BASIS_SET = {"default": args.basisset}
-                
+    
+    def make_neb_work_directory(self, input_file):
+        """Create NEB working directory path"""
+        if os.path.splitext(input_file)[1] == ".xyz":
+            tmp_name = os.path.splitext(input_file)[0] 
         else:
-            self.SUB_BASIS_SET = args.basisset
-            if len(args.sub_basisset) > 0:
-                self.SUB_BASIS_SET += "\nassign " + str(args.basisset) + "\n"
-                for j in range(int(len(args.sub_basisset)/2)):
-                    self.SUB_BASIS_SET += "assign " + args.sub_basisset[2*j] + " " + args.sub_basisset[2*j+1] + "\n"
-                print("Basis Sets defined by User are detected.")
-                print(self.SUB_BASIS_SET)
-                
-        if len(args.effective_core_potential) % 2 != 0:
-            print("invaild input (-ecp)")
-            sys.exit(0)
-            
-        if args.pyscf:
-            self.ECP = {}
-            if len(args.effective_core_potential) > 0:
-                for j in range(int(len(args.effective_core_potential)/2)):
-                    self.ECP[args.effective_core_potential[2*j]] = args.effective_core_potential[2*j+1]
-                
-        else:
-            self.ECP = ""
-         
-   
-
-
-    def make_neb_work_directory(self, args):
-        """Return NEB folder directory path based on user arguments."""
+            tmp_name = input_file 
         
-        if os.path.splitext(args.INPUT)[1] == ".xyz":
-            tmp_name = os.path.splitext(args.INPUT)[0] 
-        else:
-            tmp_name = args.INPUT 
+        timestamp = str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])
         
-        if args.usextb == "None" and args.usedxtb == "None":
-            return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" +str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+ "/"
+        if self.usextb == "None" and self.usedxtb == "None":
+            return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + timestamp + "/"
         else:
             if self.usextb != "None":
-                return tmp_name + "_NEB_" + self.usextb + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
+                return tmp_name + "_NEB_" + self.usextb + "_" + timestamp + "/"
             else:
-                return tmp_name + "_NEB_" + self.usedxtb + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
+                return tmp_name + "_NEB_" + self.usedxtb + "_" + timestamp + "/"
 
 
-    def force2velocity(self, gradient_list, element_list):
-        velocity_list = gradient_list
-        return np.array(velocity_list, dtype="float64")
-
-    def make_geometry_list(self, init_input, partition_function):
-        if os.path.splitext(init_input)[1] == ".xyz":
-            self.init_input = os.path.splitext(init_input)[0]
-            xyz_flag = True
-        else:
-            xyz_flag = False 
-            
-        start_file_list = sum([sorted(glob.glob(os.path.join(init_input, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
-
-        loaded_geometry_list = []
-
-        if xyz_flag:
-            geometry_list, elements, electric_charge_and_multiplicity = traj2list(init_input, [self.electronic_charge, self.spin_multiplicity])
-            
-            element_list = elements[0]
-            
-            for i in range(len(geometry_list)):
-                loaded_geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(geometry_list[i])])
-        
-        
-        else:
-            for start_file in start_file_list:
-                tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(start_file, [self.electronic_charge, self.spin_multiplicity])
-                tmp_data = [electric_charge_and_multiplicity]
-
-                for i in range(len(tmp_geometry_list)):
-                    tmp_data.append([element_list[i]] + list(map(str, tmp_geometry_list[i])))
-                loaded_geometry_list.append(tmp_data)
-            
-        
-        electric_charge_and_multiplicity = loaded_geometry_list[0][0]
-        element_list = [row[0] for row in loaded_geometry_list[0][1:]]
-        
-        loaded_geometry_num_list = [[list(map(float, row[1:4])) for row in geometry[1:]] for geometry in loaded_geometry_list]
-
-        geometry_list = [loaded_geometry_list[0]] 
-
-        tmp_data = []
-        
-        
-        for k in range(len(loaded_geometry_list) - 1):
-            delta_num_geom = (np.array(loaded_geometry_num_list[k + 1], dtype="float64") - 
-                            np.array(loaded_geometry_num_list[k], dtype="float64")) / (partition_function + 1)
-            
-            for i in range(partition_function + 1):
-                frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
-                tmp_data.append(frame_geom)
-                
-        tmp_data = np.array(tmp_data, dtype="float64")
-        
-        
-        if self.IDPP_flag:
-            IDPP_obj = IDPP()
-            tmp_data = IDPP_obj.opt_path(tmp_data)
-  
-        
-        
-        if self.align_distances > 0:
-            tmp_data = distribute_geometry(tmp_data)
-        
-        if self.node_distance is not None:
-            tmp_data = distribute_geometry_by_length(tmp_data, self.node_distance)
-        
-        for data in tmp_data:
-            geometry_list.append([electric_charge_and_multiplicity] + [[element_list[num]] + list(map(str, geometry)) for num, geometry in enumerate(data)])        
-        
-        
-        print("\n Geometries are loaded. \n")
-        return geometry_list, element_list, electric_charge_and_multiplicity
-
-    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
-        new_geometry = new_geometry.tolist()
-        #print(new_geometry)
-        geometry_list = []
-        for geometries in new_geometry:
-            new_data = [electric_charge_and_multiplicity]
-            for num, geometry in enumerate(geometries):
-                geometory = list(map(str, geometry))
-                geometory = [element_list[num]] + geometory
-                new_data.append(geometory)
-            
-            geometry_list.append(new_data)
-        return geometry_list
-
-    def make_psi4_input_file(self, geometry_list, optimize_num):
-        file_directory = self.NEB_FOLDER_DIRECTORY+"path_ITR_"+str(optimize_num)+"_"+str(self.init_input)
-        try:
-            os.mkdir(file_directory)
-        except:
-            pass
-        tmp_cs = [self.electronic_charge, self.spin_multiplicity]
-        float_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
-        for y, geometry in enumerate(geometry_list):
-            tmp_geometry = []
-            for geom in geometry:
-                if len(geom) == 4 and re.match(r"[A-Za-z]+", str(geom[0])) \
-                  and all(re.match(float_pattern, str(x)) for x in geom[1:]):
-                        tmp_geometry.append(geom)
-
-                if len(geom) == 2 and re.match(r"-*\d+", str(geom[0])) and re.match(r"-*\d+", str(geom[1])):
-                    tmp_cs = geom   
-                    
-            with open(file_directory+"/"+self.init_input+"_"+str(y)+".xyz","w") as w:
-                w.write(str(len(tmp_geometry))+"\n")
-                w.write(str(tmp_cs[0])+" "+str(tmp_cs[1])+"\n")
-                for rows in tmp_geometry:
-                    w.write(f"{rows[0]:2}   {float(rows[1]):>17.12f}   {float(rows[2]):>17.12f}   {float(rows[3]):>17.12f}\n")
-        return file_directory
-        
-    def sinple_plot(self, num_list, energy_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Electronic Energy [kcal/mol]", name="energy"):
+class NEBVisualizer:
+    """Visualization functionality for NEB calculations"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.color_list = ["b"]  # for matplotlib
+    
+    def simple_plot(self, num_list, data_list, file_directory, optimize_num, 
+                   axis_name_1="NODE #", axis_name_2="Value", name="data"):
+        """Create a simple plot"""
         fig, ax = plt.subplots()
-        ax.plot(num_list,energy_list, color_list[random.randint(0,len(color_list)-1)]+"--o" )
-
+        ax.plot(num_list, data_list, 
+               self.color_list[random.randint(0, len(self.color_list)-1)] + "--o")
+        
         ax.set_title(str(optimize_num))
         ax.set_xlabel(axis_name_1)
         ax.set_ylabel(axis_name_2)
         fig.tight_layout()
-        fig.savefig(self.NEB_FOLDER_DIRECTORY+"plot_"+name+"_"+str(optimize_num)+".png", format="png", dpi=200)
+        fig.savefig(f"{self.config.NEB_FOLDER_DIRECTORY}plot_{name}_{optimize_num}.png", 
+                   format="png", dpi=200)
         plt.close()
-        #del fig, ax
-
-        return
+    
+    def plot_energy(self, num_list, energy_list, optimize_num, 
+                   axis_name_1="NODE #", axis_name_2="Electronic Energy [kcal/mol]", name="energy"):
+        """Plot energy profile"""
+        self.simple_plot(num_list, energy_list, "", optimize_num, axis_name_1, axis_name_2, name)
+    
+    def plot_gradient(self, num_list, gradient_norm_list, optimize_num, 
+                     axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient"):
+        """Plot gradient profile"""
+        self.simple_plot(num_list, gradient_norm_list, "", optimize_num, axis_name_1, axis_name_2, name)
+    
+    def plot_orthogonality(self, num_list, cos_list, optimize_num):
+        """Plot orthogonality profile"""
+        self.simple_plot(num_list, cos_list, "", optimize_num, 
+                        axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
+    
+    def plot_perpendicular_gradient(self, num_list, force_list, optimize_num, force_type="rms"):
+        """Plot perpendicular gradient profile"""
+        if force_type == "rms":
+            axis_name_2 = "Perpendicular Gradient (RMS) [a.u.]"
+            name = "perp_rms_gradient"
+        else:
+            axis_name_2 = "Perpendicular Gradient (MAX) [a.u.]"
+            name = "perp_max_gradient"
         
-    def psi4_calculation(self, file_directory, optimize_num, pre_total_velocity):
+        self.simple_plot(num_list, force_list, "", optimize_num, 
+                        axis_name_1="NODE #", axis_name_2=axis_name_2, name=name)
+
+
+class CalculationEngine(ABC):
+    """Base class for calculation engines"""
+    
+    @abstractmethod
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        """Calculate energy and gradients"""
+        pass
+    
+    def _get_file_list(self, file_directory):
+        """Get list of input files"""
+        return sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                   for i in range(1, 7)], [])
+    
+    def _process_visualization(self, energy_list, gradient_list, num_list, optimize_num, config):
+        """Process common visualization tasks"""
+        try:
+            if config.save_pict:
+                visualizer = NEBVisualizer(config)
+                tmp_ene_list = np.array(energy_list, dtype="float64") * config.hartree2kcalmol
+                visualizer.plot_energy(num_list, tmp_ene_list - tmp_ene_list[0], optimize_num)
+                print("energy graph plotted.")
+                
+                gradient_norm_list = [np.sqrt(np.linalg.norm(g)**2/(len(g)*3)) for g in gradient_list]
+                visualizer.plot_gradient(num_list, gradient_norm_list, optimize_num)
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(f"Visualization error: {e}")
+
+
+class Psi4Engine(CalculationEngine):
+    """Psi4 calculation engine"""
+    
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        if psi4 is None:
+            raise ImportError("Psi4 is not available")
+        
         psi4.core.clean()
         gradient_list = []
         gradient_norm_list = []
@@ -370,68 +311,61 @@ class NEB:
         delete_pre_total_velocity = []
         
         os.makedirs(file_directory, exist_ok=True)
+        file_list = self._get_file_list(file_directory)
         
-        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
-       
         hess_count = 0
-       
+        
         for num, input_file in enumerate(file_list):
             try:
                 print(input_file)
-            
-                logfile = file_directory+"/"+self.init_input+'_'+str(num)+'.log'
-                #psi4.set_options({'pcm': True})
-                #psi4.pcm_helper(pcm)
                 
+                logfile = file_directory + "/" + config.init_input + '_' + str(num) + '.log'
                 psi4.set_output_file(logfile)
-                psi4.set_num_threads(nthread=self.N_THREAD)
-                psi4.set_memory(self.SET_MEMORY)
-                self.set_psi4_dft_grid() 
-                if self.unrestrict:
+                psi4.set_num_threads(nthread=config.N_THREAD)
+                psi4.set_memory(config.SET_MEMORY)
+                self._set_psi4_dft_grid(config)
+                
+                if config.unrestrict:
                     psi4.set_options({'reference': 'uks'})
                 
                 geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 
-                input_data = str(electric_charge_and_multiplicity[0])+" "+str(electric_charge_and_multiplicity[1])+"\n"
+                input_data = str(electric_charge_and_multiplicity[0]) + " " + str(electric_charge_and_multiplicity[1]) + "\n"
                 for j in range(len(geometry_list)):
-                    input_data += element_list[j]+"  "+geometry_list[j][0]+"  "+geometry_list[j][1]+"  "+geometry_list[j][2]+"\n"
+                    input_data += element_list[j] + "  " + geometry_list[j][0] + "  " + geometry_list[j][1] + "  " + geometry_list[j][2] + "\n"
                 
                 input_data = psi4.geometry(input_data)
-                input_data_for_display = np.array(input_data.geometry(), dtype = "float64")
+                input_data_for_display = np.array(input_data.geometry(), dtype="float64")
                    
-                g, wfn = psi4.gradient(self.basic_set_and_function, molecule=input_data, return_wfn=True)
-                g = np.array(g, dtype = "float64")
+                g, wfn = psi4.gradient(config.basic_set_and_function, molecule=input_data, return_wfn=True)
+                g = np.array(g, dtype="float64")
                 e = float(wfn.energy())
   
-                #print("gradient:\n"+str(g))
-                print('energy:'+str(e)+" a.u.")
+                print('energy:' + str(e) + " a.u.")
 
                 gradient_list.append(g)
-                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))#RMS
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
                 energy_list.append(e)
                 num_list.append(num)
                 geometry_num_list.append(input_data_for_display)
                 
-                
-                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                if config.FC_COUNT == -1 or type(optimize_num) is str:
                     pass
-                
-                elif optimize_num % self.FC_COUNT == 0:
+                elif optimize_num % config.FC_COUNT == 0:
                     """exact hessian"""
-                    _, wfn = psi4.frequencies(self.basic_set_and_function, return_wfn=True, ref_gradient=wfn.gradient())
+                    _, wfn = psi4.frequencies(config.basic_set_and_function, return_wfn=True, ref_gradient=wfn.gradient())
                     exact_hess = np.array(wfn.hessian())
                     freqs = np.array(wfn.frequencies())
-                    print("frequencies: \n",freqs)
+                    print("frequencies: \n", freqs)
                     eigenvalues, _ = np.linalg.eigh(exact_hess)
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
-                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "a") as f:
-                        f.write("frequency,"+",".join(map(str, freqs))+"\n")
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
+                    np.save(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".npy", exact_hess)
+                    with open(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".csv", "a") as f:
+                        f.write("frequency," + ",".join(map(str, freqs)) + "\n")
                 
                 hess_count += 1    
-
 
             except Exception as error:
                 print(error)
@@ -439,27 +373,11 @@ class NEB:
                 if optimize_num != 0:
                     delete_pre_total_velocity.append(num)
                 
-                
             psi4.core.clean()
+        
         print("data sampling was completed...")
-
-
-        try:
-            if self.save_pict:
-                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-                print("energy graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot energy graph.")
-
-        try:
-            if self.save_pict:
-                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="RMS Gradient [a.u.]", name="gradient")
-                print("gradient graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot gradient graph.")
+        
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
         
         if optimize_num != 0 and len(pre_total_velocity) != 0:
             pre_total_velocity = pre_total_velocity.tolist()
@@ -467,103 +385,126 @@ class NEB:
                 pre_total_velocity.pop(i)
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
-        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
     
-    def pyscf_calculation(self, file_directory, optimize_num, pre_total_velocity, electric_charge_and_multiplicity):
-        #execute extended tight binding method calclation.
+    def _set_psi4_dft_grid(self, config):
+        """Set DFT grid for Psi4"""
+        if config.dft_grid == 0 or config.dft_grid == 1:
+            psi4.set_options({'DFT_RADIAL_POINTS': 50, 'DFT_SPHERICAL_POINTS': 194})
+            print("DFT Grid (50, 194): SG1")
+        elif config.dft_grid == 2 or config.dft_grid == 3:
+            psi4.set_options({'DFT_RADIAL_POINTS': 75, 'DFT_SPHERICAL_POINTS': 302})
+            print("DFT Grid (70, 302): Default")
+        elif config.dft_grid == 4 or config.dft_grid == 5:
+            psi4.set_options({'DFT_RADIAL_POINTS': 99, 'DFT_SPHERICAL_POINTS': 590})
+            print("DFT Grid (99, 590): Fine")
+        elif config.dft_grid == 6 or config.dft_grid == 7:
+            psi4.set_options({'DFT_RADIAL_POINTS': 150, 'DFT_SPHERICAL_POINTS': 770})
+            print("DFT Grid (150, 770): UltraFine")
+        elif config.dft_grid == 8 or config.dft_grid == 9:
+            psi4.set_options({'DFT_RADIAL_POINTS': 250, 'DFT_SPHERICAL_POINTS': 974})
+            print("DFT Grid (250, 974): SuperFine")
+        else:
+            raise ValueError("Invalid dft grid setting.")
+
+
+class PySCFEngine(CalculationEngine):
+    """PySCF calculation engine"""
+    
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         gradient_list = []
         energy_list = []
         geometry_num_list = []
         gradient_norm_list = []
         delete_pre_total_velocity = []
         num_list = []
-        finish_frag = False
         
         os.makedirs(file_directory, exist_ok=True)
-        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        file_list = self._get_file_list(file_directory)
         
         hess_count = 0
         
         for num, input_file in enumerate(file_list):
             try:
-            
                 print(input_file)
                 geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 words = []
                 for i in range(len(geometry_list)):
                     words.append([element_list[i], float(geometry_list[i][0]), float(geometry_list[i][1]), float(geometry_list[i][2])])
                 
-                input_data_for_display = np.array(geometry_list, dtype="float64") / self.bohr2angstroms
+                input_data_for_display = np.array(geometry_list, dtype="float64") / config.bohr2angstroms
                 
-                
-                mol = pyscf.gto.M(atom = words,
-                                  charge = int(electric_charge_and_multiplicity[0]),
-                                  spin = int(electric_charge_and_multiplicity[1]),
-                                  basis = self.SUB_BASIS_SET,
-                                  ecp = self.ECP,
-                                  max_memory = float(self.SET_MEMORY.replace("GB","")) * 1024, #SET_MEMORY unit is GB
+                mol = pyscf.gto.M(atom=words,
+                                  charge=int(electric_charge_and_multiplicity[0]),
+                                  spin=int(electric_charge_and_multiplicity[1]),
+                                  basis=config.SUB_BASIS_SET,
+                                  ecp=config.ECP,
+                                  max_memory=float(config.SET_MEMORY.replace("GB","")) * 1024,
                                   verbose=4)
-                if self.excited_state  == 0:
-                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
-                        if int(electric_charge_and_multiplicity[1]) > 0 or self.unrestrict:
+                
+                if config.excited_state == 0:
+                    if config.FUNCTIONAL == "hf" or config.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1]) > 0 or config.unrestrict:
                             mf = mol.UHF().density_fit()
                         else:
                             mf = mol.RHF().density_fit()
                     else:
-                        if int(electric_charge_and_multiplicity[1]) > 0 or self.unrestrict:
+                        if int(electric_charge_and_multiplicity[1]) > 0 or config.unrestrict:
                             mf = mol.UKS().x2c().density_fit()
                         else:
                             mf = mol.RKS().density_fit()
-                        mf.xc = self.FUNCTIONAL
-                        mf.grids.level = self.dft_grid 
+                        mf.xc = config.FUNCTIONAL
+                        mf.grids.level = config.dft_grid 
                     g = mf.run().nuc_grad_method().kernel()
                     e = float(vars(mf)["e_tot"])
                 else:
-                    if self.FUNCTIONAL == "hf" or self.FUNCTIONAL == "HF":
-                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                    if config.FUNCTIONAL == "hf" or config.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or config.unrestrict:
                             mf = mol.UHF().density_fit().run()
                         else:
                             mf = mol.RHF().density_fit().run()
                     else:
-                        if int(electric_charge_and_multiplicity[1])-1 > 0 or self.unrestrict:
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or config.unrestrict:
                             mf = mol.UKS().x2c().density_fit().run()
                         else:
                             mf = mol.RKS().density_fit().run()
-                        mf.xc = self.FUNCTIONAL
-                        mf.grids.level = self.dft_grid
+                        mf.xc = config.FUNCTIONAL
+                        mf.grids.level = config.dft_grid
                         
                     ground_e = float(vars(mf)["e_tot"])
                     
                     mf = tdscf.TDA(mf)
-                    g = mf.run().nuc_grad_method().kernel(state=self.excited_state)
-                    e = vars(mf)["e"][self.excited_state-1]
+                    g = mf.run().nuc_grad_method().kernel(state=config.excited_state)
+                    e = vars(mf)["e"][config.excited_state-1]
                     e += ground_e
 
-                g = np.array(g, dtype = "float64")
+                g = np.array(g, dtype="float64")
                 print("\n")
                 energy_list.append(e)
                 gradient_list.append(g)
-                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))#RMS
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
                 geometry_num_list.append(input_data_for_display)
                 num_list.append(num)
                 
-                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                if config.FC_COUNT == -1 or type(optimize_num) is str:
                     pass
-                
-                elif optimize_num % self.FC_COUNT == 0:
+                elif optimize_num % config.FC_COUNT == 0:
                     """exact hessian"""
                     exact_hess = mf.Hessian().kernel()
                     freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
                     exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
-                    print("frequencies: \n",freqs["freq_wavenumber"])
+                    print("frequencies: \n", freqs["freq_wavenumber"])
                     eigenvalues, _ = np.linalg.eigh(exact_hess)
                     print("=== hessian (before add bias potential) ===")
                     print("eigenvalues: ", eigenvalues)
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, self.element_list, input_data_for_display)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
                  
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", exact_hess)
-                    with open(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".csv", "a") as f:
-                        f.write("frequency,"+",".join(map(str, freqs["freq_wavenumber"]))+"\n")
+                    np.save(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".npy", exact_hess)
+                    with open(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".csv", "a") as f:
+                        f.write("frequency," + ",".join(map(str, freqs["freq_wavenumber"])) + "\n")
                 hess_count += 1
                 
             except Exception as error:
@@ -572,23 +513,7 @@ class NEB:
                 if optimize_num != 0:
                     delete_pre_total_velocity.append(num)
             
-        try:
-            if self.save_pict:
-                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-                print("energy graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot energy graph.")
-
-        try:
-            if self.save_pict:
-                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
-            
-                print("gradient graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot gradient graph.")
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
 
         if optimize_num != 0 and len(pre_total_velocity) != 0:
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
@@ -597,51 +522,65 @@ class NEB:
                 pre_total_velocity.pop(i)
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
-        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
+
+
+class TBLiteEngine(CalculationEngine):
+    """TBLite (extended tight binding) calculation engine"""
     
-    
-    def tblite_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity):
-        #execute extended tight binding method calclation.
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         gradient_list = []
         energy_list = []
         geometry_num_list = []
         gradient_norm_list = []
         delete_pre_total_velocity = []
         num_list = []
-        finish_frag = False
-        method = self.args.usextb
+        method = config.usextb
+        
         os.makedirs(file_directory, exist_ok=True)
-        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        file_list = self._get_file_list(file_directory)
+        
+        # Get element number list from the first file
+        geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
         
         for num, input_file in enumerate(file_list):
             try:
                 print(input_file)
-
-                    
+                
                 positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
                         
-                positions = np.array(positions, dtype="float64") / self.bohr2angstroms
-                if int(electric_charge_and_multiplicity[1]) > 1 or self.unrestrict:
-                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]), uhf=int(electric_charge_and_multiplicity[1]))
+                positions = np.array(positions, dtype="float64") / config.bohr2angstroms
+                if int(electric_charge_and_multiplicity[1]) > 1 or config.unrestrict:
+                    calc = Calculator(method, element_number_list, positions, 
+                                    charge=int(electric_charge_and_multiplicity[0]), 
+                                    uhf=int(electric_charge_and_multiplicity[1]))
                 else:
-                    calc = Calculator(method, element_number_list, positions, charge=int(electric_charge_and_multiplicity[0]))                
+                    calc = Calculator(method, element_number_list, positions, 
+                                    charge=int(electric_charge_and_multiplicity[0]))                
                 calc.set("max-iter", 500)
                 calc.set("verbosity", 0)
-                if not self.cpcm_solv_model is None:        
+                if not config.cpcm_solv_model is None:        
                     print("Apply CPCM solvation model")
-                    calc.add("cpcm-solvation", self.cpcm_solv_model)
-                if not self.alpb_solv_model is None:
+                    calc.add("cpcm-solvation", config.cpcm_solv_model)
+                if not config.alpb_solv_model is None:
                     print("Apply ALPB solvation model")
-                    calc.add("alpb-solvation", self.alpb_solv_model)
+                    calc.add("alpb-solvation", config.alpb_solv_model)
                             
                 res = calc.singlepoint()
-                e = float(res.get("energy"))  #hartree
-                g = res.get("gradient") #hartree/Bohr
+                e = float(res.get("energy"))  # hartree
+                g = res.get("gradient")  # hartree/Bohr
                         
                 print("\n")
                 energy_list.append(e)
                 gradient_list.append(g)
-                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))#RMS
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
                 geometry_num_list.append(positions)
                 num_list.append(num)
             except Exception as error:
@@ -650,23 +589,7 @@ class NEB:
                 if optimize_num != 0:
                     delete_pre_total_velocity.append(num)
             
-        try:
-            if self.save_pict:
-                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-                print("energy graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot energy graph.")
-
-        try:
-            if self.save_pict:
-                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
-          
-                print("gradient graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot gradient graph.")
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
 
         if optimize_num != 0 and len(pre_total_velocity) != 0:
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
@@ -675,35 +598,47 @@ class NEB:
                 pre_total_velocity.pop(i)
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
-        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
 
+
+class DXTBEngine(CalculationEngine):
+    """DXTB calculation engine"""
     
-    def dxtb_calculation(self, file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity):
-        #execute extended tight binding method calclation.
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         gradient_list = []
         energy_list = []
         geometry_num_list = []
         gradient_norm_list = []
         delete_pre_total_velocity = []
         num_list = []
-        finish_frag = False
-        method = self.usedxtb
+        method = config.usedxtb
+        
         os.makedirs(file_directory, exist_ok=True)
-        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+        file_list = self._get_file_list(file_directory)
+        
+        # Get element number list from the first file
+        geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
         torch_element_number_list = torch.tensor(element_number_list)
+        
         hess_count = 0
+        
         for num, input_file in enumerate(file_list):
             try:
                 print(input_file)
                 positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 
-                
-                positions = np.array(positions, dtype="float64") / self.bohr2angstroms
+                positions = np.array(positions, dtype="float64") / config.bohr2angstroms
                 torch_positions = torch.tensor(positions, requires_grad=True, dtype=torch.float32)
                 
                 max_scf_iteration = len(element_number_list) * 50 + 1000
                 settings = {"maxiter": max_scf_iteration}
-                
                 
                 if method == "GFN1-xTB":
                     calc = dxtb.calculators.GFN1Calculator(torch_element_number_list, opts=settings)
@@ -714,19 +649,20 @@ class NEB:
                     raise
 
                 if int(electric_charge_and_multiplicity[1]) > 1:
-
                     pos = torch_positions.clone().requires_grad_(True)
-                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1])) # hartree
+                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0]), 
+                                      spin=int(electric_charge_and_multiplicity[1]))  # hartree
                     calc.reset()
                     pos = torch_positions.clone().requires_grad_(True)
-                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1])) #hartree/Bohr
+                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0]), 
+                                           spin=int(electric_charge_and_multiplicity[1]))  # hartree/Bohr
                     calc.reset()
                 else:
                     pos = torch_positions.clone().requires_grad_(True)
-                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0])) # hartree
+                    e = calc.get_energy(pos, chrg=int(electric_charge_and_multiplicity[0]))  # hartree
                     calc.reset()
                     pos = torch_positions.clone().requires_grad_(True)
-                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0])) #hartree/Bohr
+                    g = -1 * calc.get_forces(pos, chrg=int(electric_charge_and_multiplicity[0]))  # hartree/Bohr
                     calc.reset()
                     
                 return_e = e.to('cpu').detach().numpy().copy()
@@ -734,57 +670,38 @@ class NEB:
                 
                 energy_list.append(return_e)
                 gradient_list.append(return_g)
-                gradient_norm_list.append(np.sqrt(np.linalg.norm(return_g)**2/(len(return_g)*3)))#RMS
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(return_g)**2/(len(return_g)*3)))  # RMS
                 geometry_num_list.append(positions)
                 num_list.append(num)
                 
-                if self.FC_COUNT == -1 or type(optimize_num) is str:
+                if config.FC_COUNT == -1 or type(optimize_num) is str:
                     pass
-                
-                elif optimize_num % self.FC_COUNT == 0:
+                elif optimize_num % config.FC_COUNT == 0:
                     """exact autograd hessian"""
                     pos = torch_positions.clone().requires_grad_(True)
                     if int(electric_charge_and_multiplicity[1]) > 1:
-                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), spin=int(electric_charge_and_multiplicity[1]))
+                        exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]), 
+                                                    spin=int(electric_charge_and_multiplicity[1]))
                     else:
                         exact_hess = calc.get_hessian(pos, chrg=int(electric_charge_and_multiplicity[0]))
                     exact_hess = exact_hess.reshape(3*len(element_number_list), 3*len(element_number_list))
                     return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
                     
-                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(return_exact_hess, element_number_list.tolist(), positions))
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(hess_count)+".npy", return_exact_hess)
+                    return_exact_hess = copy.copy(Calculationtools().project_out_hess_tr_and_rot_for_coord(
+                        return_exact_hess, element_number_list.tolist(), positions))
+                    np.save(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".npy", return_exact_hess)
                    
                     calc.reset()
                 hess_count += 1
                 
             except Exception as error:
                 print(error)
-                
-        
                 calc.reset()
-                    
-                
                 print("This molecule could not be optimized.")
                 if optimize_num != 0:
                     delete_pre_total_velocity.append(num)
             
-        try:
-            if self.save_pict:
-                tmp_ene_list = np.array(energy_list, dtype="float64")*self.hartree2kcalmol
-                self.sinple_plot(num_list, tmp_ene_list - tmp_ene_list[0], file_directory, optimize_num)
-                print("energy graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot energy graph.")
-
-        try:
-            if self.save_pict:
-                self.sinple_plot(num_list, gradient_norm_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient")
-          
-                print("gradient graph plotted.")
-        except Exception as e:
-            print(e)
-            print("Can't plot gradient graph.")
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
 
         if optimize_num != 0 and len(pre_total_velocity) != 0:
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
@@ -793,27 +710,65 @@ class NEB:
                 pre_total_velocity.pop(i)
             pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
 
-        return np.array(energy_list, dtype = "float64"), np.array(gradient_list, dtype = "float64"), np.array(geometry_num_list, dtype = "float64"), pre_total_velocity
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
 
 
+class CalculationEngineFactory:
+    """Factory class for creating calculation engines"""
+    
+    @staticmethod
+    def create_engine(config):
+        """Create appropriate calculation engine based on configuration"""
+        if config.usextb != "None":
+            return TBLiteEngine()
+        elif config.usedxtb != "None":
+            return DXTBEngine()
+        elif config.pyscf:
+            return PySCFEngine()
+        else:
+            return Psi4Engine()
 
-    def make_traj_file(self, file_directory):
-        print("\nprocessing geometry collecting ...\n")
-        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) for i in range(1, 7)], [])
+
+class OptimizationAlgorithm(ABC):
+    """Base class for optimization algorithms"""
+    
+    @abstractmethod
+    def optimize(self, geometry_num_list, total_force_list, **kwargs):
+        """Execute optimization step"""
+        pass
+
+
+class FIREOptimizer(OptimizationAlgorithm):
+    """FIRE method optimizer"""
+    
+    def __init__(self, config):
+        self.config = config
+        # FIRE method parameters
+        self.dt = config.dt
+        self.a = config.a
+        self.n_reset = config.n_reset
+        self.FIRE_N_accelerate = config.FIRE_N_accelerate
+        self.FIRE_f_inc = config.FIRE_f_inc
+        self.FIRE_f_accelerate = config.FIRE_f_accelerate
+        self.FIRE_f_decelerate = config.FIRE_f_decelerate
+        self.FIRE_a_start = config.FIRE_a_start
+        self.FIRE_dt_max = config.FIRE_dt_max
         
-        for m, file in enumerate(file_list):
-            tmp_geometry_list, element_list, _ = xyz2list(file, None)
-            atom_num = len(tmp_geometry_list)
-            with open(file_directory+"/"+self.init_input+"_path.xyz","a") as w:
-                w.write(str(atom_num)+"\n")
-                w.write("Frame "+str(m)+"\n")
-                for i in range(len(tmp_geometry_list)):
-                    w.write(f"{element_list[i]:2}   {float(tmp_geometry_list[i][0]):17.12f}  {float(tmp_geometry_list[i][1]):17.12f}  {float(tmp_geometry_list[i][2]):17.12f}\n")
-        print("\ncollecting geometries was complete...\n")
-        return
-
-
-    def FIRE_calc(self, geometry_num_list, total_force_list, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom):
+        # Initialize NEB trust radius
+        self.NEB_TR = trust_radius_neb.TR_NEB(
+            NEB_FOLDER_DIRECTORY=config.NEB_FOLDER_DIRECTORY, 
+            fix_init_edge=config.fix_init_edge,
+            fix_end_edge=config.fix_end_edge,
+            apply_convergence_criteria=config.apply_convergence_criteria
+        )
+    
+    def optimize(self, geometry_num_list, total_force_list, pre_total_velocity, 
+                optimize_num, total_velocity, cos_list, biased_energy_list, 
+                pre_biased_energy_list, pre_geom):
+        """FIRE method optimization"""
         velocity_neb = []
 
         for num in range(len(total_velocity)):
@@ -821,14 +776,22 @@ class NEB:
             for i in range(len(total_force_list[0])):
                 force_norm = np.linalg.norm(total_force_list[num][i])
                 velocity_norm = np.linalg.norm(total_velocity[num][i])
-                part_velocity_neb.append((1.0 - self.a) * total_velocity[num][i] + self.a * (velocity_norm / force_norm) * total_force_list[num][i])
+                if force_norm > 1e-10:  # avoid division by zero
+                    part_velocity_neb.append(
+                        (1.0 - self.a) * total_velocity[num][i] + 
+                        self.a * (velocity_norm / force_norm) * total_force_list[num][i]
+                    )
+                else:
+                    part_velocity_neb.append(total_velocity[num][i])
             velocity_neb.append(part_velocity_neb)
 
         velocity_neb = np.array(velocity_neb)
 
         np_dot_param = 0.0
         if optimize_num != 0 and len(pre_total_velocity) > 1:
-            np_dot_param = np.sum([np.dot(pre_total_velocity[num_1][num_2], total_force_num.T) for num_1, total_force in enumerate(total_force_list) for num_2, total_force_num in enumerate(total_force)])
+            np_dot_param = np.sum([np.dot(pre_total_velocity[num_1][num_2], total_force_num.T) 
+                                 for num_1, total_force in enumerate(total_force_list) 
+                                 for num_2, total_force_num in enumerate(total_force)])
             print(np_dot_param)
 
         if optimize_num > 0 and np_dot_param > 0 and len(pre_total_velocity) > 1:
@@ -850,39 +813,102 @@ class NEB:
             total_delta = self.dt * total_velocity
 
         # Calculate the movement vector using TR_calc
-        move_vector = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        move_vector = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, 
+                                        biased_energy_list, pre_biased_energy_list, pre_geom)
 
         # Update geometry using the move vector
-        new_geometry = (geometry_num_list + move_vector) * self.bohr2angstroms
+        new_geometry = (geometry_num_list + move_vector) * self.config.bohr2angstroms
 
         return new_geometry
 
 
-   
-    def RFO_calc(self, geometry_num_list, total_force_list, prev_geometry_num_list, prev_total_force_list, optimize_num, biased_energy_list, pre_biased_energy_list, pre_total_velocity, total_velocity, cos_list, pre_geom, STRING_FORCE_CALC):
+class SteepestDescentOptimizer(OptimizationAlgorithm):
+    """Steepest descent optimizer"""
+    
+    def __init__(self, config):
+        self.config = config
+    
+    def optimize(self, geometry_num_list, total_force_list, **kwargs):
+        """Steepest descent optimization"""
+        total_delta = []
+        delta = 0.5
+        for i in range(len(total_force_list)):
+            total_delta.append(delta * total_force_list[i])
+
+        # Apply edge constraints
+        if self.config.fix_init_edge:
+            move_vector = [total_delta[0] * 0.0]
+        else:
+            move_vector = [total_delta[0]]
+            
+        for i in range(1, len(total_delta) - 1):
+            trust_radii_1 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1]) / 2.0
+            trust_radii_2 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i+1]) / 2.0
+            if np.linalg.norm(total_delta[i]) > trust_radii_1:
+                move_vector.append(total_delta[i] * trust_radii_1 / np.linalg.norm(total_delta[i]))
+            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
+                move_vector.append(total_delta[i] * trust_radii_2 / np.linalg.norm(total_delta[i]))
+            else:
+                move_vector.append(total_delta[i])
+                
+        if self.config.fix_end_edge:
+            move_vector.append(total_delta[-1] * 0.0)
+        else:
+            move_vector.append(total_delta[-1])
+            
+        new_geometry = (geometry_num_list + move_vector) * self.config.bohr2angstroms
+        return new_geometry
+
+
+class RFOOptimizer(OptimizationAlgorithm):
+    """Rational Function Optimization (RFO) optimizer"""
+    
+    def __init__(self, config):
+        self.config = config
+        # Initialize NEB trust radius
+        self.NEB_TR = trust_radius_neb.TR_NEB(
+            NEB_FOLDER_DIRECTORY=config.NEB_FOLDER_DIRECTORY, 
+            fix_init_edge=config.fix_init_edge,
+            fix_end_edge=config.fix_end_edge,
+            apply_convergence_criteria=config.apply_convergence_criteria
+        )
+    
+    def optimize(self, geometry_num_list, total_force_list, prev_geometry_num_list, 
+                prev_total_force_list, optimize_num, biased_energy_list, 
+                pre_biased_energy_list, pre_total_velocity, total_velocity, 
+                cos_list, pre_geom, STRING_FORCE_CALC):
+        """RFO optimization with FIRE combination"""
         
         natoms = len(geometry_num_list[0])
         
-        proj_total_force_list = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, total_force_list, optimize_num, self.element_list)
+        proj_total_force_list = STRING_FORCE_CALC.calc_force(
+            geometry_num_list, biased_energy_list, total_force_list, optimize_num, self.config.element_list)
         
         maxima_indices = argrelextrema(biased_energy_list, np.greater)[0]
         total_delta = []
+        
         for num, total_force in enumerate(total_force_list):
-            hessian = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy")
+            hessian_file = self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(num) + ".npy"
+            if os.path.exists(hessian_file):
+                hessian = np.load(hessian_file)
+            else:
+                # Create identity matrix as fallback
+                print(f"Warning: Hessian file {hessian_file} not found. Using identity matrix.")
+                hessian = np.eye(3 * natoms)
+            
             if num == 0 or num == len(total_force_list) - 1:
                 OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.2)
-               
             else:
                 OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=1, trust_radius=0.1)
                 if num in maxima_indices:
                     pass
                 else:
                     OPT.switch_NEB_mode()
+                    
             OPT.iteration = optimize_num
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             OPT.set_hessian(hessian)
            
-            
             if optimize_num == 0:
                 OPT.Initialization = True
                 pre_B_g = None
@@ -891,16 +917,16 @@ class NEB:
                 OPT.Initialization = False
                 pre_B_g = prev_total_force_list[num].reshape(-1, 1)
                 pre_geom = prev_geometry_num_list[num].reshape(-1, 1)        
+                
             geom_num_list = geometry_num_list[num].reshape(-1, 1)
-           
             B_g = total_force.reshape(-1, 1)
             
             move_vec = OPT.run(geom_num_list, B_g, pre_B_g, pre_geom, 0.0, 0.0, [], [], B_g, pre_B_g)
+            
             if num == 0 or num == len(total_force_list) - 1:
                 move_vec_norm = np.linalg.norm(move_vec)
                 if move_vec_norm > 1e-8:
                     move_vec = move_vec / move_vec_norm * min(0.2, move_vec_norm)
-               
             else:
                 move_vec_norm = np.linalg.norm(move_vec)
                 if move_vec_norm > 1e-8:
@@ -908,16 +934,22 @@ class NEB:
           
             total_delta.append(move_vec.reshape(-1, 3))
             hessian = OPT.get_hessian()
-            np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(num)+".npy", hessian)
+            np.save(self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(num) + ".npy", hessian)
+            
         print("RFO_TR")
-        rfo_move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, biased_energy_list, pre_biased_energy_list, pre_geom)
+        rfo_move_vector_list = self.NEB_TR.TR_calc(geometry_num_list, total_force_list, total_delta, 
+                                                 biased_energy_list, pre_biased_energy_list, pre_geom)
         print("RFO_TR end")
         
-        tmp_new_geom = self.FIRE_calc(geometry_num_list, proj_total_force_list, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-        tmp_new_geom = np.array(tmp_new_geom, dtype="float64") / self.bohr2angstroms
+        # Calculate FIRE movement for comparison
+        fire_optimizer = FIREOptimizer(self.config)
+        tmp_new_geom = fire_optimizer.optimize(geometry_num_list, proj_total_force_list, 
+                                             pre_total_velocity, optimize_num, total_velocity, 
+                                             cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
+        tmp_new_geom = np.array(tmp_new_geom, dtype="float64") / self.config.bohr2angstroms
         fire_move_vector_list = tmp_new_geom - geometry_num_list
         
-        
+        # Combine RFO and FIRE movements
         move_vector_list = []
         for i in range(len(geometry_num_list)):
             if i == 0 or i == len(geometry_num_list) - 1:
@@ -928,294 +960,577 @@ class NEB:
                 move_vector_list.append(0.5 * fire_move_vector_list[i] - 0.5 * rfo_move_vector_list[i])
                 
         move_vector_list = np.array(move_vector_list, dtype="float64")
-        new_geometry_list = (geometry_num_list + move_vector_list) * self.bohr2angstroms
+        new_geometry_list = (geometry_num_list + move_vector_list) * self.config.bohr2angstroms
         
         return new_geometry_list
 
 
-    def SD_calc(self, geometry_num_list, total_force_list):
-        total_delta = []
-        delta = 0.5
-        for i in range(len(total_force_list)):
-            total_delta.append(delta*total_force_list[i])
+class OptimizationFactory:
+    """Factory class for creating optimization algorithms"""
+    
+    @staticmethod
+    def create_optimizer(method, config):
+        """Create appropriate optimizer based on method and configuration"""
+        if method == "fire":
+            return FIREOptimizer(config)
+        elif method == "steepest_descent":
+            return SteepestDescentOptimizer(config)
+        elif method == "rfo":
+            return RFOOptimizer(config)
+        elif method == "lbfgs":
+            tr_neb = trust_radius_neb.TR_NEB(
+                NEB_FOLDER_DIRECTORY=config.NEB_FOLDER_DIRECTORY,
+                fix_init_edge=config.fix_init_edge,
+                fix_end_edge=config.fix_end_edge,
+                apply_convergence_criteria=config.apply_convergence_criteria
+            )
+            return lbfgs_neb.LBFGS_NEB(TR_NEB=tr_neb)
+        elif method == "conjugate_gradient":
+            tr_neb = trust_radius_neb.TR_NEB(
+                NEB_FOLDER_DIRECTORY=config.NEB_FOLDER_DIRECTORY,
+                fix_init_edge=config.fix_init_edge,
+                fix_end_edge=config.fix_end_edge,
+                apply_convergence_criteria=config.apply_convergence_criteria
+            )
+            return conjugate_gradient_neb.ConjugateGradientNEB(TR_NEB=tr_neb, cg_method=config.cg_method)
+        else:
+            raise ValueError(f"Unsupported optimization method: {method}")
 
-        #---------------------
-        if self.fix_init_edge:
-            move_vector = [total_delta[0]*0.0]
-        else:
-            move_vector = [total_delta[0]]
-        for i in range(1, len(total_delta)-1):
-            trust_radii_1 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i-1]) / 2.0
-            trust_radii_2 = np.linalg.norm(geometry_num_list[i] - geometry_num_list[i+1]) / 2.0
-            if np.linalg.norm(total_delta[i]) > trust_radii_1:
-                move_vector.append(total_delta[i]*trust_radii_1/np.linalg.norm(total_delta[i]))
-            elif np.linalg.norm(total_delta[i]) > trust_radii_2:
-                move_vector.append(total_delta[i]*trust_radii_2/np.linalg.norm(total_delta[i]))
-            else:
-                move_vector.append(total_delta[i])
-        if self.fix_end_edge:
-            move_vector.append(total_delta[-1]*0.0)
-        else:
-            move_vector.append(total_delta[-1])
-        #--------------------
-        new_geometry = (geometry_num_list + move_vector) * self.bohr2angstroms
-        return new_geometry
+
+class NEB:
+    """Main NEB (Nudged Elastic Band) calculation class (Refactored version)"""
+    
+    def __init__(self, args):
+        # Initialize configuration
+        self.config = NEBConfig(args)
+        
+        # Create calculation engine
+        self.calculation_engine = CalculationEngineFactory.create_engine(self.config)
+        
+        # Initialize visualizer if needed
+        if self.config.save_pict:
+            self.visualizer = NEBVisualizer(self.config)
+        
+        # Create working directory
+        os.mkdir(self.config.NEB_FOLDER_DIRECTORY)
+        
+        # Store original args for backward compatibility
+        self.args = args
+        
+        # Set element list (will be initialized in run method)
+        self.element_list = None
     
     def run(self):
-        geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(self.init_input, self.partition)
+        """Execute NEB calculation"""
+        # Load and prepare geometries
+        geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(
+            self.config.init_input, self.config.partition)
         self.element_list = element_list
+        self.config.element_list = element_list  # Add to config for optimizer access
         
-        file_directory = self.make_psi4_input_file(geometry_list, 0)
+        # Create initial input files
+        file_directory = self.make_input_files(geometry_list, 0)
+        
+        # Initialize calculation variables
         pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
+        
+        # Check for projection constraints
         if len(force_data["projection_constraint_condition_list"]) > 0:
             projection_constraint_flag = True
         else:
             projection_constraint_flag = False        
-        #prepare for FIRE method 
-        self.NEB_TR = trust_radius_neb.TR_NEB(NEB_FOLDER_DIRECTORY=self.NEB_FOLDER_DIRECTORY, 
-         fix_init_edge=self.fix_init_edge,
-         fix_end_edge=self.fix_end_edge,
-         apply_convergence_criteria=self.apply_convergence_criteria,) 
         
-        
+        # Get element number list
         element_number_list = []
         for elem in element_list:
             element_number_list.append(element_number(elem))
         element_number_list = np.array(element_number_list, dtype="int")
         
-        with open(self.NEB_FOLDER_DIRECTORY+"input.txt", "w") as f:
+        # Save input configuration
+        with open(self.config.NEB_FOLDER_DIRECTORY + "input.txt", "w") as f:
             f.write(str(vars(self.args)))
         
-        if self.om:
-            STRING_FORCE_CALC = CaluculationOM(self.APPLY_CI_NEB)
-        elif self.lup:
-            STRING_FORCE_CALC = CaluculationLUP(self.APPLY_CI_NEB)
-        elif self.dneb:
-            STRING_FORCE_CALC = CaluculationDNEB(self.APPLY_CI_NEB)
-        elif self.nesb:
-            STRING_FORCE_CALC = CaluculationNESB(self.APPLY_CI_NEB)
-        elif self.bneb:
-            STRING_FORCE_CALC = CaluculationBNEB2(self.APPLY_CI_NEB)
-        elif self.ewbneb:
-            STRING_FORCE_CALC = CaluculationEWBNEB(self.APPLY_CI_NEB)
-        else:
-            STRING_FORCE_CALC = CaluculationBNEB(self.APPLY_CI_NEB)
+        # Setup force calculation method
+        STRING_FORCE_CALC = self._setup_force_calculation()
         
+        # Check for fixed atoms
         if len(force_data["fix_atoms"]) > 0:
             fix_atom_flag = True
         else:
             fix_atom_flag = False
         
+        # Initialize optimization variables - FIXED: Proper initialization order
         pre_geom = None
         pre_total_force = None
         pre_biased_gradient_list = None
         pre_total_velocity = []
         total_velocity = []
+        pre_biased_energy_list = None  # FIXED: Initialize this variable
         
-        if self.cg_method and self.lbfgs_method: 
+        # Check for conflicting optimization methods
+        if self.config.cg_method and self.config.lbfgs_method: 
             print("You can not use CG and LBFGS at the same time.")
             exit()
-            
-        if self.cg_method:
-            CGOptimizer = conjugate_gradient_neb.ConjugateGradientNEB(TR_NEB=self.NEB_TR, cg_method=self.cg_method)
         
-        if self.lbfgs_method:
-            LBFGSOptimizer = lbfgs_neb.LBFGS_NEB(TR_NEB=self.NEB_TR)
-        #AFIREOptimizer = afire_neb.AFIRE_NEB(TR_NEB=self.NEB_TR)
-        #QuickMinOptimizer = quickmin_neb.QuickMin_NEB(TR_NEB=self.NEB_TR)
-        #------------------
-        for optimize_num in range(self.NEB_NUM):
-            exit_file_detect = os.path.exists(self.NEB_FOLDER_DIRECTORY+"end.txt")
+        # Setup optimizer
+        optimizer = self._setup_optimizer()
+        
+        # Main NEB iteration loop
+        for optimize_num in range(self.config.NEB_NUM):
+            exit_file_detect = os.path.exists(self.config.NEB_FOLDER_DIRECTORY + "end.txt")
             if exit_file_detect:
                 if psi4:
                     psi4.core.clean()
                 break
             
-            print("\n\n\n NEB: ITR.  "+str(optimize_num)+"  \n\n\n")
+            print(f"\n\n\n NEB: ITR.  {optimize_num}  \n\n\n")
             self.make_traj_file(file_directory)
-            #------------------
-            #get energy and gradient
-            if self.args.usextb == "None" and self.usedxtb == "None":
-                if self.pyscf:
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.pyscf_calculation(file_directory, optimize_num, pre_total_velocity, electric_charge_and_multiplicity)
-                else:
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.psi4_calculation(file_directory,optimize_num, pre_total_velocity)
-            else:
-                if self.usedxtb == "None":
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.tblite_calculation(file_directory, optimize_num,pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
-                else:
-                    energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.dxtb_calculation(file_directory, optimize_num, pre_total_velocity, element_number_list, electric_charge_and_multiplicity)
             
+            # Calculate energy and gradients
+            energy_list, gradient_list, geometry_num_list, pre_total_velocity = \
+                self.calculation_engine.calculate(file_directory, optimize_num, 
+                                                pre_total_velocity, self.config)
             
             if optimize_num == 0:
                 init_geometry_num_list = geometry_num_list
             
-            biased_energy_list = []
-            biased_gradient_list = []
+            # Apply bias potential - FIXED: Check if hessian files exist before using them
+            biased_energy_list, biased_gradient_list = self._apply_bias_potential(
+                energy_list, gradient_list, geometry_num_list, element_list, force_data, optimize_num)
             
-            
-            if self.FC_COUNT == -1 and self.model_hessian and optimize_num % self.MFC_COUNT == 0:
-                #calculate model hessian
-                for i in range(len(geometry_num_list)):
-                    hessian = ApproxHessian().main(geometry_num_list[i], element_list, gradient_list[i], approx_hess_type=self.model_hessian)
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", hessian)
-            
-            
-            
-            
-            for i in range(len(energy_list)):
-                _, B_e, B_g, B_hess = BiasPotentialCalculation(self.NEB_FOLDER_DIRECTORY).main(energy_list[i], gradient_list[i], geometry_num_list[i], element_list, force_data)
-                if self.FC_COUNT > 0 or (self.MFC_COUNT > 0 and self.model_hessian):
-                    hess = np.load(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy")
-                    np.save(self.NEB_FOLDER_DIRECTORY+"tmp_hessian_"+str(i)+".npy", B_hess + hess)
-                biased_energy_list.append(B_e)
-                biased_gradient_list.append(B_g)
-            biased_energy_list = np.array(biased_energy_list ,dtype="float64")
+            # FIXED: Initialize pre_biased_energy_list on first iteration
             if optimize_num == 0:
                 pre_biased_energy_list = copy.copy(biased_energy_list)
-            biased_gradient_list = np.array(biased_gradient_list ,dtype="float64")
             
-
+            # Calculate model hessian if needed
+            if (self.config.FC_COUNT == -1 and self.config.model_hessian and 
+                optimize_num % self.config.MFC_COUNT == 0):
+                for i in range(len(geometry_num_list)):
+                    hessian = ApproxHessian().main(geometry_num_list[i], element_list, 
+                                                 gradient_list[i], approx_hess_type=self.config.model_hessian)
+                    np.save(self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(i) + ".npy", hessian)
+            
+            # Initialize projection constraints
             if projection_constraint_flag and optimize_num == 0:
                 PC_list = []
                 for i in range(len(energy_list)):
-                    PC_list.append(ProjectOutConstrain(force_data["projection_constraint_condition_list"], force_data["projection_constraint_atoms"], force_data["projection_constraint_constant"]))
+                    PC_list.append(ProjectOutConstrain(
+                        force_data["projection_constraint_condition_list"], 
+                        force_data["projection_constraint_atoms"], 
+                        force_data["projection_constraint_constant"]))
                     PC_list[i].initialize(geometry_num_list[i])
 
+            # Apply projection constraints
             if projection_constraint_flag:
                 for i in range(len(energy_list)):
-                    biased_gradient_list[i] = copy.copy(PC_list[i].calc_project_out_grad(geometry_num_list[i], biased_gradient_list[i]))            
+                    biased_gradient_list[i] = copy.copy(PC_list[i].calc_project_out_grad(
+                        geometry_num_list[i], biased_gradient_list[i]))            
 
-            #------------------
-            #calculate force
-            
-            total_force = STRING_FORCE_CALC.calc_force(geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+            # Calculate forces
+            total_force = STRING_FORCE_CALC.calc_force(
+                geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
 
-            #------------------
-            cos_list = []
-            tot_force_rms_list = []
-            tot_force_max_list = []
-            bias_force_rms_list = []
-            for i in range(len(total_force)):
-                cos = np.sum(total_force[i]*biased_gradient_list[i])/(np.linalg.norm(total_force[i])*np.linalg.norm(biased_gradient_list[i]))
-                cos_list.append(cos)
-                tot_force_rms = np.sqrt(np.mean(total_force[i]**2))
-                tot_force_rms_list.append(tot_force_rms)
-                tot_force_max = np.max(total_force[i])
-                tot_force_max_list.append(tot_force_max)
-                bias_force_rms = np.sqrt(np.mean(biased_gradient_list[i]**2))
-                bias_force_rms_list.append(bias_force_rms)
-                
-            with open(self.NEB_FOLDER_DIRECTORY+"bias_force_rms.csv", "a") as f:
-                f.write(",".join(list(map(str,bias_force_rms_list)))+"\n")
+            # Calculate analysis metrics
+            cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list = \
+                self._calculate_analysis_metrics(total_force, biased_gradient_list)
             
-            if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))], cos_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
-            
-            with open(self.NEB_FOLDER_DIRECTORY+"orthogonality.csv", "a") as f:
-                f.write(",".join(list(map(str,cos_list)))+"\n")
-            
-            if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))][1:-1], tot_force_rms_list[1:-1], file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (RMS) [a.u.]", name="perp_rms_gradient")
-            
-            with open(self.NEB_FOLDER_DIRECTORY+"perp_rms_gradient.csv", "a") as f:
-                f.write(",".join(list(map(str,tot_force_rms_list)))+"\n")
-            
-            if self.save_pict:
-                self.sinple_plot([x for x in range(len(total_force))], tot_force_max_list, file_directory, optimize_num, axis_name_1="NODE #", axis_name_2="Perpendicular Gradient (MAX) [a.u.]", name="perp_max_gradient")
-            
-            with open(self.NEB_FOLDER_DIRECTORY+"perp_max_gradient.csv", "a") as f:
-                f.write(",".join(list(map(str,tot_force_max_list)))+"\n")
+            # Save analysis data and create plots
+            self._save_analysis_data(cos_list, tot_force_rms_list, tot_force_max_list, 
+                                   bias_force_rms_list, file_directory, optimize_num)
             
             total_velocity = self.force2velocity(total_force, element_list)
-            #------------------
-            #relax path
-            if self.FC_COUNT != -1 or (self.MFC_COUNT != -1 and self.model_hessian):
-                new_geometry = self.RFO_calc(geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, optimize_num, biased_energy_list, pre_biased_energy_list, pre_total_velocity, total_velocity, cos_list, pre_geom, STRING_FORCE_CALC)
             
-            elif optimize_num < self.sd:
-                
-
-                
-                if self.lbfgs_method:
-                    new_geometry  = LBFGSOptimizer.LBFGS_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-                if self.cg_method:
-                    new_geometry  = CGOptimizer.CG_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-                else:
-                    new_geometry = self.FIRE_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-                    #new_geometry = AFIREOptimizer.AFIRE_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-                    #new_geometry = QuickMinOptimizer.QuickMin_NEB_calc(geometry_num_list, total_force, pre_total_velocity, optimize_num, total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom)
-            else:
-                new_geometry = self.SD_calc(geometry_num_list, total_force)
-                
-            if optimize_num > self.climbing_image_start and (optimize_num - self.climbing_image_start) % self.climbing_image_interval == 0:
+            # Perform optimization step
+            new_geometry = self._perform_optimization_step(
+                optimizer, geometry_num_list, total_force, biased_gradient_list, 
+                pre_geom, pre_biased_gradient_list, optimize_num, biased_energy_list, 
+                pre_biased_energy_list, pre_total_velocity, total_velocity, 
+                cos_list, pre_geom, STRING_FORCE_CALC)
+            
+            # Apply climbing image if needed
+            if (optimize_num > self.config.climbing_image_start and 
+                (optimize_num - self.config.climbing_image_start) % self.config.climbing_image_interval == 0):
                 new_geometry = apply_climbing_image(new_geometry, biased_energy_list)
             
-            #------------------
-            #fix atoms
-            if fix_atom_flag:
-                for k in range(len(new_geometry)):
-                    for j in force_data["fix_atoms"]:
-                        new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1]*self.bohr2angstroms)
-        
-            if projection_constraint_flag:
-                for x in range(len(new_geometry)):
-                    tmp_new_geometry = new_geometry[x] / self.bohr2angstroms
-                    tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms    
-                    new_geometry[x] = copy.copy(tmp_new_geometry)
+            # Apply constraints
+            new_geometry = self._apply_constraints(
+                new_geometry, fix_atom_flag, force_data, init_geometry_num_list, 
+                projection_constraint_flag, PC_list if projection_constraint_flag else None)
             
-            if not fix_atom_flag:
-                for k in range(len(new_geometry)-1):
-                    tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
-                    new_geometry[k] = copy.copy(tmp_new_geometry)
-            
-            if self.align_distances < 1:
-                pass
-            elif optimize_num % self.align_distances == 0 and optimize_num > 0:
+            # Align geometries if needed
+            if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
                 print("Aligning geometries...")
                 tmp_new_geometry = distribute_geometry(np.array(new_geometry))
                 for k in range(len(new_geometry)):
                     new_geometry[k] = copy.copy(tmp_new_geometry[k])
             
-            tmp_instance_fileio = FileIO(file_directory+"/", "dummy.txt")
+            # Save analysis files
+            tmp_instance_fileio = FileIO(file_directory + "/", "dummy.txt")
             tmp_instance_fileio.argrelextrema_txt_save(biased_energy_list, "approx_TS_node", "max")
             tmp_instance_fileio.argrelextrema_txt_save(biased_energy_list, "approx_EQ_node", "min")
             tmp_instance_fileio.argrelextrema_txt_save(bias_force_rms_list, "local_min_bias_grad_node", "min")
             
-            #------------------
-            pre_geom = geometry_num_list
-            
+            # Prepare for next iteration - FIXED: Proper variable assignment order
+            pre_geom = copy.copy(geometry_num_list)
             geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
-            file_directory = self.make_psi4_input_file(geometry_list, optimize_num+1)
-            pre_total_force = total_force
-            pre_biased_gradient_list = biased_gradient_list
-            pre_total_velocity = total_velocity
-            pre_biased_energy_list = biased_energy_list
-            #------------------
-            with open(self.NEB_FOLDER_DIRECTORY+"energy_plot.csv", "a") as f:
-                f.write(",".join(list(map(str,biased_energy_list.tolist())))+"\n")
+            file_directory = self.make_input_files(geometry_list, optimize_num + 1)
+            pre_total_force = copy.copy(total_force)
+            pre_biased_gradient_list = copy.copy(biased_gradient_list)
+            pre_total_velocity = copy.copy(total_velocity)
+            pre_biased_energy_list = copy.copy(biased_energy_list)
+            
+            # Save energy data
+            with open(self.config.NEB_FOLDER_DIRECTORY + "energy_plot.csv", "a") as f:
+                f.write(",".join(list(map(str, biased_energy_list.tolist()))) + "\n")
             
         self.make_traj_file(file_directory) 
         print("Complete...")
         return
+    
+    def _setup_force_calculation(self):
+        """Setup force calculation method"""
+        if self.config.om:
+            return CaluculationOM(self.config.APPLY_CI_NEB)
+        elif self.config.lup:
+            return CaluculationLUP(self.config.APPLY_CI_NEB)
+        elif self.config.dneb:
+            return CaluculationDNEB(self.config.APPLY_CI_NEB)
+        elif self.config.nesb:
+            return CaluculationNESB(self.config.APPLY_CI_NEB)
+        elif self.config.bneb:
+            return CaluculationBNEB2(self.config.APPLY_CI_NEB)
+        elif self.config.ewbneb:
+            return CaluculationEWBNEB(self.config.APPLY_CI_NEB)
+        else:
+            return CaluculationBNEB(self.config.APPLY_CI_NEB)
+    
+    def _setup_optimizer(self):
+        """Setup optimization algorithm"""
+        # Determine optimization method based on configuration
+        if self.config.FC_COUNT != -1 or (self.config.MFC_COUNT != -1 and self.config.model_hessian):
+            return OptimizationFactory.create_optimizer("rfo", self.config)
+        elif self.config.lbfgs_method:
+            return OptimizationFactory.create_optimizer("lbfgs", self.config)
+        elif self.config.cg_method:
+            return OptimizationFactory.create_optimizer("conjugate_gradient", self.config)
+        else:
+            return OptimizationFactory.create_optimizer("fire", self.config)
+    
+    def _apply_bias_potential(self, energy_list, gradient_list, geometry_num_list, element_list, force_data, optimize_num):
+        """Apply bias potential to energies and gradients - FIXED: Check hessian file existence"""
+        biased_energy_list = []
+        biased_gradient_list = []
+        
+        for i in range(len(energy_list)):
+            _, B_e, B_g, B_hess = BiasPotentialCalculation(
+                self.config.NEB_FOLDER_DIRECTORY).main(
+                energy_list[i], gradient_list[i], geometry_num_list[i], 
+                element_list, force_data)
+                
+            # FIXED: Only load hessian files if they exist and are needed
+            if self.config.FC_COUNT > 0 or (self.config.MFC_COUNT > 0 and self.config.model_hessian):
+                hessian_file = self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(i) + ".npy"
+                if os.path.exists(hessian_file):
+                    hess = np.load(hessian_file)
+                    np.save(hessian_file, B_hess + hess)
+                else:
+                    # If hessian file doesn't exist yet, just save the bias hessian
+                    # This can happen on the first iteration when exact hessians haven't been calculated yet
+                    if not np.allclose(B_hess, 0):  # Only save if bias hessian is non-zero
+                        np.save(hessian_file, B_hess)
+                
+            biased_energy_list.append(B_e)
+            biased_gradient_list.append(B_g)
+            
+        return np.array(biased_energy_list, dtype="float64"), np.array(biased_gradient_list, dtype="float64")
+    
+    def _calculate_analysis_metrics(self, total_force, biased_gradient_list):
+        """Calculate analysis metrics for monitoring convergence"""
+        cos_list = []
+        tot_force_rms_list = []
+        tot_force_max_list = []
+        bias_force_rms_list = []
+        
+        for i in range(len(total_force)):
+            # Calculate cosine between total force and biased gradient
+            total_force_norm = np.linalg.norm(total_force[i])
+            biased_grad_norm = np.linalg.norm(biased_gradient_list[i])
+            
+            if total_force_norm > 1e-10 and biased_grad_norm > 1e-10:
+                cos = np.sum(total_force[i] * biased_gradient_list[i]) / (total_force_norm * biased_grad_norm)
+            else:
+                cos = 0.0
+            cos_list.append(cos)
+            
+            tot_force_rms = np.sqrt(np.mean(total_force[i]**2))
+            tot_force_rms_list.append(tot_force_rms)
+            
+            tot_force_max = np.max(np.abs(total_force[i]))
+            tot_force_max_list.append(tot_force_max)
+            
+            bias_force_rms = np.sqrt(np.mean(biased_gradient_list[i]**2))
+            bias_force_rms_list.append(bias_force_rms)
+            
+        return cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list
+    
+    def _save_analysis_data(self, cos_list, tot_force_rms_list, tot_force_max_list, 
+                           bias_force_rms_list, file_directory, optimize_num):
+        """Save analysis data and create plots"""
+        # Save bias force RMS data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "bias_force_rms.csv", "a") as f:
+            f.write(",".join(list(map(str, bias_force_rms_list))) + "\n")
+        
+        # Create orthogonality plot
+        if self.config.save_pict:
+            self.visualizer.plot_orthogonality([x for x in range(len(cos_list))], cos_list, optimize_num)
+        
+        # Save orthogonality data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "orthogonality.csv", "a") as f:
+            f.write(",".join(list(map(str, cos_list))) + "\n")
+        
+        # Create perpendicular gradient RMS plot
+        if self.config.save_pict:
+            self.visualizer.plot_perpendicular_gradient(
+                [x for x in range(len(tot_force_rms_list))][1:-1], 
+                tot_force_rms_list[1:-1], optimize_num, "rms")
+        
+        # Save perpendicular gradient RMS data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "perp_rms_gradient.csv", "a") as f:
+            f.write(",".join(list(map(str, tot_force_rms_list))) + "\n")
+        
+        # Create perpendicular gradient MAX plot
+        if self.config.save_pict:
+            self.visualizer.plot_perpendicular_gradient(
+                [x for x in range(len(tot_force_max_list))], 
+                tot_force_max_list, optimize_num, "max")
+        
+        # Save perpendicular gradient MAX data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "perp_max_gradient.csv", "a") as f:
+            f.write(",".join(list(map(str, tot_force_max_list))) + "\n")
+    
+    def _perform_optimization_step(self, optimizer, geometry_num_list, total_force, 
+                                  biased_gradient_list, pre_geom, pre_biased_gradient_list, 
+                                  optimize_num, biased_energy_list, pre_biased_energy_list, 
+                                  pre_total_velocity, total_velocity, cos_list, 
+                                  pre_geom_param, STRING_FORCE_CALC):
+        """Perform optimization step based on the selected method"""
+        if isinstance(optimizer, RFOOptimizer):
+            # RFO optimization
+            return optimizer.optimize(
+                geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, 
+                optimize_num, biased_energy_list, pre_biased_energy_list, 
+                pre_total_velocity, total_velocity, cos_list, pre_geom_param, STRING_FORCE_CALC)
+        elif isinstance(optimizer, FIREOptimizer):
+            # FIRE optimization
+            if optimize_num < self.config.sd:
+                return optimizer.optimize(
+                    geometry_num_list, total_force, pre_total_velocity, optimize_num, 
+                    total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom_param)
+            else:
+                # Switch to steepest descent
+                sd_optimizer = SteepestDescentOptimizer(self.config)
+                return sd_optimizer.optimize(geometry_num_list, total_force)
+        elif isinstance(optimizer, SteepestDescentOptimizer):
+            return optimizer.optimize(geometry_num_list, total_force)
+        elif hasattr(optimizer, 'LBFGS_NEB_calc'):
+            # LBFGS optimization
+            return optimizer.LBFGS_NEB_calc(
+                geometry_num_list, total_force, pre_total_velocity, optimize_num, 
+                total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom_param)
+        elif hasattr(optimizer, 'CG_NEB_calc'):
+            # Conjugate gradient optimization
+            return optimizer.CG_NEB_calc(
+                geometry_num_list, total_force, pre_total_velocity, optimize_num, 
+                total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom_param)
+        else:
+            # Default to FIRE
+            fire_optimizer = FIREOptimizer(self.config)
+            return fire_optimizer.optimize(
+                geometry_num_list, total_force, pre_total_velocity, optimize_num, 
+                total_velocity, cos_list, biased_energy_list, pre_biased_energy_list, pre_geom_param)
+    
+    def _apply_constraints(self, new_geometry, fix_atom_flag, force_data, 
+                          init_geometry_num_list, projection_constraint_flag, PC_list):
+        """Apply various constraints to the new geometry"""
+        # Apply fixed atoms constraint
+        if fix_atom_flag:
+            for k in range(len(new_geometry)):
+                for j in force_data["fix_atoms"]:
+                    new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1] * self.config.bohr2angstroms)
+        
+        # Apply projection constraints
+        if projection_constraint_flag:
+            for x in range(len(new_geometry)):
+                tmp_new_geometry = new_geometry[x] / self.config.bohr2angstroms
+                tmp_new_geometry = PC_list[x].adjust_init_coord(tmp_new_geometry) * self.config.bohr2angstroms    
+                new_geometry[x] = copy.copy(tmp_new_geometry)
+        
+        # Apply Kabsch alignment if no fixed atoms
+        if not fix_atom_flag:
+            for k in range(len(new_geometry)-1):
+                tmp_new_geometry, _ = Calculationtools().kabsch_algorithm(new_geometry[k], new_geometry[k+1])
+                new_geometry[k] = copy.copy(tmp_new_geometry)
+        
+        return new_geometry
+    
+    def make_geometry_list(self, init_input, partition_function):
+        """Create geometry list from input files"""
+        if os.path.splitext(init_input)[1] == ".xyz":
+            self.config.init_input = os.path.splitext(init_input)[0]
+            xyz_flag = True
+        else:
+            xyz_flag = False 
+            
+        start_file_list = sum([sorted(glob.glob(os.path.join(init_input, f"*_" + "[0-9]" * i + ".xyz"))) 
+                              for i in range(1, 7)], [])
+
+        loaded_geometry_list = []
+
+        if xyz_flag:
+            geometry_list, elements, electric_charge_and_multiplicity = traj2list(
+                init_input, [self.config.electronic_charge, self.config.spin_multiplicity])
+            
+            element_list = elements[0]
+            
+            for i in range(len(geometry_list)):
+                loaded_geometry_list.append([electric_charge_and_multiplicity] + 
+                    [[element_list[num]] + list(map(str, geometry)) 
+                     for num, geometry in enumerate(geometry_list[i])])
+        else:
+            for start_file in start_file_list:
+                tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(
+                    start_file, [self.config.electronic_charge, self.config.spin_multiplicity])
+                tmp_data = [electric_charge_and_multiplicity]
+
+                for i in range(len(tmp_geometry_list)):
+                    tmp_data.append([element_list[i]] + list(map(str, tmp_geometry_list[i])))
+                loaded_geometry_list.append(tmp_data)
+        
+        electric_charge_and_multiplicity = loaded_geometry_list[0][0]
+        element_list = [row[0] for row in loaded_geometry_list[0][1:]]
+        
+        loaded_geometry_num_list = [[list(map(float, row[1:4])) for row in geometry[1:]] 
+                                   for geometry in loaded_geometry_list]
+
+        geometry_list = [loaded_geometry_list[0]] 
+
+        tmp_data = []
+        
+        for k in range(len(loaded_geometry_list) - 1):
+            delta_num_geom = (np.array(loaded_geometry_num_list[k + 1], dtype="float64") - 
+                            np.array(loaded_geometry_num_list[k], dtype="float64")) / (partition_function + 1)
+            
+            for i in range(partition_function + 1):
+                frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
+                tmp_data.append(frame_geom)
+                
+        tmp_data = np.array(tmp_data, dtype="float64")
+        
+        # Apply IDPP if requested
+        if self.config.IDPP_flag:
+            IDPP_obj = IDPP()
+            tmp_data = IDPP_obj.opt_path(tmp_data)
+        
+        # Align distances if requested
+        if self.config.align_distances > 0:
+            tmp_data = distribute_geometry(tmp_data)
+        
+        # Apply node distance constraint if specified
+        if self.config.node_distance is not None:
+            tmp_data = distribute_geometry_by_length(tmp_data, self.config.node_distance)
+        
+        for data in tmp_data:
+            geometry_list.append([electric_charge_and_multiplicity] + 
+                [[element_list[num]] + list(map(str, geometry)) 
+                 for num, geometry in enumerate(data)])        
+        
+        print("\n Geometries are loaded. \n")
+        return geometry_list, element_list, electric_charge_and_multiplicity
+
+    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
+        """Convert geometry array back to list format"""
+        new_geometry = new_geometry.tolist()
+        geometry_list = []
+        for geometries in new_geometry:
+            new_data = [electric_charge_and_multiplicity]
+            for num, geometry in enumerate(geometries):
+                geometry_data = list(map(str, geometry))
+                geometry_data = [element_list[num]] + geometry_data
+                new_data.append(geometry_data)
+            
+            geometry_list.append(new_data)
+        return geometry_list
+
+    def make_input_files(self, geometry_list, optimize_num):
+        """Create input files for calculations"""
+        file_directory = self.config.NEB_FOLDER_DIRECTORY + "path_ITR_" + str(optimize_num) + "_" + str(self.config.init_input)
+        try:
+            os.mkdir(file_directory)
+        except:
+            pass
+        tmp_cs = [self.config.electronic_charge, self.config.spin_multiplicity]
+        float_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+        
+        for y, geometry in enumerate(geometry_list):
+            tmp_geometry = []
+            for geom in geometry:
+                if len(geom) == 4 and re.match(r"[A-Za-z]+", str(geom[0])) \
+                  and all(re.match(float_pattern, str(x)) for x in geom[1:]):
+                        tmp_geometry.append(geom)
+
+                if len(geom) == 2 and re.match(r"-*\d+", str(geom[0])) and re.match(r"-*\d+", str(geom[1])):
+                    tmp_cs = geom   
+                    
+            with open(file_directory + "/" + self.config.init_input + "_" + str(y) + ".xyz", "w") as w:
+                w.write(str(len(tmp_geometry)) + "\n")
+                w.write(str(tmp_cs[0]) + " " + str(tmp_cs[1]) + "\n")
+                for rows in tmp_geometry:
+                    w.write(f"{rows[0]:2}   {float(rows[1]):>17.12f}   {float(rows[2]):>17.12f}   {float(rows[3]):>17.12f}\n")
+        return file_directory
+        
+    def make_traj_file(self, file_directory):
+        """Create trajectory file from current geometries"""
+        print("\nprocessing geometry collecting ...\n")
+        file_list = sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                        for i in range(1, 7)], [])
+        
+        for m, file in enumerate(file_list):
+            tmp_geometry_list, element_list, _ = xyz2list(file, None)
+            atom_num = len(tmp_geometry_list)
+            with open(file_directory + "/" + self.config.init_input + "_path.xyz", "a") as w:
+                w.write(str(atom_num) + "\n")
+                w.write("Frame " + str(m) + "\n")
+                for i in range(len(tmp_geometry_list)):
+                    w.write(f"{element_list[i]:2}   {float(tmp_geometry_list[i][0]):17.12f}  {float(tmp_geometry_list[i][1]):17.12f}  {float(tmp_geometry_list[i][2]):17.12f}\n")
+        print("\ncollecting geometries was complete...\n")
+        return
+
+    def force2velocity(self, gradient_list, element_list):
+        """Convert force to velocity"""
+        velocity_list = gradient_list
+        return np.array(velocity_list, dtype="float64")
+
 
 def calc_path_length_list(geometry_list):
+    """Calculate path length list for geometry distribution"""
     path_length_list = [0.0]
     for i in range(len(geometry_list)-1):
         tmp_geometry_list_j = geometry_list[i+1] - np.mean(geometry_list[i+1], axis=0)
         tmp_geometry_list_i = geometry_list[i] - np.mean(geometry_list[i], axis=0)
         
-        
         path_length = path_length_list[-1] + np.linalg.norm(tmp_geometry_list_j - tmp_geometry_list_i)
         path_length_list.append(path_length)
     return path_length_list
 
+
 def apply_climbing_image(geometry_list, energy_list):
+    """Apply climbing image method to locate transition states"""
     path_length_list = calc_path_length_list(geometry_list)
     total_length = path_length_list[-1]
     local_maxima, local_minima = spline_interpolation(path_length_list, energy_list)
     print(local_maxima)
+    
     for distance, energy in local_maxima:
         print("Local maximum at distance: ", distance)
         for i in range(2, len(path_length_list)-2):
@@ -1229,7 +1544,9 @@ def apply_climbing_image(geometry_list, energy_list):
             geometry_list[i] = tmp_geom_list[1]
     return geometry_list
 
+
 def distribute_geometry(geometry_list):
+    """Distribute geometries evenly along the path"""
     nnode = len(geometry_list)
     path_length_list = calc_path_length_list(geometry_list)
     total_length = path_length_list[-1]
@@ -1247,7 +1564,9 @@ def distribute_geometry(geometry_list):
     new_geometry_list.append(geometry_list[-1])
     return new_geometry_list
 
+
 def distribute_geometry_by_length(geometry_list, angstrom_spacing):
+    """Distribute geometries by specified distance spacing"""
     path_length_list = calc_path_length_list(geometry_list)
     total_length = path_length_list[-1]
     new_geometry_list = [geometry_list[0]]
