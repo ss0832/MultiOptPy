@@ -6,6 +6,9 @@ import numpy as np
 
 from calc_tools import Calculationtools
 from fileio import xyz2list
+from abc import ABC, abstractmethod
+from visualization import NEBVisualizer
+
 """
 Psi4
  D. G. A. Smith, L. A. Burns, A. C. Simmonett, R. M. Parrish, M. C. Schieber, R. Galvelis, P. Kraus, H. Kruse, R. Di Remigio, A. Alenaizan, A. M. James, S. Lehtola, J. P. Misiewicz, M. Scheurer, R. A. Shaw, J. B. Schriber, Y. Xie, Z. L. Glick, D. A. Sirianni, J. S. O'Brien, J. M. Waldrop, A. Kumar, E. G. Hohenstein, B. P. Pritchard, B. R. Brooks, H. F. Schaefer III, A. Yu. Sokolov, K. Patkowski, A. E. DePrince III, U. Bozkaya, R. A. King, F. A. Evangelista, J. M. Turney, T. D. Crawford, C. D. Sherrill, "Psi4 1.4: Open-Source Software for High-Throughput Quantum Chemistry", J. Chem. Phys. 152(18) 184108 (2020).
@@ -175,3 +178,149 @@ class Calculation:
         #print("eigenvalues: ", eigenvalues)
         exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display, display_eigval=False)
         self.Model_hess = exact_hess
+
+
+
+class CalculationEngine(ABC):
+    """Base class for calculation engines"""
+    
+    @abstractmethod
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        """Calculate energy and gradients"""
+        pass
+    
+    def _get_file_list(self, file_directory):
+        """Get list of input files"""
+        return sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                   for i in range(1, 7)], [])
+    
+    def _process_visualization(self, energy_list, gradient_list, num_list, optimize_num, config):
+        """Process common visualization tasks"""
+        try:
+            if config.save_pict:
+                visualizer = NEBVisualizer(config)
+                tmp_ene_list = np.array(energy_list, dtype="float64") * config.hartree2kcalmol
+                visualizer.plot_energy(num_list, tmp_ene_list - tmp_ene_list[0], optimize_num)
+                print("energy graph plotted.")
+                
+                gradient_norm_list = [np.sqrt(np.linalg.norm(g)**2/(len(g)*3)) for g in gradient_list]
+                visualizer.plot_gradient(num_list, gradient_norm_list, optimize_num)
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(f"Visualization error: {e}")
+
+
+class Psi4Engine(CalculationEngine):
+    """Psi4 calculation engine"""
+    
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        if psi4 is None:
+            raise ImportError("Psi4 is not available")
+        
+        psi4.core.clean()
+        gradient_list = []
+        gradient_norm_list = []
+        energy_list = []
+        geometry_num_list = []
+        num_list = []
+        delete_pre_total_velocity = []
+        
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = self._get_file_list(file_directory)
+        
+        hess_count = 0
+        
+        for num, input_file in enumerate(file_list):
+            try:
+                print(input_file)
+                
+                logfile = file_directory + "/" + config.init_input + '_' + str(num) + '.log'
+                psi4.set_output_file(logfile)
+                psi4.set_num_threads(nthread=config.N_THREAD)
+                psi4.set_memory(config.SET_MEMORY)
+                self._set_psi4_dft_grid(config)
+                
+                if config.unrestrict:
+                    psi4.set_options({'reference': 'uks'})
+                
+                geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                
+                input_data = str(electric_charge_and_multiplicity[0]) + " " + str(electric_charge_and_multiplicity[1]) + "\n"
+                for j in range(len(geometry_list)):
+                    input_data += element_list[j] + "  " + geometry_list[j][0] + "  " + geometry_list[j][1] + "  " + geometry_list[j][2] + "\n"
+                
+                input_data = psi4.geometry(input_data)
+                input_data_for_display = np.array(input_data.geometry(), dtype="float64")
+                   
+                g, wfn = psi4.gradient(config.basic_set_and_function, molecule=input_data, return_wfn=True)
+                g = np.array(g, dtype="float64")
+                e = float(wfn.energy())
+  
+                print('energy:' + str(e) + " a.u.")
+
+                gradient_list.append(g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
+                energy_list.append(e)
+                num_list.append(num)
+                geometry_num_list.append(input_data_for_display)
+                
+                if config.FC_COUNT == -1 or type(optimize_num) is str:
+                    pass
+                elif optimize_num % config.FC_COUNT == 0:
+                    """exact hessian"""
+                    _, wfn = psi4.frequencies(config.basic_set_and_function, return_wfn=True, ref_gradient=wfn.gradient())
+                    exact_hess = np.array(wfn.hessian())
+                    freqs = np.array(wfn.frequencies())
+                    print("frequencies: \n", freqs)
+                    eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    print("=== hessian (before add bias potential) ===")
+                    print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
+                    np.save(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".npy", exact_hess)
+                    with open(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".csv", "a") as f:
+                        f.write("frequency," + ",".join(map(str, freqs)) + "\n")
+                
+                hess_count += 1    
+
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+                
+            psi4.core.clean()
+        
+        print("data sampling was completed...")
+        
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
+        
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
+    
+    def _set_psi4_dft_grid(self, config):
+        """Set DFT grid for Psi4"""
+        if config.dft_grid == 0 or config.dft_grid == 1:
+            psi4.set_options({'DFT_RADIAL_POINTS': 50, 'DFT_SPHERICAL_POINTS': 194})
+            print("DFT Grid (50, 194): SG1")
+        elif config.dft_grid == 2 or config.dft_grid == 3:
+            psi4.set_options({'DFT_RADIAL_POINTS': 75, 'DFT_SPHERICAL_POINTS': 302})
+            print("DFT Grid (70, 302): Default")
+        elif config.dft_grid == 4 or config.dft_grid == 5:
+            psi4.set_options({'DFT_RADIAL_POINTS': 99, 'DFT_SPHERICAL_POINTS': 590})
+            print("DFT Grid (99, 590): Fine")
+        elif config.dft_grid == 6 or config.dft_grid == 7:
+            psi4.set_options({'DFT_RADIAL_POINTS': 150, 'DFT_SPHERICAL_POINTS': 770})
+            print("DFT Grid (150, 770): UltraFine")
+        elif config.dft_grid == 8 or config.dft_grid == 9:
+            psi4.set_options({'DFT_RADIAL_POINTS': 250, 'DFT_SPHERICAL_POINTS': 974})
+            print("DFT Grid (250, 974): SuperFine")
+        else:
+            raise ValueError("Invalid dft grid setting.")

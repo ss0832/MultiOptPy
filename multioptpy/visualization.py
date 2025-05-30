@@ -76,3 +76,53 @@ class Graph:
         return
 
 
+
+class NEBVisualizer:
+    """Visualization functionality for NEB calculations"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.color_list = ["b"]  # for matplotlib
+    
+    def simple_plot(self, num_list, data_list, file_directory, optimize_num, 
+                   axis_name_1="NODE #", axis_name_2="Value", name="data"):
+        """Create a simple plot"""
+        fig, ax = plt.subplots()
+        ax.plot(num_list, data_list, 
+               self.color_list[0] + "--o")
+        
+        ax.set_title(str(optimize_num))
+        ax.set_xlabel(axis_name_1)
+        ax.set_ylabel(axis_name_2)
+        fig.tight_layout()
+        fig.savefig(f"{self.config.NEB_FOLDER_DIRECTORY}plot_{name}_{optimize_num}.png", 
+                   format="png", dpi=200)
+        plt.close()
+    
+    def plot_energy(self, num_list, energy_list, optimize_num, 
+                   axis_name_1="NODE #", axis_name_2="Electronic Energy [kcal/mol]", name="energy"):
+        """Plot energy profile"""
+        self.simple_plot(num_list, energy_list, "", optimize_num, axis_name_1, axis_name_2, name)
+    
+    def plot_gradient(self, num_list, gradient_norm_list, optimize_num, 
+                     axis_name_1="NODE #", axis_name_2="Gradient (RMS) [a.u.]", name="gradient"):
+        """Plot gradient profile"""
+        self.simple_plot(num_list, gradient_norm_list, "", optimize_num, axis_name_1, axis_name_2, name)
+    
+    def plot_orthogonality(self, num_list, cos_list, optimize_num):
+        """Plot orthogonality profile"""
+        self.simple_plot(num_list, cos_list, "", optimize_num, 
+                        axis_name_1="NODE #", axis_name_2="cosθ", name="orthogonality")
+    
+    def plot_perpendicular_gradient(self, num_list, force_list, optimize_num, force_type="rms"):
+        """Plot perpendicular gradient profile"""
+        if force_type == "rms":
+            axis_name_2 = "Perpendicular Gradient (RMS) [a.u.]"
+            name = "perp_rms_gradient"
+        else:
+            axis_name_2 = "Perpendicular Gradient (MAX) [a.u.]"
+            name = "perp_max_gradient"
+        
+        self.simple_plot(num_list, force_list, "", optimize_num, 
+                        axis_name_1="NODE #", axis_name_2=axis_name_2, name=name)
+

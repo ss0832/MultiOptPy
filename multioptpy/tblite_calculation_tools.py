@@ -9,6 +9,8 @@ from tblite.interface import Calculator
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
 from fileio import xyz2list
+from abc import ABC, abstractmethod
+from visualization import NEBVisualizer
 """
 
 GFN2-xTB(tblite)
@@ -231,3 +233,111 @@ class Calculation:
         self.gradient = g
         
         return e, g, finish_frag
+    
+    
+class CalculationEngine(ABC):
+    """Base class for calculation engines"""
+    
+    @abstractmethod
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        """Calculate energy and gradients"""
+        pass
+    
+    def _get_file_list(self, file_directory):
+        """Get list of input files"""
+        return sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                   for i in range(1, 7)], [])
+    
+    def _process_visualization(self, energy_list, gradient_list, num_list, optimize_num, config):
+        """Process common visualization tasks"""
+        try:
+            if config.save_pict:
+                visualizer = NEBVisualizer(config)
+                tmp_ene_list = np.array(energy_list, dtype="float64") * config.hartree2kcalmol
+                visualizer.plot_energy(num_list, tmp_ene_list - tmp_ene_list[0], optimize_num)
+                print("energy graph plotted.")
+                
+                gradient_norm_list = [np.sqrt(np.linalg.norm(g)**2/(len(g)*3)) for g in gradient_list]
+                visualizer.plot_gradient(num_list, gradient_norm_list, optimize_num)
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(f"Visualization error: {e}")
+
+
+
+
+class TBLiteEngine(CalculationEngine):
+    """TBLite (extended tight binding) calculation engine"""
+    
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        gradient_norm_list = []
+        delete_pre_total_velocity = []
+        num_list = []
+        method = config.usextb
+        
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = self._get_file_list(file_directory)
+        
+        # Get element number list from the first file
+        geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
+        element_number_list = []
+        for elem in element_list:
+            element_number_list.append(element_number(elem))
+        element_number_list = np.array(element_number_list, dtype="int")
+        
+        for num, input_file in enumerate(file_list):
+            try:
+                print(input_file)
+                
+                positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                        
+                positions = np.array(positions, dtype="float64") / config.bohr2angstroms
+                if int(electric_charge_and_multiplicity[1]) > 1 or config.unrestrict:
+                    calc = Calculator(method, element_number_list, positions, 
+                                    charge=int(electric_charge_and_multiplicity[0]), 
+                                    uhf=int(electric_charge_and_multiplicity[1]))
+                else:
+                    calc = Calculator(method, element_number_list, positions, 
+                                    charge=int(electric_charge_and_multiplicity[0]))                
+                calc.set("max-iter", 500)
+                calc.set("verbosity", 0)
+                if not config.cpcm_solv_model is None:        
+                    print("Apply CPCM solvation model")
+                    calc.add("cpcm-solvation", config.cpcm_solv_model)
+                if not config.alpb_solv_model is None:
+                    print("Apply ALPB solvation model")
+                    calc.add("alpb-solvation", config.alpb_solv_model)
+                            
+                res = calc.singlepoint()
+                e = float(res.get("energy"))  # hartree
+                g = res.get("gradient")  # hartree/Bohr
+                        
+                print("\n")
+                energy_list.append(e)
+                gradient_list.append(g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
+                geometry_num_list.append(positions)
+                num_list.append(num)
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+            
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
+
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
+
