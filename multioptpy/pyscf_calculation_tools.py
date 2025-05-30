@@ -11,6 +11,8 @@ from pyscf.hessian import thermo
 from calc_tools import Calculationtools
 from parameter import UnitValueLib
 from fileio import xyz2list
+from abc import ABC, abstractmethod
+from visualization import NEBVisualizer
 
 """
 Ref.:PySCF
@@ -166,4 +168,151 @@ class Calculation:
         self.Model_hess = exact_hess
     
     
+
+class CalculationEngine(ABC):
+    """Base class for calculation engines"""
     
+    @abstractmethod
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        """Calculate energy and gradients"""
+        pass
+    
+    def _get_file_list(self, file_directory):
+        """Get list of input files"""
+        return sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                   for i in range(1, 7)], [])
+    
+    def _process_visualization(self, energy_list, gradient_list, num_list, optimize_num, config):
+        """Process common visualization tasks"""
+        try:
+            if config.save_pict:
+                visualizer = NEBVisualizer(config)
+                tmp_ene_list = np.array(energy_list, dtype="float64") * config.hartree2kcalmol
+                visualizer.plot_energy(num_list, tmp_ene_list - tmp_ene_list[0], optimize_num)
+                print("energy graph plotted.")
+                
+                gradient_norm_list = [np.sqrt(np.linalg.norm(g)**2/(len(g)*3)) for g in gradient_list]
+                visualizer.plot_gradient(num_list, gradient_norm_list, optimize_num)
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(f"Visualization error: {e}")
+
+
+
+
+class PySCFEngine(CalculationEngine):
+    """PySCF calculation engine"""
+    
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        gradient_norm_list = []
+        delete_pre_total_velocity = []
+        num_list = []
+        
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = self._get_file_list(file_directory)
+        
+        hess_count = 0
+        
+        for num, input_file in enumerate(file_list):
+            try:
+                print(input_file)
+                geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                words = []
+                for i in range(len(geometry_list)):
+                    words.append([element_list[i], float(geometry_list[i][0]), float(geometry_list[i][1]), float(geometry_list[i][2])])
+                
+                input_data_for_display = np.array(geometry_list, dtype="float64") / config.bohr2angstroms
+                
+                mol = pyscf.gto.M(atom=words,
+                                  charge=int(electric_charge_and_multiplicity[0]),
+                                  spin=int(electric_charge_and_multiplicity[1]),
+                                  basis=config.SUB_BASIS_SET,
+                                  ecp=config.ECP,
+                                  max_memory=float(config.SET_MEMORY.replace("GB","")) * 1024,
+                                  verbose=4)
+                
+                if config.excited_state == 0:
+                    if config.FUNCTIONAL == "hf" or config.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1]) > 0 or config.unrestrict:
+                            mf = mol.UHF().density_fit()
+                        else:
+                            mf = mol.RHF().density_fit()
+                    else:
+                        if int(electric_charge_and_multiplicity[1]) > 0 or config.unrestrict:
+                            mf = mol.UKS().x2c().density_fit()
+                        else:
+                            mf = mol.RKS().density_fit()
+                        mf.xc = config.FUNCTIONAL
+                        mf.grids.level = config.dft_grid 
+                    g = mf.run().nuc_grad_method().kernel()
+                    e = float(vars(mf)["e_tot"])
+                else:
+                    if config.FUNCTIONAL == "hf" or config.FUNCTIONAL == "HF":
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or config.unrestrict:
+                            mf = mol.UHF().density_fit().run()
+                        else:
+                            mf = mol.RHF().density_fit().run()
+                    else:
+                        if int(electric_charge_and_multiplicity[1])-1 > 0 or config.unrestrict:
+                            mf = mol.UKS().x2c().density_fit().run()
+                        else:
+                            mf = mol.RKS().density_fit().run()
+                        mf.xc = config.FUNCTIONAL
+                        mf.grids.level = config.dft_grid
+                        
+                    ground_e = float(vars(mf)["e_tot"])
+                    
+                    mf = tdscf.TDA(mf)
+                    g = mf.run().nuc_grad_method().kernel(state=config.excited_state)
+                    e = vars(mf)["e"][config.excited_state-1]
+                    e += ground_e
+
+                g = np.array(g, dtype="float64")
+                print("\n")
+                energy_list.append(e)
+                gradient_list.append(g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
+                geometry_num_list.append(input_data_for_display)
+                num_list.append(num)
+                
+                if config.FC_COUNT == -1 or type(optimize_num) is str:
+                    pass
+                elif optimize_num % config.FC_COUNT == 0:
+                    """exact hessian"""
+                    exact_hess = mf.Hessian().kernel()
+                    freqs = thermo.harmonic_analysis(mf.mol, exact_hess)
+                    exact_hess = exact_hess.transpose(0,2,1,3).reshape(len(input_data_for_display)*3, len(input_data_for_display)*3)
+                    print("frequencies: \n", freqs["freq_wavenumber"])
+                    eigenvalues, _ = np.linalg.eigh(exact_hess)
+                    print("=== hessian (before add bias potential) ===")
+                    print("eigenvalues: ", eigenvalues)
+                    exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, input_data_for_display)
+                 
+                    np.save(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".npy", exact_hess)
+                    with open(config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(hess_count) + ".csv", "a") as f:
+                        f.write("frequency," + ",".join(map(str, freqs["freq_wavenumber"])) + "\n")
+                hess_count += 1
+                
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+            
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
+
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
+
