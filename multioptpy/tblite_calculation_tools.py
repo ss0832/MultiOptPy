@@ -4,7 +4,10 @@ import copy
 
 import numpy as np
 
-from tblite.interface import Calculator
+try:
+    from tblite.interface import Calculator
+except:
+    pass
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number

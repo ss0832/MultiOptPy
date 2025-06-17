@@ -5,8 +5,12 @@ import copy
 import numpy as np
 import torch
 
-import dxtb
-dxtb.timer.disable()
+try:
+    import dxtb
+    dxtb.timer.disable()
+except:
+    pass
+
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, element_number
 from fileio import xyz2list
