@@ -3,8 +3,6 @@ Multifunctional geometry optimisation tools for quantum chemical calculations
 
 This program implements many geometry optimization methods in Python for learning purposes.
 
-If you think this repository is good, I would appreciate it if you would star it.
-
 **Notice:** This program contains many experimental features, which may not work as intended. Please use them at your own risk.
 
 ## Features
