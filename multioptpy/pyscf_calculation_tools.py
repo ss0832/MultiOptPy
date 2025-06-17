@@ -1,12 +1,16 @@
-import pyscf
+
 import glob
 import os
 
 
 import numpy as np
 
-from pyscf import tdscf
-from pyscf.hessian import thermo
+try:
+    import pyscf
+    from pyscf import tdscf
+    from pyscf.hessian import thermo
+except:
+    pass
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib

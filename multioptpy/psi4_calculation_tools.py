@@ -1,8 +1,12 @@
-import psi4
 import glob
 import os
 
 import numpy as np
+
+try:
+    import psi4
+except:
+    pass
 
 from calc_tools import Calculationtools
 from fileio import xyz2list
