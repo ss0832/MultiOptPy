@@ -3,7 +3,7 @@ Multifunctional geometry optimisation tools for quantum chemical calculations
 
 This program implements many geometry optimization methods in Python for learning purposes.
 
-**Notice:** This program contains many experimental features, which may not work as intended. Please use them at your own risk.
+**Notice:** This program has NOT been experimentally validated in laboratory settings. I release this code to enable community contributions and collaborative development. Use at your own discretion and validate results independently. 
 
 ## Features
 
