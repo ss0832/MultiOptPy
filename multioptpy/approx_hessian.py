@@ -3887,9 +3887,18 @@ def bend2(t_xyz):
         fir = np.pi
 
     bf = np.zeros((3, 3))
+    denom_1 = r_ij_1 * si
+    denom_2 = r_jk_1 * si
+    
     for i in range(3):
-        bf[0][i] = (c_o * b_r_ij[0][i] - b_r_jk[1][i]) / (r_ij_1 * si)
-        bf[2][i] = (c_o * b_r_jk[1][i] - b_r_ij[0][i]) / (r_jk_1 * si)
+        if denom_1 < 1e-12:
+            bf[0][i] = 0.0
+        else:
+            bf[0][i] = (c_o * b_r_ij[0][i] - b_r_jk[1][i]) / denom_1
+        if denom_2 < 1e-12:
+            bf[2][i] = 0.0
+        else:
+            bf[2][i] = (c_o * b_r_jk[1][i] - b_r_ij[0][i]) / denom_2
         bf[1][i] = -1 * (bf[0][i] + bf[2][i])
 
     return fir, bf # angle, move_vector
