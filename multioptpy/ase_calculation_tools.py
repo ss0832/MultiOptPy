@@ -9,8 +9,9 @@ from ase.vibrations import Vibrations
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, number_element
-from fileio import read_software_path
-
+from fileio import read_software_path, xyz2list
+from visualization import NEBVisualizer
+from abc import ABC, abstractmethod
 
 
 """
@@ -51,9 +52,6 @@ J. Phys.: Condens. Matter Vol. 29 273002, 2017
  
 """
 
-
-
-
 class Calculation:
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
@@ -75,19 +73,21 @@ class Calculation:
         self.software_path_dict = read_software_path()
 
     def calc_exact_hess(self, atom_obj, positions, element_list):
-        vib = Vibrations(atoms=atom_obj, delta=0.01)
+        vib = Vibrations(atoms=atom_obj, delta=0.001)
         vib.run()
         result_vib = vib.get_vibrations()
         exact_hess = result_vib.get_hessian_2d() # eV/Å²
         vib.clean()  
         exact_hess = exact_hess / self.hartree2eV * (self.bohr2angstroms ** 2)
-        exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, [number_element(elem_num) for elem_num in element_list], positions)
+        if type(element_list[0]) is str:
+            exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_list, positions)
+        else:
+            exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, [number_element(elem_num) for elem_num in element_list], positions)
         self.Model_hess = exact_hess
         return exact_hess
 
-    
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):
-        """execute extended tight binding method calclation."""
+        """execute extended tight binding method calculation."""
 
         finish_frag = False
         
@@ -97,8 +97,7 @@ class Calculation:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
-            if True:
-            #try:
+            try:
                 if geom_num_list is None:
                     print("\n",input_file,"\n")
 
@@ -113,55 +112,74 @@ class Calculation:
                 else:
                     positions = geom_num_list        
                
-                positions = np.array(positions, dtype="float64")#ang.
-              
-
+                positions = np.array(positions, dtype="float64")  # ang.
                 atom_obj = Atoms(element_list, positions)
 
                 if self.software_type == "gamessus":
-                    atom_obj = self.use_GAMESSUS(atom_obj, electric_charge_and_multiplicity)
+                    atom_obj = use_GAMESSUS(
+                        atom_obj, 
+                        electric_charge_and_multiplicity,
+                        self.software_path_dict["gamessus"],
+                        self.FUNCTIONAL,
+                        self.BASIS_SET
+                    )
 
                 elif self.software_type == "nwchem":
-                    atom_obj = self.use_NWChem(atom_obj, electric_charge_and_multiplicity, input_file)
+                    atom_obj = use_NWChem(
+                        atom_obj, 
+                        electric_charge_and_multiplicity, 
+                        input_file,
+                        self.FUNCTIONAL,
+                        self.BASIS_SET,
+                        self.SET_MEMORY
+                    )
                     
                 elif self.software_type == "gaussian":
-                    atom_obj = self.use_Gaussian(atom_obj, electric_charge_and_multiplicity)
+                    atom_obj = use_Gaussian(
+                        atom_obj, 
+                        electric_charge_and_multiplicity,
+                        self.FUNCTIONAL,
+                        self.BASIS_SET,
+                        self.SET_MEMORY
+                    )
                     
                 elif self.software_type == "orca":
-                    atom_obj = self.use_ORCA(atom_obj, electric_charge_and_multiplicity, input_file)
+                    atom_obj = use_ORCA(
+                        atom_obj, 
+                        electric_charge_and_multiplicity, 
+                        input_file,
+                        self.software_path_dict["orca"],
+                        self.FUNCTIONAL,
+                        self.BASIS_SET
+                    )
                     
-                elif self.software_type == "mace_mp":#Neural Network Potential
-                    atom_obj = self.use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
+                elif self.software_type == "mace_mp":  # Neural Network Potential
+                    atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
                     
-                elif self.software_type == "mace_off":#Neural Network Potential
-                    atom_obj = self.use_MACE_OFF(atom_obj, electric_charge_and_multiplicity)
+                elif self.software_type == "mace_off":  # Neural Network Potential
+                    atom_obj = use_MACE_OFF(atom_obj, electric_charge_and_multiplicity)
         
                 elif self.software_type == "mopac":
-                    atom_obj = self.use_MOPAC(atom_obj, electric_charge_and_multiplicity, input_file)
+                    atom_obj = use_MOPAC(atom_obj, electric_charge_and_multiplicity, input_file)
                 else:
                     print("This software isn't available...")
                     raise
 
-                e = atom_obj.get_potential_energy(apply_constraint=False) / self.hartree2eV # eV to hartree
+                e = atom_obj.get_potential_energy(apply_constraint=False) / self.hartree2eV  # eV to hartree
                 g = -1*atom_obj.get_forces(apply_constraint=False) * self.bohr2angstroms / self.hartree2eV  # eV/ang. to a.u.
-                
-                
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    #exact numerical hessian
+                    # exact numerical hessian
                     _ = self.calc_exact_hess(atom_obj, positions, element_list)             
-                
-                
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                finish_frag = True
+                return np.array([0]), np.array([0]), np.array([0]), finish_frag 
 
-
-            #except Exception as error:
-            #    print(error)
-            #    print("This molecule could not be optimized.")
-            #    finish_frag = True
-            #    return np.array([0]), np.array([0]), np.array([0]), finish_frag 
         positions /= self.bohr2angstroms
         self.energy = e
         self.gradient = g
@@ -169,74 +187,354 @@ class Calculation:
         
         return e, g, positions, finish_frag
     
- 
-    def use_GAMESSUS(self, atom_obj, electric_charge_and_multiplicity):
-        from ase.calculators.gamess_us import GAMESSUS
-        atom_obj.calc = GAMESSUS(userscr=self.software_path_dict["gamessus"],
-                                contrl = dict(dfttyp=self.FUNCTIONAL),
-                                charge = electric_charge_and_multiplicity[0],
-                                mult = electric_charge_and_multiplicity[1],
-                                basis = self.BASIS_SET)
-        return atom_obj
+def use_GAMESSUS(atom_obj, electric_charge_and_multiplicity, gamessus_path, functional, basis_set):
+    """Set up and return ASE atoms object with GAMESSUS calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        gamessus_path: Path to GAMESSUS executable/userscr
+        functional: DFT functional to use
+        basis_set: Basis set to use
         
-    def use_NWChem(self, atom_obj, electric_charge_and_multiplicity, input_file):                    
-        from ase.calculators.nwchem import NWChem
-        input_dir = os.path.dirname(input_file)
-        pattern = r"(\d+)([A-Za-z]+)"
-        match = re.match(pattern, self.SET_MEMORY.lower())
-        if match:
-            number = match.group(1)
-            unit = match.group(2)
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from ase.calculators.gamess_us import GAMESSUS
+    atom_obj.calc = GAMESSUS(userscr=gamessus_path,
+                            contrl=dict(dfttyp=functional),
+                            charge=electric_charge_and_multiplicity[0],
+                            mult=electric_charge_and_multiplicity[1],
+                            basis=basis_set)
+    return atom_obj
+    
+def use_NWChem(atom_obj, electric_charge_and_multiplicity, input_file, functional, basis_set, memory):
+    """Set up and return ASE atoms object with NWChem calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        input_file: Path to input file
+        functional: DFT functional to use
+        basis_set: Basis set to use
+        memory: Memory specification string
         
-        else:
-            raise ValueError("Invalid memory string format")
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from ase.calculators.nwchem import NWChem
+    input_dir = os.path.dirname(input_file)
+    pattern = r"(\d+)([A-Za-z]+)"
+    match = re.match(pattern, memory.lower())
+    if match:
+        number = match.group(1)
+        unit = match.group(2)
+    else:
+        raise ValueError("Invalid memory string format")
 
-        calc = NWChem(label=input_dir,
-                                xc=self.FUNCTIONAL,
-                                charge = electric_charge_and_multiplicity[0],
-                                basis = self.BASIS_SET,
-                                memory=number+" "+unit)
-        atom_obj.set_calculator(calc)
-        return atom_obj
-    
-    def use_Gaussian(self, atom_obj, electric_charge_and_multiplicity):                               
-        from ase.calculators.gaussian import Gaussian
-        atom_obj.calc = Gaussian(xc=self.FUNCTIONAL,
-                                basis = self.BASIS_SET,
-                                scf='maxcycle=500',
-                                mem=self.SET_MEMORY)
-        return atom_obj
-        
-    def use_ORCA(self, atom_obj, electric_charge_and_multiplicity, input_file):    
-        from ase.calculators.orca import ORCA
-        input_dir = os.path.dirname(input_file)
-        atom_obj.calc = ORCA(label=input_dir,
-                            profile=self.software_path_dict["orca"],
-                            charge = int(electric_charge_and_multiplicity[0]),
-                            mult = int(electric_charge_and_multiplicity[1]),
-                            orcasimpleinput=self.FUNCTIONAL+' '+self.BASIS_SET,)
-                            #orcablocks='%pal nprocs 16 end')
-        return atom_obj
-    
-    def use_MACE_MP(self, atom_obj, electric_charge_and_multiplicity):    
-        from mace.calculators import mace_mp
-        macemp = mace_mp()
-        atom_obj.calc = macemp
-        return atom_obj
-    
-    def use_MACE_OFF(self, atom_obj, electric_charge_and_multiplicity):
-        from mace.calculators import mace_off
-        maceoff = mace_off()
-        atom_obj.calc = maceoff
-        return atom_obj
-    
-    def use_MOPAC(self, atom_obj, electric_charge_and_multiplicity, input_file):
-        from ase.calculators.mopac import MOPAC
-        input_dir = os.path.dirname(input_file)
-        atom_obj.calc = MOPAC(label=input_dir,
-                            task="1SCF GRADIENTS DISP",
-                            charge = int(electric_charge_and_multiplicity[0]),
-                            mult = int(electric_charge_and_multiplicity[1]),)
-        return atom_obj
+    calc = NWChem(label=input_dir,
+                  xc=functional,
+                  charge=electric_charge_and_multiplicity[0],
+                  basis=basis_set,
+                  memory=number+" "+unit)
+    atom_obj.set_calculator(calc)
+    return atom_obj
 
+def use_Gaussian(atom_obj, electric_charge_and_multiplicity, functional, basis_set, memory):
+    """Set up and return ASE atoms object with Gaussian calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        functional: DFT functional to use
+        basis_set: Basis set to use
+        memory: Memory specification string
+        
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from ase.calculators.gaussian import Gaussian
+    atom_obj.calc = Gaussian(xc=functional,
+                           basis=basis_set,
+                           scf='maxcycle=500',
+                           mem=memory)
+    return atom_obj
+    
+def use_ORCA(atom_obj, electric_charge_and_multiplicity, input_file, orca_path, functional, basis_set):
+    """Set up and return ASE atoms object with ORCA calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        input_file: Path to input file
+        orca_path: Path to ORCA executable
+        functional: DFT functional to use
+        basis_set: Basis set to use
+        
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from ase.calculators.orca import ORCA
+    input_dir = os.path.dirname(input_file)
+    atom_obj.calc = ORCA(label=input_dir,
+                        profile=orca_path,
+                        charge=int(electric_charge_and_multiplicity[0]),
+                        mult=int(electric_charge_and_multiplicity[1]),
+                        orcasimpleinput=functional+' '+basis_set)
+                        #orcablocks='%pal nprocs 16 end')
+    return atom_obj
+
+def use_MACE_MP(atom_obj, electric_charge_and_multiplicity):
+    """Set up and return ASE atoms object with MACE_MP calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from mace.calculators import mace_mp
+    macemp = mace_mp()
+    atom_obj.calc = macemp
+    return atom_obj
+
+def use_MACE_OFF(atom_obj, electric_charge_and_multiplicity):
+    """Set up and return ASE atoms object with MACE_OFF calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from mace.calculators import mace_off
+    maceoff = mace_off()
+    atom_obj.calc = maceoff
+    return atom_obj
+
+def use_MOPAC(atom_obj, electric_charge_and_multiplicity, input_file):
+    """Set up and return ASE atoms object with MOPAC calculator.
+    
+    Args:
+        atom_obj: ASE Atoms object
+        electric_charge_and_multiplicity: List with [charge, multiplicity]
+        input_file: Path to input file
+        
+    Returns:
+        ASE Atoms object with calculator attached
+    """
+    from ase.calculators.mopac import MOPAC
+    input_dir = os.path.dirname(input_file)
+    atom_obj.calc = MOPAC(label=input_dir,
+                        task="1SCF GRADIENTS DISP",
+                        charge=int(electric_charge_and_multiplicity[0]),
+                        mult=int(electric_charge_and_multiplicity[1]))
+    return atom_obj
+
+
+
+class CalculationEngine(ABC):
+    #Base class for calculation engines
+    
+    @abstractmethod
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        #Calculate energy and gradients
+        pass
+    
+    def _get_file_list(self, file_directory):
+        #Get list of input files
+        return sum([sorted(glob.glob(os.path.join(file_directory, f"*_" + "[0-9]" * i + ".xyz"))) 
+                   for i in range(1, 7)], [])
+    
+    def _process_visualization(self, energy_list, gradient_list, num_list, optimize_num, config):
+        #Process common visualization tasks
+        try:
+            if config.save_pict:
+                visualizer = NEBVisualizer(config)
+                tmp_ene_list = np.array(energy_list, dtype="float64") * config.hartree2kcalmol
+                visualizer.plot_energy(num_list, tmp_ene_list - tmp_ene_list[0], optimize_num)
+                print("energy graph plotted.")
+                
+                gradient_norm_list = [np.sqrt(np.linalg.norm(g)**2/(len(g)*3)) for g in gradient_list]
+                visualizer.plot_gradient(num_list, gradient_norm_list, optimize_num)
+                print("gradient graph plotted.")
+        except Exception as e:
+            print(f"Visualization error: {e}")
+
+
+
+class ASEEngine(CalculationEngine):
+    """ASE-based calculation engine supporting multiple quantum chemistry software packages.
+    
+    This engine uses the Atomic Simulation Environment (ASE) to interface with various
+    quantum chemistry software packages like GAMESSUS, NWChem, Gaussian, ORCA, MACE, and MOPAC.
+    """
+    def __init__(self, **kwarg):
+        UVL = UnitValueLib()
+
+        self.bohr2angstroms = UVL.bohr2angstroms
+        self.hartree2eV = UVL.hartree2eV
+        
+        self.START_FILE = kwarg["START_FILE"]
+        self.N_THREAD = kwarg["N_THREAD"]
+        self.SET_MEMORY = kwarg["SET_MEMORY"]
+        self.FUNCTIONAL = kwarg["FUNCTIONAL"]
+        self.BASIS_SET = kwarg["BASIS_SET"]
+        self.FC_COUNT = kwarg["FC_COUNT"]
+        self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
+        self.Model_hess = kwarg["Model_hess"]
+        self.unrestrict = kwarg["unrestrict"]
+        self.software_type = kwarg["software_type"]
+        self.hessian_flag = False
+        self.software_path_dict = read_software_path()
+
+
+    def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
+        """Calculate energy and gradients using ASE and the configured software.
+        
+        Args:
+            file_directory (str): Directory containing input files
+            optimize_num (int): Optimization iteration number
+            pre_total_velocity (np.ndarray): Previous velocities for dynamics
+            config (object): Configuration object with calculation parameters
+            
+        Returns:
+            tuple: (energy_list, gradient_list, geometry_num_list, pre_total_velocity)
+        """
+        gradient_list = []
+        energy_list = []
+        geometry_num_list = []
+        gradient_norm_list = []
+        delete_pre_total_velocity = []
+        num_list = []
+        
+        os.makedirs(file_directory, exist_ok=True)
+        file_list = self._get_file_list(file_directory)
+        
+        if not file_list:
+            print("No input files found in directory.")
+            return (np.array([], dtype="float64"), 
+                    np.array([], dtype="float64"), 
+                    np.array([], dtype="float64"), 
+                    pre_total_velocity)
+        
+        # Get element list from the first file
+        geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
+        
+        hess_count = 0
+        software_type = config.software_type
+        software_path_dict = read_software_path()
+        
+        for num, input_file in enumerate(file_list):
+            try:
+                print(f"\n{input_file}\n")
+                positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
+                
+                positions = np.array(positions, dtype="float64")  # in angstroms
+                atom_obj = Atoms(element_list, positions)
+                
+                # Set up calculator based on software type
+                if software_type == "gamessus":
+                    atom_obj = use_GAMESSUS(
+                        atom_obj, 
+                        electric_charge_and_multiplicity,
+                        software_path_dict["gamessus"],
+                        config.FUNCTIONAL,
+                        config.BASIS_SET
+                    )
+                elif software_type == "nwchem":
+                    atom_obj = use_NWChem(
+                        atom_obj, 
+                        electric_charge_and_multiplicity, 
+                        input_file,
+                        config.FUNCTIONAL,
+                        config.BASIS_SET,
+                        config.SET_MEMORY
+                    )
+                elif software_type == "gaussian":
+                    atom_obj = use_Gaussian(
+                        atom_obj, 
+                        electric_charge_and_multiplicity,
+                        config.FUNCTIONAL,
+                        config.BASIS_SET,
+                        config.SET_MEMORY
+                    )
+                elif software_type == "orca":
+                    atom_obj = use_ORCA(
+                        atom_obj, 
+                        electric_charge_and_multiplicity, 
+                        input_file,
+                        software_path_dict["orca"],
+                        config.FUNCTIONAL,
+                        config.BASIS_SET
+                    )
+                elif software_type == "mace_mp":  # Neural Network Potential
+                    atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
+                elif software_type == "mace_off":  # Neural Network Potential
+                    atom_obj = use_MACE_OFF(atom_obj, electric_charge_and_multiplicity)
+                elif software_type == "mopac":
+                    atom_obj = use_MOPAC(atom_obj, electric_charge_and_multiplicity, input_file)
+                else:
+                    print(f"Software type '{software_type}' is not available...")
+                    raise ValueError(f"Unsupported software type: {software_type}")
+
+                # Calculate energy and forces
+                e = atom_obj.get_potential_energy(apply_constraint=False) / config.hartree2eV  # eV to hartree
+                g = -1 * atom_obj.get_forces(apply_constraint=False) * config.bohr2angstroms / config.hartree2eV  # eV/ang. to a.u.
+                
+                # Store results
+                energy_list.append(e)
+                gradient_list.append(g)
+                gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
+                geometry_num_list.append(positions / config.bohr2angstroms)  # Convert to Bohr
+                num_list.append(num)
+                
+                # Handle hessian calculation if needed
+                if config.FC_COUNT == -1 or isinstance(optimize_num, str):
+                    pass
+                elif optimize_num % config.FC_COUNT == 0:
+                    # Calculate exact numerical hessian
+                    vib = Vibrations(atoms=atom_obj, delta=0.001)
+                    vib.run()
+                    result_vib = vib.get_vibrations()
+                    exact_hess = result_vib.get_hessian_2d()  # eV/Å²
+                    vib.clean()  
+                    
+                    # Convert hessian units
+                    exact_hess = exact_hess / config.hartree2eV * (config.bohr2angstroms ** 2)
+                    
+                    # Project out translational and rotational modes
+                    calc_tools = Calculationtools()
+                    element_number_list = [number_element(elem) for elem in element_list]
+                    exact_hess = calc_tools.project_out_hess_tr_and_rot(
+                        exact_hess, element_number_list, positions / config.bohr2angstroms
+                    )
+                    
+                    # Save hessian
+                    np.save(os.path.join(config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{hess_count}.npy"), exact_hess)
+                    hess_count += 1
+                
+            except Exception as error:
+                print(f"Error: {error}")
+                print("This molecule could not be optimized.")
+                if optimize_num != 0:
+                    delete_pre_total_velocity.append(num)
+        
+        # Process visualization
+        self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
+        
+        # Update velocities if needed
+        if optimize_num != 0 and len(pre_total_velocity) != 0:
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+            pre_total_velocity = pre_total_velocity.tolist()
+            for i in sorted(delete_pre_total_velocity, reverse=True):
+                pre_total_velocity.pop(i)
+            pre_total_velocity = np.array(pre_total_velocity, dtype="float64")
+        
+        return (np.array(energy_list, dtype="float64"), 
+                np.array(gradient_list, dtype="float64"), 
+                np.array(geometry_num_list, dtype="float64"), 
+                pre_total_velocity)
     
