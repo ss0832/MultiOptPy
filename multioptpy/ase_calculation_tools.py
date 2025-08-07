@@ -169,7 +169,9 @@ class Calculation:
                 g = -1*atom_obj.get_forces(apply_constraint=False) * self.bohr2angstroms / self.hartree2eV  # eV/ang. to a.u.
                 
                 if self.FC_COUNT == -1 or type(iter) is str:
-                    pass
+                    if self.hessian_flag:
+                        _ = self.calc_exact_hess(atom_obj, positions, element_list)
+                    
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     # exact numerical hessian
