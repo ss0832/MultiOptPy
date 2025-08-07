@@ -5,10 +5,12 @@ import re
 import numpy as np
 
 from ase import Atoms
+from ase.vibrations import Vibrations
 
 from calc_tools import Calculationtools
-from parameter import UnitValueLib, element_number
+from parameter import UnitValueLib, number_element
 from fileio import read_software_path
+
 
 
 """
@@ -72,7 +74,17 @@ class Calculation:
         self.hessian_flag = False
         self.software_path_dict = read_software_path()
 
-    
+    def calc_exact_hess(self, atom_obj, positions, element_list):
+        vib = Vibrations(atoms=atom_obj, delta=0.01)
+        vib.run()
+        result_vib = vib.get_vibrations()
+        exact_hess = result_vib.get_hessian_2d() # eV/Å²
+        vib.clean()  
+        exact_hess = exact_hess / self.hartree2eV * (self.bohr2angstroms ** 2)
+        exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, [number_element(elem_num) for elem_num in element_list], positions)
+        self.Model_hess = exact_hess
+        return exact_hess
+
     
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method, geom_num_list=None):
         """execute extended tight binding method calclation."""
@@ -85,7 +97,8 @@ class Calculation:
             pass
         file_list = glob.glob(file_directory+"/*_[0-9].xyz")
         for num, input_file in enumerate(file_list):
-            try:
+            if True:
+            #try:
                 if geom_num_list is None:
                     print("\n",input_file,"\n")
 
@@ -93,12 +106,10 @@ class Calculation:
                         input_data = f.readlines()
                     
                     positions = []
-                    if iter == 0:
-                        for word in input_data[2:]:
-                            positions.append(word.split()[1:4])
-                    else:
-                        for word in input_data[1:]:
-                            positions.append(word.split()[1:4])
+                  
+                    for word in input_data[2:]:
+                        positions.append(word.split()[1:4])
+                
                 else:
                     positions = geom_num_list        
                
@@ -135,31 +146,22 @@ class Calculation:
                 g = -1*atom_obj.get_forces(apply_constraint=False) * self.bohr2angstroms / self.hartree2eV  # eV/ang. to a.u.
                 
                 
-                """
+                
                 if self.FC_COUNT == -1 or type(iter) is str:
                     pass
                 
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     #exact numerical hessian
-                    exact_hess = self.numerical_hessian(positions, element_number_list, method, electric_charge_and_multiplicity)
-
-                    eigenvalues, _ = np.linalg.eigh(exact_hess)
-                    print("=== hessian (before add bias potential) ===")
-                    print("eigenvalues: ", eigenvalues)
-                    
-                    exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_number_list.tolist(), positions)
-                    self.Model_hess = exact_hess
-                """
-                                 
+                    _ = self.calc_exact_hess(atom_obj, positions, element_list)             
                 
                 
 
 
-            except Exception as error:
-                print(error)
-                print("This molecule could not be optimized.")
-                finish_frag = True
-                return np.array([0]), np.array([0]), np.array([0]), finish_frag 
+            #except Exception as error:
+            #    print(error)
+            #    print("This molecule could not be optimized.")
+            #    finish_frag = True
+            #    return np.array([0]), np.array([0]), np.array([0]), finish_frag 
         positions /= self.bohr2angstroms
         self.energy = e
         self.gradient = g
@@ -183,7 +185,6 @@ class Calculation:
         pattern = r"(\d+)([A-Za-z]+)"
         match = re.match(pattern, self.SET_MEMORY.lower())
         if match:
-            # 数字と文字を取得
             number = match.group(1)
             unit = match.group(2)
         
@@ -237,3 +238,5 @@ class Calculation:
                             charge = int(electric_charge_and_multiplicity[0]),
                             mult = int(electric_charge_and_multiplicity[1]),)
         return atom_obj
+
+    
