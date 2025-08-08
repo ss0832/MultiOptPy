@@ -93,10 +93,15 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
             self.ECP = ""
         
         
-
+        self.othersoft = args.othersoft
         self.basic_set_and_function = args.functional+"/"+args.basisset
         self.force_data = force_data_parser(args)
-        if args.usextb == "None" and args.usedxtb == "None":
+        if self.othersoft != "None":
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+args.othersoft+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
+
+        
+        
+        elif args.usextb == "None" and args.usedxtb == "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT+"_iEIP_"+self.basic_set_and_function.replace("/","_")+"_"+str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])+"/"
         else:
             if args.usedxtb != "None":
@@ -713,7 +718,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
     
     
     def optimize(self):
-        if self.args.pyscf:
+        if self.othersoft != "None":
+            from ase_calculation_tools import Calculation
+        elif self.args.pyscf:
             from pyscf_calculation_tools import Calculation
         elif self.args.usextb != "None" and self.args.usedxtb == "None":
             from tblite_calculation_tools import Calculation
@@ -762,8 +769,9 @@ class iEIP:#based on Improved Elastic Image Pair (iEIP) method
                          spin_multiplicity = self.spin_multiplicity[i] or electric_charge_and_multiplicity_list[i][1],
                          excited_state = self.excite_state_list[i],
                          dft_grid=self.dft_grid,
-                         ECP = self.ECP))
-            
+                         ECP = self.ECP,
+                         software_type=self.othersoft,))
+
             SP_list[i].cpcm_solv_model = self.cpcm_solv_model
             SP_list[i].alpb_solv_model = self.alpb_solv_model
             

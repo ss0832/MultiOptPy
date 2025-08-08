@@ -141,7 +141,7 @@ class Optimize:
         date = datetime.datetime.now().strftime("%Y_%m_%d")
         base_dir = f"{date}/{self.START_FILE[:-4]}_OPT_"
 
-        if self.args.othersoft != "None":
+        if self.othersoft != "None":
             self.BPA_FOLDER_DIRECTORY = f"{base_dir}ASE_{timestamp}/"
         elif self.args.usextb == "None" and self.args.usedxtb == "None":
             self.BPA_FOLDER_DIRECTORY = f"{base_dir}{self.FUNCTIONAL}_{self.BASIS_SET}_{timestamp}/"

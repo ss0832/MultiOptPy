@@ -4,8 +4,11 @@ import copy
 import re
 import numpy as np
 
-from ase import Atoms
-from ase.vibrations import Vibrations
+try:
+    from ase import Atoms
+    from ase.vibrations import Vibrations
+except ImportError:
+    print("ASE is not installed. Please install ASE to use this module.")
 
 from calc_tools import Calculationtools
 from parameter import UnitValueLib, number_element
@@ -80,9 +83,9 @@ class Calculation:
         vib.clean()  
         exact_hess = exact_hess / self.hartree2eV * (self.bohr2angstroms ** 2)
         if type(element_list[0]) is str:
-            exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, element_list, positions)
+            exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, positions)
         else:
-            exact_hess = Calculationtools().project_out_hess_tr_and_rot(exact_hess, [number_element(elem_num) for elem_num in element_list], positions)
+            exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, [number_element(elem_num) for elem_num in element_list], positions)
         self.Model_hess = exact_hess
         return exact_hess
 
@@ -99,16 +102,7 @@ class Calculation:
         for num, input_file in enumerate(file_list):
             try:
                 if geom_num_list is None:
-                    print("\n",input_file,"\n")
-
-                    with open(input_file,"r") as f:
-                        input_data = f.readlines()
-                    
-                    positions = []
-                  
-                    for word in input_data[2:]:
-                        positions.append(word.split()[1:4])
-                
+                    positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
                     positions = geom_num_list        
                
@@ -152,7 +146,9 @@ class Calculation:
                         self.FUNCTIONAL,
                         self.BASIS_SET
                     )
-                    
+                elif self.software_type == "uma-s-1":  # Neural Network Potential
+                    atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, self.software_path_dict["uma-s-1"])
+
                 elif self.software_type == "mace_mp":  # Neural Network Potential
                     atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
                     
@@ -301,6 +297,22 @@ def use_MACE_MP(atom_obj, electric_charge_and_multiplicity):
     atom_obj.calc = macemp
     return atom_obj
 
+def use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, fairchem_path):
+    try:
+        from fairchem.core import FAIRChemCalculator
+        from fairchem.core.units.mlip_unit import load_predict_unit
+    except ImportError:
+        raise ImportError("FAIRChem.core modules not found")
+    # Load the prediction unit
+    predict_unit = load_predict_unit(path=fairchem_path, device="cpu")
+    
+    # Set up the FAIRChem calculator
+    fairchem_calc = FAIRChemCalculator(predict_unit=predict_unit, task_name="omol")
+    atom_obj.info = {"charge": int(electric_charge_and_multiplicity[0]),
+                     "spin": int(electric_charge_and_multiplicity[1])}
+    atom_obj.calc = fairchem_calc
+    return atom_obj
+
 def use_MACE_OFF(atom_obj, electric_charge_and_multiplicity):
     """Set up and return ASE atoms object with MACE_OFF calculator.
     
@@ -373,25 +385,11 @@ class ASEEngine(CalculationEngine):
     This engine uses the Atomic Simulation Environment (ASE) to interface with various
     quantum chemistry software packages like GAMESSUS, NWChem, Gaussian, ORCA, MACE, and MOPAC.
     """
-    def __init__(self, **kwarg):
+    def __init__(self, **kwargs):
         UVL = UnitValueLib()
 
         self.bohr2angstroms = UVL.bohr2angstroms
         self.hartree2eV = UVL.hartree2eV
-        
-        self.START_FILE = kwarg["START_FILE"]
-        self.N_THREAD = kwarg["N_THREAD"]
-        self.SET_MEMORY = kwarg["SET_MEMORY"]
-        self.FUNCTIONAL = kwarg["FUNCTIONAL"]
-        self.BASIS_SET = kwarg["BASIS_SET"]
-        self.FC_COUNT = kwarg["FC_COUNT"]
-        self.BPA_FOLDER_DIRECTORY = kwarg["BPA_FOLDER_DIRECTORY"]
-        self.Model_hess = kwarg["Model_hess"]
-        self.unrestrict = kwarg["unrestrict"]
-        self.software_type = kwarg["software_type"]
-        self.hessian_flag = False
-        self.software_path_dict = read_software_path()
-
 
     def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         """Calculate energy and gradients using ASE and the configured software.
@@ -426,7 +424,7 @@ class ASEEngine(CalculationEngine):
         geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
         
         hess_count = 0
-        software_type = config.software_type
+        software_type = config.othersoft
         software_path_dict = read_software_path()
         
         for num, input_file in enumerate(file_list):
@@ -472,10 +470,14 @@ class ASEEngine(CalculationEngine):
                         config.FUNCTIONAL,
                         config.BASIS_SET
                     )
+                elif software_type == "uma-s-1":  # Neural Network Potential
+                    atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, software_path_dict["uma-s-1"])
                 elif software_type == "mace_mp":  # Neural Network Potential
                     atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
                 elif software_type == "mace_off":  # Neural Network Potential
                     atom_obj = use_MACE_OFF(atom_obj, electric_charge_and_multiplicity)
+
+
                 elif software_type == "mopac":
                     atom_obj = use_MOPAC(atom_obj, electric_charge_and_multiplicity, input_file)
                 else:
@@ -483,14 +485,14 @@ class ASEEngine(CalculationEngine):
                     raise ValueError(f"Unsupported software type: {software_type}")
 
                 # Calculate energy and forces
-                e = atom_obj.get_potential_energy(apply_constraint=False) / config.hartree2eV  # eV to hartree
-                g = -1 * atom_obj.get_forces(apply_constraint=False) * config.bohr2angstroms / config.hartree2eV  # eV/ang. to a.u.
+                e = atom_obj.get_potential_energy(apply_constraint=False) / self.hartree2eV  # eV to hartree
+                g = -1 * atom_obj.get_forces(apply_constraint=False) * self.bohr2angstroms / self.hartree2eV  # eV/ang. to a.u.
                 
                 # Store results
                 energy_list.append(e)
                 gradient_list.append(g)
                 gradient_norm_list.append(np.sqrt(np.linalg.norm(g)**2/(len(g)*3)))  # RMS
-                geometry_num_list.append(positions / config.bohr2angstroms)  # Convert to Bohr
+                geometry_num_list.append(positions / self.bohr2angstroms)  # Convert to Bohr
                 num_list.append(num)
                 
                 # Handle hessian calculation if needed
@@ -505,14 +507,12 @@ class ASEEngine(CalculationEngine):
                     vib.clean()  
                     
                     # Convert hessian units
-                    exact_hess = exact_hess / config.hartree2eV * (config.bohr2angstroms ** 2)
-                    
+                    exact_hess = exact_hess / self.hartree2eV * (self.bohr2angstroms ** 2)
+
                     # Project out translational and rotational modes
                     calc_tools = Calculationtools()
-                    element_number_list = [number_element(elem) for elem in element_list]
-                    exact_hess = calc_tools.project_out_hess_tr_and_rot(
-                        exact_hess, element_number_list, positions / config.bohr2angstroms
-                    )
+                    exact_hess = calc_tools.project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, positions)
+                       
                     
                     # Save hessian
                     np.save(os.path.join(config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{hess_count}.npy"), exact_hess)
