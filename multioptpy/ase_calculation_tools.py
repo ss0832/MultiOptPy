@@ -470,7 +470,7 @@ class ASEEngine(CalculationEngine):
                         config.FUNCTIONAL,
                         config.BASIS_SET
                     )
-                elif software_type == "uma-s-1" or self.software_type == "uma-s-1p1" or self.software_type == "uma-m-1p1":  # Neural Network Potential
+                elif software_type == "uma-s-1" or software_type == "uma-s-1p1" or software_type == "uma-m-1p1":  # Neural Network Potential
                     atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, software_path_dict["uma-s-1"])
                 elif software_type == "mace_mp":  # Neural Network Potential
                     atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
