@@ -146,7 +146,7 @@ class Calculation:
                         self.FUNCTIONAL,
                         self.BASIS_SET
                     )
-                elif self.software_type == "uma-s-1":  # Neural Network Potential
+                elif self.software_type == "uma-s-1" or self.software_type == "uma-s-1p1" or self.software_type == "uma-m-1p1":  # Neural Network Potential
                     atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, self.software_path_dict["uma-s-1"])
 
                 elif self.software_type == "mace_mp":  # Neural Network Potential
@@ -297,7 +297,7 @@ def use_MACE_MP(atom_obj, electric_charge_and_multiplicity):
     atom_obj.calc = macemp
     return atom_obj
 
-def use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, fairchem_path):
+def use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, fairchem_path): # fairchem.core: version 2.2.0
     try:
         from fairchem.core import FAIRChemCalculator
         from fairchem.core.units.mlip_unit import load_predict_unit
@@ -470,7 +470,7 @@ class ASEEngine(CalculationEngine):
                         config.FUNCTIONAL,
                         config.BASIS_SET
                     )
-                elif software_type == "uma-s-1":  # Neural Network Potential
+                elif software_type == "uma-s-1" or self.software_type == "uma-s-1p1" or self.software_type == "uma-m-1p1":  # Neural Network Potential
                     atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, software_path_dict["uma-s-1"])
                 elif software_type == "mace_mp":  # Neural Network Potential
                     atom_obj = use_MACE_MP(atom_obj, electric_charge_and_multiplicity)
