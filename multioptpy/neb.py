@@ -67,6 +67,7 @@ from tblite_calculation_tools import TBLiteEngine
 from pyscf_calculation_tools import PySCFEngine
 from psi4_calculation_tools import Psi4Engine
 from dxtb_calculation_tools import DXTBEngine
+from ase_calculation_tools import ASEEngine
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -131,6 +132,7 @@ class NEBConfig:
         self.dft_grid = int(args.dft_grid)
         self.spring_constant_k = 0.01
         self.force_const_for_cineb = 0.01
+        self.othersoft = args.othersoft
         
         # FIRE method parameters
         self.FIRE_dt = 0.1
@@ -213,8 +215,11 @@ class NEBConfig:
             tmp_name = input_file 
         
         timestamp = str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])
-        
-        if self.usextb == "None" and self.usedxtb == "None":
+        if self.othersoft != "None":
+            return tmp_name + "_NEB_" + self.othersoft + "_" + timestamp + "/"
+
+
+        elif self.usextb == "None" and self.usedxtb == "None":
             return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + timestamp + "/"
         else:
             if self.usextb != "None":
@@ -229,7 +234,9 @@ class CalculationEngineFactory:
     @staticmethod
     def create_engine(config):
         """Create appropriate calculation engine based on configuration"""
-        if config.usextb != "None":
+        if config.othersoft != "None":
+            return ASEEngine()    
+        elif config.usextb != "None":
             return TBLiteEngine()
         elif config.usedxtb != "None":
             return DXTBEngine()
