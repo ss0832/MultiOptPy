@@ -711,7 +711,7 @@ class NEB:
         # Apply IDPP if requested
         if self.config.IDPP_flag:
             IDPP_obj = IDPP()
-            tmp_data = IDPP_obj.opt_path(tmp_data)
+            tmp_data = IDPP_obj.opt_path(tmp_data, element_list)
         
         # Align distances if requested
         if self.config.align_distances > 0:
@@ -821,7 +821,7 @@ def apply_climbing_image(geometry_list, energy_list):
             tmp_geometry = geometry_list[i] + (geometry_list[i+1] - geometry_list[i]) * delta_t
             tmp_geom_list = [geometry_list[i], tmp_geometry, geometry_list[i+1]]
             idpp_instance = IDPP()
-            tmp_geom_list = idpp_instance.opt_path(tmp_geom_list)
+            tmp_geom_list = idpp_instance.opt_path(tmp_geom_list, element_list)
             geometry_list[i] = tmp_geom_list[1]
     return geometry_list
 
