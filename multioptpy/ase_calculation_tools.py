@@ -3,6 +3,7 @@ import os
 import copy
 import re
 import numpy as np
+import datetime
 
 try:
     from ase import Atoms
@@ -15,7 +16,6 @@ from parameter import UnitValueLib, number_element
 from fileio import read_software_path, xyz2list
 from visualization import NEBVisualizer
 from abc import ABC, abstractmethod
-
 
 """
 referrence:
@@ -76,7 +76,8 @@ class Calculation:
         self.software_path_dict = read_software_path()
 
     def calc_exact_hess(self, atom_obj, positions, element_list):
-        vib = Vibrations(atoms=atom_obj, delta=0.001)
+        timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]
+        vib = Vibrations(atoms=atom_obj, delta=0.001, name="z_hess_"+timestamp)
         vib.run()
         result_vib = vib.get_vibrations()
         exact_hess = result_vib.get_hessian_2d() # eV/Å²
@@ -500,7 +501,8 @@ class ASEEngine(CalculationEngine):
                     pass
                 elif optimize_num % config.FC_COUNT == 0:
                     # Calculate exact numerical hessian
-                    vib = Vibrations(atoms=atom_obj, delta=0.001)
+                    timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]
+                    vib = Vibrations(atoms=atom_obj, delta=0.001, name="z_hess_"+timestamp)
                     vib.run()
                     result_vib = vib.get_vibrations()
                     exact_hess = result_vib.get_hessian_2d()  # eV/Å²
