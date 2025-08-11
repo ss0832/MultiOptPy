@@ -115,32 +115,33 @@ class FileIO:
     
     def make_geometry_list(self, args_electric_charge_and_multiplicity):
         """Load initial structure"""
-        geometry_list = []
-        element_list = []
-        start_data = []
         tmp_geometry_list, element_list, electric_charge_and_multiplicity = xyz2list(self.START_FILE, args_electric_charge_and_multiplicity)
         natoms = len(tmp_geometry_list)
-        start_data.append(str(natoms))
-        start_data.append(electric_charge_and_multiplicity)
-        for j in range(len(tmp_geometry_list)):
-            start_data.append([element_list[j]] + tmp_geometry_list[j])
-        geometry_list.append(start_data)
-        return geometry_list, element_list, electric_charge_and_multiplicity
+        
+        # Create start_data with list comprehension instead of for loop
+        start_data = [
+            str(natoms),
+            electric_charge_and_multiplicity,
+            *[[element_list[j]] + tmp_geometry_list[j] for j in range(len(tmp_geometry_list))]
+        ]
+        
+        return [start_data], element_list, electric_charge_and_multiplicity
 
 
     def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
         """load structure updated geometry for next QM calculation"""
         new_geometry = new_geometry.tolist()
-        geometry_list = []
         print("\n")
-        new_data = [electric_charge_and_multiplicity]
+        
+        # Process all geometries at once with list comprehension
+        formatted_geometries = []
         for num, geometry in enumerate(new_geometry):
-            geometry = list(map(str, geometry))
-            geometry = [element_list[num]] + geometry
-            new_data.append(geometry)
-            print(f"{geometry[0]:2}   {float(geometry[1]):>17.12f}   {float(geometry[2]):>17.12f}   {float(geometry[3]):>17.12f}")
-            
-        geometry_list.append(new_data)
+            element = element_list[num]
+            formatted_geometry = [element] + list(map(str, geometry))
+            formatted_geometries.append(formatted_geometry)
+            print(f"{element:2}   {float(geometry[0]):>17.12f}   {float(geometry[1]):>17.12f}   {float(geometry[2]):>17.12f}")
+        
+        geometry_list = [[electric_charge_and_multiplicity, *formatted_geometries]]
         print("")
         
         return geometry_list

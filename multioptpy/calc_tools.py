@@ -1,9 +1,9 @@
 import itertools
 import numpy as np
 import copy
+from scipy.spatial import cKDTree
 
-from parameter import covalent_radii_lib, atomic_mass
-
+from parameter import covalent_radii_lib, atomic_mass, UnitValueLib
 try:
     import torch
 except:
@@ -309,31 +309,57 @@ class Calculationtools:
                 tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
                 print(" ".join(f"{val:12.8f}" for val in tmp_arr))
          
-        return hess_proj    
-    
-  
-    def check_atom_connectivity(self, mol_list, element_list, atom_num, covalent_radii_threshold_scale=1.2):
+        return hess_proj
+
+    def check_atom_connectivity(self, mol_list, element_list, atom_num, covalent_radii_threshold_scale=1.2):#mol_list:ang.
+        # Convert molecular coordinates to numpy array
+        coords = np.array(mol_list, dtype=np.float64)
+        
+        # Build KD-Tree for efficient nearest neighbor searches
+        kdtree = cKDTree(coords)
+        
+        # Initialize arrays for tracking
+        n_atoms = len(mol_list)
         connected_atoms = [atom_num]
         searched_atoms = []
+        
+        # Pre-calculate covalent radii for each element to avoid repeated lookups
+        cov_radii = [covalent_radii_lib(element) * UnitValueLib().bohr2angstroms for element in element_list]
+        
         while True:
+            search_progress = False
             for i in connected_atoms:
                 if i in searched_atoms:
                     continue
                 
-                for j in range(len(mol_list)):
-                    dist = np.linalg.norm(np.array(mol_list[i], dtype="float64") - np.array(mol_list[j], dtype="float64"))
+                # Calculate max possible bond distance for this atom
+                # This is a conservative estimate to limit initial search radius
+                max_cov_radius = max([cov_radii[i] + cov_radii[j] for j in range(n_atoms)]) * covalent_radii_threshold_scale
+                
+                # Query the KD-Tree for potential neighbors within the max bond distance
+                potential_neighbors = kdtree.query_ball_point(coords[i], max_cov_radius)
+                
+                # Check each potential neighbor more precisely
+                for j in potential_neighbors:
+                    if j == i or j in connected_atoms:
+                        continue
                     
-                    covalent_dist_threshold = covalent_radii_threshold_scale * (covalent_radii_lib(element_list[i]) + covalent_radii_lib(element_list[j]))
+                    # Calculate exact threshold for this specific pair
+                    covalent_dist_threshold = covalent_radii_threshold_scale * (cov_radii[i] + cov_radii[j])
+                    
+                    # Calculate distance
+                    dist = np.linalg.norm(coords[i] - coords[j])
                     
                     if dist < covalent_dist_threshold:
-                        if not j in connected_atoms:
-                            connected_atoms.append(j)
+                        connected_atoms.append(j)
+                        search_progress = True
                 
                 searched_atoms.append(i)
+                search_progress = True
             
-            if len(connected_atoms) == len(searched_atoms):
+            if not search_progress or len(connected_atoms) == len(searched_atoms):
                 break
-     
+   
         return sorted(connected_atoms)
     
     def calc_fragm_distance_matrix(self, fragm_coord_list):

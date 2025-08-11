@@ -810,10 +810,9 @@ class Optimize:
         while len(atom_label_list) > 0:
             tmp_fragm_list = Calculationtools().check_atom_connectivity(new_geometry, element_list, atom_label_list[0])
             
-            for j in tmp_fragm_list:
-                atom_label_list.remove(j)
+            atom_label_list = list(set(atom_label_list) - set(tmp_fragm_list))
             fragm_atom_num_list.append(tmp_fragm_list)
-        
+       
         if len(fragm_atom_num_list) > 1:
             fragm_dist_list = []
             for fragm_1_num, fragm_2_num in list(itertools.combinations(fragm_atom_num_list, 2)):
