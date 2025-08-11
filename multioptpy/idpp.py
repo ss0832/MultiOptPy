@@ -12,7 +12,7 @@ class IDPP:
         #ref.: arXiv:1406.1512v1
         self.iteration = 2000
         self.lr = 0.01
-        self.threshold = 1e-5
+        self.threshold = 1e-4
         return
     
     def calc_obj_func(self, idpp_dist_matrix, dist_matrix):
@@ -71,41 +71,115 @@ class IDPP:
         return obj_func, first_deriv
         
     
-    def opt_path(self, geometry_list, element_list):
-        print("IDPP Optimization")
+    def opt_path(self, geometry_list, element_list, memory_size=30):
+        """
+        Optimize the path using L-BFGS algorithm with the original step size limiting.
+        
+        Parameters:
+        -----------
+        geometry_list : list of numpy arrays
+            List of geometries to optimize
+        element_list : list
+            List of elements (preserved for compatibility)
+        memory_size : int
+            Number of correction pairs to store for L-BFGS
+        
+        Returns:
+        --------
+        list of numpy arrays
+            Optimized geometries
+        """
+        print("IDPP Optimization with L-BFGS")
+        
+        # Initialize L-BFGS memory for each image
+        s_list = [[] for _ in range(len(geometry_list))]
+        y_list = [[] for _ in range(len(geometry_list))]
+        rho_list = [[] for _ in range(len(geometry_list))]
+        
+        def lbfgs_direction(gradient, j):
+            """Compute the L-BFGS search direction using two-loop recursion"""
+            if len(s_list[j]) == 0:
+                return -gradient
+            
+            q = gradient.copy()
+            alpha_list = []
+            
+            # First loop: compute alpha values and update q
+            for i in range(len(s_list[j])-1, -1, -1):
+                alpha = rho_list[j][i] * np.sum(s_list[j][i] * q)
+                alpha_list.insert(0, alpha)
+                q = q - alpha * y_list[j][i]
+            
+            # Scale with gamma
+            i = len(s_list[j]) - 1
+            denominator = np.sum(y_list[j][i] * y_list[j][i]) # Avoid division by zero
+            if np.abs(denominator) > 1e-10:
+                gamma = np.sum(s_list[j][i] * y_list[j][i]) / denominator
+            else:
+                gamma = 0
+            r = gamma * q
+            
+            # Second loop: compute search direction
+            for i in range(len(s_list[j])):
+                beta = rho_list[j][i] * np.sum(y_list[j][i] * r)
+                r = r + s_list[j][i] * (alpha_list[i] - beta)
+            
+            return -r
         
         for i in range(self.iteration):
             obj_func_list = []
-            #FBENM_instance = FBENM(element_list, geometry_list)
+            
             for j in range(len(geometry_list)):
-                
                 if j == 0 or j == len(geometry_list) - 1:
                     continue
                 
-                obj_func_idpp, first_deriv_idpp = self.get_func_and_deriv(geometry_list, len(geometry_list), j)
+                # Save current position for computing displacement later
+                current_pos = geometry_list[j].copy()
                 
-                #obj_func_fbenm, first_deriv_fbenm = FBENM_instance.get_func_and_deriv(geometry_list[j])
-                
-                obj_func = obj_func_idpp# + obj_func_fbenm
-                first_deriv = first_deriv_idpp# + first_deriv_fbenm
-                
-                step_norm = min(self.lr, np.linalg.norm(first_deriv))
-                norm_step = first_deriv / np.linalg.norm(first_deriv)
-                
-                geometry_list[j] -= step_norm * norm_step
-            
+                # Get objective function and gradient
+                obj_func, gradient = self.get_func_and_deriv(geometry_list, len(geometry_list), j)
                 obj_func_list.append(obj_func)
+                gradient *= -1
+                # Compute search direction using L-BFGS
+                search_dir = lbfgs_direction(gradient, j)
+                
+                # Apply the original step size limiting algorithm
+                step_norm = min(self.lr, np.linalg.norm(search_dir))
+                if np.linalg.norm(search_dir) > 1e-10:  # Avoid division by zero
+                    norm_step = search_dir / np.linalg.norm(search_dir)
+                    geometry_list[j] -= step_norm * norm_step
+                
+                # Update L-BFGS memory after taking the step
+                new_obj_func, new_gradient = self.get_func_and_deriv(geometry_list, len(geometry_list), j)
+                
+                # Compute s and y vectors
+                s = geometry_list[j] - current_pos
+                y = new_gradient - gradient
+                
+                # Only update memory if curvature condition is satisfied
+                sy_product = np.sum(s * y)
+                if sy_product > 1e-10:
+                    # Manage memory size
+                    if len(s_list[j]) >= memory_size:
+                        s_list[j].pop(0)
+                        y_list[j].pop(0)
+                        rho_list[j].pop(0)
+                    
+                    s_list[j].append(s)
+                    y_list[j].append(y)
+                    rho_list[j].append(1.0 / sy_product)
+            
             if i % 200 == 0:
                 print("ITR: ", i)
                 print("Objective function (Max): ", max(obj_func_list))
-        
+            
             if max(obj_func_list) < self.threshold:
                 print("ITR: ", i)
                 print("IDPP Converged!!!")
                 break
+        
         print("IDPP Optimization Done.")
         return geometry_list
-
 
 class FBENM:# This class is under construction. 
     """
