@@ -217,8 +217,12 @@ def tensor2ndarray(tensor):
 def gradually_change_param(param_1, param_2, iter):
     partition = 300
     parameter = param_1 + ((param_2 - param_1)/partition) * int(iter)
-    
-    return parameter
+    if param_1 < param_2:
+        return min(parameter, param_2)
+    elif param_1 > param_2:
+        return max(parameter, param_2)
+    else:
+        return parameter
 
 def make_micro_iter_bias_pot_obj_list(force_data, element_list, file_directory, JOBID, geom_num_list, iter):
     bias_pot_obj_list = []

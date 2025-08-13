@@ -1340,7 +1340,18 @@ class Optimize:
             START_FILE_LIST = [self.args.INPUT]
         else:
             START_FILE_LIST = self.args.INPUT #
-        for file in START_FILE_LIST:
+        
+        job_file_list = []
+        
+        for job_file in START_FILE_LIST:
+            print()
+            if "*" in job_file:
+                result_list = glob.glob(job_file)
+                job_file_list = job_file_list + result_list
+            else:
+                job_file_list = job_file_list + [job_file]
+        
+        for file in job_file_list:
             print("********************************")
             print(file)
             print("********************************")
