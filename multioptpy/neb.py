@@ -4,22 +4,15 @@ import sys
 import glob
 import datetime
 import matplotlib.pyplot as plt
-import random
 import copy
 import re
-from scipy.signal import argrelextrema
-from abc import ABC, abstractmethod
+
 
 try:
     import psi4
 except:
     psi4 = None
     print("You can't use psi4.")
-
-try:
-    from tblite.interface import Calculator
-except:
-    print("You can't use extended tight binding method.")
 
 try:
     import pyscf
@@ -34,10 +27,7 @@ try:
 except:
     print("You can't use dxtb.")
 
-try:
-    import torch
-except:
-    print("You can't use pytorch.")
+
 
 from interface import force_data_parser
 from parameter import element_number
@@ -50,14 +40,12 @@ from pathopt_om_force import CaluculationOM
 from pathopt_ewbneb_force import CaluculationEWBNEB
 from calc_tools import Calculationtools
 from idpp import IDPP
-from Optimizer.rfo import RationalFunctionOptimization 
 from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
 from fileio import xyz2list, traj2list, FileIO
 from multioptpy.Optimizer import lbfgs_neb 
 from multioptpy.Optimizer import conjugate_gradient_neb
 from multioptpy.Optimizer import trust_radius_neb 
-from multioptpy.Optimizer import rsirfo
 from multioptpy.Optimizer.fire_neb import FIREOptimizer
 from multioptpy.Optimizer.rfo_neb import RFOOptimizer
 from multioptpy.Optimizer.gradientdescent_neb import SteepestDescentOptimizer
@@ -151,8 +139,8 @@ class NEBConfig:
         self.set_fixed_edges(args)
         
         # Input file and directory settings
-        self.init_input = args.INPUT
-        self.NEB_FOLDER_DIRECTORY = self.make_neb_work_directory(args.INPUT)
+        self.init_input = args.JOB
+        self.NEB_FOLDER_DIRECTORY = self.make_neb_work_directory(args.JOB)
         
     def set_sub_basisset(self, args):
         """Set up basis set configuration"""
@@ -282,26 +270,56 @@ class NEB:
     """Main NEB (Nudged Elastic Band) calculation class (Refactored version)"""
     
     def __init__(self, args):
-        # Initialize configuration
-        self.config = NEBConfig(args)
-        
-        # Create calculation engine
-        self.calculation_engine = CalculationEngineFactory.create_engine(self.config)
-        
-        # Initialize visualizer if needed
-        if self.config.save_pict:
-            self.visualizer = NEBVisualizer(self.config)
-        
-        # Create working directory
-        os.mkdir(self.config.NEB_FOLDER_DIRECTORY)
-        
         # Store original args for backward compatibility
         self.args = args
+       
         
-        # Set element list (will be initialized in run method)
-        self.element_list = None
+    def set_job(self, job):
+        self.args.JOB = job
     
     def run(self):
+        if type(self.args.INPUT) is str:
+            START_FILE_LIST = [self.args.INPUT]
+        else:
+            START_FILE_LIST = self.args.INPUT #
+        
+        job_file_list = []
+        
+        for job_file in START_FILE_LIST:
+            print()
+            if "*" in job_file:
+                result_list = glob.glob(job_file)
+                job_file_list = job_file_list + result_list
+            else:
+                job_file_list = job_file_list + [job_file]
+        
+        for job in job_file_list:
+            print("********************************")
+            print(job)
+            print("********************************")
+            if not os.path.exists(job):
+                print(f"{job} does not exist (neither as a file nor a directory).")
+                continue
+            self.set_job(job)
+            
+            # Initialize configuration
+            self.config = NEBConfig(self.args)
+        
+            # Create calculation engine
+            self.calculation_engine = CalculationEngineFactory.create_engine(self.config)
+        
+            # Initialize visualizer if needed
+            if self.config.save_pict:
+                self.visualizer = NEBVisualizer(self.config)
+        
+            # Create working directory
+            os.mkdir(self.config.NEB_FOLDER_DIRECTORY)
+        
+            # Set element list (will be initialized in run method)
+            self.element_list = None
+            self.execute()
+
+    def execute(self):
         """Execute NEB calculation"""
         # Load and prepare geometries
         geometry_list, element_list, electric_charge_and_multiplicity = self.make_geometry_list(
