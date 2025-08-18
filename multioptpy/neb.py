@@ -32,7 +32,7 @@ except:
 from interface import force_data_parser
 from parameter import element_number
 from potential import BiasPotentialCalculation
-from pathopt_bneb_force import CaluculationBNEB, CaluculationBNEB2
+from pathopt_bneb_force import CaluculationBNEB, CaluculationBNEB2, CaluculationBNEB3
 from pathopt_dneb_force import CaluculationDNEB
 from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
@@ -87,7 +87,9 @@ class NEBConfig:
         self.dneb = args.DNEB
         self.nesb = args.NESB
         self.bneb = args.BNEB
+        self.bneb2 = args.BNEB2
         self.ewbneb = args.EWBNEB
+
         
         # Optimization settings
         self.FC_COUNT = args.calc_exact_hess
@@ -450,7 +452,7 @@ class NEB:
             # Apply climbing image if needed
             if (optimize_num > self.config.climbing_image_start and 
                 (optimize_num - self.config.climbing_image_start) % self.config.climbing_image_interval == 0):
-                new_geometry = apply_climbing_image(new_geometry, biased_energy_list)
+                new_geometry = apply_climbing_image(new_geometry, biased_energy_list, element_list)
             
             # Apply constraints
             new_geometry = self._apply_constraints(
@@ -499,6 +501,8 @@ class NEB:
             return CaluculationNESB(self.config.APPLY_CI_NEB)
         elif self.config.bneb:
             return CaluculationBNEB2(self.config.APPLY_CI_NEB)
+        elif self.config.bneb2:
+            return CaluculationBNEB3(self.config.APPLY_CI_NEB)
         elif self.config.ewbneb:
             return CaluculationEWBNEB(self.config.APPLY_CI_NEB)
         else:
@@ -652,12 +656,21 @@ class NEB:
     def _apply_constraints(self, new_geometry, fix_atom_flag, force_data, 
                           init_geometry_num_list, projection_constraint_flag, PC_list):
         """Apply various constraints to the new geometry"""
+        
+        # Apply fixing edge node
+        if self.config.fix_init_edge:
+            new_geometry[0] = init_geometry_num_list[0] * self.config.bohr2angstroms
+        if self.config.fix_end_edge:
+            new_geometry[-1] = init_geometry_num_list[-1] * self.config.bohr2angstroms
+        
+        
         # Apply fixed atoms constraint
         if fix_atom_flag:
             for k in range(len(new_geometry)):
                 for j in force_data["fix_atoms"]:
                     new_geometry[k][j-1] = copy.copy(init_geometry_num_list[k][j-1] * self.config.bohr2angstroms)
         
+
         # Apply projection constraints
         if projection_constraint_flag:
             for x in range(len(new_geometry)):
@@ -823,7 +836,7 @@ def calc_path_length_list(geometry_list):
     return path_length_list
 
 
-def apply_climbing_image(geometry_list, energy_list):
+def apply_climbing_image(geometry_list, energy_list, element_list):
     """Apply climbing image method to locate transition states"""
     path_length_list = calc_path_length_list(geometry_list)
     total_length = path_length_list[-1]

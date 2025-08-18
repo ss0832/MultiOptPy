@@ -430,7 +430,7 @@ class MolecularVibrations:
             sigma = 1
         return sigma
 
-    def print_normal_modes(self, output_stream=sys.stdout, output_file=None, include_imag=True, cutoff_freq=10.0):
+    def print_normal_modes(self, output_stream=sys.stdout, output_file=None, include_imag=True, cutoff_freq=0.1):
         """
         Print normal mode information to both console and file (if output_file is given).
 

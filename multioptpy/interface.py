@@ -59,7 +59,12 @@ def ieipparser(parser):
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
     parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
-    
+    # Other Chain of State methods
+    parser.add_argument('-gnt','--use_gnt', help="Use GNT (Growing Newton Trajectory)", action='store_true')
+    parser.add_argument('-gnt_vec','--gnt_vec', help="set vector to calculate Newton trajectory (ex. 1,2,3 (default:calculate vector reactant to product) )", type=str, default=None)
+    parser.add_argument('-gnt_step','--gnt_step_len', help="set step length for Newton trajectory (default: 0.5)", type=float, default=0.5)
+    parser.add_argument('-gnt_mi','--gnt_microiter', help="max number of micro-iteration for Newton trajectory (default: 25)", type=int, default=25)
+
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
@@ -173,7 +178,7 @@ def parser_for_biasforce(parser):
 
 
 def nebparser(parser):
-    parser.add_argument("INPUT", help='input folder')
+    parser.add_argument("INPUT", help='input folder', nargs="*")
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
     parser.add_argument("-ecp", "--effective_core_potential", type=str, nargs="*", default='', help='ECP (ex. I LanL2DZ) (notice) If you assign ECP to all atoms of inputs, type "default (basis_set name)". ')
@@ -185,11 +190,12 @@ def nebparser(parser):
     parser.add_argument("-om", "--OM", action='store_true', help='J. Chem. Phys. 155, 074103 (2021)  doi:https://doi.org/10.1063/5.0059593 This improved NEB method is inspired by the Onsager-Machlup (OM) action.')
     parser.add_argument("-lup", "--LUP", action='store_true', help='J. Chem. Phys. 92, 1510–1511 (1990) doi:https://doi.org/10.1063/1.458112 locally updated planes (LUP) method')
     parser.add_argument("-bneb", "--BNEB", action='store_true', help="NEB using Wilson's B matrix for calculating the perpendicular force.")
+    parser.add_argument("-bneb2", "--BNEB2", action='store_true', help="NEB using Wilson's B matrix for calculating the perpendicular force with parallel spring force.")
     parser.add_argument("-dneb", "--DNEB", action='store_true', help='J. Chem. Phys. 120, 2082–2094 (2004) doi:https://doi.org/10.1063/1.1636455 doubly NEB method (DNEB) method')
     parser.add_argument("-nesb", "--NESB", action='store_true', help='J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169 Nudged elastic stiffness band (NESB) method')
    
     parser.add_argument("-ewbneb", "--EWBNEB", action='store_true', help='Energy-weighted Nudged elastic band method')
-    
+
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals linearly')
     parser.add_argument("-nd", "--node_distance", type=float, default=None, help='distribute images at equal intervals linearly based ont specific distance (ex.) [distance (ang.)] (default: None)')
