@@ -905,6 +905,7 @@ def distribute_geometry_by_length(geometry_list, angstrom_spacing):
     return new_geometry_list
 
 
+
 def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_iterations=1000, tolerance=1e-6):
     """Distribute geometries by specified distance spacing"""
 
@@ -970,65 +971,111 @@ def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_itera
             current_geom_centered = current_geom - np.mean(current_geom, axis=0)
             current_distance = np.linalg.norm(current_geom_centered - prev_geom_centered)
             
-            # Exit if distance is accurate enough
-            if abs(current_distance - target_distance) < tolerance:
-                break
+            # Search in both directions to find better position
+            delta_dist = target_distance - current_distance
             
-            # Move forward along the path if distance is too small, backward if too large
-            if current_distance < target_distance:
-                # Move forward
-                delta_dist = target_distance - current_distance
+            # Store initial geometry for distance comparison
+            initial_geom = current_geom.copy()
+            
+            # Try moving forward
+            forward_geom = None
+            forward_segment = current_segment
+            forward_t = current_t
+            forward_distance = float('inf')
+            
+            # Advance within current segment
+            segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
+            remaining_segment = (1 - current_t) * segment_length
+            
+            if delta_dist > 0 and delta_dist <= remaining_segment:
+                # Adjustment possible within current segment
+                move_t = delta_dist / segment_length
+                forward_t = current_t + move_t
+                forward_geom = geometry_list[current_segment] + forward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+            elif delta_dist > 0:
+                # Need to move to next segment
+                remaining_dist = delta_dist - remaining_segment
                 
-                # Advance within current segment
-                segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
-                remaining_segment = (1 - current_t) * segment_length
-                
-                if delta_dist <= remaining_segment:
-                    # Adjustment possible within current segment
-                    move_t = delta_dist / segment_length
-                    current_t += move_t
-                    current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+                # If next segment exists
+                if current_segment + 1 < len(geometry_list) - 1:
+                    forward_segment = current_segment + 1
+                    next_segment_length = path_length_list[forward_segment+1] - path_length_list[forward_segment]
+                    forward_t = min(remaining_dist / next_segment_length, 0.99)  # Prevent boundary crossing
+                    forward_geom = geometry_list[forward_segment] + forward_t * (geometry_list[forward_segment+1] - geometry_list[forward_segment])
                 else:
-                    # Need to move to next segment
-                    remaining_dist = delta_dist - remaining_segment
-                    
-                    # If next segment exists
-                    if current_segment + 1 < len(geometry_list) - 1:
-                        current_segment += 1
-                        next_segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
-                        current_t = min(remaining_dist / next_segment_length, 0.99)  # Prevent boundary crossing
-                        current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-                    else:
-                        # If we can't move further, stay at end of last segment
-                        current_t = 0.99
-                        current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-            else:
-                # Move backward
-                delta_dist = current_distance - target_distance
+                    # If we can't move further, stay at end of last segment
+                    forward_t = 0.99
+                    forward_geom = geometry_list[current_segment] + forward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+            
+            # Try moving backward
+            backward_geom = None
+            backward_segment = current_segment
+            backward_t = current_t
+            backward_distance = float('inf')
+            
+            if delta_dist < 0:
+                delta_dist_abs = abs(delta_dist)
                 
                 # Retreat within current segment
-                segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
                 traversed_segment = current_t * segment_length
                 
-                if delta_dist <= traversed_segment:
+                if delta_dist_abs <= traversed_segment:
                     # Adjustment possible within current segment
-                    move_t = delta_dist / segment_length
-                    current_t -= move_t
-                    current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+                    move_t = delta_dist_abs / segment_length
+                    backward_t = current_t - move_t
+                    backward_geom = geometry_list[current_segment] + backward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
                 else:
                     # Need to move to previous segment
-                    remaining_dist = delta_dist - traversed_segment
+                    remaining_dist = delta_dist_abs - traversed_segment
                     
                     # If previous segment exists
                     if current_segment > 0:
-                        current_segment -= 1
-                        prev_segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
-                        current_t = max(1 - (remaining_dist / prev_segment_length), 0.01)  # Prevent boundary crossing
-                        current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+                        backward_segment = current_segment - 1
+                        prev_segment_length = path_length_list[backward_segment+1] - path_length_list[backward_segment]
+                        backward_t = max(1 - (remaining_dist / prev_segment_length), 0.01)  # Prevent boundary crossing
+                        backward_geom = geometry_list[backward_segment] + backward_t * (geometry_list[backward_segment+1] - geometry_list[backward_segment])
                     else:
                         # If we can't move further, stay at start of first segment
-                        current_t = 0.01
-                        current_geom = geometry_list[current_segment] + current_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+                        backward_t = 0.01
+                        backward_geom = geometry_list[current_segment] + backward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
+            
+            # Calculate distances for both directions
+            forward_satisfies_tolerance = False
+            backward_satisfies_tolerance = False
+            
+            if forward_geom is not None:
+                forward_geom_centered = forward_geom - np.mean(forward_geom, axis=0)
+                forward_distance = abs(np.linalg.norm(forward_geom_centered - prev_geom_centered) - target_distance)
+                forward_satisfies_tolerance = forward_distance < tolerance
+            
+            if backward_geom is not None:
+                backward_geom_centered = backward_geom - np.mean(backward_geom, axis=0)
+                backward_distance = abs(np.linalg.norm(backward_geom_centered - prev_geom_centered) - target_distance)
+                backward_satisfies_tolerance = backward_distance < tolerance
+            
+            # If both satisfy tolerance, choose forward (later in path) direction
+            if forward_satisfies_tolerance and backward_satisfies_tolerance:
+                current_geom = forward_geom
+                current_segment = forward_segment
+                current_t = forward_t
+                break  # Exit iteration as we found satisfactory result
+            
+            # If only one satisfies tolerance, choose that one
+            elif forward_satisfies_tolerance:
+                current_geom = forward_geom
+                current_segment = forward_segment
+                current_t = forward_t
+                break
+            elif backward_satisfies_tolerance:
+                current_geom = backward_geom
+                current_segment = backward_segment
+                current_t = backward_t
+                break
+            
+            # If neither satisfies tolerance, keep initial geometry
+            else:
+                current_geom = initial_geom
+                # Keep current segment and t parameters unchanged
             
             iteration += 1
         
@@ -1037,7 +1084,7 @@ def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_itera
     # Use last node from input
     new_geometry_list.append(geometry_list[-1])
 
-    new_path_length_list = calc_path_length_list(new_geometry_list)
+    #new_path_length_list = calc_path_length_list(new_geometry_list)
     #print("Path length list (after the process) : ", new_path_length_list)
     #print("Distances between nodes:")
     #for x in range(len(new_path_length_list)-1):
