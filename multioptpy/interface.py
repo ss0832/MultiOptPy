@@ -197,7 +197,9 @@ def nebparser(parser):
     parser.add_argument("-ewbneb", "--EWBNEB", action='store_true', help='Energy-weighted Nudged elastic band method')
 
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
-    parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals linearly')
+    parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')
+    parser.add_argument("-aid", "--align_image_distances", type=int, default=0, help='distribute images at equal intervals between images')
+
     parser.add_argument("-nd", "--node_distance", type=float, default=None, help='distribute images at equal intervals linearly based ont specific distance (ex.) [distance (ang.)] (default: None)')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
