@@ -1053,49 +1053,23 @@ def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_itera
                 backward_distance = abs(np.linalg.norm(backward_geom_centered - prev_geom_centered) - target_distance)
                 backward_satisfies_tolerance = backward_distance < tolerance
             
-            # If both satisfy tolerance, check distance from initial geometry
+            # If both satisfy tolerance, choose forward (later in path) direction
             if forward_satisfies_tolerance and backward_satisfies_tolerance:
-                initial_geom_centered = initial_geom - np.mean(initial_geom, axis=0)
-                forward_to_initial = np.linalg.norm(forward_geom_centered - initial_geom_centered)
-                backward_to_initial = np.linalg.norm(backward_geom_centered - initial_geom_centered)
-                
-                # If forward is closer to initial and within node_distance, choose forward
-                if forward_to_initial <= node_distance:
-                    current_geom = forward_geom
-                    current_segment = forward_segment
-                    current_t = forward_t
-                # If backward is within node_distance, choose backward
-                elif backward_to_initial <= node_distance:
-                    current_geom = backward_geom
-                    current_segment = backward_segment
-                    current_t = backward_t
-                # If both are too far from initial, keep initial geometry
-                else:
-                    current_geom = initial_geom
+                current_geom = forward_geom
+                current_segment = forward_segment
+                current_t = forward_t
                 break  # Exit iteration as we found satisfactory result
             
-            # If only one satisfies tolerance, check distance from initial geometry
+            # If only one satisfies tolerance, choose that one
             elif forward_satisfies_tolerance:
-                initial_geom_centered = initial_geom - np.mean(initial_geom, axis=0)
-                forward_to_initial = np.linalg.norm(forward_geom_centered - initial_geom_centered)
-                
-                if forward_to_initial <= node_distance:
-                    current_geom = forward_geom
-                    current_segment = forward_segment
-                    current_t = forward_t
-                else:
-                    current_geom = initial_geom
+                current_geom = forward_geom
+                current_segment = forward_segment
+                current_t = forward_t
                 break
             elif backward_satisfies_tolerance:
-                initial_geom_centered = initial_geom - np.mean(initial_geom, axis=0)
-                backward_to_initial = np.linalg.norm(backward_geom_centered - initial_geom_centered)
-                
-                if backward_to_initial <= node_distance:
-                    current_geom = backward_geom
-                    current_segment = backward_segment
-                    current_t = backward_t
-                else:
-                    current_geom = initial_geom
+                current_geom = backward_geom
+                current_segment = backward_segment
+                current_t = backward_t
                 break
             
             # If neither satisfies tolerance, keep initial geometry
@@ -1110,10 +1084,10 @@ def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_itera
     # Use last node from input
     new_geometry_list.append(geometry_list[-1])
 
-    new_path_length_list = calc_path_length_list(new_geometry_list)
+    #new_path_length_list = calc_path_length_list(new_geometry_list)
     #print("Path length list (after the process) : ", new_path_length_list)
-    print("Distances between nodes:")
-    for x in range(len(new_path_length_list)-1):
-        print(new_path_length_list[x+1]-new_path_length_list[x])
+    #print("Distances between nodes:")
+    #for x in range(len(new_path_length_list)-1):
+    #    print(new_path_length_list[x+1]-new_path_length_list[x])
 
     return new_geometry_list
