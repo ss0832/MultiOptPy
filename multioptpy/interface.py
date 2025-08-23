@@ -195,6 +195,7 @@ def nebparser(parser):
     parser.add_argument("-nesb", "--NESB", action='store_true', help='J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169 Nudged elastic stiffness band (NESB) method')
    
     parser.add_argument("-ewbneb", "--EWBNEB", action='store_true', help='Energy-weighted Nudged elastic band method')
+    parser.add_argument("-qsm", "--QSM", action='store_true', help='Quadratic String Method (J. Chem. Phys. 124, 054109 (2006))')
 
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')

@@ -38,6 +38,7 @@ from pathopt_nesb_force import CaluculationNESB
 from pathopt_lup_force import CaluculationLUP
 from pathopt_om_force import CaluculationOM
 from pathopt_ewbneb_force import CaluculationEWBNEB
+from pathopt_qsm_force import CaluculationQSM
 from calc_tools import Calculationtools
 from idpp import IDPP
 from constraint_condition import ProjectOutConstrain
@@ -46,7 +47,7 @@ from multioptpy.Optimizer import lbfgs_neb
 from multioptpy.Optimizer import conjugate_gradient_neb
 from multioptpy.Optimizer import trust_radius_neb 
 from multioptpy.Optimizer.fire_neb import FIREOptimizer
-from multioptpy.Optimizer.rfo_neb import RFOOptimizer
+from multioptpy.Optimizer.rfo_neb import RFOOptimizer, RFOQSMOptimizer
 from multioptpy.Optimizer.gradientdescent_neb import SteepestDescentOptimizer
 from approx_hessian import ApproxHessian
 from visualization import NEBVisualizer
@@ -89,7 +90,7 @@ class NEBConfig:
         self.bneb = args.BNEB
         self.bneb2 = args.BNEB2
         self.ewbneb = args.EWBNEB
-
+        self.qsm = args.QSM
         
         # Optimization settings
         self.FC_COUNT = args.calc_exact_hess
@@ -248,6 +249,8 @@ class OptimizationFactory:
             return FIREOptimizer(config)
         elif method == "steepest_descent":
             return SteepestDescentOptimizer(config)
+        elif method == "rfo" and config.qsm:
+            return RFOQSMOptimizer(config)
         elif method == "rfo":
             return RFOOptimizer(config)
         elif method == "lbfgs":
@@ -513,6 +516,8 @@ class NEB:
             return CaluculationBNEB3(self.config.APPLY_CI_NEB)
         elif self.config.ewbneb:
             return CaluculationEWBNEB(self.config.APPLY_CI_NEB)
+        elif self.config.qsm:
+            return CaluculationQSM(self.config.APPLY_CI_NEB)
         else:
             return CaluculationBNEB(self.config.APPLY_CI_NEB)
     
