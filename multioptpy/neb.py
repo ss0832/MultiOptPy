@@ -40,7 +40,6 @@ from pathopt_om_force import CaluculationOM
 from pathopt_ewbneb_force import CaluculationEWBNEB
 from calc_tools import Calculationtools
 from idpp import IDPP
-from interpolation import spline_interpolation
 from constraint_condition import ProjectOutConstrain
 from fileio import xyz2list, traj2list, FileIO
 from multioptpy.Optimizer import lbfgs_neb 
@@ -56,6 +55,7 @@ from pyscf_calculation_tools import PySCFEngine
 from psi4_calculation_tools import Psi4Engine
 from dxtb_calculation_tools import DXTBEngine
 from ase_calculation_tools import ASEEngine
+from calc_tools import distribute_geometry, distribute_geometry_spline, distribute_geometry_by_length, distribute_geometry_by_length_spline, apply_climbing_image
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -104,7 +104,8 @@ class NEBConfig:
         # Flags
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances
-        self.align_image_distances = args.align_image_distances
+        self.align_distances_spline = args.align_distances_spline
+        self.node_distance_spline = args.node_distance_spline
         self.excited_state = args.excited_state
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
@@ -466,9 +467,10 @@ class NEB:
                 tmp_new_geometry = distribute_geometry(np.array(new_geometry))
                 for k in range(len(new_geometry)):
                     new_geometry[k] = copy.copy(tmp_new_geometry[k])
-            if self.config.align_image_distances >= 1 and optimize_num % self.config.align_image_distances == 0 and optimize_num > 0:
-                print("Aligning images...")
-                tmp_new_geometry = align_geometry_by_image_distance(np.array(new_geometry))
+                    
+            if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
+                print("Aligning geometries using spline...")
+                tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
                 for k in range(len(new_geometry)):
                     new_geometry[k] = copy.copy(tmp_new_geometry[k])
 
@@ -742,7 +744,7 @@ class NEB:
             for i in range(partition_function + 1):
                 frame_geom = np.array(loaded_geometry_num_list[k], dtype="float64") + delta_num_geom * i
                 tmp_data.append(frame_geom)
-                
+        tmp_data.append(np.array(loaded_geometry_num_list[-1], dtype="float64"))
         tmp_data = np.array(tmp_data, dtype="float64")
         
         # Apply IDPP if requested
@@ -757,6 +759,9 @@ class NEB:
         # Apply node distance constraint if specified
         if self.config.node_distance is not None:
             tmp_data = distribute_geometry_by_length(tmp_data, self.config.node_distance)
+
+        if self.config.node_distance_spline is not None:
+            tmp_data = distribute_geometry_by_length_spline(tmp_data, self.config.node_distance_spline)
         
         for data in tmp_data:
             geometry_list.append([electric_charge_and_multiplicity] + 
@@ -830,264 +835,3 @@ class NEB:
         return np.array(velocity_list, dtype="float64")
 
 
-def calc_path_length_list(geometry_list):
-    """Calculate path length list for geometry distribution"""
-    path_length_list = [0.0]
-    for i in range(len(geometry_list)-1):
-        tmp_geometry_list_j = geometry_list[i+1] - np.mean(geometry_list[i+1], axis=0)
-        tmp_geometry_list_i = geometry_list[i] - np.mean(geometry_list[i], axis=0)
-        
-        path_length = path_length_list[-1] + np.linalg.norm(tmp_geometry_list_j - tmp_geometry_list_i)
-        path_length_list.append(path_length)
-    return path_length_list
-
-
-def apply_climbing_image(geometry_list, energy_list, element_list):
-    """Apply climbing image method to locate transition states"""
-    path_length_list = calc_path_length_list(geometry_list)
-    total_length = path_length_list[-1]
-    local_maxima, local_minima = spline_interpolation(path_length_list, energy_list)
-    print(local_maxima)
-    
-    for distance, energy in local_maxima:
-        print("Local maximum at distance: ", distance)
-        for i in range(2, len(path_length_list)-2):
-            if path_length_list[i] >= distance or distance >= path_length_list[i+1]:
-                continue
-            delta_t = (distance - path_length_list[i]) / (path_length_list[i+1] - path_length_list[i])
-            tmp_geometry = geometry_list[i] + (geometry_list[i+1] - geometry_list[i]) * delta_t
-            tmp_geom_list = [geometry_list[i], tmp_geometry, geometry_list[i+1]]
-            idpp_instance = IDPP()
-            tmp_geom_list = idpp_instance.opt_path(tmp_geom_list, element_list)
-            geometry_list[i] = tmp_geom_list[1]
-    return geometry_list
-
-
-def distribute_geometry(geometry_list):
-    """Distribute geometries evenly along the path"""
-    nnode = len(geometry_list)
-    path_length_list = calc_path_length_list(geometry_list)
-    total_length = path_length_list[-1]
-    node_dist = total_length / (nnode-1)
-    
-    new_geometry_list = [geometry_list[0]]
-    for i in range(1, nnode-1):
-        dist = i * node_dist
-        for j in range(nnode-1):
-            if path_length_list[j] <= dist and dist <= path_length_list[j+1]:
-                break
-        delta_t = (dist - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
-        new_geometry = geometry_list[j] + (geometry_list[j+1] - geometry_list[j]) * delta_t
-        new_geometry_list.append(new_geometry)
-    new_geometry_list.append(geometry_list[-1])
-    return new_geometry_list
-
-
-def distribute_geometry_by_length(geometry_list, angstrom_spacing):
-    """Distribute geometries by specified distance spacing"""
-    path_length_list = calc_path_length_list(geometry_list)
-    total_length = path_length_list[-1]
-    new_geometry_list = [geometry_list[0]]
-    
-    max_steps = int(total_length // angstrom_spacing)
-    for i in range(1, max_steps):
-        dist = i * angstrom_spacing
-       
-        for j in range(len(path_length_list) - 1):
-            if path_length_list[j] <= dist <= path_length_list[j+1]:
-                break
-      
-        delta_t = (dist - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
-        new_geometry = geometry_list[j] + (geometry_list[j+1] - geometry_list[j]) * delta_t
-        new_geometry_list.append(new_geometry)
-
-    new_geometry_list.append(geometry_list[-1])
-    return new_geometry_list
-
-
-
-def align_geometry_by_image_distance(geometry_list, spacing_dist=None, max_iterations=1000, tolerance=1e-6):
-    """Distribute geometries by specified distance spacing"""
-
-    for i in range(len(geometry_list)-1):
-        geom_i = geometry_list[i]
-        geom_j = geometry_list[i+1]
-        geom_i_after_kabsch, geom_j_after_kabsch = Calculationtools().kabsch_algorithm(geom_i, geom_j)
-        geometry_list[i] = geom_i_after_kabsch
-    geometry_list[-1] = geom_j_after_kabsch
-
-    # 1. Create path length list
-    path_length_list = calc_path_length_list(geometry_list)
-    total_length = path_length_list[-1]
-    nnode = len(geometry_list)
-    #print("Number of nodes : ", nnode)
-    #print("Path length list (before the process) : ", path_length_list)
-    #print("Total path length : ", total_length)
-
-    # 2. Calculate equal spacing distance
-    if spacing_dist is not None:
-        node_distance = spacing_dist
-        n_new_nodes = int(total_length / node_distance) + 1
-    else:
-        n_new_nodes = nnode
-        node_distance = total_length / (n_new_nodes - 1)
-    #print("Node distance : ", node_distance)
-
-    # 3. Create target distance list with equal spacing
-    target_distances = [i * node_distance for i in range(n_new_nodes)]
-    
-    # 4. Generate nodes with accurate equal spacing using iterative method
-    new_geometry_list = []
-    
-    # Fix the first node
-    new_geometry_list.append(geometry_list[0])
-    
-    # Generate remaining nodes (excluding first and last nodes)
-    for i in range(1, n_new_nodes-1):
-        # Target distance
-        target_distance = node_distance
-        
-        # Initial estimated position
-        # Find which segment it belongs to
-        for j in range(len(path_length_list) - 1):
-            if path_length_list[j] <= target_distances[i] <= path_length_list[j+1]:
-                # Linear interpolation
-                t = (target_distances[i] - path_length_list[j]) / (path_length_list[j+1] - path_length_list[j])
-                current_geom = geometry_list[j] + t * (geometry_list[j+1] - geometry_list[j])
-                segment_start = j
-                break
-        
-        # Iteratively adjust to achieve exact distance from previous node
-        prev_geom = new_geometry_list[-1]
-        iteration = 0
-        
-        # Track current position parameters along the path
-        current_segment = segment_start
-        current_t = t
-        
-        while iteration < max_iterations:
-            # Calculate distance to previous node
-            prev_geom_centered = prev_geom - np.mean(prev_geom, axis=0)
-            current_geom_centered = current_geom - np.mean(current_geom, axis=0)
-            current_distance = np.linalg.norm(current_geom_centered - prev_geom_centered)
-            
-            # Search in both directions to find better position
-            delta_dist = target_distance - current_distance
-            
-            # Store initial geometry for distance comparison
-            initial_geom = current_geom.copy()
-            
-            # Try moving forward
-            forward_geom = None
-            forward_segment = current_segment
-            forward_t = current_t
-            forward_distance = float('inf')
-            
-            # Advance within current segment
-            segment_length = path_length_list[current_segment+1] - path_length_list[current_segment]
-            remaining_segment = (1 - current_t) * segment_length
-            
-            if delta_dist > 0 and delta_dist <= remaining_segment:
-                # Adjustment possible within current segment
-                move_t = delta_dist / segment_length
-                forward_t = current_t + move_t
-                forward_geom = geometry_list[current_segment] + forward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-            elif delta_dist > 0:
-                # Need to move to next segment
-                remaining_dist = delta_dist - remaining_segment
-                
-                # If next segment exists
-                if current_segment + 1 < len(geometry_list) - 1:
-                    forward_segment = current_segment + 1
-                    next_segment_length = path_length_list[forward_segment+1] - path_length_list[forward_segment]
-                    forward_t = min(remaining_dist / next_segment_length, 0.99)  # Prevent boundary crossing
-                    forward_geom = geometry_list[forward_segment] + forward_t * (geometry_list[forward_segment+1] - geometry_list[forward_segment])
-                else:
-                    # If we can't move further, stay at end of last segment
-                    forward_t = 0.99
-                    forward_geom = geometry_list[current_segment] + forward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-            
-            # Try moving backward
-            backward_geom = None
-            backward_segment = current_segment
-            backward_t = current_t
-            backward_distance = float('inf')
-            
-            if delta_dist < 0:
-                delta_dist_abs = abs(delta_dist)
-                
-                # Retreat within current segment
-                traversed_segment = current_t * segment_length
-                
-                if delta_dist_abs <= traversed_segment:
-                    # Adjustment possible within current segment
-                    move_t = delta_dist_abs / segment_length
-                    backward_t = current_t - move_t
-                    backward_geom = geometry_list[current_segment] + backward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-                else:
-                    # Need to move to previous segment
-                    remaining_dist = delta_dist_abs - traversed_segment
-                    
-                    # If previous segment exists
-                    if current_segment > 0:
-                        backward_segment = current_segment - 1
-                        prev_segment_length = path_length_list[backward_segment+1] - path_length_list[backward_segment]
-                        backward_t = max(1 - (remaining_dist / prev_segment_length), 0.01)  # Prevent boundary crossing
-                        backward_geom = geometry_list[backward_segment] + backward_t * (geometry_list[backward_segment+1] - geometry_list[backward_segment])
-                    else:
-                        # If we can't move further, stay at start of first segment
-                        backward_t = 0.01
-                        backward_geom = geometry_list[current_segment] + backward_t * (geometry_list[current_segment+1] - geometry_list[current_segment])
-            
-            # Calculate distances for both directions
-            forward_satisfies_tolerance = False
-            backward_satisfies_tolerance = False
-            
-            if forward_geom is not None:
-                forward_geom_centered = forward_geom - np.mean(forward_geom, axis=0)
-                forward_distance = abs(np.linalg.norm(forward_geom_centered - prev_geom_centered) - target_distance)
-                forward_satisfies_tolerance = forward_distance < tolerance
-            
-            if backward_geom is not None:
-                backward_geom_centered = backward_geom - np.mean(backward_geom, axis=0)
-                backward_distance = abs(np.linalg.norm(backward_geom_centered - prev_geom_centered) - target_distance)
-                backward_satisfies_tolerance = backward_distance < tolerance
-            
-            # If both satisfy tolerance, choose forward (later in path) direction
-            if forward_satisfies_tolerance and backward_satisfies_tolerance:
-                current_geom = forward_geom
-                current_segment = forward_segment
-                current_t = forward_t
-                break  # Exit iteration as we found satisfactory result
-            
-            # If only one satisfies tolerance, choose that one
-            elif forward_satisfies_tolerance:
-                current_geom = forward_geom
-                current_segment = forward_segment
-                current_t = forward_t
-                break
-            elif backward_satisfies_tolerance:
-                current_geom = backward_geom
-                current_segment = backward_segment
-                current_t = backward_t
-                break
-            
-            # If neither satisfies tolerance, keep initial geometry
-            else:
-                current_geom = initial_geom
-                # Keep current segment and t parameters unchanged
-            
-            iteration += 1
-        
-        new_geometry_list.append(current_geom)
-    
-    # Use last node from input
-    new_geometry_list.append(geometry_list[-1])
-
-    #new_path_length_list = calc_path_length_list(new_geometry_list)
-    #print("Path length list (after the process) : ", new_path_length_list)
-    #print("Distances between nodes:")
-    #for x in range(len(new_path_length_list)-1):
-    #    print(new_path_length_list[x+1]-new_path_length_list[x])
-
-    return new_geometry_list
