@@ -1241,7 +1241,7 @@ class NewtonTrajectory:
 class ADDFlikeMethod:
     def __init__(self, config):
         """
-        Implementation of ADD (Anharmonic Downward Distortion) method 
+        Implementation of ADD (Anharmonic Downward Distortion) method based on SHS4py approach
         # ref. : Journal of chemical theory and computation 16.6 (2020): 3869-3878. (https://pubs.acs.org/doi/10.1021/acs.jctc.0c00010)
         # ref. : Chem. Phys. Lett. 2004, 384 (4–6), 277–282.
         # ref. : Chem. Phys. Lett. 2005, 404 (1–3), 95–99.
@@ -1252,7 +1252,8 @@ class ADDFlikeMethod:
             'number_of_add': int(config.nadd),
             'IOEsphereA_initial': 0.01,  # Initial hypersphere radius
             'IOEsphereA_dist': float(config.addf_step_size),    # Increment for hypersphere radius
-           
+            'IOEthreshold': 0.01,        # Threshold for IOE
+            'minimize_threshold': 1.0e-5,# Threshold for minimization
         }
         self.energy_list_1 = []
         self.energy_list_2 = []
@@ -1264,12 +1265,11 @@ class ADDFlikeMethod:
         self.element_number_list = None
         self.ADDths = []  # List to store ADD theta classes
         self.optimized_structures = {}  # Dictionary to store optimized structures by ADD ID
-        self.max_iterations = 100
-        self.gtol = 1e-3
+        self.max_iterations = 20
 
     def get_unit_conversion(self):
         """Return bohr to angstrom conversion factor"""
-        return 0.529177249  # Approximate value for bohr2angstroms
+        return UnitValueLib().bohr2angstroms  # Approximate value for bohr2angstroms
         
     def adjust_center2origin(self, coord):
         """Adjust coordinates to have center at origin"""
@@ -1564,238 +1564,265 @@ class ADDFlikeMethod:
         # Implement according to your specific requirements
         return point
 
-    def project_gradient_to_theta_space(self, gradient_flat, thetalist, IOEsphereA, eqpoint):
+    def minimizeTh_SD_SS(self, ADDth, initialpoint, f, grad, eqpoint, IOEsphereA):
         """
-        Project Cartesian gradient to theta parameter space
-        This ensures consistent dimensions between position and gradient vectors
+        Steepest descent optimization on hypersphere with step size control
+        Following the implementation in SHS4py.ADD.py with added robustness
         """
-        n_dims = len(thetalist)
+        whileN = 0
+        thetalist = ADDth.thetalist + initialpoint
+        stepsize = 0.001
         n_atoms = eqpoint.shape[0]
         n_coords = n_atoms * 3
         
-        # Create a small perturbation matrix for finite difference approximation
-        gradient_theta = np.zeros(n_dims)
-        eps = 1.0e-6
+        # Generate initial nADD
+        nADD_reduced = self.SuperSphere_cartesian(IOEsphereA, thetalist, self.SQ, self.dim)
         
-        # For each dimension in theta space
-        for i in range(n_dims):
-            # Create perturbed theta lists
-            theta_plus = thetalist.copy()
-            theta_plus[i] += eps
-            
-            theta_minus = thetalist.copy()
-            theta_minus[i] -= eps
-            
-            # Calculate corresponding points in Cartesian space
-            nADD_plus_reduced = self.SuperSphere_cartesian(IOEsphereA, theta_plus, self.SQ, self.dim)
-            nADD_minus_reduced = self.SuperSphere_cartesian(IOEsphereA, theta_minus, self.SQ, self.dim)
-            
-            # Map reduced vectors to full space
-            nADD_plus_full = np.zeros(n_coords)
-            nADD_minus_full = np.zeros(n_coords)
-            
-            for j in range(min(len(nADD_plus_reduced), n_coords)):
-                nADD_plus_full[j] = nADD_plus_reduced[j]
+        # Convert reduced space vector to full coordinate space with proper dimensions
+        nADD_full = np.zeros(n_coords)
+        for i in range(min(len(nADD_reduced), n_coords)):
+            nADD_full[i] = nADD_reduced[i]
+        
+        # Reshape to match eqpoint dimensions
+        nADD = nADD_full.reshape(n_atoms, 3)
+        
+        # Keep track of best solution
+        best_thetalist = thetalist.copy()
+        best_energy = float('inf')
+        
+        # Initial point
+        tergetpoint = eqpoint + nADD
+        tergetpoint = self.periodicpoint(tergetpoint)
+        
+        # Try to calculate initial energy
+        try:
+            initial_energy = f(tergetpoint)
+            if isinstance(initial_energy, (int, float)) and not np.isnan(initial_energy):
+                best_energy = initial_energy
+        except Exception:
+            pass  # Continue even if initial energy calculation fails
+        
+        # Main optimization loop
+        while whileN < self.max_iterations:
+            try:
+                # Get gradient at current point
+                grad_x = grad(tergetpoint)
                 
-            for j in range(min(len(nADD_minus_reduced), n_coords)):
-                nADD_minus_full[j] = nADD_minus_reduced[j]
-            
-            # Get the direction of change in Cartesian space (now in full dimensions)
-            direction = (nADD_plus_full - nADD_minus_full) / (2 * eps)
-            
-            # Make sure the gradient and direction vectors have the same length
-            min_dim = min(len(gradient_flat), len(direction))
-            gradient_theta[i] = np.dot(gradient_flat[:min_dim], direction[:min_dim])
-        
-        return gradient_theta
-
-    def minimizeTh_LBFGS(self, thetalist_init, f, grad, eqpoint, IOEsphereA):
-        """L-BFGS optimization on hypersphere"""
-        import numpy as np
-        
-        # Initial parameters
-        thetalist = copy.deepcopy(thetalist_init)
-        n_atoms = eqpoint.shape[0]
-        n_coords = n_atoms * 3
-        n_dims = len(thetalist)
-        
-        # Initialize with safe default values for IOE calculations
-        if not hasattr(self, 'current_id') or self.current_id is None:
-            self.current_id = -1
-        if not hasattr(self, 'current_ADD') or self.current_ADD is None:
-            self.current_ADD = float('inf')
-        
-        # L-BFGS parameters
-        m = min(10, n_dims)  # Memory size for L-BFGS
-        
-        # Keep track of the best solution found
-        best_thetalist = copy.deepcopy(thetalist)
-        best_gradient_norm = float('inf')
-        
-        # Initialize memory for L-BFGS
-        s_list = []  # List of position differences
-        y_list = []  # List of gradient differences
-        rho_list = []  # List of 1 / (y_k^T * s_k)
-        
-        # Get initial point and gradient
-        result = self.grad_hypersphere(f, grad, eqpoint, IOEsphereA, thetalist)
-        if not isinstance(result, tuple):
-            print("Failed to get initial gradient")
-            return thetalist_init  # Return initial point if we can't even get the first gradient
-        
-        point, gradient = result
-        
-        # Project the Cartesian gradient to theta space
-        gradient_theta = self.project_gradient_to_theta_space(gradient.flatten(), thetalist, IOEsphereA, eqpoint)
-        
-        gradient_norm = np.linalg.norm(gradient_theta)
-        
-        # Update best solution if initial point is already good
-        if gradient_norm < best_gradient_norm:
-            best_thetalist = copy.deepcopy(thetalist)
-            best_gradient_norm = gradient_norm
-        
-        # Iterate until convergence or max iterations
-        for iteration in range(self.max_iterations):
-            # Check for convergence
-            if gradient_norm < self.gtol:
-                print(f"Optimization converged after {iteration} iterations with gradient norm: {gradient_norm:.6f}")
-                return thetalist
-            
-            # Compute search direction using L-BFGS approximation
-            search_direction = -gradient_theta.copy()  # Initial search direction is steepest descent
-            
-            # L-BFGS two-loop recursion to compute search direction
-            if len(s_list) > 0:
-                # Working vectors for the L-BFGS recursion
-                alpha_list = np.zeros(len(s_list))
-                
-                # First loop: compute alpha_i and update q
-                q = gradient_theta.copy()
-                for i in reversed(range(len(s_list))):
-                    alpha_list[i] = rho_list[i] * np.dot(s_list[i], q)
-                    q -= alpha_list[i] * y_list[i]
-                
-                # Compute initial Hessian approximation (scaling)
-                if len(s_list) > 0 and len(y_list) > 0:
-                    gamma = np.dot(s_list[-1], y_list[-1]) / np.dot(y_list[-1], y_list[-1])
-                else:
-                    gamma = 1.0
-                
-                # Apply initial Hessian approximation
-                z = gamma * q
-                
-                # Second loop: compute search direction
-                for i in range(len(s_list)):
-                    beta = rho_list[i] * np.dot(y_list[i], z)
-                    z += s_list[i] * (alpha_list[i] - beta)
+                # If gradient calculation fails, continue with smaller step or different approach
+                if grad_x is False:
+                    # Try a random perturbation and continue
+                    print(f"Gradient calculation failed at iteration {whileN}, trying random perturbation")
+                    random_perturbation = np.random.rand(n_atoms, 3) * 0.01 - 0.005  # Small random perturbation
+                    tergetpoint = tergetpoint + random_perturbation
+                    tergetpoint = self.periodicpoint(tergetpoint)
                     
-                search_direction = -z
-            
-            # Line search for step size
-            alpha = 1.0
-            sufficient_decrease = False
-            backtrack_factor = 0.5
-            max_backtracking = 20
-            
-            # Store current point and function value
-            current_thetalist = thetalist.copy()
-            current_gradient_theta = gradient_theta.copy()
-            
-            for backtrack_iter in range(max_backtracking):
-                try:
-                    # Compute new theta list in parameter space
-                    thetalist_new = current_thetalist + alpha * search_direction
+                    # Calculate new nADD
+                    nADD = tergetpoint - eqpoint
+                    thetalist = self.calctheta(nADD.flatten(), self.eigVlist, self.eigNlist)
                     
-                    # Calculate new point in Cartesian space
-                    nADD_reduced = self.SuperSphere_cartesian(IOEsphereA, thetalist_new, self.SQ, self.dim)
+                    # Ensure we're on the hypersphere with correct radius
+                    nADD_reduced = self.SuperSphere_cartesian(IOEsphereA, thetalist, self.SQ, self.dim)
                     nADD_full = np.zeros(n_coords)
                     for i in range(min(len(nADD_reduced), n_coords)):
                         nADD_full[i] = nADD_reduced[i]
                     nADD = nADD_full.reshape(n_atoms, 3)
                     
-                    # Apply to get the new point
-                    new_point = eqpoint + nADD
-                    new_point = self.periodicpoint(new_point)
+                    tergetpoint = eqpoint + nADD
+                    tergetpoint = self.periodicpoint(tergetpoint)
                     
-                    # Evaluate function and gradient at new point
-                    new_point_result = self.grad_hypersphere(f, grad, eqpoint, IOEsphereA, thetalist_new)
-                    if not isinstance(new_point_result, tuple):
-                        raise ValueError("Failed to calculate gradient at new point")
-                    
-                    new_point, new_gradient = new_point_result
-                    
-                    # Project the new gradient to theta space
-                    new_gradient_theta = self.project_gradient_to_theta_space(new_gradient.flatten(), thetalist_new, IOEsphereA, eqpoint)
-                    
-                    new_gradient_norm = np.linalg.norm(new_gradient_theta)
-                    
-                    # Check if we've made sufficient progress
-                    if new_gradient_norm < gradient_norm:
-                        sufficient_decrease = True
-                        break
-                    
-                    # Reduce step size
-                    alpha *= backtrack_factor
-                    
-                except Exception as e:
-                    print(f"Line search iteration {backtrack_iter} failed: {e}")
-                    alpha *= backtrack_factor
-            
-            if not sufficient_decrease:
-                print(f"Line search failed to find sufficient decrease at iteration {iteration}")
-                # If line search completely failed, return best point found so far
-                if best_gradient_norm < float('inf'):
-                    return best_thetalist
-                # If no good point found, try small step in steepest descent direction
-                try:
-                    small_alpha = 1e-4
-                    thetalist_new = current_thetalist - small_alpha * current_gradient_theta
-                    
-                    # Continue with next iteration using steepest descent step
-                except Exception:
-                    # If even steepest descent fails, return best point
-                    return best_thetalist
-            else:
-                # Update memory for L-BFGS
-                s_k = thetalist_new - thetalist
-                y_k = new_gradient_theta - gradient_theta
+                    whileN += 1
+                    continue
                 
-                # Only update if curvature condition is satisfied (s_k^T y_k > 0)
-                # Now s_k and y_k have matching dimensions
-                curvature = np.dot(s_k, y_k)
-                if curvature > 1e-10:
-                    # Add new vectors to memory
-                    s_list.append(s_k)
-                    y_list.append(y_k)
-                    rho_list.append(1.0 / curvature)
+                # Apply IOE contributions
+                grad_flat = grad_x.flatten()
+                for neiborADDth in self.ADDths:
+                    if ADDth.IDnum == neiborADDth.IDnum:
+                        continue
+                    if neiborADDth.ADDoptQ:
+                        continue
+                    if neiborADDth.ADD <= ADDth.ADD:
+                        ioe_grad = self.IOE_grad(nADD.flatten(), neiborADDth)
+                        if ioe_grad is not None:
+                            grad_flat = grad_flat - ioe_grad
+                
+                # Reshape back to molecular geometry format
+                grad_x = grad_flat.reshape(n_atoms, 3)
+                
+                # Project gradient onto tangent space
+                nADD_norm = np.linalg.norm(nADD.flatten())
+                if nADD_norm < 1e-10:
+                    # If nADD is too small, generate a new one
+                    print(f"nADD norm too small at iteration {whileN}, regenerating")
+                    thetalist = self.calctheta(np.random.rand(n_coords) - 0.5, self.eigVlist, self.eigNlist)
+                    nADD_reduced = self.SuperSphere_cartesian(IOEsphereA, thetalist, self.SQ, self.dim)
+                    nADD_full = np.zeros(n_coords)
+                    for i in range(min(len(nADD_reduced), n_coords)):
+                        nADD_full[i] = nADD_reduced[i]
+                    nADD = nADD_full.reshape(n_atoms, 3)
+                    tergetpoint = eqpoint + nADD
+                    tergetpoint = self.periodicpoint(tergetpoint)
+                    whileN += 1
+                    continue
+                        
+                nADD_unit = nADD.flatten() / nADD_norm
+                
+                # Project gradient component along nADD
+                grad_along_nADD = np.dot(grad_x.flatten(), nADD_unit)
+                
+                # Subtract this component to get the tangent space gradient
+                SSgrad_flat = grad_x.flatten() - grad_along_nADD * nADD_unit
+                SSgrad = SSgrad_flat.reshape(n_atoms, 3)
+                
+                # Check convergence
+                if np.linalg.norm(SSgrad) < 1.0e-1:
+                    # Update best solution if better
+                    try:
+                        current_energy = f(tergetpoint)
+                        if isinstance(current_energy, (int, float)) and not np.isnan(current_energy):
+                            if current_energy < best_energy:
+                                best_energy = current_energy
+                                best_thetalist = thetalist.copy()
+                    except Exception:
+                        pass  # Just keep the current best if energy calculation fails
                     
-                    # Maintain limited memory (keep only m recent updates)
-                    if len(s_list) > m:
-                        s_list.pop(0)
-                        y_list.pop(0)
-                        rho_list.pop(0)
-            
-            # Update current point and gradient
-            thetalist = thetalist_new.copy()
-            gradient_theta = new_gradient_theta.copy()
-            gradient_norm = new_gradient_norm
-            
-            # Update best point if current is better
-            if gradient_norm < best_gradient_norm:
-                best_thetalist = thetalist.copy()
-                best_gradient_norm = gradient_norm
-            
-            # Print progress every 10 iterations
-            if iteration % 10 == 0:
-                print(f"Iteration {iteration}: gradient norm = {gradient_norm:.6f}")
+                    return thetalist  # Converged successfully
+                
+                # Store current point
+                _point_initial = copy.copy(tergetpoint)
+                
+                # Line search
+                whileN2 = 0
+                stepsizedamp = stepsize
+                found_valid_step = False
+                
+                # Try multiple step sizes
+                for whileN2 in range(1, 5):  # Try up to 10 steps with varying sizes
+                    try:
+                        # Take step with dynamic step size
+                        step_scale = whileN2 if whileN2 <= 5 else (whileN2 - 5) * 0.1
+                        tergetpoint = _point_initial - step_scale * SSgrad / np.linalg.norm(SSgrad) * stepsizedamp
+                        
+                        # Calculate new nADD
+                        nADD2 = tergetpoint - eqpoint
+                        
+                        # Convert to theta parameters
+                        thetalist_new = self.calctheta(nADD2.flatten(), self.eigVlist, self.eigNlist)
+                        
+                        # Ensure we're on the hypersphere with correct radius
+                        nADD2_reduced = self.SuperSphere_cartesian(IOEsphereA, thetalist_new, self.SQ, self.dim)
+                        
+                        # Convert reduced space vector to full coordinate space
+                        nADD2_full = np.zeros(n_coords)
+                        for i in range(min(len(nADD2_reduced), n_coords)):
+                            nADD2_full[i] = nADD2_reduced[i]
+                        
+                        # Reshape to match eqpoint dimensions
+                        nADD2 = nADD2_full.reshape(n_atoms, 3)
+                        
+                        # Calculate new point on hypersphere
+                        new_point = eqpoint + nADD2
+                        new_point = self.periodicpoint(new_point)
+                        
+                        # Calculate step size
+                        delta = np.linalg.norm(nADD.flatten() - nADD2.flatten())
+                        
+                        # Calculate energy at new point to check improvement
+                        try:
+                            new_energy = f(new_point)
+                            if isinstance(new_energy, (int, float)) and not np.isnan(new_energy):
+                                # Accept step if it improves energy or makes reasonable movement
+                                if new_energy < best_energy or delta > 0.005:
+                                    found_valid_step = True
+                                    if new_energy < best_energy:
+                                        best_energy = new_energy
+                                        best_thetalist = thetalist_new.copy()
+                                    tergetpoint = new_point
+                                    thetalist = thetalist_new
+                                    nADD = nADD2
+                                    break
+                        except Exception:
+                            # If energy calculation fails, accept step if it's a reasonable move
+                            if delta > 0.005 and delta < 0.1:
+                                found_valid_step = True
+                                tergetpoint = new_point
+                                thetalist = thetalist_new
+                                nADD = nADD2
+                                break
+                    except Exception as e:
+                        print(f"Step calculation error: {e}, trying different step")
+                        continue
+                        
+                # If no valid step found, try a random perturbation
+                if not found_valid_step:
+                    print(f"No valid step found at iteration {whileN}, trying random perturbation")
+                    # Generate random perturbation but keep on hypersphere
+                    random_theta = self.calctheta(np.random.rand(n_coords) - 0.5, self.eigVlist, self.eigNlist)
+                    random_nADD = self.SuperSphere_cartesian(IOEsphereA, random_theta, self.SQ, self.dim)
+                    
+                    # Interpolate between current point and random point
+                    alpha = 0.1  # Small mixing factor
+                    mixed_theta = thetalist * (1-alpha) + random_theta * alpha
+                    
+                    # Generate new point
+                    mixed_nADD = self.SuperSphere_cartesian(IOEsphereA, mixed_theta, self.SQ, self.dim)
+                    mixed_nADD_full = np.zeros(n_coords)
+                    for i in range(min(len(mixed_nADD), n_coords)):
+                        mixed_nADD_full[i] = mixed_nADD[i]
+                    mixed_nADD = mixed_nADD_full.reshape(n_atoms, 3)
+                    
+                    # Update point
+                    tergetpoint = eqpoint + mixed_nADD
+                    tergetpoint = self.periodicpoint(tergetpoint)
+                    nADD = mixed_nADD
+                    thetalist = mixed_theta
+                
+                # Increment counter
+                whileN += 1
+                
+                # Print progress periodically
+                if whileN % 10 == 0:
+                    print(f"Optimization step {whileN}: gradient norm = {np.linalg.norm(SSgrad):.6f}")
+                    
+            except Exception as e:
+                print(f"Error in optimization step {whileN}: {e}, continuing with best solution")
+                whileN += 1
+                
+                # Try to recover with random perturbation
+                if whileN % 3 == 0:  # Every third error, try a more drastic change
+                    try:
+                        # Generate a completely new point on hypersphere
+                        random_theta = self.calctheta(np.random.rand(n_coords) - 0.5, self.eigVlist, self.eigNlist)
+                        random_nADD = self.SuperSphere_cartesian(IOEsphereA, random_theta, self.SQ, self.dim)
+                        
+                        # Create full vector
+                        random_nADD_full = np.zeros(n_coords)
+                        for i in range(min(len(random_nADD), n_coords)):
+                            random_nADD_full[i] = random_nADD[i]
+                        random_nADD = random_nADD_full.reshape(n_atoms, 3)
+                        
+                        # Try the new point
+                        new_point = eqpoint + random_nADD
+                        new_point = self.periodicpoint(new_point)
+                        
+                        # Check if it's better
+                        try:
+                            random_energy = f(new_point)
+                            if isinstance(random_energy, (int, float)) and not np.isnan(random_energy):
+                                if random_energy < best_energy:
+                                    best_energy = random_energy
+                                    best_thetalist = random_theta.copy()
+                                    tergetpoint = new_point
+                                    nADD = random_nADD
+                                    thetalist = random_theta
+                        except Exception:
+                            pass  # Ignore failed energy calculations
+                    except Exception:
+                        pass  # Ignore errors in recovery attempt
         
-        # If we've reached max iterations without convergence, return best point
-        print(f"L-BFGS optimization did not converge after {max_iterations} iterations")
-        print(f"Final gradient norm: {gradient_norm:.6f}, Best gradient norm: {best_gradient_norm:.6f}")
-        
-        return best_thetalist if best_gradient_norm < gradient_norm else thetalist
-
+        print(f"Optimization completed with {whileN} iterations")
+        # Return the best solution found
+        return best_thetalist if best_energy < float('inf') else thetalist
+    
     def detect_add(self, QMC):
         """Detect ADD directions from Hessian"""
         coord_1 = self.get_coord()
@@ -1867,9 +1894,9 @@ class ADDFlikeMethod:
         self.eigNlist = nonzero_eigenvalues
         self.eigVlist = nonzero_eigenvectors
         
-        # Calculate more eigenvectors than needed to ensure we can select the top ADD values later
-        # Use all available eigenvectors for initial ADD calculation
-        search_idx = len(sorted_idx)
+        # Calculate mode eigenvectors to try - focus on lower eigenvectors first
+        # (corresponding to softer modes that are more likely to lead to transition states)
+        search_idx = len(sorted_idx) # Start with more eigenvectors than needed
         self.sorted_eigenvalues_idx = sorted_idx[0:search_idx]
         
         # Initialize ADDths with initial directions
@@ -1882,7 +1909,7 @@ class ADDFlikeMethod:
         
         IOEsphereA = self.addf_config['IOEsphereA_initial']
         
-        # Create candidate ADDs for all eigenvectors
+        # Create candidate ADDs for eigenvectors
         candidate_ADDths = []
         
         for idx in self.sorted_eigenvalues_idx:
@@ -1947,8 +1974,9 @@ class ADDFlikeMethod:
                 with open(self.directory + "/add_energy_list.csv", "a") as f:
                     f.write(f"{idx},{self.init_eigenvalues[idx]},{pm},{ADDth.ADD},{abs(ADDth.ADD)}\n")
         
-        # Sort candidate ADDths by absolute ADD value in descending order (largest magnitude first)
-        candidate_ADDths.sort(key=lambda x: abs(x.ADD), reverse=True)
+        # Sort candidate ADDths by negative ADD value in descending order (-ADD value)
+        # This prioritizes more negative (favorable) paths first
+        candidate_ADDths.sort(key=lambda x: -x.ADD, reverse=True)
         
         # Select only the top n ADDs according to config.nadd
         num_add = min(self.addf_config['number_of_add'], len(candidate_ADDths))
@@ -1958,9 +1986,9 @@ class ADDFlikeMethod:
         for i, ADDth in enumerate(self.ADDths):
             ADDth.IDnum = i
         
-        print(f"### Selected top {len(self.ADDths)} ADD paths (largest |ADD| values) ###")
+        print(f"### Selected top {len(self.ADDths)} ADD paths (sign-inverted ADD values, most negative first) ###")
         for ADDth in self.ADDths:
-            print(f"ADD {ADDth.IDnum}: {ADDth.ADD:.8f} (|ADD| = {abs(ADDth.ADD):.8f})")
+            print(f"ADD {ADDth.IDnum}: {ADDth.ADD:.8f} (-ADD = {-ADDth.ADD:.8f})")
         
         # Initialize the optimized structures dictionary
         self.optimized_structures = {}
@@ -2029,7 +2057,7 @@ class ADDFlikeMethod:
 
     def Opt_hyper_sphere(self, ADDths, QMC, eqpoint, IOEsphereA, IOEsphereA_r, A_eq, sphereN):
         """Optimize points on the hypersphere"""
-        print(f"Starting optimization on sphere {sphereN} with radius {np.sqrt(IOEsphereA)}")
+        print(f"Starting optimization on sphere {sphereN} with radius {np.sqrt(IOEsphereA):.4f}")
         
         # Reset optimization flags
         for ADDth in ADDths:
@@ -2042,6 +2070,10 @@ class ADDFlikeMethod:
         newADDths = []
         n_atoms = eqpoint.shape[0]
         
+        # Create a directory for intermediate optimization steps
+        sphere_dir = os.path.join(self.directory, "optimized_structures", f"sphere_{sphereN}")
+        os.makedirs(sphere_dir, exist_ok=True)
+        
         # Optimization loop
         while any(ADDth.ADDoptQ for ADDth in ADDths):
             optturnN += 1
@@ -2051,9 +2083,8 @@ class ADDFlikeMethod:
                 
             print(f"Optimization iteration {optturnN}")
             
-            # Process each ADD point in order of decreasing absolute ADD value
-            # This ensures we prioritize paths with largest magnitude energy changes
-            for ADDth in sorted(ADDths, key=lambda x: abs(x.ADD), reverse=True):
+            # Process each ADD point in order of negative ADD value (most negative first)
+            for ADDth in sorted(ADDths, key=lambda x: -x.ADD, reverse=True):
                 if not ADDth.ADDoptQ or ADDth.ADDremoveQ:
                     continue
                     
@@ -2064,9 +2095,9 @@ class ADDFlikeMethod:
                 # Starting from zero displacement
                 x_initial = np.zeros(len(ADDth.thetalist))
                 
-                # Minimize on hypersphere using L-BFGS
-                thetalist = self.minimizeTh_LBFGS(
-                    ADDth.thetalist, 
+                # Minimize on hypersphere using our modified steepest descent
+                thetalist = self.minimizeTh_SD_SS(
+                    ADDth, x_initial, 
                     lambda x: QMC.single_point(None, self.get_element_number_list(), "", 
                                             self.electric_charge_and_multiplicity, self.method, x)[0],
                     lambda x: self.calculate_gradient(QMC, x),
@@ -2123,10 +2154,24 @@ class ADDFlikeMethod:
                 # Mark as optimized
                 ADDth.ADDoptQ = False
                 
-                print(f"ADD {ADDth.IDnum} optimized: ADD={ADDth.ADD:.4f} (|ADD|={abs(ADDth.ADD):.4f}), ADD_IOE={ADDth.ADD_IOE:.4f}")
+                print(f"ADD {ADDth.IDnum} optimized: ADD={ADDth.ADD:.4f} (-ADD = {-ADDth.ADD:.4f}), ADD_IOE={ADDth.ADD_IOE:.4f}")
                 print(f"Grad {np.linalg.norm(grad):.6f}")
                 print(f"Energy {energy:.6f}")
                 print()
+                
+                # Save XYZ file after each ADD optimization step
+                # Use both iteration number and ADD ID in filename to ensure uniqueness
+                filename = f"iteration_{optturnN}_ADD_{ADDth.IDnum}.xyz"
+                filepath = os.path.join(sphere_dir, filename)
+                
+                # Write XYZ file for this optimization step
+                with open(filepath, 'w') as f:
+                    f.write(f"{len(self.element_list)}\n")
+                    f.write(f"Sphere {sphereN} Iteration {optturnN} ADD_{ADDth.IDnum} Radius {np.sqrt(IOEsphereA):.4f} Energy {ADDth.ADD:.6f}\n")
+                    for i, (element, coord) in enumerate(zip(self.element_list, ADDth.x)):
+                        f.write(f"{element} {coord[0]:.6f} {coord[1]:.6f} {coord[2]:.6f}\n")
+                
+                print(f"Saved intermediate structure to {filepath}")
                 
                 # Check for similar points already found
                 for existing_add in newADDths:
@@ -2138,17 +2183,17 @@ class ADDFlikeMethod:
                 if not ADDth.ADDremoveQ and ADDth.ADD_IOE < 0:  # Only keep negative ADD_IOE points
                     newADDths.append(ADDth)
                     
-                    # Save optimized structure for this sphere
+                    # Save optimized structure for this sphere (in the regular directory structure)
                     self.save_optimized_structure(ADDth, sphereN, IOEsphereA)
             
             # Filter ADDths list
             ADDths = [ADDth for ADDth in ADDths if not ADDth.ADDremoveQ]
             
-            # Sort by absolute ADD value (highest magnitude first) for next iteration
-            ADDths.sort(key=lambda x: abs(x.ADD), reverse=True)
+            # Sort by negative ADD value (most negative first) for next iteration
+            ADDths.sort(key=lambda x: -x.ADD, reverse=True)
             
-        # Sort the final ADDths list by absolute ADD value (highest magnitude first)
-        newADDths.sort(key=lambda x: abs(x.ADD), reverse=True)
+        # Sort the final ADDths list by negative ADD value (most negative first)
+        newADDths.sort(key=lambda x: -x.ADD, reverse=True)
         
         return newADDths if newADDths else ADDths
     
@@ -2166,7 +2211,7 @@ class ADDFlikeMethod:
         # Main ADD following loop
         while sphereN < self.addf_config["step_number"]:  # Limit to prevent infinite loops
             sphereN += 1
-            print(f"### Sphere {sphereN} ###")
+            print(f"\n### Sphere {sphereN} with radius {np.sqrt(IOEsphereA):.4f} ###\n")
             
             # Sort ADDths by absolute ADD value (largest magnitude first)
             self.ADDths.sort(key=lambda x: abs(x.ADD), reverse=True)
@@ -2208,7 +2253,16 @@ class ADDFlikeMethod:
                 
             # Increase sphere size for next iteration
             IOEsphereA = (np.sqrt(IOEsphereA) + IOEsphereA_r) ** 2
-            print(f"Expanding sphere to {IOEsphereA}")
+            print(f"Expanding sphere to radius {np.sqrt(IOEsphereA):.4f}")
+            
+            # Save displacement vectors for debugging
+            with open(os.path.join(self.directory, f"displacement_vectors_sphere_{sphereN}.csv"), "w") as f:
+                f.write("ADD_ID,x,y,z,ADD,ADD_IOE\n")
+                for ADDth in self.ADDths:
+                    if ADDth.ADDremoveQ:
+                        continue
+                    for i in range(len(ADDth.nADD)):
+                        f.write(f"{ADDth.IDnum},{ADDth.nADD[i][0]},{ADDth.nADD[i][1]},{ADDth.nADD[i][2]},{ADDth.ADD},{ADDth.ADD_IOE}\n")
         
         # Create separate trajectory files for each ADD path
         self.create_separate_xyz_files()
@@ -2323,7 +2377,7 @@ class ADDFlikeMethod:
         print("### ADD Following is done. ###")
         
         return isConverged
-    
+        
 class ModelFunctionOptimizer:
     """
     Implementation of model function optimization for iEIP method.

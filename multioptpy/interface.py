@@ -66,7 +66,7 @@ def ieipparser(parser):
     parser.add_argument('-gnt_mi','--gnt_microiter', help="max number of micro-iteration for Newton trajectory (default: 25)", type=int, default=25)
 
     parser.add_argument('-addf','--use_addf', help="Use ADDF-like method (default: False)", action='store_true')
-    parser.add_argument('-addf_step','--addf_step_size', help="set step size for ADDF-like method (default: 0.05)", type=float, default=0.05)
+    parser.add_argument('-addf_step','--addf_step_size', help="set step size for ADDF-like method (default: 0.1)", type=float, default=0.1)
     parser.add_argument('-addf_num','--addf_step_num', help="set number of steps for ADDF-like method (default: 300)", type=int, default=300)
     parser.add_argument('-addf_nadd','--number_of_add', help="set number of number of searching ADD (A larger ADD takes precedence.) for ADDF-like method (default: 5)", type=int, default=5)
 
