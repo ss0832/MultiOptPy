@@ -311,4 +311,30 @@ class FileIO:
             print("error")
     
         return
+
+
+
+def write_xyz_file(element_list, coords, file_path, comment="save"):# element_list: list of element symbols, coords: np.array of coordinates (ang.)
+    with open(file_path, 'w') as f:
+        f.write(str(len(element_list)) + '\n')
+        f.write(comment+'\n')
+        for i in range(len(element_list)):
+            f.write(element_list[i] + ' ' + ' '.join([str(j) for j in coords[i]]) + '\n')
+    return
+
+def make_workspace(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    return directory
+
+
+def stack_path(directory):
+    file_list = glob.glob(directory + '/*_[0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9][0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9][0-9][0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9][0-9][0-9][0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9][0-9][0-9][0-9][0-9].xyz') + glob.glob(directory + '/*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9].xyz') 
  
+    with open(directory + '/path.xyz', 'w') as f:
+        for file in file_list:
+            with open(file, 'r') as g:
+                lines = g.read().splitlines()
+            for line in lines:
+                f.write(line + '\n')
+    return

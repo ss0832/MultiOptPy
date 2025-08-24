@@ -56,7 +56,7 @@ from pyscf_calculation_tools import PySCFEngine
 from psi4_calculation_tools import Psi4Engine
 from dxtb_calculation_tools import DXTBEngine
 from ase_calculation_tools import ASEEngine
-from calc_tools import distribute_geometry, distribute_geometry_spline, distribute_geometry_by_length, distribute_geometry_by_length_spline, apply_climbing_image
+from calc_tools import distribute_geometry, distribute_geometry_spline, distribute_geometry_by_length, distribute_geometry_by_length_spline, apply_climbing_image, calc_path_length_list
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -438,12 +438,12 @@ class NEB:
                 geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
 
             # Calculate analysis metrics
-            cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list = \
-                self._calculate_analysis_metrics(total_force, biased_gradient_list)
+            cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list, path_length_list = \
+                self._calculate_analysis_metrics(total_force, biased_gradient_list, geometry_num_list)
             
             # Save analysis data and create plots
             self._save_analysis_data(cos_list, tot_force_rms_list, tot_force_max_list, 
-                                   bias_force_rms_list, file_directory, optimize_num)
+                                   bias_force_rms_list, file_directory, optimize_num, path_length_list, biased_energy_list)
             
             total_velocity = self.force2velocity(total_force, element_list)
             
@@ -561,7 +561,7 @@ class NEB:
             
         return np.array(biased_energy_list, dtype="float64"), np.array(biased_gradient_list, dtype="float64")
     
-    def _calculate_analysis_metrics(self, total_force, biased_gradient_list):
+    def _calculate_analysis_metrics(self, total_force, biased_gradient_list, geometry_num_list):
         """Calculate analysis metrics for monitoring convergence"""
         cos_list = []
         tot_force_rms_list = []
@@ -587,19 +587,35 @@ class NEB:
             
             bias_force_rms = np.sqrt(np.mean(biased_gradient_list[i]**2))
             bias_force_rms_list.append(bias_force_rms)
-            
-        return cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list
-    
+        
+        path_length_list = calc_path_length_list(geometry_num_list)
+
+        return cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list, path_length_list
+
     def _save_analysis_data(self, cos_list, tot_force_rms_list, tot_force_max_list, 
-                           bias_force_rms_list, file_directory, optimize_num):
+                           bias_force_rms_list, file_directory, optimize_num, path_length_list, biased_energy_list):
         """Save analysis data and create plots"""
+        # Save path length data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "path_length.csv", "a") as f:
+            f.write(",".join(list(map(str, path_length_list))) + "\n")
+
+        # Create energy vs path length plot
+        if self.config.save_pict:
+            self.visualizer.simple_scatter_plot(path_length_list, biased_energy_list, "", optimize_num, "Path length (ang.)", "Energy (Hartree)", "BE_PL")
+        
+
         # Save bias force RMS data
         with open(self.config.NEB_FOLDER_DIRECTORY + "bias_force_rms.csv", "a") as f:
             f.write(",".join(list(map(str, bias_force_rms_list))) + "\n")
-        
+
+        # Create bias force RMS vs path length plot
+        if self.config.save_pict:
+            self.visualizer.simple_scatter_plot(path_length_list, bias_force_rms_list, "", optimize_num, "Path length (ang.)", "Bias force RMS (Hartree)", "BFRMS_PL")    
+
         # Create orthogonality plot
         if self.config.save_pict:
             self.visualizer.plot_orthogonality([x for x in range(len(cos_list))], cos_list, optimize_num)
+        
         
         # Save orthogonality data
         with open(self.config.NEB_FOLDER_DIRECTORY + "orthogonality.csv", "a") as f:
@@ -633,6 +649,12 @@ class NEB:
         """Perform optimization step based on the selected method"""
         if isinstance(optimizer, RFOOptimizer):
             # RFO optimization
+            return optimizer.optimize(
+                geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, 
+                optimize_num, biased_energy_list, pre_biased_energy_list, 
+                pre_total_velocity, total_velocity, cos_list, pre_geom_param, STRING_FORCE_CALC)
+        elif isinstance(optimizer, RFOQSMOptimizer):
+            # RFOQSM optimization
             return optimizer.optimize(
                 geometry_num_list, biased_gradient_list, pre_geom, pre_biased_gradient_list, 
                 optimize_num, biased_energy_list, pre_biased_energy_list, 

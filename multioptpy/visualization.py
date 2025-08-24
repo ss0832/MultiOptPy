@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from parameter import UnitValueLib
+
 class Graph:
     def __init__(self, folder_directory):
         self.BPA_FOLDER_DIRECTORY = folder_directory
@@ -98,7 +100,21 @@ class NEBVisualizer:
         fig.savefig(f"{self.config.NEB_FOLDER_DIRECTORY}plot_{name}_{optimize_num}.png", 
                    format="png", dpi=200)
         plt.close()
-    
+
+    def simple_scatter_plot(self, num_list, data_list, file_directory, optimize_num, 
+                           axis_name_1="NODE #", axis_name_2="Value", name="data"):
+        """Create a simple scatter plot"""
+        fig, ax = plt.subplots()
+        ax.scatter(num_list, data_list, color=self.color_list[0], marker='o')
+        ax.plot(num_list, data_list, self.color_list[0]+'--o')
+        ax.set_title(str(optimize_num))
+        ax.set_xlabel(axis_name_1)
+        ax.set_ylabel(axis_name_2)
+        fig.tight_layout()
+        fig.savefig(f"{self.config.NEB_FOLDER_DIRECTORY}plot_{name}_{optimize_num}.png", 
+                   format="png", dpi=200)
+        plt.close()
+
     def plot_energy(self, num_list, energy_list, optimize_num, 
                    axis_name_1="NODE #", axis_name_2="Electronic Energy [kcal/mol]", name="energy"):
         """Plot energy profile"""
@@ -126,3 +142,15 @@ class NEBVisualizer:
         self.simple_plot(num_list, force_list, "", optimize_num, 
                         axis_name_1="NODE #", axis_name_2=axis_name_2, name=name)
 
+# For ADDF-like method in ieip.py
+def plot_potential_energy_path(energy_list, path, additional_name=""):
+    min_energy = np.min(energy_list)
+    energy_list -= min_energy
+    energy_list *= UnitValueLib().hartree2kcalmol
+    plt.plot(energy_list, marker='.', linestyle='--', color='b')
+    plt.xlabel("Iteration")
+    plt.ylabel("Energy (kcal/mol)")
+    plt.title("Potential Energy Path")
+    plt.savefig(path+"/"+additional_name+"_energy_profile.png")
+    plt.close()
+    return

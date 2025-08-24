@@ -36,9 +36,11 @@ class CaluculationQSM:
         for i in range(nnode):
             if i == 0:
                 total_force_list.append(-1*np.array(gradient_list[0], dtype = "float64"))
+                self.tau_list.append(np.zeros_like(geometry_num_list[0], dtype = "float64"))
                 continue
             elif i == nnode-1:
                 total_force_list.append(-1*np.array(gradient_list[nnode-1], dtype = "float64"))
+                self.tau_list.append(np.zeros_like(geometry_num_list[nnode-1], dtype = "float64"))
                 continue
             tmp_grad = copy.copy(gradient_list[i]).reshape(-1, 1)
             force, tangent_grad = self.calc_project_out_grad(geometry_num_list[i-1], geometry_num_list[i], geometry_num_list[i+1], tmp_grad, energy_list[i-1:i+2])     
@@ -114,7 +116,8 @@ class CaluculationQSM:
     def calc_proj_hess(self, hess, node_num):
         if not self.tau_list:
             return hess
-        P_mat = np.eye(len(self.tau_list[0])*3) - np.outer(self.tau_list[node_num].flatten(), self.tau_list[node_num].flatten())
+        tmp_tau = self.tau_list[node_num]
+        P_mat = np.eye(len(self.tau_list[0])*3) - np.outer(tmp_tau.flatten(), tmp_tau.flatten())
         P_mat = 0.5 * (P_mat + P_mat.T)
         proj_hess = np.dot(P_mat, hess)
         proj_hess = 0.5 * (proj_hess + proj_hess.T)

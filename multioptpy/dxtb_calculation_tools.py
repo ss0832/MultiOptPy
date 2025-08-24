@@ -60,7 +60,12 @@ class Calculation:
             os.mkdir(file_directory)
         except:
             pass
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz")
+
+        if file_directory is None:
+            file_list = ["dummy"]
+        else:
+            file_list = glob.glob(file_directory+"/*_[0-9].xyz")
+
         for num, input_file in enumerate(file_list):
             try:
                 

@@ -99,7 +99,12 @@ class Calculation:
             os.mkdir(file_directory)
         except:
             pass
-        file_list = glob.glob(file_directory+"/*_[0-9].xyz")
+        
+        if file_directory is None:
+            file_list = ["dummy"]
+        else:
+            file_list = glob.glob(file_directory+"/*_[0-9].xyz")
+    
         for num, input_file in enumerate(file_list):
             try:
                 if geom_num_list is None:
@@ -148,6 +153,7 @@ class Calculation:
                         self.BASIS_SET
                     )
                 elif self.software_type == "uma-s-1" or self.software_type == "uma-s-1p1" or self.software_type == "uma-m-1p1":  # Neural Network Potential
+                   
                     atom_obj = use_FAIRCHEMNNP(atom_obj, electric_charge_and_multiplicity, self.software_path_dict["uma-s-1"])
 
                 elif self.software_type == "mace_mp":  # Neural Network Potential

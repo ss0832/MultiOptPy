@@ -4,14 +4,15 @@ import datetime
 import glob
 import numpy as np
 from pathlib import Path
-import logging
+
 
 from potential import BiasPotentialCalculation
 from optimizer import CalculateMoveVector 
 from calc_tools import Calculationtools
 from visualization import Graph
-from fileio import FileIO
-from parameter import UnitValueLib
+from fileio import FileIO, write_xyz_file, make_workspace, stack_path, xyz2list
+from visualization import plot_potential_energy_path
+from parameter import UnitValueLib, element_number
 from interface import force_data_parser
 from polar_coordinate import cart2polar, polar2cart, cart_grad_2_polar_grad
 import ModelFunction as MF
@@ -150,6 +151,14 @@ class IEIPConfig:
         self.gnt_rms_thresh = getattr(args, 'gnt_rms_thresh', 1.7e-3)
         self.gnt_vec = getattr(args, 'gnt_vec', None)
         self.gnt_microiter = getattr(args, 'gnt_microiter', 100)
+        
+        # Set config for ADDF-like method
+        self.use_addf = getattr(args, 'use_addf', False)
+        self.addf_step_num = getattr(args, 'addf_step_num', 500)
+        self.nadd = getattr(args, 'number_of_add', 20)
+        self.addf_step_size = getattr(args, 'addf_step_size', 0.05)
+
+
         # Create output directory
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
     
@@ -1227,7 +1236,349 @@ class NewtonTrajectory:
         
         return
     
+class ADDFlikeMethod:
+    def __init__(self, config):
+        # This implementation is for the ADDF-like method. Thus, this is experimental.
+        # ref.:https://doi.org/10.1021/jp061149l
+        
+        self.config = config
+        self.addf_config = {}
+        self.addf_config['step_number'] = int(config.addf_step_num)
+        self.addf_config['number_of_add'] = int(config.nadd)
+        self.addf_config['step_size'] = float(config.addf_step_size)
+        self.energy_list_1 = []
+        self.energy_list_2 = []
+        self.gradient_list_1 = []
+        self.gradient_list_2 = []
+        self.init_displacement = 0.03 / UnitValueLib().bohr2angstroms #Bohr.
+        self.date = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        self.converge_criteria = 0.12
+        self.element_number_list = None
+        return
     
+    def adjust_center2origin(self, coord):
+        center = np.mean(coord, axis=0)
+        return coord - center
+        
+    def calc_proj_grad(self, gradient, projection_vec):#projection_vec (M, 3N), gradient (3N, 1)
+       
+        Q, R = np.linalg.qr(projection_vec.T)
+        keep_indices = ~np.isclose(np.diag(R), 0, atol=1e-6, rtol=0)
+        projection_vec = Q.T[keep_indices].T
+        for vec in projection_vec.T:
+            vec = vec.reshape(-1, 1)
+            gradient = gradient - np.dot(gradient.T, vec) * vec
+        
+        return gradient # (3N, 1)
+        
+    
+    def judge_convergence(self, coord_1, coord_2):
+        distance = np.linalg.norm(coord_1 - coord_2)
+        return distance < self.converge_criteria
+    
+ 
+    def print_info(self, Mol):
+        print("### Info ###")
+        print("Energy: ", Mol.get_energy())
+        print("RMS Gradient: ", np.sqrt(np.mean(Mol.get_gradient()**2)))
+        print("Max Gradient: ", np.max(np.abs(Mol.get_gradient())))
+        return
+    
+    def add_following(self, QMC):
+            
+        isConverged = False
+        ladd_idx_list = np.argsort(self.add_energy_list)[::-1]
+        print("### Start Large ADD Following. ###")
+        prev_add_energy = 0.0
+        for idx in ladd_idx_list:
+            search_idx = self.add_energy_tag_list[idx][0]
+            direction = self.add_energy_tag_list[idx][1]
+            print("### --------------------------------- ###")
+            print("index of principal axis and direction: ", self.add_energy_tag_list[idx])
+            print("### --------------------------------- ###")
+            workdir = self.directory + "/ADD_" + str(search_idx) + "_" + str(int(direction))
+            os.makedirs(workdir, exist_ok=True)
+            with open(workdir + "/energy_list.csv", "a") as f:
+                f.write("ITR.,bare_energy,ADD_energy\n")
+            
+            energy_list = []
+            add_energy_list = []
+            for i in range(self.addf_config['step_number']):
+                
+                coord_1 = self.get_coord()
+                coord_1 = self.adjust_center2origin(coord_1)
+                element_number_list_1 = self.get_element_list()
+                
+                axis = self.init_eigenvectors[:, search_idx].reshape(-1, 3)
+                if i == 0:
+                    displacement = direction * self.init_displacement * axis / np.linalg.norm(axis)
+                    new_coord = self.init_geometry + displacement.reshape(-1, 3)
+                
+                    
+                add_grad = self.calc_hyper_sphere_harmonic_gradient(new_coord) + self.init_gradient
+                step_radii = np.linalg.norm(add_grad)
+                displacement = add_grad * min(self.addf_config['step_size'], step_radii) / np.linalg.norm(add_grad) 
+                new_coord += displacement
+                new_coord = self.adjust_center2origin(new_coord)
+                energy_1, grad_1, pos_1, iscalculationfailed = QMC.single_point(None, element_number_list_1, "", self.electric_charge_and_multiplicity, self.method, new_coord)
+                if iscalculationfailed:
+                    print("Calculation failed.")
+                    break
+                BPC = BiasPotentialCalculation(self.config.iEIP_FOLDER_DIRECTORY)
+                _, bias_energy, bias_gradient, _ = BPC.main(
+                    energy_1, grad_1, new_coord, element_number_list_1, self.config.force_data)
+                energy_1 = bias_energy
+                grad_1 = bias_gradient
+                
+                proj_vec = new_coord - self.init_geometry
+                grad_1 = self.calc_proj_grad(grad_1.reshape(-1, 1), proj_vec.reshape(1, -1)).reshape(-1, 3)
+                add_energy = self.calc_add_energy(energy_1, new_coord)
+                add_energy = float(add_energy.real)        
+                new_coord = self.adjust_center2origin(new_coord)
+                step_radii = np.linalg.norm(grad_1)
+                displacement = grad_1 * min(self.addf_config['step_size'], step_radii) / np.linalg.norm(grad_1) 
+                new_coord += -1.0 * displacement
+                
+                new_coord, _ = Calculationtools().kabsch_algorithm(new_coord, self.init_geometry)
+                
+                
+                if i % 10 == 0:
+                    print("# ITR. ", i)
+                    print(f"ADD energy         : {add_energy:.12f}")
+                    print(f"Energy             : {energy_1:.12f}")
+                    print(f"Gradient (RMS)     : {np.linalg.norm(grad_1):.12f}")
+                    print(f"ADD Gradient (RMS) : {np.linalg.norm(add_grad):.12f}")
+                    # Display atom coordinates and elements
+                    print()
+                    for atom_idx, coord in enumerate(new_coord):
+                        element = self.get_element_list()[atom_idx]
+                        print(f"{element:<5}  {coord[0]:<15.12f}  {coord[1]:<15.12f}  {coord[2]:<15.12f}")
+                    print()
+
+                self.set_coord(new_coord)
+                file_path = workdir + "/ITR_" + str(i) + ".xyz"
+                write_xyz_file(self.get_element_list(), new_coord * UnitValueLib().bohr2angstroms, file_path, comment="save")
+                with open(workdir + "/energy_list.csv", "a") as f:
+                    f.write(str(i)+","+str(energy_1)+","+str(add_energy) + "\n")
+                    
+
+                
+                if prev_add_energy > add_energy and i > 30:
+                    print("ADD energy is decreasing. Stop ADD-Following.")
+                    break 
+                
+                prev_add_energy = add_energy
+                energy_list.append(energy_1)
+                add_energy_list.append(add_energy)
+                
+            
+            print("### --------------------------------- ###")
+            stack_path(workdir)
+            plot_potential_energy_path(energy_list, workdir, "bare")
+            plot_potential_energy_path(add_energy_list, workdir, "ADD")
+                 
+            
+        return isConverged
+        
+    def calc_hyper_sphere_harnomic_energy(self, coord):#eigenvalue-scaling cartesian coordinates
+        energy = 0.0
+        tmp_init_coord = self.init_geometry.reshape(-1, 1)
+        tmp_coord = coord.reshape(-1, 1) 
+        for i in range(len(self.init_eigenvalues)):
+            init_dist = np.dot(tmp_init_coord.T, self.init_eigenvectors[:, i])
+            dist = np.dot(tmp_coord.T, self.init_eigenvectors[:, i])
+            energy += 0.5 * np.sqrt(self.init_eigenvalues[i]) * (dist - init_dist)**2
+        
+        return energy
+    
+    def calc_hyper_sphere_harmonic_gradient(self, coord):#eigenvalue-scaling cartesian coordinates
+        gradient = np.zeros_like(coord)
+        tmp_coord = coord.reshape(-1, 1)
+        tmp_init_coord = self.init_geometry.reshape(-1, 1)
+        for i in range(len(self.init_eigenvalues)):
+            init_dist = np.dot(tmp_init_coord.T, self.init_eigenvectors[:, i])
+            dist = np.dot(tmp_coord.T, self.init_eigenvectors[:, i])
+            tmp_eye_mat = np.dot(np.eye(len(tmp_coord)), np.diag(tmp_coord.reshape(-1)))
+            tmp_eye_gradient = np.sqrt(self.init_eigenvalues[i]) * (dist - init_dist) * tmp_eye_mat * self.init_eigenvectors[:, i].reshape(-1, 1)
+            tmp_grad = np.diag(tmp_eye_gradient).reshape(-1, 3)
+            gradient += tmp_grad
+            
+        return gradient
+    
+    def calc_constrained_harmonic_energy(self, coord_1, coord_2, dist0):#cartesian coordinates
+        dist = np.linalg.norm(coord_1 - coord_2)   
+        energy = 0.5 * (dist - dist0) ** 2
+        return energy
+    
+    def calc_constrained_harmonic_gradient(self, coord, dist0):#cartesian coordinates
+        gradient = (coord - self.init_geometry) * (np.linalg.norm(coord - self.init_geometry) - dist0)
+        return gradient
+    
+    def calc_add_energy(self, energy, coord_1):
+        hs_h_ene = self.calc_hyper_sphere_harnomic_energy(coord_1)
+        add_energy = energy - self.init_energy + hs_h_ene
+        
+        return add_energy
+
+    def set_molecule(self, element_list, coords):
+        self.element_list = element_list
+        self.coords = coords
+        return
+    
+    def set_gradient(self, gradient):
+        self.gradient = gradient
+        return
+    
+    def set_hessian(self, hessian):
+        self.hessian = hessian
+        return
+    
+    def set_energy(self, energy):
+        self.energy = energy
+        return
+    
+    def set_coords(self, coords):
+        self.coords = coords
+        return
+    
+    def set_element_list(self, element_list):
+        self.element_list = element_list
+        self.element_number_list = [element_number(i) for i in self.element_list]
+        return
+
+    def set_coord(self, coord):
+        self.coords = coord
+        return
+    
+    def get_coord(self):
+        return self.coords
+
+    def get_element_list(self):
+        return self.element_list
+    
+    def get_element_number_list(self):
+        if self.element_number_list is None:
+            if self.element_list is None:
+                raise ValueError('Element list is not set.')
+            self.element_number_list = [element_number(i) for i in self.element_list]
+        return self.element_number_list
+
+
+
+    def detect_add(self, QMC):
+        coord_1 = self.get_coord() 
+        coord_1 = self.adjust_center2origin(coord_1)
+        
+        element_number_list_1 = self.get_element_number_list()
+        print("### Checking whether initial structure is EQ. ###")
+        QMC.hessian_flag = True
+        self.init_energy, self.init_gradient, _, iscalculationfailed = QMC.single_point(None, element_number_list_1, "", self.electric_charge_and_multiplicity, self.method, coord_1)
+        BPC = BiasPotentialCalculation(self.config.iEIP_FOLDER_DIRECTORY)
+        _, bias_energy, bias_gradient, bias_hess = BPC.main(
+                self.init_energy, self.init_gradient, coord_1, element_number_list_1, self.config.force_data
+            )
+        self.init_energy = bias_energy
+        self.init_gradient = bias_gradient
+        QMC.hessian_flag = False
+        self.init_geometry = coord_1
+        self.set_coord(coord_1)
+        if np.linalg.norm(self.init_gradient) > 1e-3:
+            print("Norm of gradient is too large.")
+            exit()
+        print("Initial structure is EQ.")
+        
+        print("### Start calculating Hessian matrix to detect ADD. ###")
+        hessian = QMC.Model_hess
+
+        hessian += bias_hess
+        
+        projection_hessian = Calculationtools().project_out_hess_tr_and_rot_for_coord(hessian, self.element_list, coord_1)
+        
+        eigenvalues, eigenvectors = np.linalg.eigh(projection_hessian)#For Hermite matrix
+        eigenvalues = eigenvalues.astype(np.float64)
+        eigenvalues = np.sort(eigenvalues)    
+        nonzero_indices = np.where(np.abs(eigenvalues) > 1e-10)[0]
+        nonzero_eigenvectors = eigenvectors[:, nonzero_indices].astype(np.float64)
+        nonzero_eigenvalues = eigenvalues[nonzero_indices].astype(np.float64)
+        sorted_eigenvalues_idx = np.argsort(nonzero_eigenvalues)
+        
+        self.init_eigenvalues = nonzero_eigenvalues
+        self.init_eigenvectors = nonzero_eigenvectors
+        
+        search_idx = min(self.addf_config['number_of_add'], len(sorted_eigenvalues_idx))
+        
+        self.sorted_eigenvalues_idx = sorted_eigenvalues_idx[0:search_idx]
+         
+        add_energy_list = []
+        add_energy_tag_list = []
+        print("### Checking ADD energy. ###")
+        
+        with open(self.directory + "/add_energy_list.csv", "w") as f:
+            f.write("index_of_principal_axis,eigenvalue,direction,add_energy"+ "\n")
+                
+        for idx in self.sorted_eigenvalues_idx:
+            
+            for direction in [1.0, -1.0]:
+                axis = nonzero_eigenvectors[:, idx].reshape(-1, 3)
+                displacement = direction * self.init_displacement * axis / np.linalg.norm(axis)
+                new_coord = self.init_geometry + displacement
+              
+                displacement_energy_1, _, _, iscalculationfailed = QMC.single_point(None, element_number_list_1, "", self.electric_charge_and_multiplicity, self.method, new_coord) 
+
+                BPC = BiasPotentialCalculation(self.config.iEIP_FOLDER_DIRECTORY)
+                _, bias_energy, bias_gradient, bias_hess = BPC.main(
+                    displacement_energy_1, self.init_gradient, new_coord, element_number_list_1, self.config.force_data
+                )
+                displacement_energy_1 = bias_energy
+
+                add_energy = self.calc_add_energy(displacement_energy_1, new_coord)
+                add_energy = float(add_energy.real)
+                add_energy_list.append(add_energy)
+                add_energy_tag_list.append((idx, direction))
+             
+                with open(self.directory + "/add_energy_list.csv", "a") as f:
+                    f.write(str(idx)+","+str(self.init_eigenvalues[idx])+","+str(direction)+","+str(add_energy) + "\n")
+                
+        self.add_energy_list = add_energy_list  
+        self.add_energy_tag_list = add_energy_tag_list
+        print(f"eigenvalue: NMODES = {len(self.init_eigenvalues)}\n", self.init_eigenvalues)
+        print("### Checking ADD energy is done. Start ADD-Following-like method. ###")
+        
+        return
+
+    def set_mole_info(self, base_file_name, electric_charge_and_multiplicity):
+        coord, element_list, electric_charge_and_multiplicity = xyz2list(base_file_name + ".xyz", electric_charge_and_multiplicity)
+
+        if self.config.usextb != "None":
+            self.method = self.config.usextb
+        elif self.config.usedxtb != "None":
+            self.method = self.config.usedxtb
+        else:
+            self.method = "None"
+
+        self.coords = np.array(coord, dtype="float64")  
+        self.element_list = element_list
+        self.electric_charge_and_multiplicity = electric_charge_and_multiplicity
+
+
+    def run(self, file_directory, SP, electric_charge_and_multiplicity, FIO_img):
+        print("### Start ADD Following-like method. ###")
+        # preparation
+        base_file_name = os.path.splitext(FIO_img.START_FILE)[0]
+        self.set_mole_info(base_file_name, electric_charge_and_multiplicity)
+        
+        self.directory = make_workspace(file_directory)
+        
+        self.detect_add(SP)
+        
+        isConverged = self.add_following(SP)
+        
+        print("### ADD Following is done. ###")
+        
+        return isConverged
+    
+
+
 class ModelFunctionOptimizer:
     """
     Implementation of model function optimization for iEIP method.
@@ -1694,7 +2045,8 @@ class iEIP:
         self.elastic_image_pair = ElasticImagePair(self.config)
         self.model_function_optimizer = ModelFunctionOptimizer(self.config)
         self.newton_trajectory = NewtonTrajectory(self.config)
-    
+        self.addf_like_method = ADDFlikeMethod(self.config)
+
     def optimize(self):
         """Load calculation modules based on configuration and run optimization"""
         if self.config.othersoft != "None":
@@ -1773,6 +2125,11 @@ class iEIP:
                 self.config.electric_charge_and_multiplicity_list[0], 
                 self.config.electric_charge_and_multiplicity_list[1], 
                 FIO_img_list[0], FIO_img_list[1])
+        elif self.config.use_addf:
+            self.addf_like_method.run(file_directory_list[0],
+                SP_list[0],
+                self.config.electric_charge_and_multiplicity_list[0], 
+                FIO_img_list[0])
         
         else:
             self.elastic_image_pair.iteration(
