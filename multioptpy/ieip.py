@@ -1264,6 +1264,8 @@ class ADDFlikeMethod:
         self.element_number_list = None
         self.ADDths = []  # List to store ADD theta classes
         self.optimized_structures = {}  # Dictionary to store optimized structures by ADD ID
+        self.max_iterations = 100
+        self.gtol = 1e-3
 
     def get_unit_conversion(self):
         """Return bohr to angstrom conversion factor"""
@@ -1625,8 +1627,6 @@ class ADDFlikeMethod:
         
         # L-BFGS parameters
         m = min(10, n_dims)  # Memory size for L-BFGS
-        max_iterations = 100
-        gtol = 1.0e-4  # Gradient tolerance for convergence
         
         # Keep track of the best solution found
         best_thetalist = copy.deepcopy(thetalist)
@@ -1656,9 +1656,9 @@ class ADDFlikeMethod:
             best_gradient_norm = gradient_norm
         
         # Iterate until convergence or max iterations
-        for iteration in range(max_iterations):
+        for iteration in range(self.max_iterations):
             # Check for convergence
-            if gradient_norm < gtol:
+            if gradient_norm < self.gtol:
                 print(f"Optimization converged after {iteration} iterations with gradient norm: {gradient_norm:.6f}")
                 return thetalist
             
