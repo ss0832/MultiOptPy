@@ -2015,8 +2015,8 @@ class ADDFlikeMethod:
             f.write(f"{len(self.element_list)}\n")
             f.write(f"ADD_{ADDth.IDnum} Sphere {sphere_num} Radius {radius:.4f} Energy {ADDth.ADD:.6f}\n")
             for i, (element, coord) in enumerate(zip(self.element_list, ADDth.x)):
-                f.write(f"{element} {coord[0]:.6f} {coord[1]:.6f} {coord[2]:.6f}\n")
-        
+                f.write(f"{element} {coord[0]:.12f} {coord[1]:.12f} {coord[2]:.12f}\n")
+
         # Store structure information in dictionary
         if ADDth.IDnum not in self.optimized_structures:
             self.optimized_structures[ADDth.IDnum] = []
@@ -2047,7 +2047,7 @@ class ADDFlikeMethod:
                     f.write(f"{len(self.element_list)}\n")
                     f.write(f"{structure['comment']}\n")
                     for i, (element, coord) in enumerate(zip(self.element_list, structure['coords'])):
-                        f.write(f"{element} {coord[0]:.6f} {coord[1]:.6f} {coord[2]:.6f}\n")
+                        f.write(f"{element} {coord[0]:.12f} {coord[1]:.12f} {coord[2]:.12f}\n")
             
             created_files.append(add_trajectory_file)
             
