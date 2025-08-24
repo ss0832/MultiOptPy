@@ -1285,13 +1285,13 @@ class ADDFlikeMethod:
         return
     
     def add_following(self, QMC):
-            
-    isConverged = False
-    ladd_idx_list = np.argsort(self.add_energy_list)[::-1]
-    print("### Start Large ADD Following. ###")
-    prev_add_energy = 0.0
-    decrease_count = 0  
-    for idx in ladd_idx_list:
+                
+        isConverged = False
+        ladd_idx_list = np.argsort(self.add_energy_list)[::-1]
+        print("### Start Large ADD Following. ###")
+        prev_add_energy = 0.0
+        decrease_count = 0  
+        for idx in ladd_idx_list:
             search_idx = self.add_energy_tag_list[idx][0]
             direction = self.add_energy_tag_list[idx][1]
             print("### --------------------------------- ###")
