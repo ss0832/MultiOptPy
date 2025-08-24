@@ -1286,11 +1286,12 @@ class ADDFlikeMethod:
     
     def add_following(self, QMC):
             
-        isConverged = False
-        ladd_idx_list = np.argsort(self.add_energy_list)[::-1]
-        print("### Start Large ADD Following. ###")
-        prev_add_energy = 0.0
-        for idx in ladd_idx_list:
+    isConverged = False
+    ladd_idx_list = np.argsort(self.add_energy_list)[::-1]
+    print("### Start Large ADD Following. ###")
+    prev_add_energy = 0.0
+    decrease_count = 0  
+    for idx in ladd_idx_list:
             search_idx = self.add_energy_tag_list[idx][0]
             direction = self.add_energy_tag_list[idx][1]
             print("### --------------------------------- ###")
@@ -1364,9 +1365,10 @@ class ADDFlikeMethod:
 
                 
                 if prev_add_energy > add_energy and i > 30:
-                    print("ADD energy is decreasing. Stop ADD-Following.")
-                    break 
-                
+                    decrease_count += 1
+                if decrease_count >= 5:
+                    print("ADD energy is decreasing 5 times (total). Stop ADD-Following.")
+                    break
                 prev_add_energy = add_energy
                 energy_list.append(energy_1)
                 add_energy_list.append(add_energy)
