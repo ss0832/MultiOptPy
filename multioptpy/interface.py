@@ -69,6 +69,10 @@ def ieipparser(parser):
     parser.add_argument('-addf_step','--addf_step_size', help="set step size for ADDF-like method (default: 0.1)", type=float, default=0.1)
     parser.add_argument('-addf_num','--addf_step_num', help="set number of steps for ADDF-like method (default: 300)", type=int, default=300)
     parser.add_argument('-addf_nadd','--number_of_add', help="set number of number of searching ADD (A larger ADD takes precedence.) for ADDF-like method (default: 5)", type=int, default=5)
+    
+    parser.add_argument('-2pshs','--use_2pshs', help="Use 2PSHS-like method (default: False)", action='store_true')
+    parser.add_argument('-2pshs_step','--twoPshs_step_size', help="set step size for 2PSHS-like method (default: 0.05)", type=float, default=0.05)
+    parser.add_argument('-2pshs_num','--twoPshs_step_num', help="set number of steps for 2PSHS-like method (default: 300)", type=int, default=300)
 
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
