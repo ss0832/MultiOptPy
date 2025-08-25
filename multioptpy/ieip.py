@@ -2648,7 +2648,7 @@ class twoPSHSlikeMethod:
         """
         whileN = 0
         thetalist = ADDth.thetalist + initialpoint
-        stepsize = 0.001
+        stepsize = 0.1
         n_atoms = eqpoint.shape[0]
         n_coords = n_atoms * 3
         
