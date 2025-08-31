@@ -27,7 +27,7 @@ try:
 except:
     print("You can't use dxtb.")
 
-
+from scipy.signal import argrelmax
 
 from interface import force_data_parser
 from parameter import element_number
@@ -91,6 +91,29 @@ class NEBConfig:
         self.bneb2 = args.BNEB2
         self.ewbneb = args.EWBNEB
         self.qsm = args.QSM
+        tmp_aneb = args.ANEB
+        
+        if tmp_aneb is None:
+            self.aneb_flag = False
+            self.aneb_interpolation_num = 0
+            self.aneb_frequency = 100000000000000000 # approximate infinite number
+            
+        elif len(tmp_aneb) == 2: 
+            self.aneb_flag = True
+            self.aneb_interpolation_num = int(tmp_aneb[0])
+            self.aneb_frequency = int(tmp_aneb[1])
+            if self.aneb_frequency < 1 or self.aneb_interpolation_num < 1:
+                print("invalid input (-aneb)")
+                print("Recommended setting is applied.")
+                self.aneb_interpolation_num = 1
+                self.aneb_frequency = 1
+        else:
+            self.aneb_flag = False
+            self.aneb_interpolation_num = 0
+            self.aneb_frequency = 100000000000000000 # approximate infinite number
+            print("invalid input (-aneb)")
+            exit()
+            
         
         # Optimization settings
         self.FC_COUNT = args.calc_exact_hess
@@ -338,7 +361,6 @@ class NEB:
         file_directory = self.make_input_files(geometry_list, 0)
         
         # Initialize calculation variables
-        pre_total_velocity = [[[]]]
         force_data = force_data_parser(self.args)
         
         # Check for projection constraints
@@ -366,13 +388,13 @@ class NEB:
         else:
             fix_atom_flag = False
         
-        # Initialize optimization variables - FIXED: Proper initialization order
+        # Initialize optimization variables 
         pre_geom = None
         pre_total_force = None
         pre_biased_gradient_list = None
         pre_total_velocity = []
         total_velocity = []
-        pre_biased_energy_list = None  # FIXED: Initialize this variable
+        pre_biased_energy_list = None  
         
         # Check for conflicting optimization methods
         if self.config.cg_method and self.config.lbfgs_method: 
@@ -381,7 +403,7 @@ class NEB:
         
         # Setup optimizer
         optimizer = self._setup_optimizer()
-        
+        adaptive_neb_count = 0
         # Main NEB iteration loop
         for optimize_num in range(self.config.NEB_NUM):
             exit_file_detect = os.path.exists(self.config.NEB_FOLDER_DIRECTORY + "end.txt")
@@ -395,30 +417,30 @@ class NEB:
             
             # Calculate energy and gradients
             energy_list, gradient_list, geometry_num_list, pre_total_velocity = \
-                self.calculation_engine.calculate(file_directory, optimize_num, 
+                self.calculation_engine.calculate(file_directory, adaptive_neb_count, 
                                                 pre_total_velocity, self.config)
             
-            if optimize_num == 0:
+            if adaptive_neb_count == 0:
                 init_geometry_num_list = geometry_num_list
             
             # Apply bias potential - FIXED: Check if hessian files exist before using them
             biased_energy_list, biased_gradient_list = self._apply_bias_potential(
                 energy_list, gradient_list, geometry_num_list, element_list, force_data, optimize_num)
             
-            # FIXED: Initialize pre_biased_energy_list on first iteration
-            if optimize_num == 0:
+            # Initialize pre_biased_energy_list on first iteration
+            if adaptive_neb_count == 0:
                 pre_biased_energy_list = copy.copy(biased_energy_list)
             
             # Calculate model hessian if needed
-            if (self.config.FC_COUNT == -1 and self.config.model_hessian and 
-                optimize_num % self.config.MFC_COUNT == 0):
+            if (self.config.FC_COUNT == -1 and self.config.model_hessian and
+                adaptive_neb_count % self.config.MFC_COUNT == 0):
                 for i in range(len(geometry_num_list)):
                     hessian = ApproxHessian().main(geometry_num_list[i], element_list, 
                                                  gradient_list[i], approx_hess_type=self.config.model_hessian)
                     np.save(self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(i) + ".npy", hessian)
             
             # Initialize projection constraints
-            if projection_constraint_flag and optimize_num == 0:
+            if projection_constraint_flag and adaptive_neb_count == 0:
                 PC_list = []
                 for i in range(len(energy_list)):
                     PC_list.append(ProjectOutConstrain(
@@ -435,7 +457,7 @@ class NEB:
 
             # Calculate forces
             total_force = STRING_FORCE_CALC.calc_force(
-                geometry_num_list, biased_energy_list, biased_gradient_list, optimize_num, element_list)
+                geometry_num_list, biased_energy_list, biased_gradient_list, adaptive_neb_count, element_list) 
 
             # Calculate analysis metrics
             cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list, path_length_list = \
@@ -450,7 +472,7 @@ class NEB:
             # Perform optimization step
             new_geometry = self._perform_optimization_step(
                 optimizer, geometry_num_list, total_force, biased_gradient_list, 
-                pre_geom, pre_biased_gradient_list, optimize_num, biased_energy_list, 
+                pre_geom, pre_biased_gradient_list, adaptive_neb_count, biased_energy_list, 
                 pre_biased_energy_list, pre_total_velocity, total_velocity, 
                 cos_list, pre_geom, STRING_FORCE_CALC)
             
@@ -465,17 +487,7 @@ class NEB:
                 projection_constraint_flag, PC_list if projection_constraint_flag else None)
             
             # Align geometries if needed
-            if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
-                print("Aligning geometries...")
-                tmp_new_geometry = distribute_geometry(np.array(new_geometry))
-                for k in range(len(new_geometry)):
-                    new_geometry[k] = copy.copy(tmp_new_geometry[k])
-                    
-            if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
-                print("Aligning geometries using spline...")
-                tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
-                for k in range(len(new_geometry)):
-                    new_geometry[k] = copy.copy(tmp_new_geometry[k])
+            new_geometry = self._align_geometries(new_geometry, optimize_num)
 
             # Save analysis files
             tmp_instance_fileio = FileIO(file_directory + "/", "dummy.txt")
@@ -483,23 +495,87 @@ class NEB:
             tmp_instance_fileio.argrelextrema_txt_save(biased_energy_list, "approx_EQ_node", "min")
             tmp_instance_fileio.argrelextrema_txt_save(bias_force_rms_list, "local_min_bias_grad_node", "min")
             
-            # Prepare for next iteration - FIXED: Proper variable assignment order
-            pre_geom = copy.copy(geometry_num_list)
-            geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
-            file_directory = self.make_input_files(geometry_list, optimize_num + 1)
-            pre_total_force = copy.copy(total_force)
-            pre_biased_gradient_list = copy.copy(biased_gradient_list)
-            pre_total_velocity = copy.copy(total_velocity)
-            pre_biased_energy_list = copy.copy(biased_energy_list)
+            # Prepare for next iteration
+            if adaptive_neb_count % self.config.aneb_frequency == 0 and adaptive_neb_count > 0 and self.config.aneb_flag:
+                pre_geom = None
+                pre_total_force = None
+                pre_biased_gradient_list = None
+                pre_total_velocity = []
+                total_velocity = []
+                pre_biased_energy_list = None
+                new_geometry = self._exec_adaptive_neb(new_geometry, biased_energy_list)
+                geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
+                file_directory = self.make_input_files(geometry_list, optimize_num + 1)
+                adaptive_neb_count = 0
+                
+            else:    
+                pre_geom = copy.copy(geometry_num_list)
+                geometry_list = self.print_geometry_list(new_geometry, element_list, electric_charge_and_multiplicity)
+                file_directory = self.make_input_files(geometry_list, optimize_num + 1)
+                pre_total_force = copy.copy(total_force)
+                pre_biased_gradient_list = copy.copy(biased_gradient_list)
+                pre_total_velocity = copy.copy(total_velocity)
+                pre_biased_energy_list = copy.copy(biased_energy_list)
+                adaptive_neb_count += 1
             
-            # Save energy data
-            with open(self.config.NEB_FOLDER_DIRECTORY + "energy_plot.csv", "a") as f:
-                f.write(",".join(list(map(str, biased_energy_list.tolist()))) + "\n")
-            
+         
         self.make_traj_file(file_directory) 
         print("Complete...")
         return
-    
+
+    def _exec_adaptive_neb(self, new_geometry, energy_list):
+        """Execute the adaptive NEB algorithm (private method)"""
+        # ref.: P. Maragakis, S. A. Andreev, Y. Brumer, D. R. Reichman, E. Kaxiras, J. Chem. Phys. 117, 4651 (2002)
+        ene_max_val_indices = argrelmax(energy_list)[0]
+        print("Using Adaptive NEB method...")
+        if len(ene_max_val_indices) == 0:
+            print("Maxima not found.")
+            return new_geometry
+        if self.config.aneb_interpolation_num < 1:
+            print("Interpolation number is 0.")
+            return new_geometry
+
+        adaptive_neb_applied_new_geometry = []
+        for i in range(len(new_geometry)):
+
+            if i in ene_max_val_indices:
+                delta_geom_minus = new_geometry[i] - new_geometry[i-1]
+                delta_geom_plus = new_geometry[i+1] - new_geometry[i]
+
+                for j in range(self.config.aneb_interpolation_num):
+                    alpha = (j + 1) / (self.config.aneb_interpolation_num + 1)
+                    new_point = new_geometry[i-1] + alpha * delta_geom_minus
+                    adaptive_neb_applied_new_geometry.append(new_point)
+
+                adaptive_neb_applied_new_geometry.append(new_geometry[i])
+
+                for j in range(self.config.aneb_interpolation_num):
+                    alpha = (j + 1) / (self.config.aneb_interpolation_num + 1)
+                    new_point = new_geometry[i] + alpha * delta_geom_plus
+                    adaptive_neb_applied_new_geometry.append(new_point)
+
+            else:    
+                adaptive_neb_applied_new_geometry.append(new_geometry[i])
+                
+        adaptive_neb_applied_new_geometry = np.array(adaptive_neb_applied_new_geometry, dtype="float64")
+        print("Interpolated nodes: ", ene_max_val_indices)
+        print("The number of interpolated nodes: ", len(ene_max_val_indices)*2)
+        return adaptive_neb_applied_new_geometry
+
+    def _align_geometries(self, new_geometry, optimize_num):
+        """Align geometries if needed (private method)"""
+        if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
+            print("Aligning geometries...")
+            tmp_new_geometry = distribute_geometry(np.array(new_geometry))
+            for k in range(len(new_geometry)):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
+            print("Aligning geometries using spline...")
+            tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
+            for k in range(len(new_geometry)):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        return new_geometry
+
     def _setup_force_calculation(self):
         """Setup force calculation method"""
         if self.config.om:
@@ -640,6 +716,12 @@ class NEB:
         # Save perpendicular gradient MAX data
         with open(self.config.NEB_FOLDER_DIRECTORY + "perp_max_gradient.csv", "a") as f:
             f.write(",".join(list(map(str, tot_force_max_list))) + "\n")
+            
+        # Save energy data
+        with open(self.config.NEB_FOLDER_DIRECTORY + "energy_plot.csv", "a") as f:
+            f.write(",".join(list(map(str, biased_energy_list.tolist()))) + "\n")
+                 
+            
     
     def _perform_optimization_step(self, optimizer, geometry_num_list, total_force, 
                                   biased_gradient_list, pre_geom, pre_biased_gradient_list, 
