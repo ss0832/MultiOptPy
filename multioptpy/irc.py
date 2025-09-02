@@ -1647,6 +1647,10 @@ class IRC:
         
         self.force_data = force_data
         self.FC_count = FC_count
+
+        # convergence criteria
+        self.MAX_FORCE_THRESHOLD = 0.0004
+        self.RMS_FORCE_THRESHOLD = 0.0001
         
         # Will be set in saddle_check
         self.IRC_flag = False
@@ -1716,7 +1720,7 @@ class IRC:
             init_e, init_g, geom_num_list, self.element_list, 
             self.force_data, init_g, 0, geom_num_list
         )
-        
+        isconverged = convergence_check(init_g, self.MAX_FORCE_THRESHOLD, self.RMS_FORCE_THRESHOLD)
         # Add bias potential hessian
         self.hessian += BPA_hessian
         
@@ -1738,7 +1742,7 @@ class IRC:
         print("Number of imaginary eigenvalues: ", imaginary_count)
         
         # Determine initial step direction
-        if imaginary_count == 1:
+        if imaginary_count == 1 and isconverged:
             print("Execute IRC")
             # True IRC: Use transition vector (imaginary mode)
             imaginary_idx = neg_indices[0]
