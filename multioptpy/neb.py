@@ -57,6 +57,7 @@ from psi4_calculation_tools import Psi4Engine
 from dxtb_calculation_tools import DXTBEngine
 from ase_calculation_tools import ASEEngine
 from calc_tools import distribute_geometry, distribute_geometry_spline, distribute_geometry_by_length, distribute_geometry_by_length_spline, apply_climbing_image, calc_path_length_list
+from geodesic_interpolation import distribute_geometry_geodesic
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -129,6 +130,7 @@ class NEBConfig:
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances
         self.align_distances_spline = args.align_distances_spline
+        self.align_distances_geodesic = args.align_distances_geodesic
         self.node_distance_spline = args.node_distance_spline
         self.excited_state = args.excited_state
         self.unrestrict = args.unrestrict
@@ -574,6 +576,12 @@ class NEB:
             tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
             for k in range(len(new_geometry)):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        if self.config.align_distances_geodesic >= 1 and optimize_num % self.config.align_distances_geodesic == 0 and optimize_num > 0:
+            print("Aligning geometries using geodesic interpolation...")
+            tmp_new_geometry = distribute_geometry_geodesic(np.array(new_geometry))
+            for k in range(len(new_geometry)):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        
         return new_geometry
 
     def _setup_force_calculation(self):
@@ -864,6 +872,9 @@ class NEB:
         # Align distances if requested
         if self.config.align_distances > 0:
             tmp_data = distribute_geometry(tmp_data)
+        
+        if self.config.align_distances_geodesic > 0:
+            tmp_data = distribute_geometry_geodesic(tmp_data)
         
         # Apply node distance constraint if specified
         if self.config.node_distance is not None:
