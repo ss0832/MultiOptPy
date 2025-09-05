@@ -1,7 +1,7 @@
 MultiOptPy Documentation
 =======================
 
-    **Version**: v1.4.5  
+    **Version**: v1.15.4  
     **Repository**: `https://github.com/ss0832/MultiOptPy <https://github.com/ss0832/MultiOptPy>`_  
     *An optimizer for quantum chemical calculation including artificial force induced reaction method*
 
@@ -30,7 +30,7 @@ Installation
 
     git clone https://github.com/ss0832/MultiOptPy.git
 
-or download the latest version of this program (v1.4.5 (2025/3/5) ).
+or download the latest version of this program (v1.15.4).
 
 
 Requirements
@@ -62,7 +62,7 @@ After ``git clone``,
     python optmain.py SN2.xyz
 
     # Transition state optimization (1st-order saddle)
-    python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rfo3_bofill -order 1 -fc 5
+    python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_fsb -order 1 -fc 5
 
     # NEB calculation
     python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 
@@ -168,7 +168,7 @@ Advanced Options
      - Description
      - Default
    * - ``-opt``, ``--opt_method``
-     - Optimization method (e.g. ``FIRELARS``, ``RFO``)
+     - Optimization method (e.g. ``FIRELARS``, ``rsirfo_fsb``)
      - ``FIRELARS``
    * - ``-fc``, ``--calc_exact_hess``
      - Calculate exact Hessian every N steps
@@ -352,9 +352,6 @@ Basic Options
    * - ``-ns``, ``--NSTEP``
      - Number of iterations
      - ``999``
-   * - ``-opt``, ``--opt_method``
-     - Optimization method
-     - ``FIRELARS``
    * - ``-sub_bs``, ``--sub_basisset``
      - Sub basis set for specific atoms
      - None
@@ -367,7 +364,7 @@ Basic Options
 
 ------------
 
-Bias Potentials and Forces
+Bias Potentials and Forces (optmain.py, nebmain.py, mdmain.py, ieipmain.py)
 -------------------------
 
 MultiOptPy supports a variety of bias potentials and forces.
@@ -457,7 +454,7 @@ V(φ) = 0.5k(φ - φ_0)^2
 
 ------------
 
-Extended Tight Binding Options
+Extended Tight Binding Options (optmain.py, nebmain.py, mdmain.py, ieipmain.py)
 -----------------------------
 
 .. list-table::
