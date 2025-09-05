@@ -99,6 +99,7 @@ quasi_newton_mapping = {
     "rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+    
 
     "ersprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "ersprfo_fsb": {"delta": 0.50, "rfo_type": 1},
@@ -301,6 +302,7 @@ class CalculateMoveVector:
                             optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
                         elif "rsprfo" in key:
                             optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+
                         elif "rsirfo" in key:
                             optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))   
                         elif "rfo" in key:
