@@ -52,6 +52,7 @@ from Optimizer.coordinate_locking import CoordinateLocking
 from Optimizer.trust_radius import TrustRadius
 from Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
 from Optimizer.gpmin import GPmin
+from Optimizer.cubic_newton import CubicNewton
 
 optimizer_mapping = {
     "adabelief": Adabelief,
@@ -92,6 +93,15 @@ specific_cases = {
 }
 
 quasi_newton_mapping = {    
+    "cubicnewton_bfgs": {"delta": 0.50},
+    "cubicnewton_fsb": {"delta": 0.50},
+    "cubicnewton_bofill": {"delta": 0.50},
+    "cubicnewton_msp": {"delta": 0.50},
+    "cubicnewton_sr1": {"delta": 0.50},
+    "cubicnewton_psb": {"delta": 0.50},
+    "cubicnewton_flowchart": {"delta": 0.50},
+
+
     "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
@@ -300,6 +310,9 @@ class CalculateMoveVector:
                         print(key)
                         if "ersprfo" in key:
                             optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+                        elif "cubicnewton" in key:
+                            optimizer_instances.append(CubicNewton(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
+                        
                         elif "rsprfo" in key:
                             optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
 
