@@ -74,6 +74,13 @@ def ieipparser(parser):
     parser.add_argument('-2pshs_step','--twoPshs_step_size', help="set step size for 2PSHS-like method (default: 0.05)", type=float, default=0.05)
     parser.add_argument('-2pshs_num','--twoPshs_step_num', help="set number of steps for 2PSHS-like method (default: 300)", type=int, default=300)
 
+    parser.add_argument('-use_dimer','--use_dimer', help="Use Dimer method for searching direction of TS (default: False)", action='store_true'
+                        )
+    parser.add_argument('-dimer_sep','--dimer_separation', help="set dimer separation (default: 0.0001)", type=float, default=0.0001)
+    parser.add_argument('-dimer_trial_angle','--dimer_trial_angle', help="set dimer trial angle (default: pi/32)", type=float, default=np.pi / 32.0)
+    parser.add_argument('-dimer_maxiter','--dimer_max_iterations', help="set max iterations for dimer method (default: 1000)", type=int, default=1000)
+    
+
     args = parser.parse_args()#model_function_mode
     args.fix_atoms = []
     args.gradient_fix_atoms = []
