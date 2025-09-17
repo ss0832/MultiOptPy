@@ -9,11 +9,12 @@ from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.IRC.lqa import LQA
 from multioptpy.IRC.rk4 import RK4
 from multioptpy.IRC.dvv import DVV
+from multioptpy.IRC.modekill import ModeKill
+from multioptpy.IRC.euler import Euler
 from multioptpy.IRC.converge_criteria import convergence_check
+from multioptpy.fileio import traj2list
 
 ### I recommend to use LQA method to calculate IRC path ###
-
-
 
 class IRC:
     """Main class for Intrinsic Reaction Coordinate calculations
@@ -57,7 +58,14 @@ class IRC:
         self.step_size = float(irc_method[0])
         self.max_step = int(irc_method[1])
         self.method = str(irc_method[2])
-            
+        tmp_method = irc_method[2].split(":")
+        if len(tmp_method) > 1:
+            self.method = tmp_method[0]
+            self.method_options = tmp_method[1:]
+        else:
+            self.method = irc_method[2]
+            self.method_options = []
+
         self.file_directory = directory
         self.final_directory = final_directory
         self.QM_interface = QM_interface
@@ -163,7 +171,15 @@ class IRC:
         print("Number of imaginary eigenvalues: ", imaginary_count)
         
         # Determine initial step direction
-        if imaginary_count == 1 and isconverged:
+        if self.method.upper() == "MODEKILL":
+            print("Execute ModeKill")
+            # ModeKill: Remove imaginary modes using ModeKill class
+            IRC_flag = False
+            gradient = self.QM_interface.gradient.reshape(len(geom_num_list), 3)
+            initial_step = np.zeros_like(gradient)
+            
+        
+        elif imaginary_count == 1 and isconverged:
             print("Execute IRC")
             # True IRC: Use transition vector (imaginary mode)
             imaginary_idx = neg_indices[0]
@@ -185,299 +201,120 @@ class IRC:
             
         return initial_step, IRC_flag, geom_num_list, finish_frag
     
+    def _get_irc_method_class(self):
+        """Get the appropriate IRC method class based on method name
+        
+        Returns
+        -------
+        class
+            IRC method class (LQA, RK4, ModeKill, Euler, or DVV)
+        """
+        method_map = {
+            "LQA": LQA,
+            "RK4": RK4,
+            "MODEKILL": ModeKill,
+            "EULER": Euler,
+            "DVV": DVV
+        }
+        
+        method_key = self.method.upper()
+        # Default to LQA if method is not recognized
+        if method_key not in method_map:
+            print(f"Unexpected method '{self.method}'. (default method is LQA.)")
+            return LQA
+            
+        return method_map[method_key]
+    
+    def _run_single_irc(self, directory, initial_geometry):
+        """Run a single IRC calculation
+        
+        Parameters
+        ----------
+        directory : str
+            Directory to store results
+        initial_geometry : numpy.ndarray
+            Initial geometry coordinates
+            
+        Returns
+        -------
+        object
+            IRC method instance
+        """
+        
+        
+        MethodClass = self._get_irc_method_class()
+        
+        if len(self.method_options) > 0 and MethodClass == ModeKill:
+            # Pass kill_inds if specified in method options
+            try:
+                kill_inds = [int(idx) for idx in self.method_options[0].split(",")]
+                print(f"Using specified kill_inds: {kill_inds}")
+            except ValueError:
+                print("Invalid kill_inds format. It should be a comma-separated list of integers.")
+                kill_inds = None
+        
+        irc_instance = MethodClass(
+            self.element_list, 
+            self.electric_charge_and_multiplicity, 
+            self.FC_count, 
+            directory, 
+            self.final_directory, 
+            self.force_data, 
+            max_step=self.max_step, 
+            step_size=self.step_size, 
+            init_coord=initial_geometry, 
+            init_hess=self.hessian, 
+            calc_engine=self.QM_interface,
+            xtb_method=self.xtb_method,
+            kill_inds=kill_inds if 'kill_inds' in locals() else None
+        )
+        
+        irc_instance.run()
+        return irc_instance
+        
+    def _run_irc(self):
+        """Run IRC calculation in both forward and backward directions"""
+        # Forward direction (from TS to products)
+        print("Forward IRC")
+        init_geom = self.geom_num_list + self.initial_step
+        
+        # Create forward direction directory
+        fwd_dir = os.path.join(self.file_directory, "irc_forward")
+        os.makedirs(fwd_dir, exist_ok=True)
+        
+        # Run forward IRC
+        self._run_single_irc(fwd_dir, init_geom)
+        
+        # Backward direction (from TS to reactants)
+        print("Backward IRC")
+        init_geom = self.geom_num_list - self.initial_step
+        
+        # Create backward direction directory
+        bwd_dir = os.path.join(self.file_directory, "irc_backward")
+        os.makedirs(bwd_dir, exist_ok=True)
+        
+        # Run backward IRC
+        self._run_single_irc(bwd_dir, init_geom)
+        
+        # Combine XYZ files from forward and backward directions
+        self.combine_xyz_files(fwd_dir, bwd_dir)
+        
+        # Combine forward and backward CSV data into a single file
+        self.combine_csv_data(fwd_dir, bwd_dir)
+    
+    def _run_meta_irc(self):
+        """Run meta-IRC calculation in a single direction"""
+        init_geom = self.geom_num_list - self.initial_step
+        self._run_single_irc(self.file_directory, init_geom)
+    
     def calc_IRCpath(self):
         """Calculate IRC path in forward and/or backward directions"""
         print("IRC carry out...")
-        if self.method.upper() == "LQA":
-            if self.IRC_flag:
-                # Forward direction (from TS to products)
-                print("Forward IRC")
-                init_geom = self.geom_num_list + self.initial_step
-                
-                # Create forward direction directory
-                fwd_dir = os.path.join(self.file_directory, "irc_forward")
-                os.makedirs(fwd_dir, exist_ok=True)
-                
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    fwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Backward direction (from TS to reactants)
-                print("Backward IRC")
-                init_geom = self.geom_num_list - self.initial_step
-                
-                # Create backward direction directory
-                bwd_dir = os.path.join(self.file_directory, "irc_backward")
-                os.makedirs(bwd_dir, exist_ok=True)
-                
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    bwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Combine forward and backward CSV data into a single file
-                self.combine_csv_data(fwd_dir, bwd_dir)
-                
-            else:
-                # Meta-IRC (single direction)
-                init_geom = self.geom_num_list - self.initial_step
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    self.file_directory, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-
-        elif self.method.upper() == "RK4":
-            if self.IRC_flag:
-                # Forward direction (from TS to products)
-                print("Forward IRC")
-                init_geom = self.geom_num_list + self.initial_step
-                
-                # Create forward direction directory
-                fwd_dir = os.path.join(self.file_directory, "irc_forward")
-                os.makedirs(fwd_dir, exist_ok=True)
-                
-                IRCmethod = RK4(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    fwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Backward direction (from TS to reactants)
-                print("Backward IRC")
-                init_geom = self.geom_num_list - self.initial_step
-                
-                # Create backward direction directory
-                bwd_dir = os.path.join(self.file_directory, "irc_backward")
-                os.makedirs(bwd_dir, exist_ok=True)
-                
-                IRCmethod = RK4(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    bwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Combine forward and backward CSV data into a single file
-                self.combine_csv_data(fwd_dir, bwd_dir)
-                
-            else:
-                # Meta-IRC (single direction)
-                init_geom = self.geom_num_list - self.initial_step
-                IRCmethod = RK4(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    self.file_directory, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-
-        elif self.method.upper() == "DVV":
-            if self.IRC_flag:
-                # Forward direction (from TS to products)
-                print("Forward IRC")
-                init_geom = self.geom_num_list + self.initial_step
-                
-                # Create forward direction directory
-                fwd_dir = os.path.join(self.file_directory, "irc_forward")
-                os.makedirs(fwd_dir, exist_ok=True)
-                
-                IRCmethod = DVV(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    fwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Backward direction (from TS to reactants)
-                print("Backward IRC")
-                init_geom = self.geom_num_list - self.initial_step
-                
-                # Create backward direction directory
-                bwd_dir = os.path.join(self.file_directory, "irc_backward")
-                os.makedirs(bwd_dir, exist_ok=True)
-                
-                IRCmethod = DVV(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    bwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Combine forward and backward CSV data into a single file
-                self.combine_csv_data(fwd_dir, bwd_dir)
-                
-            else:
-                # Meta-IRC (single direction)
-                init_geom = self.geom_num_list - self.initial_step
-                IRCmethod = DVV(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    self.file_directory, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-
+        
+        if self.IRC_flag:
+            self._run_irc()
         else:
-            # Default to LQA method if method is not recognized
-            print("Unexpected method. (default method is LQA.)")
-            if self.IRC_flag:
-                # Forward direction (from TS to products)
-                print("Forward IRC")
-                init_geom = self.geom_num_list + self.initial_step
-                
-                # Create forward direction directory
-                fwd_dir = os.path.join(self.file_directory, "irc_forward")
-                os.makedirs(fwd_dir, exist_ok=True)
-                
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    fwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Backward direction (from TS to reactants)
-                print("Backward IRC")
-                init_geom = self.geom_num_list - self.initial_step
-                
-                # Create backward direction directory
-                bwd_dir = os.path.join(self.file_directory, "irc_backward")
-                os.makedirs(bwd_dir, exist_ok=True)
-                
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    bwd_dir, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
-                
-                # Combine forward and backward CSV data into a single file
-                self.combine_csv_data(fwd_dir, bwd_dir)
-                
-            else:
-                # Meta-IRC (single direction)
-                init_geom = self.geom_num_list - self.initial_step
-                IRCmethod = LQA(
-                    self.element_list, 
-                    self.electric_charge_and_multiplicity, 
-                    self.FC_count, 
-                    self.file_directory, 
-                    self.final_directory, 
-                    self.force_data, 
-                    max_step=self.max_step, 
-                    step_size=self.step_size, 
-                    init_coord=init_geom, 
-                    init_hess=self.hessian, 
-                    calc_engine=self.QM_interface,
-                    xtb_method=self.xtb_method
-                )
-                IRCmethod.run()
+            self._run_meta_irc()
         
         return
     
@@ -531,7 +368,58 @@ class IRC:
                 writer.writerow(row)
         
         print(f"Combined IRC data saved to {combined_csv}")
-    
+
+    def combine_xyz_files(self, fwd_dir, bwd_dir):
+        """Combine forward and backward XYZ structures into a single XYZ file
+        
+        The combined file will start with the last structure of the forward path,
+        go through all structures in reverse order to the TS, then through the 
+        backward path structures from first to last.
+        
+        Parameters
+        ----------
+        fwd_dir : str
+            Forward directory path
+        bwd_dir : str
+            Backward directory path
+        """
+        # Path for combined XYZ file
+        combined_xyz = os.path.join(self.file_directory, "irc_combined_path.xyz")
+        
+        # Find all XYZ files in forward and backward directories
+        fwd_xyz_file = os.path.join(fwd_dir, "irc_structures.xyz")
+        bwd_xyz_file = os.path.join(bwd_dir, "irc_structures.xyz")
+        
+        fwd_irc_geometry_list, _, _ = traj2list(fwd_xyz_file, [0, 1])
+        bwd_irc_geometry_list, _, _ = traj2list(bwd_xyz_file, [0, 1])
+        fwd_irc_geometry_list = fwd_irc_geometry_list[::-1]  # Reverse forward list
+
+        # TS structure from the final directory
+        ts_xyz_file = glob.glob(os.path.join(self.final_directory, "*.xyz"))[0]
+        
+        # Write combined XYZ file
+        with open(combined_xyz, 'w') as outfile:
+            # Forward structures (from last to first)
+            for xyz in fwd_irc_geometry_list:
+                outfile.write(f"{len(xyz)}\n")
+                outfile.write("\n")
+                for i in range(len(xyz)):
+                    outfile.write(self.element_list[i] + "  " + " ".join(map(str, xyz[i])) + "\n")
+                
+            # TS structure
+            with open(ts_xyz_file, 'r') as infile:
+                outfile.write(infile.read())
+            
+            # Backward structures (from first to last)
+            for xyz in bwd_irc_geometry_list:
+                outfile.write(f"{len(xyz)}\n")
+                outfile.write("\n")
+                for i in range(len(xyz)):
+                    outfile.write(self.element_list[i] + "  " + " ".join(map(str, xyz[i])) + "\n")
+                
+        
+        print(f"Combined IRC path saved to {combined_xyz}")
+
     def run(self):
         """Main function to run IRC calculation"""
         # Check if starting point is a saddle point and get initial displacement

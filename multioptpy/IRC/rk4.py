@@ -9,6 +9,8 @@ from multioptpy.Potential.potential import BiasPotentialCalculation
 from multioptpy.Parameters.parameter import UnitValueLib, atomic_mass
 from multioptpy.IRC.converge_criteria import convergence_check
 from multioptpy.Visualization.visualization import Graph
+from multioptpy.PESAnalyzer.calc_irc_curvature import calc_irc_curvature_properties, save_curvature_properties_to_file
+
 
 class RK4:
     """Runge-Kutta 4th order method for IRC calculations
@@ -21,7 +23,7 @@ class RK4:
     
     def __init__(self, element_list, electric_charge_and_multiplicity, FC_count, file_directory, 
                  final_directory, force_data, max_step=1000, step_size=0.1, init_coord=None, 
-                 init_hess=None, calc_engine=None, xtb_method=None):
+                 init_hess=None, calc_engine=None, xtb_method=None, **kwargs):
         """Initialize RK4 IRC calculator
         
         Parameters
@@ -536,7 +538,24 @@ class RK4:
             print("Energy         : ", e)
             print("Bias Energy    : ", B_e)
             print("RMS B. grad    : ", np.sqrt((B_g**2).mean()))
-            print()
+            
+            if len(self.irc_mw_coords) > 1:
+                # Calculate curvature properties
+                unit_tangent_vector, curvature_vector, scalar_curvature, curvature_coupling = calc_irc_curvature_properties(
+                    mw_B_g, self.irc_mw_gradients[-2], self.mw_hessian, self.step_size
+                )
+                
+                print("Scalar curvature: ", scalar_curvature)
+                print("Curvature coupling: ", curvature_coupling.ravel())
+                
+                # Save curvature properties to file
+                save_curvature_properties_to_file(
+                    os.path.join(self.directory, "irc_curvature_properties.csv"),
+                    scalar_curvature,
+                    curvature_coupling
+                )
+                print()
+        
         
         # Save final data visualization
         G = Graph(self.directory)

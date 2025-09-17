@@ -23,7 +23,7 @@ class DVV:
     
     def __init__(self, element_list, electric_charge_and_multiplicity, FC_count, file_directory, 
                  final_directory, force_data, max_step=1000, step_size=0.1, init_coord=None, 
-                 init_hess=None, calc_engine=None, xtb_method=None, v0=0.04, dt0=0.5, error_tol=0.003):
+                 init_hess=None, calc_engine=None, xtb_method=None, v0=0.04, dt0=0.5, error_tol=0.003, **kwargs):
         """Initialize DVV IRC calculator
         
         Parameters
