@@ -64,14 +64,14 @@ def calc_curvature_coupling(curvature_vector, hessian):
     float: The curvature coupling.
     """
     eigvals, eigvecs = np.linalg.eigh(hessian)
-    
+
     sorted_indices = np.argsort(eigvals)
     eigvals = eigvals[sorted_indices]
     eigvecs = eigvecs[:, sorted_indices]
     
     curvature_vector = curvature_vector.reshape(-1, 1)  # Ensure it's a column vector
     
-    curvature_coupling = np.dot(eigvecs, curvature_vector)
+    curvature_coupling = np.dot(eigvecs.T, curvature_vector)
     return curvature_coupling
 
 def calc_irc_curvature_properties(gradient, prev_gradient, hessian, step_size):
