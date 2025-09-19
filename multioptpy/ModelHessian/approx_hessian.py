@@ -93,7 +93,24 @@ class ApproxHessian:
             SRCH = ShortRangeCorrectionHessian()
             hess_proj = SRCH.main(coord, element_list, hess_proj)
         
+        if "clip" in approx_hess_type.lower():
+            print("Applying eigenvalue clipping...")
+            #eigenvalue smoothing
+            eigval, eigvec = np.linalg.eigh(hess_proj)
+            eigval = np.asarray(eigval)
+            eigval = smooth_eigval(eigval, alpha=0.1)
+            hess_proj = np.dot(eigvec, np.dot(np.diag(eigval), eigvec.T))
+          
         return hess_proj#cart_hess
+
+
+def smooth_eigval(eigval, alpha=0.1):
+    """Smooth eigenvalues to avoid abnormally large values"""
+    eigval = np.asarray(eigval)
+    result = eigval.astype(float, copy=True)
+    mask = np.abs(eigval) >= 1.0
+    result[mask] = np.sign(eigval[mask]) * (2.0 - 1.0 / (np.abs(eigval)[mask] ** alpha))
+    return result
 
 
 def test():
