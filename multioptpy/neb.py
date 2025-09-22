@@ -54,8 +54,12 @@ from multioptpy.Calculator.pyscf_calculation_tools import PySCFEngine
 from multioptpy.Calculator.psi4_calculation_tools import Psi4Engine
 from multioptpy.Calculator.dxtb_calculation_tools import DXTBEngine
 from multioptpy.Calculator.ase_calculation_tools import ASEEngine
-from multioptpy.Utils.calc_tools import distribute_geometry, distribute_geometry_spline, distribute_geometry_by_length, distribute_geometry_by_length_spline, apply_climbing_image, calc_path_length_list
+from multioptpy.Calculator.sqm1_calculation_tools import SQM1Engine
+from multioptpy.Utils.calc_tools import apply_climbing_image, calc_path_length_list
 from multioptpy.Interpolation.geodesic_interpolation import distribute_geometry_geodesic
+from multioptpy.Interpolation.binomial_interpolation import bernstein_interpolation, distribute_geometry_by_length_bernstein
+from multioptpy.Interpolation.spline_interpolation import spline_interpolation, distribute_geometry_spline, distribute_geometry_by_length_spline
+from multioptpy.Interpolation.linear_interpolation import distribute_geometry, distribute_geometry_by_length
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -77,6 +81,7 @@ class NEBConfig:
         self.pyscf = args.pyscf
         self.usextb = args.usextb
         self.usedxtb = args.usedxtb
+        self.sqm1 = args.sqm1
         
         # NEB specific settings
         self.NEB_NUM = args.NSTEP
@@ -128,13 +133,17 @@ class NEBConfig:
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.align_distances = args.align_distances
         self.align_distances_spline = args.align_distances_spline
+        self.align_distances_spline_ver2 = args.align_distances_spline_ver2
         self.align_distances_geodesic = args.align_distances_geodesic
+        self.align_distances_bernstein = args.align_distances_bernstein
         self.node_distance_spline = args.node_distance_spline
+        self.node_distance_bernstein = args.node_distance_bernstein
         self.excited_state = args.excited_state
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
         self.apply_convergence_criteria = args.apply_convergence_criteria
         self.node_distance = args.node_distance
+        self.not_ts_optimization = args.not_ts_optimization
         
         # Electronic state settings
         self.electronic_charge = args.electronic_charge
@@ -233,7 +242,8 @@ class NEBConfig:
         timestamp = str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])
         if self.othersoft != "None":
             return tmp_name + "_NEB_" + self.othersoft + "_" + timestamp + "/"
-
+        elif self.sqm1:
+            return tmp_name + "_NEB_SQM1_" + timestamp + "/"
 
         elif self.usextb == "None" and self.usedxtb == "None":
             return tmp_name + "_NEB_" + self.basic_set_and_function.replace("/", "_") + "_" + timestamp + "/"
@@ -251,7 +261,9 @@ class CalculationEngineFactory:
     def create_engine(config):
         """Create appropriate calculation engine based on configuration"""
         if config.othersoft != "None":
-            return ASEEngine()    
+            return ASEEngine()
+        elif config.sqm1:
+            return SQM1Engine()
         elif config.usextb != "None":
             return TBLiteEngine()
         elif config.usedxtb != "None":
@@ -275,7 +287,11 @@ class OptimizationFactory:
         elif method == "rfo" and config.qsm:
             return RFOQSMOptimizer(config)
         elif method == "rfo":
-            return RFOOptimizer(config)
+            tmp_opt = RFOOptimizer(config)
+            if config.not_ts_optimization:
+                print("Applying NEB without TS optimization.")
+                tmp_opt.set_apply_ts_opt(False)
+            return tmp_opt
         elif method == "lbfgs":
             tr_neb = trust_radius_neb.TR_NEB(
                 NEB_FOLDER_DIRECTORY=config.NEB_FOLDER_DIRECTORY,
@@ -487,7 +503,7 @@ class NEB:
                 projection_constraint_flag, PC_list if projection_constraint_flag else None)
             
             # Align geometries if needed
-            new_geometry = self._align_geometries(new_geometry, optimize_num)
+            new_geometry = self._align_geometries(new_geometry, optimize_num, biased_gradient_list)
 
             # Save analysis files
             tmp_instance_fileio = FileIO(file_directory + "/", "dummy.txt")
@@ -559,21 +575,35 @@ class NEB:
                 
         adaptive_neb_applied_new_geometry = np.array(adaptive_neb_applied_new_geometry, dtype="float64")
         print("Interpolated nodes: ", ene_max_val_indices)
-        print("The number of interpolated nodes: ", len(ene_max_val_indices)*2)
+        print("The number of interpolated nodes: ", len(ene_max_val_indices) * 2 * self.config.aneb_interpolation_num)
         return adaptive_neb_applied_new_geometry
 
-    def _align_geometries(self, new_geometry, optimize_num):
+    def _align_geometries(self, new_geometry, optimize_num, gradient_list=None):
         """Align geometries if needed (private method)"""
         if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
             print("Aligning geometries...")
             tmp_new_geometry = distribute_geometry(np.array(new_geometry))
             for k in range(len(new_geometry)):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        if self.config.align_distances_bernstein >= 1 and optimize_num % self.config.align_distances_bernstein == 0 and optimize_num > 0:
+            print("Aligning geometries using Bernstein interpolation...")
+            tmp_new_geometry = bernstein_interpolation(np.array(new_geometry), len(new_geometry))
+            for k in range(len(new_geometry)):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+    
+        
         if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
             print("Aligning geometries using spline...")
             tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
             for k in range(len(new_geometry)):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        
+        if self.config.align_distances_spline_ver2 >= 1 and optimize_num % self.config.align_distances_spline_ver2 == 0 and optimize_num > 0:
+            print("Aligning geometries using spline ver2...")
+            tmp_new_geometry = spline_interpolation(np.array(new_geometry), len(new_geometry))
+            for k in range(len(new_geometry)):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+        
         if self.config.align_distances_geodesic >= 1 and optimize_num % self.config.align_distances_geodesic == 0 and optimize_num > 0:
             print("Aligning geometries using geodesic interpolation...")
             tmp_new_geometry = distribute_geometry_geodesic(np.array(new_geometry))
@@ -871,6 +901,13 @@ class NEB:
         if self.config.align_distances > 0:
             tmp_data = distribute_geometry(tmp_data)
         
+        if self.config.align_distances_bernstein > 0:
+            tmp_data = bernstein_interpolation(tmp_data, len(tmp_data))
+        
+
+        if self.config.align_distances_spline_ver2 > 0:
+            tmp_data = spline_interpolation(tmp_data, len(tmp_data))
+        
         if self.config.align_distances_geodesic > 0:
             tmp_data = distribute_geometry_geodesic(tmp_data)
         
@@ -880,6 +917,9 @@ class NEB:
 
         if self.config.node_distance_spline is not None:
             tmp_data = distribute_geometry_by_length_spline(tmp_data, self.config.node_distance_spline)
+        
+        if self.config.node_distance_bernstein is not None:
+            tmp_data = distribute_geometry_by_length_bernstein(tmp_data, self.config.node_distance_bernstein)
         
         for data in tmp_data:
             geometry_list.append([electric_charge_and_multiplicity] + 

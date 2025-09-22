@@ -51,7 +51,9 @@ def ieipparser(parser):
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
+    
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser.add_argument("-elec", "--electronic_charge", type=int, nargs="*", default=[0, 0], help='formal electronic charge (ex.) [charge (0)]')
     parser.add_argument("-spin", "--spin_multiplicity", type=int, nargs="*", default=[1, 1], help='spin multiplcity (if you use pyscf, please input S value (mol.spin = 2S = Nalpha - Nbeta)) (ex.) [multiplcity (0)]')
@@ -114,6 +116,7 @@ def optimizeparser(parser):
     parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd differential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Default setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Default setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
@@ -217,10 +220,14 @@ def nebparser(parser):
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')
     parser.add_argument("-ads", "--align_distances_spline", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation')
+    parser.add_argument("-ads2", "--align_distances_spline_ver2", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation ver.2')
     parser.add_argument("-adg", "--align_distances_geodesic", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using geodesic interpolation')
-
+    parser.add_argument("-adb", "--align_distances_bernstein", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using Bernstein interpolation')
+    parser.add_argument("-adh", "--align_distances_hermite", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using Hermite interpolation')
+    
     parser.add_argument("-nd", "--node_distance", type=float, default=None, help='distribute images at equal intervals linearly based ont specific distance (ex.) [distance (ang.)] (default: None)')
     parser.add_argument("-nds", "--node_distance_spline", type=float, default=None, help='distribute images at equal intervals using spline interpolation based ont specific distance (ex.) [distance (ang.)] (default: None)')
+    parser.add_argument("-ndb", "--node_distance_bernstein", type=float, default=None, help='distribute images at equal intervals using Bernstein interpolation based ont specific distance (ex.) [distance (ang.)] (default: None)')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
@@ -237,12 +244,13 @@ def nebparser(parser):
     
     parser.add_argument("-cg", "--conjugate_gradient", nargs='?', help='apply conjugate_gradient method for path optimization (Available update method of CG parameters :FR, PR, HS, DY, HZ), default update method is HS.) ', action=CGAction, default=False)
     parser.add_argument("-lbfgs", "--memory_limited_BFGS", action='store_true', help='apply L-BFGS method for path optimization ')
-    
+    parser.add_argument("-notsopt", "--not_ts_optimization", action='store_true', help='not apply TS optimization during NEB calculation')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-gqnt", "--global_quasi_newton",  action='store_true', help='use global quasi-Newton method')
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
+    parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')

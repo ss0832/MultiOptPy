@@ -125,6 +125,8 @@ class IEIPConfig:
         # Set up output directory
         if self.othersoft != "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_" + args.othersoft + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
+        elif args.sqm1:
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_SQM1_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
         elif args.usextb == "None" and args.usedxtb == "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_" + self.basic_set_and_function.replace("/", "_") + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
         else:
@@ -205,6 +207,8 @@ class iEIP:
         """Load calculation modules based on configuration and run optimization"""
         if self.config.othersoft != "None":
             from multioptpy.Calculator.ase_calculation_tools import Calculation
+        elif self.config.args.sqm1:
+            from multioptpy.Calculator.sqm1_calculation_tools import Calculation
         elif self.config.args.pyscf:
             from multioptpy.Calculator.pyscf_calculation_tools import Calculation
         elif self.config.args.usextb != "None" and self.config.args.usedxtb == "None":
