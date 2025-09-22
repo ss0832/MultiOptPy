@@ -29,6 +29,11 @@ class RFOOptimizer(OptimizationAlgorithm):
             fix_end_edge=config.fix_end_edge,
             apply_convergence_criteria=config.apply_convergence_criteria
         )
+        self.apply_ts_opt = True
+    
+    def set_apply_ts_opt(self, apply_ts_opt):#apply_ts_opt:Boolean
+        """Set whether to apply transition state optimization"""
+        self.apply_ts_opt = apply_ts_opt
     
     def optimize(self, geometry_num_list, total_force_list, prev_geometry_num_list, 
                 prev_total_force_list, optimize_num, biased_energy_list, 
@@ -57,7 +62,7 @@ class RFOOptimizer(OptimizationAlgorithm):
                 OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.2)
             else:
                 OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=1, trust_radius=0.1)
-                if num in maxima_indices:
+                if num in maxima_indices and self.apply_ts_opt:
                     pass
                 else:
                     OPT.switch_NEB_mode()
