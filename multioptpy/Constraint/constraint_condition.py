@@ -351,10 +351,12 @@ class ProjectOutConstrain:
         self.iteration = 1
         self.init_tag = True
         self.spring_const = 0.0
+        self.projection_vec = None
         return
 
-    def initialize(self, geom_num_list):#Bohr
+    def initialize(self, geom_num_list, **kwargs):#Bohr
         tmp_init_constraint = []
+        tmp_projection_vec = []
         for i in range(len(self.constraint_name)):
             if self.constraint_name[i] == "bond":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1]
@@ -396,10 +398,30 @@ class ProjectOutConstrain:
             elif self.constraint_name[i] == "rot":
                 tmp_init_constraint.append(geom_num_list)
             
+            elif self.constraint_name[i] == "eigvec":#This implementation is only available for "optmain.py (optimization.py)"
+                mode_index = int(self.constraint_atoms_list[i][0])
+                if "hessian" in kwargs:
+                    hessian = kwargs["hessian"]
+                    eigvals, eigvecs = np.linalg.eigh(hessian)
+                   
+                    valid_indices = np.where(np.abs(eigvals) > 1.0e-10)[0]
+                    sorted_indices = valid_indices[np.argsort(eigvals[valid_indices])]
+                    target_mode = sorted_indices[mode_index]
+                    init_eigvec = eigvecs[:, target_mode]
+                    if eigvals[target_mode] > 0:
+                        init_eigvec = -1 * init_eigvec
+                    tmp_init_constraint.append(geom_num_list)
+                    tmp_projection_vec.append(init_eigvec)
+                    
+                else:
+                    print("error")
+                    raise "error (Hessian is required for eigvec constraint)"
+            
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
       
+        self.projection_vec = tmp_projection_vec
         if self.init_tag:
             if len(self.constraint_constant) == 0:
                 self.init_constraint = tmp_init_constraint
@@ -412,7 +434,9 @@ class ProjectOutConstrain:
                         self.init_constraint.append(np.deg2rad(self.constraint_constant[i]))
                         
                     elif self.constraint_name[i] == "rot":
-                        self.init_constraint.append(None)
+                        self.init_constraint.append(geom_num_list)
+                    elif self.constraint_name[i] == "eigvec":
+                        self.init_constraint.append(geom_num_list)
                     else:
                         print("error")
                         raise "error (invaild input of constraint conditions)"
@@ -421,7 +445,7 @@ class ProjectOutConstrain:
        
         return tmp_init_constraint
 
-    def adjust_init_coord(self, coord):#coord:Bohr
+    def adjust_init_coord(self, coord, hessian=None):#coord:Bohr
         print("Adjusting initial coordinates... (SHAKE-like method) ")
         jiter = 10000
         shake_like_method_threshold = 1.0e-10
@@ -434,8 +458,11 @@ class ProjectOutConstrain:
                 atom_label = self.constraint_atoms_list[i_constrain]
                 init_coord = self.init_constraint[i_constrain]
                 coord = rotate_partial_struct(coord, init_coord, atom_label)
-            
-        
+            elif self.constraint_name[i_constrain] == "eigvec":
+                print("projecting out eigenvector... (Experimental Implementation)")     
+                init_coord = self.init_constraint[i_constrain]
+                coord, _ = Calculationtools().kabsch_algorithm(coord, init_coord)
+
         for jter in range(jiter): # SHAKE-like algorithm
             for i_constrain in range(len(self.constraint_name)):
                 if self.constraint_name[i_constrain] == "bond":
@@ -479,11 +506,11 @@ class ProjectOutConstrain:
                 else:
                     pass
         
-            tmp_current_coord = self.initialize(coord)
+            tmp_current_coord = self.initialize(coord, hessian=hessian)
             current_coord = []
             tmp_init_constraint = []
             for i_constrain in range(len(self.constraint_name)):
-                if self.constraint_name[i_constrain] != "rot":
+                if self.constraint_name[i_constrain] != "rot" and self.constraint_name[i_constrain] != "eigvec":
                     current_coord.append(tmp_current_coord[i_constrain])
                     tmp_init_constraint.append(self.init_constraint[i_constrain])
                 
@@ -505,47 +532,68 @@ class ProjectOutConstrain:
         natom = len(coord)
         tmp_grad = copy.copy(grad)
         tmp_b_mat = None
-        
+        projection_vec_count = 0
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
+                print("Projecting out bond... ")
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
+                print("atom_label:", atom_label)
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
                 
             elif self.constraint_name[i_constrain] == "fbond":
-
+                print("Projecting out fragment bond... (Experimental Implementation)")
                 divide_index = self.constraint_atoms_list[i_constrain][-1]
                 fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64)
                 fragm_2 = torch.tensor(self.constraint_atoms_list[i_constrain][divide_index:], dtype=torch.int64)
                 atom_label = [fragm_1, fragm_2]
+                print("atom_label:", atom_label)
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_fragm_distance).detach().numpy().reshape(1, -1)
             
             elif self.constraint_name[i_constrain] == "angle":
+                print("Projecting out bond angle... ")
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2]]
+                print("atom_label:", atom_label)
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_angle).detach().numpy().reshape(1, -1)
             
             elif self.constraint_name[i_constrain] == "dihedral":
+                print("Projecting out dihedral angle... ")
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1], self.constraint_atoms_list[i_constrain][2], self.constraint_atoms_list[i_constrain][3]]
+                print("atom_label:", atom_label)
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_dihedral_angle).detach().numpy().reshape(1, -1)
             
             elif self.constraint_name[i_constrain] == "x":
+                print("Projecting out x coordinate... ")
                 atom_label = self.constraint_atoms_list[i_constrain][0]
+                print("atom_label:", atom_label)
                 tmp_b_mat = torch.zeros(1, 3*natom)
                 tmp_b_mat[0][3*(atom_label - 1) + 0] = 1.0
             
             elif self.constraint_name[i_constrain] == "y":
+                print("Projecting out y coordinate... ")
                 tmp_b_mat = torch.zeros(1, 3*natom)
+                
                 atom_label = self.constraint_atoms_list[i_constrain][0]
+                print("atom_label:", atom_label)
                 tmp_b_mat[0][3*(atom_label - 1) + 1] = 1.0
             
             elif self.constraint_name[i_constrain] == "z":
+                print("Projecting out z coordinate... ")
                 tmp_b_mat = torch.zeros(1, 3*natom)
                 atom_label = self.constraint_atoms_list[i_constrain][0]
+                print("atom_label:", atom_label)
                 tmp_b_mat[0][3*(atom_label - 1) + 2] = 1.0
             elif self.constraint_name[i_constrain] == "rot":
+                print("Projecting out fragment rotation... (Experimental Implementation)")
                 atom_label = self.constraint_atoms_list[i_constrain]
+                print("atom_label:", atom_label)
                 tmp_b_mat = constract_partial_rot_B_mat(coord, atom_label)
-                
             
+            elif self.constraint_name[i_constrain] == "eigvec":
+                print("Projecting out eigenvector... (Experimental Implementation)")
+                tmp_proj_vec = self.projection_vec[projection_vec_count]
+                print("mode index:", self.constraint_atoms_list[i_constrain][0])
+                projection_vec_count += 1
+                tmp_grad = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_grad.reshape(3*natom, 1))
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
@@ -554,7 +602,9 @@ class ProjectOutConstrain:
                 B_mat = tmp_b_mat        
             else:
                 B_mat = np.vstack((B_mat, tmp_b_mat))
-                
+        
+        if B_mat is None:
+            return tmp_grad.reshape(natom, 3)    
         int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
         projection_grad = calc_cart_grad_from_pBmat(-1*int_grad, B_mat)
         proj_grad = tmp_grad.reshape(3*natom, 1) + projection_grad
@@ -568,7 +618,7 @@ class ProjectOutConstrain:
         tmp_hessian = copy.copy(hessian)
         tmp_b_mat = None
         tmp_b_mat_1st_derivative = None
-    
+        projection_vec_count = 0
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
@@ -614,10 +664,17 @@ class ProjectOutConstrain:
                 tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label,atom_label], torch_calc_distance)).detach().numpy() 
             
             elif self.constraint_name[i_constrain] == "rot":
-                pass
+                tmp_b_mat_1st_derivative = None
             ##    atom_label = self.constraint_atoms_list[i_constrain]
             #    tmp_b_mat = constract_partial_rot_B_mat(coord, atom_label)
             #    tmp_b_mat_1st_derivative = torch.zeros_like(torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), [atom_label[0],atom_label[0]], torch_calc_distance)).detach().numpy() #TODO: implement this function
+            
+            elif self.constraint_name[i_constrain] == "eigvec":   
+                tmp_proj_vec = self.projection_vec[projection_vec_count]
+                projection_vec_count += 1 
+                tmp_grad = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_grad.reshape(3*natom, 1))
+                tmp_hessian = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_hessian)
+                tmp_b_mat_1st_derivative = None
             
             else:
                 print("error")
@@ -629,8 +686,10 @@ class ProjectOutConstrain:
                 B_mat_1st_derivative = tmp_b_mat_1st_derivative
             else:  
                 B_mat = np.vstack((B_mat, tmp_b_mat))
-                B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
-        
+                if tmp_b_mat_1st_derivative is not None:
+                    B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
+                
+                    
         if tmp_b_mat_1st_derivative is None:
             proj_hess = tmp_hessian
         else:
@@ -638,7 +697,13 @@ class ProjectOutConstrain:
             proj_hess = tmp_hessian
             int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
             couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            eff_hess = np.dot(couple_hess.T, np.dot(np.linalg.pinv(int_hess + np.eye((len(int_hess))) * 1e-15), couple_hess))
+            #hess_x = calc_cart_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+            try:
+                int_hess_inv = np.linalg.pinv(int_hess)
+            except np.linalg.LinAlgError:
+                int_hess = int_hess + np.eye(len(int_hess)) * 1e-10
+                int_hess_inv = np.linalg.pinv(int_hess)
+            eff_hess = np.dot(couple_hess.T, np.dot(int_hess_inv, couple_hess))
             proj_hess = proj_hess - eff_hess
      
         
