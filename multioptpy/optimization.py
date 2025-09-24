@@ -355,7 +355,7 @@ class Optimize:
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         for i in range(len(optimizer_instances)):
-            if CMV.newton_tag[i] is False and self.FC_COUNT > 0:
+            if CMV.newton_tag[i] is False and self.FC_COUNT > 0 and not "eigvec" in force_data["projection_constraint_condition_list"]:
                 print("Error: This optimizer method does not support exact Hessian calculations.")
                 print("Please either choose a different optimizer or set FC_COUNT=0 to disable exact Hessian calculations.")
                 sys.exit(0)

@@ -392,7 +392,7 @@ class CalculateMoveVector:
                 break
 
         # Update trust radii only if we have a Hessian or if FC_COUNT is not -1
-        if not (model_hess is None and self.FC_COUNT == -1):
+        if not (model_hess is None and self.FC_COUNT == -1) and True in self.newton_tag:
             self.trust_radii = self.CALC_TRUST_RADII.update_trust_radii(
                 B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii
             )
