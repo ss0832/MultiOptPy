@@ -175,10 +175,10 @@ class Optimize:
         
         return projection_constrain, allactive_flag
 
-    def _init_projection_constraint(self, PC, geom_num_list, iter, projection_constrain):
+    def _init_projection_constraint(self, PC, geom_num_list, iter, projection_constrain, hessian=None):
         if iter == 0:
             if projection_constrain:
-                PC.initialize(geom_num_list)
+                PC.initialize(geom_num_list, hessian=hessian)
             else:
                 pass
             return PC
@@ -261,10 +261,10 @@ class Optimize:
             # If not all atoms are active, return the original geometry
             return new_geometry
 
-    def _apply_projection_constraints_to_geometry(self, projection_constrain, PC, new_geometry):
+    def _apply_projection_constraints_to_geometry(self, projection_constrain, PC, new_geometry, hessian=None):
         if projection_constrain:
             tmp_new_geometry = new_geometry / self.bohr2angstroms
-            adjusted_geometry = PC.adjust_init_coord(tmp_new_geometry) * self.bohr2angstroms
+            adjusted_geometry = PC.adjust_init_coord(tmp_new_geometry, hessian=hessian) * self.bohr2angstroms
             return adjusted_geometry, PC
         
         return new_geometry, PC
@@ -506,8 +506,9 @@ class Optimize:
 
             _, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
             
-            PC = self._init_projection_constraint(PC, geom_num_list, iter, projection_constrain)
-            
+            Hess = BPA_hessian + self.Model_hess
+            PC = self._init_projection_constraint(PC, geom_num_list, iter, projection_constrain, hessian=Hess)
+
             optimizer_instances = self._calc_eff_hess_for_fix_atoms_and_set_hess(allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC)
                     
             if not allactive_flag:
@@ -528,8 +529,8 @@ class Optimize:
           
             new_geometry = self._project_out_translation_rotation(new_geometry, geom_num_list, allactive_flag)
             
-            new_geometry, PC = self._apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry)
-            
+            new_geometry, PC = self._apply_projection_constraints_to_geometry(projection_constrain, PC, new_geometry, hessian=Hess)
+
             self.ENERGY_LIST_FOR_PLOTTING.append(e*self.hartree2kcalmol)
             self.BIAS_ENERGY_LIST_FOR_PLOTTING.append(B_e*self.hartree2kcalmol)
             self.NUM_LIST.append(int(iter))
