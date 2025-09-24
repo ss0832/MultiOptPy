@@ -401,9 +401,8 @@ class ProjectOutConstrain:
             elif self.constraint_name[i] == "eigvec":#This implementation is only available for "optmain.py (optimization.py)"
                 mode_index = int(self.constraint_atoms_list[i][0])
                 if "hessian" in kwargs:
-                    hessian = kwargs["hessian"]
+                    hessian = copy.copy(kwargs["hessian"])
                     eigvals, eigvecs = np.linalg.eigh(hessian)
-                   
                     valid_indices = np.where(np.abs(eigvals) > 1.0e-10)[0]
                     sorted_indices = valid_indices[np.argsort(eigvals[valid_indices])]
                     target_mode = sorted_indices[mode_index]
