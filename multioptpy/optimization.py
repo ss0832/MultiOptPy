@@ -213,7 +213,10 @@ class Optimize:
         for i in range(len(optimizer_instances)):
                 
             if projection_constrain:
-                proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
+                if np.all(np.abs(BPA_hessian) < 1e-20):
+                    proj_bpa_hess = PC.calc_project_out_hess(geom_num_list, B_g - g, BPA_hessian)
+                else:
+                    proj_bpa_hess = BPA_hessian
                 optimizer_instances[i].set_bias_hessian(proj_bpa_hess)
             else:
                 optimizer_instances[i].set_bias_hessian(BPA_hessian)
@@ -505,7 +508,8 @@ class Optimize:
                 initial_geom_num_list, pre_geom = self._save_init_geometry(geom_num_list, element_list, allactive_flag)
 
             _, B_e, B_g, BPA_hessian = self.CalcBiaspot.main(e, g, geom_num_list, element_list, force_data, pre_B_g, iter, initial_geom_num_list)
-            
+
+          
             Hess = BPA_hessian + self.Model_hess
             PC = self._init_projection_constraint(PC, geom_num_list, iter, projection_constrain, hessian=Hess)
 

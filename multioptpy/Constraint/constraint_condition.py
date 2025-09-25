@@ -352,11 +352,13 @@ class ProjectOutConstrain:
         self.init_tag = True
         self.spring_const = 0.0
         self.projection_vec = None
+        self.arbitrary_proj_vec = None
         return
 
     def initialize(self, geom_num_list, **kwargs):#Bohr
         tmp_init_constraint = []
         tmp_projection_vec = []
+        tmp_arbitrary_proj_vec = []
         for i in range(len(self.constraint_name)):
             if self.constraint_name[i] == "bond":
                 vec_1 = geom_num_list[self.constraint_atoms_list[i][0] - 1]
@@ -407,20 +409,49 @@ class ProjectOutConstrain:
                     sorted_indices = valid_indices[np.argsort(eigvals[valid_indices])]
                     target_mode = sorted_indices[mode_index]
                     init_eigvec = eigvecs[:, target_mode]
-                    if eigvals[target_mode] > 0:
-                        init_eigvec = -1 * init_eigvec
                     tmp_init_constraint.append(geom_num_list)
                     tmp_projection_vec.append(init_eigvec)
                     
                 else:
                     print("error")
                     raise "error (Hessian is required for eigvec constraint)"
+                
+            elif self.constraint_name[i] == "atoms_pair":
+                atom_label_1 = self.constraint_atoms_list[i][0] - 1
+                atom_label_2 = self.constraint_atoms_list[i][1] - 1
+                
+                vec = np.zeros_like(geom_num_list)
+                vec[atom_label_1] = -geom_num_list[atom_label_1] + geom_num_list[atom_label_2]
+                vec[atom_label_2] = -geom_num_list[atom_label_2] + geom_num_list[atom_label_1]
+                
+                norm_vec = np.linalg.norm(vec)
+                if norm_vec < 1.0e-10:
+                    print("error")
+                    raise "error (the distance between the pair atoms is too small)"
+                unit_vec = vec / norm_vec
+                unit_vec = unit_vec.reshape(-1, 1)
+                tmp_arbitrary_proj_vec.append(unit_vec)
+                tmp_init_constraint.append(geom_num_list)
+            
             
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
       
         self.projection_vec = tmp_projection_vec
+       
+        def gram_schmidt(vectors):
+            ortho = []
+            for v in vectors:
+                w = v.copy()
+                for u in ortho:
+                    w -= np.dot(u.T, w) * u
+                norm = np.linalg.norm(w)
+                if norm > 1e-10:
+                    ortho.append(w / norm)
+            return ortho
+
+        self.arbitrary_proj_vec = gram_schmidt(tmp_arbitrary_proj_vec)
         if self.init_tag:
             if len(self.constraint_constant) == 0:
                 self.init_constraint = tmp_init_constraint
@@ -435,6 +466,8 @@ class ProjectOutConstrain:
                     elif self.constraint_name[i] == "rot":
                         self.init_constraint.append(geom_num_list)
                     elif self.constraint_name[i] == "eigvec":
+                        self.init_constraint.append(geom_num_list)
+                    elif self.constraint_name[i] == "atoms_pair":
                         self.init_constraint.append(geom_num_list)
                     else:
                         print("error")
@@ -459,6 +492,10 @@ class ProjectOutConstrain:
                 coord = rotate_partial_struct(coord, init_coord, atom_label)
             elif self.constraint_name[i_constrain] == "eigvec":
                 print("projecting out eigenvector... (Experimental Implementation)")     
+                init_coord = self.init_constraint[i_constrain]
+                coord, _ = Calculationtools().kabsch_algorithm(coord, init_coord)
+            elif self.constraint_name[i_constrain] == "atoms_pair":
+                print("projecting out translation along the vector between the pair atoms... (Experimental Implementation)")     
                 init_coord = self.init_constraint[i_constrain]
                 coord, _ = Calculationtools().kabsch_algorithm(coord, init_coord)
 
@@ -509,7 +546,7 @@ class ProjectOutConstrain:
             current_coord = []
             tmp_init_constraint = []
             for i_constrain in range(len(self.constraint_name)):
-                if self.constraint_name[i_constrain] != "rot" and self.constraint_name[i_constrain] != "eigvec":
+                if self.constraint_name[i_constrain] != "rot" and self.constraint_name[i_constrain] != "eigvec" and self.constraint_name[i_constrain] != "atoms_pair":
                     current_coord.append(tmp_current_coord[i_constrain])
                     tmp_init_constraint.append(self.init_constraint[i_constrain])
                 
@@ -531,7 +568,9 @@ class ProjectOutConstrain:
         natom = len(coord)
         tmp_grad = copy.copy(grad)
         tmp_b_mat = None
+        B_mat = None
         projection_vec_count = 0
+        arbitrary_vec_count = 0
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
                 print("Projecting out bond... ")
@@ -593,14 +632,26 @@ class ProjectOutConstrain:
                 print("mode index:", self.constraint_atoms_list[i_constrain][0])
                 projection_vec_count += 1
                 tmp_grad = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_grad.reshape(3*natom, 1))
+                tmp_b_mat = None
+            elif self.constraint_name[i_constrain] == "atoms_pair":
+                if len(self.arbitrary_proj_vec) < arbitrary_vec_count + 1:
+                    pass
+                else:
+                    print("Projecting out translation along the vector between the pair atoms... (Experimental Implementation)")
+                    tmp_arbitrary_proj_vec = self.arbitrary_proj_vec[arbitrary_vec_count]
+                    print("atom labels:", self.constraint_atoms_list[i_constrain])
+                    arbitrary_vec_count += 1
+                    tmp_grad = np.dot((np.eye(len(tmp_arbitrary_proj_vec)) - np.outer(tmp_arbitrary_proj_vec, tmp_arbitrary_proj_vec)), tmp_grad.reshape(3*natom, 1))
+                tmp_b_mat = None
             else:
                 print("error")
                 raise "error (invaild input of constraint conditions)"
                 
-            if i_constrain == 0:
-                B_mat = tmp_b_mat        
-            else:
-                B_mat = np.vstack((B_mat, tmp_b_mat))
+            if tmp_b_mat is not None:
+                if 'B_mat' not in locals() or B_mat is None:
+                    B_mat = tmp_b_mat
+                else:
+                    B_mat = np.vstack((B_mat, tmp_b_mat))
         
         if B_mat is None:
             return tmp_grad.reshape(natom, 3)    
@@ -618,6 +669,7 @@ class ProjectOutConstrain:
         tmp_b_mat = None
         tmp_b_mat_1st_derivative = None
         projection_vec_count = 0
+        arbitrary_vec_count = 0
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
@@ -673,6 +725,12 @@ class ProjectOutConstrain:
                 projection_vec_count += 1 
                 tmp_grad = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_grad.reshape(3*natom, 1))
                 tmp_hessian = np.dot((np.eye(len(tmp_proj_vec)) - np.outer(tmp_proj_vec, tmp_proj_vec)), tmp_hessian)
+                tmp_b_mat_1st_derivative = None
+            elif self.constraint_name[i_constrain] == "atoms_pair":
+                tmp_arbitrary_proj_vec = self.arbitrary_proj_vec[arbitrary_vec_count]
+                arbitrary_vec_count += 1
+                tmp_grad = np.dot((np.eye(len(tmp_arbitrary_proj_vec)) - np.outer(tmp_arbitrary_proj_vec, tmp_arbitrary_proj_vec)), tmp_grad.reshape(3*natom, 1))
+                tmp_hessian = np.dot(np.dot((np.eye(len(tmp_arbitrary_proj_vec)) - np.outer(tmp_arbitrary_proj_vec, tmp_arbitrary_proj_vec)), tmp_hessian), (np.eye(len(tmp_arbitrary_proj_vec)) - np.outer(tmp_arbitrary_proj_vec, tmp_arbitrary_proj_vec)).T)
                 tmp_b_mat_1st_derivative = None
             
             else:
