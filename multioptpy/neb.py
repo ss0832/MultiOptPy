@@ -68,6 +68,7 @@ class NEBConfig:
         # Basic calculation settings
         self.functional = args.functional
         self.basisset = args.basisset
+        self.BASIS_SET = args.basisset
         self.basic_set_and_function = args.functional + "/" + args.basisset
         self.FUNCTIONAL = args.functional
         
@@ -158,6 +159,8 @@ class NEBConfig:
         self.spring_constant_k = 0.01
         self.force_const_for_cineb = 0.01
         self.othersoft = args.othersoft
+        self.software_path_file = args.software_path_file
+        self.ratio_of_rfo_step = args.ratio_of_rfo_step
         
         # FIRE method parameters
         self.FIRE_dt = 0.1
@@ -261,7 +264,7 @@ class CalculationEngineFactory:
     def create_engine(config):
         """Create appropriate calculation engine based on configuration"""
         if config.othersoft != "None":
-            return ASEEngine()
+            return ASEEngine(software_path_file = config.software_path_file)
         elif config.sqm1:
             return SQM1Engine()
         elif config.usextb != "None":

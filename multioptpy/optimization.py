@@ -92,6 +92,7 @@ class Optimize:
         self.thermo_pressure = float(args.pressure)
         self.dft_grid = int(args.dft_grid)
         self.max_trust_radius = args.max_trust_radius
+        self.software_path_file = args.software_path_file
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -750,7 +751,8 @@ class Optimize:
             electronic_charge=self.electronic_charge,
             excited_state=self.excited_state,
             dft_grid=self.dft_grid,
-            ECP = self.ECP)
+            ECP = self.ECP,
+            software_path_file = self.software_path_file)
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model
         return SP

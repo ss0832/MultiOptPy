@@ -119,6 +119,7 @@ class IEIPConfig:
         
         # Other settings
         self.othersoft = args.othersoft
+        self.software_path_file = args.software_path_file
         self.basic_set_and_function = args.functional + "/" + args.basisset
         self.force_data = force_data_parser(args)
         
@@ -263,7 +264,8 @@ class iEIP:
                 excited_state = self.config.excite_state_list[i],
                 dft_grid = self.config.dft_grid,
                 ECP = self.config.ECP,
-                software_type = self.config.othersoft
+                software_type = self.config.othersoft,
+                software_path_file = self.config.software_path_file
             ))
 
             SP_list[i].cpcm_solv_model = self.config.cpcm_solv_model

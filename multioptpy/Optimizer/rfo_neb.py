@@ -30,6 +30,7 @@ class RFOOptimizer(OptimizationAlgorithm):
             apply_convergence_criteria=config.apply_convergence_criteria
         )
         self.apply_ts_opt = True
+        self.ratio_of_rfo_step = config.ratio_of_rfo_step if hasattr(config, "ratio_of_rfo_step") else 0.5  # Ratio of RFO step in combined step
     
     def set_apply_ts_opt(self, apply_ts_opt):#apply_ts_opt:Boolean
         """Set whether to apply transition state optimization"""
@@ -117,7 +118,7 @@ class RFOOptimizer(OptimizationAlgorithm):
             if i == 0 or i == len(geometry_num_list) - 1:
                 move_vector_list.append(-1.0 * rfo_move_vector_list[i])
             else:
-                move_vector_list.append(0.5 * fire_move_vector_list[i] - 0.5 * rfo_move_vector_list[i])
+                move_vector_list.append((1.0 - self.ratio_of_rfo_step) * fire_move_vector_list[i] - self.ratio_of_rfo_step * rfo_move_vector_list[i])
                 
         move_vector_list = np.array(move_vector_list, dtype="float64")
         new_geometry_list = (geometry_num_list + move_vector_list) * self.config.bohr2angstroms
