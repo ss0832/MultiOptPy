@@ -61,6 +61,8 @@ def ieipparser(parser):
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Defalut setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
     parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
+    parser.add_argument("-osp", "--software_path_file",  type=str, default="./software_path.conf", help='read the list of file directory of other QM softwares to use them. default is current directory. (require python module, ASE (Atomic Simulation Environment)) (ex.) ./software_path.conf')
+    
     # Other Chain of State methods
     parser.add_argument('-gnt','--use_gnt', help="Use GNT (Growing Newton Trajectory)", action='store_true')
     parser.add_argument('-gnt_vec','--gnt_vec', help="set vector to calculate Newton trajectory (ex. 1,2,3 (default:calculate vector reactant to product) )", type=str, default=None)
@@ -130,6 +132,7 @@ def optimizeparser(parser):
     parser.add_argument("-of", "--opt_fragment", nargs="*", type=str, default=[], help="Several atoms are grouped together as fragments and optimized. (This method does not work if you use quasi-newton method for optimazation.) (ex.) [[atoms (ex.) 1-4] ...] ")#(2024/3/26) this option doesn't work if you use quasi-Newton method for optimization.
     parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
+    parser.add_argument("-osp", "--software_path_file",  type=str, default="./software_path.conf", help='read the list of file directory of other QM softwares to use them. default is current directory. (require python module, ASE (Atomic Simulation Environment)) (ex.) ./software_path.conf')    
     parser.add_argument('-tcc','--tight_convergence_criteria', help="apply tight opt criteria.", action='store_true')
     parser.add_argument('-lcc','--loose_convergence_criteria', help="apply loose opt criteria.", action='store_true')
 
@@ -271,9 +274,11 @@ def nebparser(parser):
             else:
                 setattr(namespace, self.dest, values)
                 
-    parser.add_argument('-modelhess','--use_model_hessian', nargs='?', help="use model hessian. (Default: not using model hessian If you specify only option, Improved Lindh + Grimme's D3 dispersion model hessian is used.) (ex. lindh, gfnff, gfn0xtb, fischer, fischerd3, fischerd4, schlegel, swart, lindh2007, lindh2007d3, lindh2007d4)", action=ModelhessAction, default=None)
+    parser.add_argument('-modelhess','--use_model_hessian', nargs='?', help="use model hessian. (Default: not using model hessian If you specify only option, Fischer + Grimme's D3 dispersion model hessian is used.) (ex. lindh, gfnff, gfn0xtb, fischer, fischerd3, fischerd4, schlegel, swart, lindh2007, lindh2007d3, lindh2007d4)", action=ModelhessAction, default=None)
     parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
+    parser.add_argument("-osp", "--software_path_file",  type=str, default="./software_path.conf", help='read the list of file directory of other QM softwares to use them. default is current directory. (require python module, ASE (Atomic Simulation Environment)) (ex.) ./software_path.conf')
+    parser.add_argument("-rrs", "--ratio_of_rfo_step", type=float, default=0.5, help='ratio of rfo step (default: 0.5).  This option is for optimizer using Hessian (-fc or -modelhess).')
 
     parser = parser_for_biasforce(parser)
     args = parser.parse_args()
@@ -318,6 +323,7 @@ def mdparser(parser):
     parser.add_argument("-ct", "--change_temperature",  type=str, nargs="*", default=[], help='change temperature of thermostat (defalut) No change (ex.) [1000(time), 500(K) 5000(time), 1000(K)...]')
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')
+    parser.add_argument("-osp", "--software_path_file",  type=str, default="./software_path.conf", help='read the list of file directory of other QM softwares to use them. default is current directory. (require python module, ASE (Atomic Simulation Environment)) (ex.) ./software_path.conf')
     parser.add_argument("-pbc", "--periodic_boundary_condition",  type=str, default=[], help='apply periodic boundary condition (Default is not applying.) (ex.) [periodic boundary (x,y,z) (ang.)] ')
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Defalut setting is not using this model.) (ex.) water')

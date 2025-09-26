@@ -110,7 +110,7 @@ class MD:
         self.args = args
         self.cpcm_solv_model = args.cpcm_solv_model
         self.alpb_solv_model = args.alpb_solv_model
-        
+        self.software_path_file = args.software_path_file
         self.dft_grid = int(args.dft_grid)
         return
     
@@ -225,7 +225,8 @@ class MD:
                          electronic_charge = self.electronic_charge,
                          excited_state = self.excited_state,
                          dft_grid=self.dft_grid,
-                         ECP = self.ECP
+                         ECP = self.ECP,
+                         software_path_file = self.software_path_file
                          )
         SP.cpcm_solv_model = self.cpcm_solv_model
         SP.alpb_solv_model = self.alpb_solv_model

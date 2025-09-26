@@ -29,8 +29,9 @@ def save_bias_param_grad_info(file_path, gradient, bias_pot_id):
         f.write(str(gradient)+"\n")
     return
 
-def read_software_path(file_path="./"):
-    with open(file_path+"software_path.conf", "r") as f:
+def read_software_path(file_path="./software_path.conf"):
+    print("Reading software path from", file_path)
+    with open(file_path, "r") as f:
         words = f.read().splitlines()
     software_path_dict = {}
     for word in words:
