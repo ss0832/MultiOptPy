@@ -28,7 +28,7 @@ from multioptpy.Optimizer.prodigy import Prodigy
 #from multioptpy.Optimizer.adadelta import Adadelta
 from multioptpy.Optimizer.conjugate_gradient import ConjgateGradient
 #from multioptpy.Optimizer.hybrid_rfo import HybridRFO
-from multioptpy.Optimizer.rfo import RationalFunctionOptimization
+#from multioptpy.Optimizer.rfo import RationalFunctionOptimization
 #from multioptpy.Optimizer.ric_rfo import RedundantInternalRFO
 from multioptpy.Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
 from multioptpy.Optimizer.rsirfo import RSIRFO
@@ -95,13 +95,15 @@ specific_cases = {
 quasi_newton_mapping = {    
     "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
-
     "ersprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "ersprfo_fsb": {"delta": 0.50, "rfo_type": 1},
     "ersprfo_bofill": {"delta": 0.50, "rfo_type": 1},
@@ -118,49 +120,41 @@ quasi_newton_mapping = {
     "rsprfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
 
-    "sirfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_fsb": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_bofill": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_msp": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_sr1": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_psb": {"delta": 0.50, "rfo_type": 3},
-    "sirfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
-    
-    "rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_msp": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_psb": {"delta": 0.50, "rfo_type": 3},
-    "rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
-    
-    "rfo2_bfgs": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_fsb": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_bofill": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_msp": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_sr1": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_psb": {"delta": 0.50, "rfo_type": 2},
-    "rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
-    
-    
-    
-    "mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_fsb": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_bofill": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_msp": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_psb": {"delta": 0.30, "rfo_type": 1},
-    "mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
-
- 
-    "rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    "rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    "rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    "rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    "rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    "rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    "rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-    
+    #"sirfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_fsb": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_bofill": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    #"sirfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_msp": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_psb": {"delta": 0.50, "rfo_type": 3},
+    #"rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
+    #"rfo2_bfgs": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_fsb": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_bofill": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_msp": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_sr1": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_psb": {"delta": 0.50, "rfo_type": 2},
+    #"rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
+    #"mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_fsb": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_bofill": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_msp": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_psb": {"delta": 0.30, "rfo_type": 1},
+    #"mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
+    #"rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_msp": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_psb": {"delta": 0.50, "rfo_type": 1},
+    #"rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
 }
 
 
@@ -306,8 +300,8 @@ class CalculateMoveVector:
 
                         elif "rsirfo" in key:
                             optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))   
-                        elif "rfo" in key:
-                            optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
+                        #elif "rfo" in key:
+                        #    optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
                         else:
                             print("This method is not implemented. :", m, " Thus, exiting.")
                             exit()

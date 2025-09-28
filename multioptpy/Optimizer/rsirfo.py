@@ -722,6 +722,22 @@ class RSIRFO:
             delta_hess = self.hessian_updater.SR1_hessian_update(
                 self.hessian, displacement, delta_grad
             )
+        elif "pcfd_bofill" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: pcfd_bofill")
+            delta_hess = self.hessian_updater.pCFD_Bofill_hessian_update(
+                self.hessian, displacement, delta_grad
+            )    
+            
+        elif "cfd_fsb" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: cfd_fsb")            
+            delta_hess = self.hessian_updater.CFD_FSB_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        elif "cfd_bofill" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: cfd_bofill")
+            delta_hess = self.hessian_updater.CFD_Bofill_hessian_update(
+                self.hessian, displacement, delta_grad
+            )    
         elif "fsb" in self.hessian_update_method.lower():
             self.log(f"Hessian update method: fsb")            
             delta_hess = self.hessian_updater.FSB_hessian_update(
