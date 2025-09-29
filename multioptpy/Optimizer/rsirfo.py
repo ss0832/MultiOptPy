@@ -1,6 +1,8 @@
 import numpy as np
-from numpy.linalg import norm
-from .hessian_update import ModelHessianUpdate
+
+from multioptpy.Optimizer.hessian_update import ModelHessianUpdate
+from multioptpy.Optimizer.block_hessian_update import BlockHessianUpdate
+
 from scipy.optimize import brentq
 from multioptpy.Utils.calc_tools import Calculationtools
 
@@ -73,6 +75,7 @@ class RSIRFO:
         
         # Initialize the hessian update module
         self.hessian_updater = ModelHessianUpdate()
+        self.block_hessian_updater = BlockHessianUpdate()
         
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
@@ -712,6 +715,34 @@ class RSIRFO:
             delta_hess = self.hessian_updater.flowchart_hessian_update(
                 self.hessian, displacement, delta_grad, "auto"
             )
+        elif "block_cfd_fsb" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: block_cfd_fsb")            
+            delta_hess = self.block_hessian_updater.block_CFD_FSB_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        elif "block_cfd_bofill" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: block_cfd_bofill")            
+            delta_hess = self.block_hessian_updater.block_CFD_Bofill_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        
+        elif "block_bfgs" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: block_bfgs")            
+            delta_hess = self.block_hessian_updater.block_BFGS_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        elif "block_fsb" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: block_fsb")            
+            delta_hess = self.block_hessian_updater.block_FSB_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        elif "block_bofill" in self.hessian_update_method.lower():
+            self.log(f"Hessian update method: block_bofill")            
+            delta_hess = self.block_hessian_updater.block_Bofill_hessian_update(
+                self.hessian, displacement, delta_grad
+            )
+        
+        
         elif "bfgs" in self.hessian_update_method.lower():
             self.log(f"Hessian update method: bfgs")            
             delta_hess = self.hessian_updater.BFGS_hessian_update(

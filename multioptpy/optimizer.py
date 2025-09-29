@@ -94,9 +94,14 @@ specific_cases = {
 
 quasi_newton_mapping = {    
     "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
@@ -179,7 +184,7 @@ class CalculateMoveVector:
                 
             self.CALC_TRUST_RADII.set_max_trust_radius(self.max_trust_radius)
         
-        self.trust_radii = 0.5
+        self.trust_radii = max_trust_radius if max_trust_radius is not None else 0.5
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
