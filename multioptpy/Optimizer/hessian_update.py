@@ -17,6 +17,28 @@ class ModelHessianUpdate:
         self.Initialization = True
         self.denom_threshold = 1e-10
         return
+    
+    def _auto_scale_hessian(self, hess, displacement, delta_grad):
+        """
+         Heuristic to scale matrix at first iteration.
+         Described in Nocedal and Wright "Numerical Optimization"
+         p.143 formula (6.20).
+        """
+        if self.Initialization and np.all(hess - np.eye(len(delta_grad))) < 1e-8:
+            print("Auto scaling Hessian")
+            s_norm_2 = np.dot(displacement.T, displacement)
+            y_norm_2 = np.dot(delta_grad.T, delta_grad)
+            ys = np.abs(np.dot(delta_grad.T, displacement))
+            if np.abs(s_norm_2) < 1e-10 or np.abs(y_norm_2) < 1e-10 or np.abs(ys) < 1e-10:
+                print("Norms too small, skip scaling.")
+                return hess
+            scale_factor = y_norm_2 / ys
+            print("Scale factor:", scale_factor)
+            hess = hess * scale_factor
+            self.Initialization = False
+        
+        return hess
+    
     def flowchart_hessian_update(self, hess, displacement, delta_grad, method):
         print("Flowchart Hessian Update")
         #Theor Chem Acc  (2016) 135:84 
