@@ -70,8 +70,8 @@ def calc_curvature_coupling(curvature_vector, hessian):
     eigvecs = eigvecs[:, sorted_indices]
     
     curvature_vector = curvature_vector.reshape(-1, 1)  # Ensure it's a column vector
-    print("Only considering non-zero modes for curvature coupling.")
-    # Mask out eigenvalues <= 1e-8 (non-zero eigenvalue components)
+    print("Only considering positive eigenvalue modes for curvature coupling.")
+    # Mask out eigenvalues <= 1e-8 (positive eigenvalue components)
     mask = eigvals > 1e-8
     eigvecs_masked = eigvecs[:, mask]
     curvature_coupling = np.dot(eigvecs_masked.T, curvature_vector)
