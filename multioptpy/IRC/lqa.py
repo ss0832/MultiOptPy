@@ -369,7 +369,7 @@ class LQA:
                 break
             
             # Recalculate Hessian if needed
-            if iter % self.FC_count == 0:
+            if iter % self.FC_count == 0 and iter > 0:
                 self.mw_hessian = self.CE.Model_hess
                 self.mw_hessian = Calculationtools().project_out_hess_tr_and_rot(
                     self.mw_hessian, self.element_list, geom_num_list
@@ -472,7 +472,11 @@ class LQA:
                 )
                 
                 print("Scalar curvature: ", scalar_curvature)
-                print("Curvature coupling: ", curvature_coupling.ravel())
+                # Print curvature_coupling as 6 columns, 8 decimal places
+                flat_cc = curvature_coupling.ravel()
+                print("Curvature coupling:")
+                for i in range(0, len(flat_cc), 6):
+                    print(" ".join(f"{x: .8f}" for x in flat_cc[i:i+6]))
                 
                 # Save curvature properties to file
                 save_curvature_properties_to_file(
