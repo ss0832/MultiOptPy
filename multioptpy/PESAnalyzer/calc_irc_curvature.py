@@ -70,8 +70,11 @@ def calc_curvature_coupling(curvature_vector, hessian):
     eigvecs = eigvecs[:, sorted_indices]
     
     curvature_vector = curvature_vector.reshape(-1, 1)  # Ensure it's a column vector
-    
-    curvature_coupling = np.dot(eigvecs.T, curvature_vector)
+    print("Only considering non-zero modes for curvature coupling.")
+    # Mask out eigenvalues <= 1e-8 (non-zero eigenvalue components)
+    mask = eigvals > 1e-8
+    eigvecs_masked = eigvecs[:, mask]
+    curvature_coupling = np.dot(eigvecs_masked.T, curvature_vector)
     return curvature_coupling
 
 def calc_irc_curvature_properties(gradient, prev_gradient, hessian, step_size):
