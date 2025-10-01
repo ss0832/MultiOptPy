@@ -267,8 +267,7 @@ class BlockHessianUpdate:
             c_list.append(c)
 
         c_mean = float(np.mean(c_list)) if len(c_list) > 0 else 0.0
-        # Use sqrt weighting as in single-step FSB
-        w = np.sqrt(c_mean)
+        w = c_mean
         Bp = B + w * B_sr1 + (1.0 - w) * B_bfgs
         return symm(Bp)
 
