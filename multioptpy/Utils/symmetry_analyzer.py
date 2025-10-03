@@ -59,7 +59,7 @@ class SymmetryAnalyzer:
         if coordinates is None:
             self.coordinates = None
         else:
-            self.coordinates = np.array(coordinates)
+            self.coordinates = np.array(coordinates, dtype=np.float64)
         self.n_atoms = len(atoms)
         self.dist_tol = dist_tol
         self.max_n_fold = max_n_fold
