@@ -283,7 +283,7 @@ class ASEEngine(CalculationEngine):
                 elif optimize_num % config.FC_COUNT == 0:
                     # Calculate exact numerical hessian
                     timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]
-                    if self.software_type == "gaussian":
+                    if software_type == "gaussian":
                         exact_hess = calc_obj.calc_analytic_hessian()  # in hartree/Bohr^2
                         exact_hess = exact_hess 
                     else:
