@@ -609,7 +609,7 @@ class Optimize:
             self._perform_vibrational_analysis(SP, geom_num_list, element_list, initial_geom_num_list, force_data, exact_hess_flag, file_directory, iter, electric_charge_and_multiplicity, xtb_method, e)
 
         self._finalize_optimization(FIO, G, grad_list, bias_grad_list,
-                                   file_directory, self.force_data, geom_num_list, e, B_e, SP)
+                                   file_directory, self.force_data, geom_num_list, e, B_e, SP, exit_flag)
         
         
         return
@@ -645,7 +645,7 @@ class Optimize:
             
         return
 
-    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP):
+    def _finalize_optimization(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP, exit_flag):
         self._save_opt_results(FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP)
         self.bias_pot_params_grad_list = self.CalcBiaspot.bias_pot_params_grad_list
         self.bias_pot_params_grad_name_list = self.CalcBiaspot.bias_pot_params_grad_name_list
@@ -653,11 +653,11 @@ class Optimize:
         self.final_geometry = geom_num_list  # Bohr
         self.final_energy = e  # Hartree
         self.final_bias_energy = B_e  # Hartree
-        
-        self.symmetry = analyze_symmetry(self.element_list, self.final_geometry)
-        with open(self.BPA_FOLDER_DIRECTORY+"symmetry.txt", "w") as f:
-            f.write(f"Symmetry of final structure: {self.symmetry}")
-        print(f"Symmetry: {self.symmetry}")
+        if not exit_flag:
+            self.symmetry = analyze_symmetry(self.element_list, self.final_geometry)
+            with open(self.BPA_FOLDER_DIRECTORY+"symmetry.txt", "w") as f:
+                f.write(f"Symmetry of final structure: {self.symmetry}")
+            print(f"Symmetry: {self.symmetry}")
        
     def _save_opt_results(self, FIO, G, grad_list, bias_grad_list, file_directory, force_data, geom_num_list, e, B_e, SP):
         G.double_plot(self.NUM_LIST, self.ENERGY_LIST_FOR_PLOTTING, self.BIAS_ENERGY_LIST_FOR_PLOTTING)

@@ -307,12 +307,12 @@ class Calculationtools:
             eigenvalues, _ = np.linalg.eigh(hess_proj)
             eigenvalues = np.sort(eigenvalues)
             # Filter out near-zero eigenvalues
-            idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-6)[0]
+            idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-10)[0]
             print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
             for i in range(0, len(idx_eigenvalues), 6):
                 tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
                 print(" ".join(f"{val:12.8f}" for val in tmp_arr))
-         
+        
         return hess_proj
 
     def check_atom_connectivity(self, mol_list, element_list, atom_num, covalent_radii_threshold_scale=1.2):#mol_list:ang.
