@@ -22,7 +22,7 @@ class RSIRFO:
         self.max_micro_cycles = config.get("max_micro_cycles", 40)
         self.saddle_order = config.get("saddle_order", 1)
         self.hessian_update_method = config.get("method", "auto")
-        self.small_eigval_thresh = config.get("small_eigval_thresh", 1e-10)
+        self.small_eigval_thresh = config.get("small_eigval_thresh", 1e-6)
         
         self.alpha_max = config.get("alpha_max", 1e6)
         self.alpha_step_max = config.get("alpha_step_max", 10.0)
