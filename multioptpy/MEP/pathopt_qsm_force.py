@@ -52,12 +52,14 @@ class CaluculationQSM:
                 print("CI-NEB was applied to # NODE", i)
             else:
                 pass
+            
+            
            
             total_force_list.append(-1*force.reshape(-1, 3))
             self.tau_list.append(tangent_grad.reshape(-1, 3) / (np.linalg.norm(tangent_grad) + 1e-15))
         
         total_force_list = np.array(total_force_list, dtype = "float64")
-        
+        total_force_list = projection(total_force_list, geometry_num_list)
             
         return total_force_list
     
@@ -113,12 +115,60 @@ class CaluculationQSM:
 
         return B_mat
     
-    def calc_proj_hess(self, hess, node_num):
-        if not self.tau_list:
+    def calc_proj_hess(self, hess, node_num, geometry_num_list):
+        if node_num == 0 or node_num == len(geometry_num_list)-1:
             return hess
-        tmp_tau = self.tau_list[node_num]
-        P_mat = np.eye(len(self.tau_list[0])*3) - np.outer(tmp_tau.flatten(), tmp_tau.flatten())
-        P_mat = 0.5 * (P_mat + P_mat.T)
-        proj_hess = np.dot(P_mat, hess)
+        proj_hess = projection_hess(hess, geometry_num_list, node_num)
+        # Make sure the Hessian is symmetric
         proj_hess = 0.5 * (proj_hess + proj_hess.T)
         return proj_hess
+    
+    
+    
+def projection(move_vector_list, geometry_list):
+    print("Applying projection to move vectors")
+    for i in range(1, len(geometry_list)-1):
+        vec_1 = geometry_list[i] - geometry_list[i-1]
+        vec_2 = geometry_list[i+1] - geometry_list[i]
+        vec_1_norm = np.linalg.norm(vec_1)
+        vec_2_norm = np.linalg.norm(vec_2)
+        if vec_1_norm < 1e-8 or vec_2_norm < 1e-8:
+            continue
+        vec_1 = vec_1 / vec_1_norm
+        vec_2 = vec_2 / vec_2_norm
+        vec_1 = vec_1.reshape(-1, 1)
+        vec_2 = vec_2.reshape(-1, 1)
+        # Gram-Schmidt process
+        vec_2 -= np.dot(vec_2.T, vec_1) * vec_1
+        if np.linalg.norm(vec_2) < 1e-8:
+            continue
+        vec_2 /= np.linalg.norm(vec_2)
+        
+        P = np.eye(len(vec_1)) - np.outer(vec_1, vec_1) - np.outer(vec_2, vec_2)
+        tmp_proj_move_vec = np.dot(P, move_vector_list[i].reshape(-1, 1))
+        move_vector_list[i] = tmp_proj_move_vec.reshape(-1, 3)
+    return move_vector_list
+
+
+def projection_hess(hessian, geometry_list, node_num):
+    print("Applying projection to Hessian")
+
+    vec_1 = geometry_list[node_num] - geometry_list[node_num-1]
+    vec_2 = geometry_list[node_num+1] - geometry_list[node_num]
+    vec_1_norm = np.linalg.norm(vec_1)
+    vec_2_norm = np.linalg.norm(vec_2)
+    if vec_1_norm < 1e-8 or vec_2_norm < 1e-8:
+        return hessian
+    vec_1 = vec_1 / vec_1_norm
+    vec_2 = vec_2 / vec_2_norm
+    vec_1 = vec_1.reshape(-1, 1)
+    vec_2 = vec_2.reshape(-1, 1)
+    # Gram-Schmidt process
+    vec_2 -= np.dot(vec_2.T, vec_1) * vec_1
+    if np.linalg.norm(vec_2) < 1e-8:
+        return hessian
+    vec_2 /= np.linalg.norm(vec_2)
+
+    P = np.eye(len(vec_1)) - np.outer(vec_1, vec_1) - np.outer(vec_2, vec_2)
+    tmp_proj_hess = np.dot(np.dot(P, hessian), P.T)
+    return tmp_proj_hess
