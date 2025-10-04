@@ -121,9 +121,12 @@ class RFOOptimizer(OptimizationAlgorithm):
                 move_vector_list.append((1.0 - self.ratio_of_rfo_step) * fire_move_vector_list[i] - self.ratio_of_rfo_step * rfo_move_vector_list[i])
                 
         move_vector_list = np.array(move_vector_list, dtype="float64")
+        #move_vector_list = projection(move_vector_list, geometry_num_list)
         new_geometry_list = (geometry_num_list + move_vector_list) * self.config.bohr2angstroms
         
         return new_geometry_list
+
+
 
 
 class RFOQSMOptimizer(OptimizationAlgorithm):
@@ -163,15 +166,16 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
                 hessian = np.eye(3 * natoms)
             
             if num == 0 or num == len(total_force_list) - 1:
-                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.1)
+                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.5)
             else:
-                OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=1, trust_radius=0.1)
+                OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=0, trust_radius=0.1)
                 
                     
             OPT.iteration = optimize_num
             OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             
-            hessian = STRING_FORCE_CALC.calc_proj_hess(hessian, num)
+            
+            hessian = STRING_FORCE_CALC.calc_proj_hess(hessian, num, geometry_num_list)
             
             OPT.set_hessian(hessian)
            
