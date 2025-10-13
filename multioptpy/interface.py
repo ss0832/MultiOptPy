@@ -226,11 +226,12 @@ def nebparser(parser):
     parser.add_argument("-ads2", "--align_distances_spline_ver2", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation ver.2')
     parser.add_argument("-adg", "--align_distances_geodesic", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using geodesic interpolation')
     parser.add_argument("-adb", "--align_distances_bernstein", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using Bernstein interpolation')
-    parser.add_argument("-adh", "--align_distances_hermite", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using Hermite interpolation')
+    parser.add_argument("-adsg", "--align_distances_savgol", type=str, default="0,0,0", help='distribute images at equal intervals on the reaction coordinate using Savitzky-Golay interpolation (ex.) [[iteration(int)],[window_size(int, 5 is recommended)],[poly_order(int) 3 is recommended]] (default: 0,0,0 (not using Savitzky-Golay interpolation))')
     
     parser.add_argument("-nd", "--node_distance", type=float, default=None, help='distribute images at equal intervals linearly based ont specific distance (ex.) [distance (ang.)] (default: None)')
     parser.add_argument("-nds", "--node_distance_spline", type=float, default=None, help='distribute images at equal intervals using spline interpolation based ont specific distance (ex.) [distance (ang.)] (default: None)')
     parser.add_argument("-ndb", "--node_distance_bernstein", type=float, default=None, help='distribute images at equal intervals using Bernstein interpolation based ont specific distance (ex.) [distance (ang.)] (default: None)')
+    parser.add_argument("-ndsg", "--node_distance_savgol", type=str, default=None, help='distribute images at equal intervals using Savitzky-Golay interpolation based ont specific distance (ex.) [[distance (ang.)],[window_size(int, 5 is recommended)],[poly_order(int) 3 is recommended]] (default: None)')
     parser.add_argument("-p", "--partition",  type=int, default='0', help='number of nodes')
     parser.add_argument("-core", "--N_THREAD",  type=int, default='8', help='threads')
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='1GB', help='use mem(ex. 1GB)')
