@@ -60,6 +60,7 @@ from multioptpy.Interpolation.geodesic_interpolation import distribute_geometry_
 from multioptpy.Interpolation.binomial_interpolation import bernstein_interpolation, distribute_geometry_by_length_bernstein
 from multioptpy.Interpolation.spline_interpolation import spline_interpolation, distribute_geometry_spline, distribute_geometry_by_length_spline
 from multioptpy.Interpolation.linear_interpolation import distribute_geometry, distribute_geometry_by_length
+from multioptpy.Interpolation.savitzky_golay_interpolation import savitzky_golay_interpolation, distribute_geometry_by_length_savgol
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -137,8 +138,33 @@ class NEBConfig:
         self.align_distances_spline_ver2 = args.align_distances_spline_ver2
         self.align_distances_geodesic = args.align_distances_geodesic
         self.align_distances_bernstein = args.align_distances_bernstein
+        
+        tmp_align_savgol_list = args.align_distances_savgol.split(",")
+        
+        if len(tmp_align_savgol_list) != 3:
+            print("invalid input (-adsg)")
+            exit()
+        else:
+            self.align_distances_savgol = int(tmp_align_savgol_list[0])
+            self.align_distances_savgol_window = int(tmp_align_savgol_list[1])
+            self.align_distances_savgol_poly = int(tmp_align_savgol_list[2])
+        
+        
         self.node_distance_spline = args.node_distance_spline
         self.node_distance_bernstein = args.node_distance_bernstein
+        if args.node_distance_savgol is None:
+            self.node_distance_savgol = None
+            self.node_distance_savgol_window = 0
+            self.node_distance_savgol_poly = 0
+        else:
+            tmp_node_savgol = args.node_distance_savgol.split(",")
+            if len(tmp_node_savgol) != 3:
+                print("invalid input (-node_distance_savgol)")
+                exit()
+            self.node_distance_savgol = float(tmp_node_savgol[0])
+            self.node_distance_savgol_window = int(tmp_node_savgol[1])
+            self.node_distance_savgol_poly = int(tmp_node_savgol[2])
+            
         self.excited_state = args.excited_state
         self.unrestrict = args.unrestrict
         self.save_pict = args.save_pict
@@ -583,34 +609,44 @@ class NEB:
 
     def _align_geometries(self, new_geometry, optimize_num, gradient_list=None):
         """Align geometries if needed (private method)"""
+        
+        number_of_nodes = len(new_geometry)
+        
         if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
             print("Aligning geometries...")
             tmp_new_geometry = distribute_geometry(np.array(new_geometry))
-            for k in range(len(new_geometry)):
+            for k in range(number_of_nodes):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
         if self.config.align_distances_bernstein >= 1 and optimize_num % self.config.align_distances_bernstein == 0 and optimize_num > 0:
             print("Aligning geometries using Bernstein interpolation...")
-            tmp_new_geometry = bernstein_interpolation(np.array(new_geometry), len(new_geometry))
-            for k in range(len(new_geometry)):
+            tmp_new_geometry = bernstein_interpolation(np.array(new_geometry), number_of_nodes)
+            for k in range(number_of_nodes):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
     
         
         if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
             print("Aligning geometries using spline...")
             tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
-            for k in range(len(new_geometry)):
+            for k in range(number_of_nodes):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
         
         if self.config.align_distances_spline_ver2 >= 1 and optimize_num % self.config.align_distances_spline_ver2 == 0 and optimize_num > 0:
             print("Aligning geometries using spline ver2...")
-            tmp_new_geometry = spline_interpolation(np.array(new_geometry), len(new_geometry))
-            for k in range(len(new_geometry)):
+            tmp_new_geometry = spline_interpolation(np.array(new_geometry), number_of_nodes)
+            for k in range(number_of_nodes):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
+       
+        if self.config.align_distances_savgol >= 1 and optimize_num % self.config.align_distances_savgol == 0 and optimize_num > 0:
+            print("Aligning geometries using Savitzky-Golay filter...")
+            tmp_new_geometry = savitzky_golay_interpolation(np.array(new_geometry), number_of_nodes, window_length=self.config.align_distances_savgol_window, polyorder=self.config.align_distances_savgol_poly)
+            for k in range(number_of_nodes):
+                new_geometry[k] = copy.copy(tmp_new_geometry[k])
+     
         
         if self.config.align_distances_geodesic >= 1 and optimize_num % self.config.align_distances_geodesic == 0 and optimize_num > 0:
             print("Aligning geometries using geodesic interpolation...")
             tmp_new_geometry = distribute_geometry_geodesic(np.array(new_geometry))
-            for k in range(len(new_geometry)):
+            for k in range(number_of_nodes):
                 new_geometry[k] = copy.copy(tmp_new_geometry[k])
         
         return new_geometry
@@ -911,6 +947,9 @@ class NEB:
         if self.config.align_distances_spline_ver2 > 0:
             tmp_data = spline_interpolation(tmp_data, len(tmp_data))
         
+        if self.config.align_distances_savgol > 0:
+            tmp_data = savitzky_golay_interpolation(tmp_data, len(tmp_data), window_length=self.config.align_distances_savgol_window, polyorder=self.config.align_distances_savgol_poly)
+        
         if self.config.align_distances_geodesic > 0:
             tmp_data = distribute_geometry_geodesic(tmp_data)
         
@@ -923,6 +962,9 @@ class NEB:
         
         if self.config.node_distance_bernstein is not None:
             tmp_data = distribute_geometry_by_length_bernstein(tmp_data, self.config.node_distance_bernstein)
+        
+        if self.config.node_distance_savgol is not None:
+            tmp_data = distribute_geometry_by_length_savgol(tmp_data, self.config.node_distance_savgol, window_length=self.config.node_distance_savgol_window, polyorder=self.config.node_distance_savgol_poly)
         
         for data in tmp_data:
             geometry_list.append([electric_charge_and_multiplicity] + 
