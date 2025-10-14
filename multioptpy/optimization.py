@@ -760,7 +760,17 @@ class Optimize:
 
     def write_input_files(self, FIO):
         if os.path.splitext(FIO.START_FILE)[1] == ".gjf":
+            print("Gaussian input file (.gjf) detected.")
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gjf_file(self.electric_charge_and_multiplicity)
+        elif os.path.splitext(FIO.START_FILE)[1] == ".inp":
+            print("GAMESS/Orca/Q-Chem input file (.inp) detected.")
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_gamess_inp_file(self.electric_charge_and_multiplicity)
+        elif os.path.splitext(FIO.START_FILE)[1] == ".mol":
+            print("MDL Molfile (.mol) detected.")
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_mol_file(self.electric_charge_and_multiplicity)
+        elif os.path.splitext(FIO.START_FILE)[1] == ".mol2":
+            print("MOL2 file (.mol2) detected.")
+            geometry_list, element_list, electric_charge_and_multiplicity = FIO.read_mol2_file(self.electric_charge_and_multiplicity)
         else:
             geometry_list, element_list, electric_charge_and_multiplicity = FIO.make_geometry_list(self.electric_charge_and_multiplicity)
         file_directory = FIO.make_psi4_input_file(geometry_list, 0)

@@ -59,9 +59,188 @@ def xyz2list(file_path, args_electric_charge_and_multiplicity):
         electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
    
     return geometry_list, element_list, electric_charge_and_multiplicity
+import re
 
 
 
+def _parse_gamess(lines):
+    """Internal function to parse GAMESS input."""
+    pattern_atom = get_pattern_gamess_atom()
+    element_list = []
+    geometry_list = []
+    
+    is_data_section = False
+    for line in lines:
+        if "$DATA" in line.upper(): is_data_section = True; continue
+        if "$END" in line.upper() and is_data_section: break
+        if is_data_section:
+            match = pattern_atom.match(line)
+            if match:
+                element_list.append(match.group(1))
+                geometry_list.append([match.group(2), match.group(3), match.group(4)])
+    return geometry_list, element_list
+
+def _parse_orca(lines):
+    """Internal function to parse ORCA input."""
+    pattern_atom = get_pattern_orca_atom()
+    element_list = []
+    geometry_list = []
+    electric_charge_and_multiplicity = ["0", "1"] # Default
+
+    is_coord_section = False
+    for line in lines:
+        # Check for start of coordinate block, e.g., *xyz 0 1
+        if line.strip().startswith("*xyz"):
+            is_coord_section = True
+            parts = line.strip().split()
+            if len(parts) == 3:
+                electric_charge_and_multiplicity = [parts[1], parts[2]]
+            continue
+        
+        # Check for end of coordinate block
+        if is_coord_section and line.strip() == "*":
+            break
+            
+        if is_coord_section:
+            match = pattern_atom.match(line)
+            if match:
+                element_list.append(match.group(1))
+                geometry_list.append([match.group(2), match.group(3), match.group(4)])
+    return geometry_list, element_list, electric_charge_and_multiplicity
+
+def _parse_qchem(lines):
+    """Internal function to parse Q-Chem input."""
+    pattern_atom = get_pattern_qchem_atom()
+    element_list = []
+    geometry_list = []
+    electric_charge_and_multiplicity = ["0", "1"] # Default
+
+    is_molecule_section = False
+    for line in lines:
+        if "$molecule" in line.lower():
+            is_molecule_section = True
+            # Read charge and multiplicity from the next line
+            charge_mult_line = next(iter(lines), "").strip()
+            parts = charge_mult_line.split()
+            if len(parts) == 2:
+                electric_charge_and_multiplicity = parts
+            continue
+            
+        if "$end" in line.lower() and is_molecule_section:
+            break
+            
+        if is_molecule_section:
+            # Skip the charge/multiplicity line itself
+            if re.match(r"^\s*[+-]?\d+\s+[+-]?\d+\s*$", line.strip()):
+                continue
+            match = pattern_atom.match(line)
+            if match:
+                element_list.append(match.group(1))
+                geometry_list.append([match.group(2), match.group(3), match.group(4)])
+    return geometry_list, element_list, electric_charge_and_multiplicity
+
+
+def inp2list(file_path, args_electric_charge_and_multiplicity=["0", "1"]):
+    """
+    Automatically detects the input file format (GAMESS, ORCA, Q-Chem)
+    and parses the atomic coordinates.
+    """
+    with open(file_path, 'r') as f:
+        content = f.read()
+    
+    lines = content.splitlines()
+    
+    # --- Format Detection Logic ---
+    detected_format = None
+    if "$CONTRL" in content and "$DATA" in content:
+        detected_format = "gamess"
+    elif re.search(r"^\s*!", content, re.MULTILINE) and "*xyz" in content:
+        detected_format = "orca"
+    elif "$molecule" in content:
+        detected_format = "qchem"
+    else:
+        print("Error: Could not determine the file format.")
+        return [], [], None, None
+
+    # --- Parsing based on detected format ---
+    if detected_format == "gamess":
+        print("Detected format: GAMESS")
+        geometry_list, element_list = _parse_gamess(lines)
+        # GAMESS does not have a standard charge/multiplicity line in $DATA
+        electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
+    
+    elif detected_format == "orca":
+        print("Detected format: ORCA")
+        geometry_list, element_list, electric_charge_and_multiplicity = _parse_orca(lines)
+
+    elif detected_format == "qchem":
+        print("Detected format: Q-Chem")
+        geometry_list, element_list, electric_charge_and_multiplicity = _parse_qchem(lines)
+
+    return geometry_list, element_list, electric_charge_and_multiplicity
+
+def mol2list(file_path, args_electric_charge_and_multiplicity):
+    """Parses a MOL file (.mol)."""
+    pattern_atom = get_pattern_mol_atom()
+    
+    element_list = []
+    geometry_list = []
+    electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
+
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+        
+    # Get the number of atoms from the counts line (4th line)
+    try:
+        num_atoms = int(lines[3].strip().split()[0])
+    except (IndexError, ValueError):
+        # Return empty lists for an invalid format
+        return [], [], electric_charge_and_multiplicity
+
+    # Process the atom block
+    atom_block_lines = lines[4 : 4 + num_atoms]
+    for line in atom_block_lines:
+        match = pattern_atom.match(line)
+        if match:
+            # MOL format order is: X, Y, Z, Symbol
+            geometry_list.append([match.group(1), match.group(2), match.group(3)])
+            element_list.append(match.group(4))
+            
+    return geometry_list, element_list, electric_charge_and_multiplicity
+
+def mol22list(file_path, args_electric_charge_and_multiplicity):
+    """Parses a MOL2 file (.mol2)."""
+    pattern_atom = get_pattern_mol2_atom()
+    
+    element_list = []
+    geometry_list = []
+    electric_charge_and_multiplicity = args_electric_charge_and_multiplicity
+    
+    is_atom_section = False
+    with open(file_path, "r") as f:
+        for line in f:
+            # Detect the start of the ATOM section
+            if "@<TRIPOS>ATOM" in line:
+                is_atom_section = True
+                continue
+            
+            # End processing if another section starts
+            if is_atom_section and "@<TRIPOS>" in line:
+                break
+                
+            # Process atom lines within the ATOM section
+            if is_atom_section:
+                match = pattern_atom.match(line)
+                if match:
+                    # Extract the element symbol from the atom name (e.g., "C1", "Oa")
+                    atom_name = match.group(1)
+                    element = "".join(filter(str.isalpha, atom_name))
+                    element_list.append(element)
+                    
+                    # MOL2 format order is: Name, X, Y, Z
+                    geometry_list.append([match.group(2), match.group(3), match.group(4)])
+                    
+    return geometry_list, element_list, electric_charge_and_multiplicity
 
 def traj2list(file_path, args_electric_charge_and_multiplicity):
     pattern_cs = get_pattern_cs()
@@ -105,6 +284,81 @@ def get_pattern_xyz():
 def get_pattern_cs():
     pattern_cs = re.compile(r"-*[0-9]+\s+-*[0-9]+\s*")
     return pattern_cs
+
+
+def get_pattern_qchem_atom():
+    """Returns a regex pattern for Q-Chem atom lines."""
+    coordinate_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+    pattern = re.compile(
+        r"^\s*([A-Za-z]+)\s+"      # Element
+        + coordinate_pattern + r"\s+" # X
+        + coordinate_pattern + r"\s+" # Y
+        + coordinate_pattern + r"\s*"  # Z
+    )
+    return pattern
+
+def get_pattern_orca_atom():
+    """Returns a regex pattern for ORCA atom lines."""
+    coordinate_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+    pattern = re.compile(
+        r"^\s*([A-Za-z]+)\s+"      # Element
+        + coordinate_pattern + r"\s+" # X
+        + coordinate_pattern + r"\s+" # Y
+        + coordinate_pattern + r"\s*"  # Z
+    )
+    return pattern
+
+def get_pattern_gamess_atom():
+    """
+    Returns a regex pattern to match atom lines in a GAMESS input file.
+    Supports both decimal and scientific notation for coordinates.
+    """
+    # Example: "O 8.0 0.0 0.0 0.0" or "C 6.0 1.234e+01 -5.67E-02 8.9"
+    coordinate_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+    
+    pattern = re.compile(
+        r"^\s*([A-Za-z]+)\s+"      # Element
+        r"[+-]?\d+\.\d+\s+"         # Atomic Number
+        + coordinate_pattern + r"\s+" # X coordinate
+        + coordinate_pattern + r"\s+" # Y coordinate
+        + coordinate_pattern + r"\s*"  # Z coordinate
+    )
+    return pattern
+
+
+def get_pattern_mol_atom():
+    """
+    Returns a regex pattern to match atom lines in a MOL/SDF file.
+    Supports both decimal and scientific notation for coordinates.
+    """
+    # Example: " 0.0000 0.0000 0.0000 O ..." or " 1.23e-05 -4.56E+00 7.89 O ..."
+    coordinate_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+
+    pattern = re.compile(
+        r"^\s*" + coordinate_pattern + r"\s+" # X coordinate
+        + coordinate_pattern + r"\s+"         # Y coordinate
+        + coordinate_pattern + r"\s+"         # Z coordinate
+        r"([A-Za-z]+)\s+.*"                   # Element
+    )
+    return pattern
+
+def get_pattern_mol2_atom():
+    """
+    Returns a regex pattern to match atom lines in a MOL2 file.
+    Supports both decimal and scientific notation for coordinates.
+    """
+    # Example: " 1 O 0.0000 0.0000 0.0000 O.3 ..." or " 2 C 1.2e1 -3.4E-1 5.6 C.ar ..."
+    coordinate_pattern = r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)"
+
+    pattern = re.compile(
+        r"^\s*\d+\s+"                 # Atom ID
+        r"([A-Za-z]+)\w*\s+"          # Atom Name
+        + coordinate_pattern + r"\s+" # X coordinate
+        + coordinate_pattern + r"\s+" # Y coordinate
+        + coordinate_pattern + r"\s+.*" # Z coordinate
+    )
+    return pattern
+
 
 class FileIO:
     def __init__(self, folder_dir, file):
@@ -198,7 +452,72 @@ class FileIO:
                 geometry_list.append(lines[i].split())   
         geometry_list = [geometry_list]
         return geometry_list, element_list, electric_charge_and_multiplicity
-    
+
+
+
+    def read_mol_file(self, args_electric_charge_and_multiplicity=None):
+        """
+        Reads a .mol file, formats output to match the gjf reader structure.
+        """
+        # Call the internal parser to get clean lists
+        coords_list, elements, charge_multiplicity = mol2list(
+            self.START_FILE, args_electric_charge_and_multiplicity
+        )
+
+        if not elements:
+            return [[]], [], charge_multiplicity
+
+        # Reconstruct the geometry_list to match the target format
+        # [["dummy", [charge, mult], [element, x, y, z], ...]]
+        output_geometry_list = ["dummy", charge_multiplicity]
+        for i, element in enumerate(elements):
+            full_atom_line = [element] + coords_list[i]
+            output_geometry_list.append(full_atom_line)
+
+        return [output_geometry_list], elements, charge_multiplicity
+
+    def read_mol2_file(self, args_electric_charge_and_multiplicity=None):
+        """
+        Reads a .mol2 file, formats output to match the gjf reader structure.
+        """
+        # Call the internal parser to get clean lists
+        coords_list, elements, charge_multiplicity = mol22list(
+            self.START_FILE, args_electric_charge_and_multiplicity
+        )
+
+        if not elements:
+            return [[]], [], charge_multiplicity
+
+        # Reconstruct the geometry_list to match the target format
+        output_geometry_list = ["dummy", charge_multiplicity]
+        for i, element in enumerate(elements):
+            full_atom_line = [element] + coords_list[i]
+            output_geometry_list.append(full_atom_line)
+
+        return [output_geometry_list], elements, charge_multiplicity
+
+    def read_gamess_inp_file(self, args_electric_charge_and_multiplicity=None):
+        """
+        Reads a .inp file, formats output to match the gjf reader structure.
+        """
+        # Call the internal parser to get clean lists
+        coords_list, elements, charge_multiplicity = inp2list(
+            self.START_FILE, args_electric_charge_and_multiplicity
+        )
+
+        if not elements:
+            return [[]], [], charge_multiplicity
+
+        # Reconstruct the geometry_list to match the target format
+        output_geometry_list = ["dummy", charge_multiplicity]
+        for i, element in enumerate(elements):
+            full_atom_line = [element] + coords_list[i]
+            output_geometry_list.append(full_atom_line)
+
+        return [output_geometry_list], elements, charge_multiplicity
+
+
+
     def save_gjf_file(self, geometry_list):
         with open(self.work_directory+self.NOEXT_START_FILE+".gjf","w") as f:
             f.write("%mem=4GB\n")
