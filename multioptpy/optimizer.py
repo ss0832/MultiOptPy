@@ -56,26 +56,12 @@ from multioptpy.Optimizer.gpmin import GPmin
 
 optimizer_mapping = {
     "adabelief": Adabelief,
-    #"fastadabelief": FastAdabelief,
     "radam": RADAM,
-    #"adamod": Adamod,
-    #"yogi": YOGI,
-    #"sadam": SAdam,
-    #"qhadam": QHAdam,
-    #"samsgrad": SAMSGrad,
-    #"adadelta": Adadelta,
-    #"adamw": AdamW,
-    #"adadiff": AdaDiff,
-    #"adafactor": Adafactor,
     "eve": EVE,
     "prodigy": Prodigy,
-    #"adamax": AdaMax,
-    #"nadam": NAdam,
-    #"rmspropgrave": RMSpropGrave,
     "abcfire": ABC_FIRE,
     "fire2": FIRE2,
     "fire": FIRE,
-    #"adaderivative": Adaderivative,
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
     "gpmin": GPmin,
@@ -125,47 +111,12 @@ quasi_newton_mapping = {
     "rsprfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
 
-    #"sirfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_fsb": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_bofill": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_msp": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_sr1": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_psb": {"delta": 0.50, "rfo_type": 3},
-    #"sirfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_bfgs": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_fsb": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_bofill": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_msp": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_sr1": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_psb": {"delta": 0.50, "rfo_type": 3},
-    #"rfo3_flowchart": {"delta": 0.50, "rfo_type": 3},
-    #"rfo2_bfgs": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_fsb": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_bofill": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_msp": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_sr1": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_psb": {"delta": 0.50, "rfo_type": 2},
-    #"rfo2_flowchart": {"delta": 0.50, "rfo_type": 2},
-    #"mrfo_bfgs": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_fsb": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_bofill": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_msp": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_sr1": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_psb": {"delta": 0.30, "rfo_type": 1},
-    #"mrfo_flowchart": {"delta": 0.30, "rfo_type": 1},
-    #"rfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_msp": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_psb": {"delta": 0.50, "rfo_type": 1},
-    #"rfo_flowchart": {"delta": 0.50, "rfo_type": 1},
 }
 
 
 
 class CalculateMoveVector:
-    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None, max_trust_radius=None):
+    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None, max_trust_radius=None, min_trust_radius=None):
         self.DELTA = DELTA
         self.temperature = temperature
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
@@ -176,6 +127,7 @@ class CalculateMoveVector:
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
         self.max_trust_radius = max_trust_radius
+        self.min_trust_radius = min_trust_radius
         self.CALC_TRUST_RADII = TrustRadius()
         if self.max_trust_radius is not None:
             if self.max_trust_radius <= 0.0:
@@ -185,6 +137,19 @@ class CalculateMoveVector:
             self.CALC_TRUST_RADII.set_max_trust_radius(self.max_trust_radius)
         
         self.trust_radii = max_trust_radius if max_trust_radius is not None else 0.5
+
+        if self.min_trust_radius is not None:
+            if self.min_trust_radius <= 0.0:
+                print("min_trust_radius must be greater than 0.0")
+                exit()
+            if self.trust_radii < self.min_trust_radius:
+                print("min_trust_radius must be smaller than max_trust_radius")
+                exit()
+                
+            self.CALC_TRUST_RADII.set_min_trust_radius(self.min_trust_radius)
+
+        self.min_trust_radius = min_trust_radius if min_trust_radius is not None else 0.01
+
         self.saddle_order = saddle_order
         self.iter = 0
         self.element_list = element_list
@@ -208,6 +173,7 @@ class CalculateMoveVector:
         gan_step_instances = []
         rl_step_instances = []
         geodesic_step_instances = []
+
 
         for i, m in enumerate(method):
             lower_m = m.lower()
@@ -236,7 +202,7 @@ class CalculateMoveVector:
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                 geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                       
+           
                 
             elif any(key in lower_m for key in optimizer_mapping):
                 for key, optimizer_class in optimizer_mapping.items():
@@ -268,6 +234,7 @@ class CalculateMoveVector:
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                         geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
+                     
                         break
                     
             elif lower_m in ["cg", "cg_pr", "cg_fr", "cg_hs", "cg_dy"]:
@@ -293,7 +260,7 @@ class CalculateMoveVector:
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                 geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-            
+              
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
@@ -336,6 +303,7 @@ class CalculateMoveVector:
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                         geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
+                    
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -355,6 +323,7 @@ class CalculateMoveVector:
                 gan_step_instances.append(None)
                 rl_step_instances.append(None)
                 geodesic_step_instances.append(None)
+              
 
         self.method = method
         self.newton_tag = newton_tag
@@ -372,6 +341,7 @@ class CalculateMoveVector:
         self.gan_step_instances = gan_step_instances
         self.rl_step_instances = rl_step_instances
         self.geodesic_step_instances = geodesic_step_instances
+      
         return optimizer_instances
             
 
@@ -396,17 +366,20 @@ class CalculateMoveVector:
                 B_e, pre_B_e, pre_B_g, pre_move_vector, model_hess, geom_num_list, self.trust_radii
             )
 
+        if self.min_trust_radius is not None:
+            print("user_difined_min_trust_radius: ", self.min_trust_radius)
+
         if self.max_trust_radius is not None:
             print("user_difined_max_trust_radius: ", self.max_trust_radius)
         else:
             # If saddle order is positive, constrain the trust radii
             if self.saddle_order > 0:
-                self.trust_radii = min(self.trust_radii, 0.1)
+                self.trust_radii = min(self.trust_radii, self.max_trust_radius if self.max_trust_radius is not None else 0.1)
 
             # If this is the first iteration but not full-coordinate -1 check
             if self.iter == 0 and self.FC_COUNT != -1:
                 if self.saddle_order > 0:
-                    self.trust_radii = min(self.trust_radii, 0.1)
+                    self.trust_radii = min(self.trust_radii, self.max_trust_radius if self.max_trust_radius is not None else 0.1)
 
     def handle_projection_constraint(self, projection_constrain):
         """
@@ -416,7 +389,7 @@ class CalculateMoveVector:
             if self.max_trust_radius is not None:
                 pass
             else:
-                self.trust_radii = min(self.trust_radii, 0.1)
+                self.trust_radii = min(self.trust_radii, self.max_trust_radius if self.max_trust_radius is not None else 0.1)
 
 
 
@@ -474,6 +447,7 @@ class CalculateMoveVector:
         including optional enhancements through various techniques.
         """
         move_vector_list = []
+      
 
         # Enhancement techniques and their parameter configurations
         # Format: [list_of_instances, method_name, [parameters]]
@@ -508,6 +482,7 @@ class CalculateMoveVector:
             [self.rl_step_instances, "apply_rl_step", [B_g, pre_B_g, B_e, pre_B_e]],
             # Geodesic stepping techniques
             [self.geodesic_step_instances, "apply_geodesic_step", []],
+        
         ]
 
         for i, optimizer_instance in enumerate(optimizer_instances):
@@ -634,10 +609,9 @@ class CalculateMoveVector:
             if print_flag:
                 print(f"Optimizer instance {i}: ", optimizer_instances[i])
             if self.newton_tag[i]:
-                _ = Calculationtools().project_out_hess_tr_and_rot_for_coord( #hessian, element_list, geometry
-                    optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian,
-                    self.element_list,
-                    new_geometry)
+                tmp_hess = optimizer_instances[i].hessian
+                tmp_bias_hess = optimizer_instances[i].bias_hessian
+                display_eigvals(tmp_hess, tmp_bias_hess, self.element_list, new_geometry)
         if print_flag:
             print("==================================================================================")
         new_geometry *= self.unitval.bohr2angstroms #Bohr -> ang.
@@ -648,3 +622,27 @@ class CalculateMoveVector:
         
         return new_geometry, np.array(move_vector, dtype="float64"), optimizer_instances
 
+
+
+def display_eigvals(hessian, bias_hessian, element_list, geom):
+   
+    if bias_hessian is not None:
+        tmp_hess = hessian 
+        H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess + bias_hessian, element_list, geom, display_eigval=False)
+    else:
+        tmp_hess = hessian
+        H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess, element_list, geom, display_eigval=False)
+    H = (H + H.T) / 2  # Make sure H is symmetric
+    evals, _ = np.linalg.eigh(H)
+    
+    # Filter eigenvalues with absolute value greater than 1e-10
+    filtered_evals = evals[np.abs(evals) > 1e-10]
+    filtered_evals = np.sort(filtered_evals)
+    num_values = len(filtered_evals)
+    
+    print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {num_values}):")
+    for i in range(0, num_values, 6):
+        line = ' '.join(f'{v:12.8f}' for v in filtered_evals[i:i+6])
+        print(line)
+    
+    

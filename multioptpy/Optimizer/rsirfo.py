@@ -147,8 +147,8 @@ class RSIRFO:
             raise ValueError("Hessian matrix must be set before running optimization")
         
         # Update Hessian if we have previous geometry and gradient information
-        if self.prev_geometry is not None and self.prev_gradient is not None and len(pre_B_g) > 0 and len(pre_geom) > 0:
-            self.update_hessian(geom_num_list, B_g, pre_geom, pre_B_g)
+        if self.prev_geometry is not None and self.prev_gradient is not None and len(pre_g) > 0 and len(pre_geom) > 0:
+            self.update_hessian(geom_num_list, g, pre_geom, pre_g)
             
         # Check for convergence based on gradient
         gradient_norm = np.linalg.norm(B_g)
@@ -172,13 +172,15 @@ class RSIRFO:
         gradient = np.asarray(B_g).ravel()
         
         # Use effective Hessian
-        H = self.hessian
+        tmp_hess = self.hessian
         if self.bias_hessian is not None:
             # Add bias_hessian directly to H - avoid creating intermediate matrix
-            
-            H = self.hessian + self.bias_hessian
-        H = Calculationtools().project_out_hess_tr_and_rot_for_coord(H, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
+            #print("Adding bias_hessian to hessian")
+            H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess + self.bias_hessian, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
+        else:
+            H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
         # Compute eigenvalues and eigenvectors of the hessian
+        H = 0.5 * (H + H.T)  # Ensure symmetry
         eigvals, eigvecs = np.linalg.eigh(H)
         
         # Count negative eigenvalues for diagnostic purposes
