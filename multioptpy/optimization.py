@@ -92,6 +92,7 @@ class Optimize:
         self.thermo_pressure = float(args.pressure)
         self.dft_grid = int(args.dft_grid)
         self.max_trust_radius = args.max_trust_radius
+        self.min_trust_radius = args.min_trust_radius
         self.software_path_file = args.software_path_file
 
     def _check_sub_basisset(self, args):
@@ -355,7 +356,7 @@ class Optimize:
         
         # Move vector calculation
         CMV = CalculateMoveVector(self.DELTA, element_list, self.args.saddle_order, 
-                                self.FC_COUNT, self.temperature, self.use_model_hessian, max_trust_radius=self.max_trust_radius)
+                                self.FC_COUNT, self.temperature, self.use_model_hessian, max_trust_radius=self.max_trust_radius, min_trust_radius=self.min_trust_radius)
         optimizer_instances = CMV.initialization(force_data["opt_method"])
         
         for i in range(len(optimizer_instances)):
@@ -978,7 +979,7 @@ class Optimize:
         pre_model_HL_move_vector = np.zeros((len(high_layer_element_list), 3))
         
         # Initialize high layer optimizer
-        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list[:len(high_layer_atom_num)], self.args.saddle_order, self.FC_COUNT, self.temperature, max_trust_radius=self.max_trust_radius)
+        HL_CMV = CalculateMoveVector(self.DELTA, high_layer_element_list[:len(high_layer_atom_num)], self.args.saddle_order, self.FC_COUNT, self.temperature, max_trust_radius=self.max_trust_radius, min_trust_radius=self.min_trust_radius)
         HL_optimizer_instances = HL_CMV.initialization(force_data["opt_method"])
         
         for i in range(len(HL_optimizer_instances)):

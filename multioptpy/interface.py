@@ -107,6 +107,7 @@ def optimizeparser(parser):
     parser.add_argument("-mem", "--SET_MEMORY",  type=str, default='2GB', help='use mem(ex. 1GB)')
     parser.add_argument("-d", "--DELTA",  type=str, default='x', help='move step')
     parser.add_argument("-tr", "--max_trust_radius",  type=float, default=None, help='max trust radius to restrict step size (unit: ang.) (default: 0.1 for n-th order saddle point optimization, 0.5 for minimum point optimization) (notice: minimum trust radius is 0.01)')
+    parser.add_argument("-mintr", "--min_trust_radius",  type=float, default=0.01, help='min trust radius to restrict step size (unit: ang.) (default: 0.01) ')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
     parser = parser_for_biasforce(parser)
     
