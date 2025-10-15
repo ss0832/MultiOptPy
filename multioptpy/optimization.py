@@ -16,6 +16,7 @@ from multioptpy.interface import force_data_parser
 from multioptpy.ModelHessian.approx_hessian import ApproxHessian
 from multioptpy.PESAnalyzer.cmds_analysis import CMDSPathAnalysis
 from multioptpy.PESAnalyzer.pca_analysis import PCAPathAnalysis
+from multioptpy.PESAnalyzer.koopman_analysis import KoopmanAnalyzer
 from multioptpy.Potential.potential import BiasPotentialCalculation
 from multioptpy.Utils.calc_tools import CalculationStructInfo, Calculationtools
 from multioptpy.Constraint.constraint_condition import ProjectOutConstrain
@@ -94,6 +95,7 @@ class Optimize:
         self.max_trust_radius = args.max_trust_radius
         self.min_trust_radius = args.min_trust_radius
         self.software_path_file = args.software_path_file
+        self.koopman_analysis = args.koopman
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -434,6 +436,8 @@ class Optimize:
         
         return vars_dict
 
+
+
     def optimize(self):
         # Initialize all variables needed for optimization
         vars_dict = self._initialize_optimization_variables()
@@ -484,6 +488,9 @@ class Optimize:
   
         exact_hess_flag = False
         
+        
+        if self.koopman_analysis:
+            KA = KoopmanAnalyzer(natom, file_directory=self.BPA_FOLDER_DIRECTORY)
 
         for iter in range(self.NSTEP):
 
@@ -527,6 +534,9 @@ class Optimize:
             g, B_g, PC = self._apply_projection_constraints(projection_constrain, PC, geom_num_list, g, B_g)
                 
             g, B_g = self._zero_fixed_atom_gradients(allactive_flag, force_data, g, B_g)
+
+            if self.koopman_analysis:
+                _ = KA.run(iter, geom_num_list, B_g, element_list)
 
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(iter, geom_num_list,
                                                                                   B_g, pre_B_g, pre_geom, B_e, pre_B_e,
