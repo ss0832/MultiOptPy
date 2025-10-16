@@ -32,13 +32,14 @@ from multioptpy.Parameters.parameter import element_number
 from multioptpy.Potential.potential import BiasPotentialCalculation
 from multioptpy.MEP.pathopt_bneb_force import CaluculationBNEB, CaluculationBNEB2, CaluculationBNEB3
 from multioptpy.MEP.pathopt_dneb_force import CaluculationDNEB
+from multioptpy.MEP.pathopt_dmf_force import CaluculationDMF
 from multioptpy.MEP.pathopt_nesb_force import CaluculationNESB
 from multioptpy.MEP.pathopt_lup_force import CaluculationLUP
 from multioptpy.MEP.pathopt_om_force import CaluculationOM
 from multioptpy.MEP.pathopt_ewbneb_force import CaluculationEWBNEB
 from multioptpy.MEP.pathopt_qsm_force import CaluculationQSM
 from multioptpy.Utils.calc_tools import Calculationtools
-from multioptpy.Potential.idpp import IDPP
+from multioptpy.Potential.idpp import IDPP, CFB_ENM
 from multioptpy.Constraint.constraint_condition import ProjectOutConstrain
 from multioptpy.fileio import xyz2list, traj2list, FileIO
 from multioptpy.Optimizer import lbfgs_neb 
@@ -96,6 +97,7 @@ class NEBConfig:
         self.bneb = args.BNEB
         self.bneb2 = args.BNEB2
         self.ewbneb = args.EWBNEB
+        self.dmf = args.DMF
         self.qsm = args.QSM
         tmp_aneb = args.ANEB
         
@@ -133,6 +135,7 @@ class NEBConfig:
         
         # Flags
         self.IDPP_flag = args.use_image_dependent_pair_potential
+        self.CFB_ENM_flag = args.use_correlated_flat_bottom_elastic_network_model
         self.align_distances = args.align_distances
         self.align_distances_spline = args.align_distances_spline
         self.align_distances_spline_ver2 = args.align_distances_spline_ver2
@@ -669,6 +672,8 @@ class NEB:
             return CaluculationEWBNEB(self.config.APPLY_CI_NEB)
         elif self.config.qsm:
             return CaluculationQSM(self.config.APPLY_CI_NEB)
+        elif self.config.dmf:
+            return CaluculationDMF(self.config.APPLY_CI_NEB)
         else:
             return CaluculationBNEB(self.config.APPLY_CI_NEB)
     
@@ -935,6 +940,11 @@ class NEB:
         if self.config.IDPP_flag:
             IDPP_obj = IDPP()
             tmp_data = IDPP_obj.opt_path(tmp_data, element_list)
+        
+        # Apply CFB_ENM if requested
+        if self.config.CFB_ENM_flag:
+            CFB_ENM_obj = CFB_ENM()
+            tmp_data = CFB_ENM_obj.opt_path(tmp_data, element_list)
         
         # Align distances if requested
         if self.config.align_distances > 0:

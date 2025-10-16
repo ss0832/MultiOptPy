@@ -217,12 +217,13 @@ def nebparser(parser):
     parser.add_argument("-bneb2", "--BNEB2", action='store_true', help="NEB using Wilson's B matrix for calculating the perpendicular force with parallel spring force.")
     parser.add_argument("-dneb", "--DNEB", action='store_true', help='J. Chem. Phys. 120, 2082–2094 (2004) doi:https://doi.org/10.1063/1.1636455 doubly NEB method (DNEB) method')
     parser.add_argument("-nesb", "--NESB", action='store_true', help='J Comput Chem. 2023;44:1884–1897. https://doi.org/10.1002/jcc.27169 Nudged elastic stiffness band (NESB) method')
-   
+    parser.add_argument("-dmf", "--DMF", action='store_true', help='Direct Max Flux (DMF) method')
     parser.add_argument("-ewbneb", "--EWBNEB", action='store_true', help='Energy-weighted Nudged elastic band method')
     parser.add_argument("-qsm", "--QSM", action='store_true', help='Quadratic String Method (J. Chem. Phys. 124, 054109 (2006))')
     parser.add_argument("-aneb", "--ANEB", default=None, nargs="*", help='Adaptic NEB method (ref.: J. Chem. Phys. 117, 4651 (2002)) (Usage: -aneb [interpolation_num (ex. 2)] [frequency (ex. 5)], Default setting is not applying adaptic NEB method.)')
 
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
+    parser.add_argument("-cfbenm", "--use_correlated_flat_bottom_elastic_network_model", action='store_true', help='use correlated flat-bottom elastic network model (CFBENM) method (ref. s: J.Chem.TheoryComput.2025,21,3513−3522)')
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')
     parser.add_argument("-ads", "--align_distances_spline", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation')
     parser.add_argument("-ads2", "--align_distances_spline_ver2", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation ver.2')

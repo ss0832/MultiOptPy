@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import minimize
 
 from multioptpy.Parameters.parameter import (
                 covalent_radii_lib,
@@ -180,248 +181,336 @@ class IDPP:
         print("IDPP Optimization Done.")
         return geometry_list
 
-class FBENM:# This class is under construction. 
+
+
+class CFB_ENM:
     """
-    Flat-Bottom Elastic Network Model (FB-ENM) potential.
-    ref.: J.Chem.TheoryComput.2024,20,7176−7187
+    Implements a standalone Correlated Flat-Bottom Elastic Network Model (CFB-ENM)
+    for optimizing reaction paths. The potential is based on the logic from dmf.py.
+
+    This class identifies quartets of atoms involved in bond-making and -breaking
+    events between a reactant and product structure. It then applies a specialized
+    potential function to these quartets to guide the path optimization.
+
+    The path is optimized using an L-BFGS algorithm implemented from scratch.
+    ref. : S.-i. Koda and S. Saito, Flat-bottom Elastic Network Model for Generating Improved Plausible Reaction Paths, JCTC, 20, 7176−7187 (2024). doi: 10.1021/acs.jctc.4c00792
+           S.-i. Koda and S. Saito, Correlated Flat-bottom Elastic Network Model for Improved Bond Rearrangement in Reaction Paths, JCTC, 21, 3513−3522 (2025). doi: 10.1021/acs.jctc.4c01549
     
-    Potential per pair (i, j), with current distance r = |r_i - r_j|:
-        V_FB-ENM = (r - d_min)^2 / (dd_min)^2  (if r < d_min)
-                   0                           (if d_min <= r <= d_max)
-                   (r - d_max)^2 / (dd_max)^2  (if r > d_max)
-
-    Constraints:
-    - Strong constraints (for bonded pairs): 
-      d_min = d_max = distance in the endpoint structure that is closer to the current structure
-    - Weak constraints (for non-bonded pairs): 
-      d_min = 0.5 * (UFF vdW radii sum)
-      d_max = maximum distance across the path
     """
 
-    def __init__(
-        self,
-        elements,
-        geometry_list,
-        bond_scale=1.3,
-        delta_scale=2.0,
-        eps=1e-12,
-    ):
+    def __init__(self, iteration=2000, lr=0.01, threshold=1e-4, bond_scale=1.25,
+                 corr0_scale=1.10, corr1_scale=1.50, corr2_scale=1.60,
+                 eps=0.05, pivotal=True, single=True, remove_fourmembered=True):
         """
-        Initialize FB-ENM model.
+        Initializes the CFB_ENM optimizer.
 
-        Args:
-            elements: list of element symbols (e.g., ['C','H',...]) or atomic numbers.
-            geometry_list: list of (N,3) positions arrays. Must include endpoints [0] and [-1].
-            bond_scale: multiplier for sum of covalent radii to determine bonding.
-            delta_scale: scale factor for dd_min and dd_max.
-            eps: small number for numerical stability.
+        Parameters:
+        -----------
+        iteration : int
+            Maximum number of optimization iterations.
+        lr : float
+            Learning rate or maximum step size for the L-BFGS update.
+        threshold : float
+            Convergence threshold for the objective function.
+        bond_scale : float
+            Factor to determine bonding from covalent radii.
+        corr0_scale, corr1_scale, corr2_scale : float
+            Scaling factors for correlation distance thresholds.
+        eps : float
+            Smoothing parameter for the potential function.
+        pivotal, single, remove_fourmembered : bool
+            Flags to control quartet identification logic.
         """
-        self.elements = self.convert_to_symbols(elements)
-        self.N = len(self.elements)
-        assert len(geometry_list) >= 2, "geometry_list must include at least two images (endpoints)."
-        self.geometry_list = [np.array(g, dtype=float, copy=True) for g in geometry_list]
-        self.bond_scale = float(bond_scale)
-        self.delta_scale = float(delta_scale)
-        self.eps = float(eps)
+        self.iteration = int(iteration) # FIX: Ensure iteration is an integer
+        self.lr = lr
+        self.threshold = threshold
+        
+        # Parameters for CFB_ENM potential from dmf.py
+        self.bond_scale = bond_scale
+        self.corr0_scale = corr0_scale
+        self.corr1_scale = corr1_scale
+        self.corr2_scale = corr2_scale
+        self.eps = eps
+        self.pivotal = pivotal
+        self.single = single
+        self.remove_fourmembered = remove_fourmembered
+        
+        # These will be populated by _initialize_potential
+        self.quartets = []
+        self.d_corr0 = None
+        self.d_corr1 = None
+        self.d_corr2 = None
+        self.bohr2ang = UnitValueLib().bohr2angstroms
+        return
 
-        self.covalent_radii_lib = covalent_radii_lib
-        self.UFF_VDW_distance_lib = UFF_VDW_distance_lib
-        self.number_element = number_element
+    def _get_connectivity_matrix(self, pos, element_list):
+        """
+        Determines the adjacency matrix for a given geometry.
+        """
+        radii = np.array([covalent_radii_lib(el) * self.bohr2ang for el in element_list])
+        r_cov = radii[:, np.newaxis] + radii[np.newaxis, :]
+        
+        dist_matrix = self.calc_dist_matrix(pos)
+        
+        J = (dist_matrix / r_cov) < self.bond_scale
+        np.fill_diagonal(J, False)
+        return J, dist_matrix
 
-        # Precompute endpoint distances
-        self.d0 = self.pairwise_distances(self.geometry_list[0])
-        self.dL = self.pairwise_distances(self.geometry_list[-1])
+    def _get_quartets(self, J_only_r, J_only_p, J_both,
+                      pivotal=True, single=True, remove_fourmembered=True):
+        """
+        Identifies quartets of atoms involved in correlated motion.
+        This is a direct adaptation of the logic from dmf.py.
+        """
+        J2 = np.dot(J_both, J_both)
+        quartets = []
 
-        # Precompute per-pair maximum distance across path
-        self.d_max_path = self.calculate_max_distances(self.geometry_list)
-
-        # Precompute per-pair covalent radii sum and UFF vdW radii sum
-        self.cov_sum = self.calculate_covalent_sum(self.elements)
-        self.vdw_sum = self.calculate_vdw_sum(self.elements)
-
-    def convert_to_symbols(self, elements):
-        """Convert a list of element identifiers to symbols."""
-        syms = []
-        for e in elements:
-            if isinstance(e, str):
-                syms.append(e)
+        if pivotal:
+            if single:
+                pivots = np.where((np.sum(J_only_r, axis=1) == 1)
+                                & (np.sum(J_only_p, axis=1) == 1))[0]
             else:
-                syms.append(number_element(int(e)))
-        return syms
+                pivots = np.where(np.any(J_only_r, axis=1)
+                                & np.any(J_only_p, axis=1))[0]
+            for i in pivots:
+                only_r = np.where(J_only_r[i])[0]
+                only_p = np.where(J_only_p[i])[0]
+                for j in only_r:
+                    for k in only_p:
+                        if not (remove_fourmembered and J2[j, k]):
+                            quartets.append([i, j, i, k])
+        else:
+            # Non-pivotal logic (adapted from dmf.py)
+            pairs_only_r = list(zip(*np.where(np.triu(J_only_r, k=1))))
+            pairs_only_p = list(zip(*np.where(np.triu(J_only_p, k=1))))
 
-    def pairwise_distances(self, pos):
-        """Compute pairwise distance matrix (N,N)."""
-        dr = pos[:, None, :] - pos[None, :, :]
-        return np.linalg.norm(dr, axis=-1)
+            for pr in pairs_only_r:
+                for pp in pairs_only_p:
+                    q = list(pr) + list(pp)
+                    is_fourmembered = False
+                    if remove_fourmembered:
+                        unique_atoms = set(q)
+                        if len(unique_atoms) == 4:
+                            is_fourmembered = (J_both[q[0], q[2]] and J_both[q[1], q[3]]) or \
+                                              (J_both[q[0], q[3]] and J_both[q[1], q[2]])
+                        elif len(unique_atoms) == 3:
+                             # Find the two atoms that appear once
+                            counts = {atom: q.count(atom) for atom in unique_atoms}
+                            uniq_idxs = [atom for atom, count in counts.items() if count == 1]
+                            if len(uniq_idxs) == 2:
+                                is_fourmembered = J2[uniq_idxs[0], uniq_idxs[1]]
 
-    def calculate_max_distances(self, geometry_list):
-        """Compute per-pair maximum distance across a list of images."""
-        N = geometry_list[0].shape[0]
-        dmax = np.zeros((N, N), dtype=float)
-        
-        for k, g in enumerate(geometry_list):
-            d = self.pairwise_distances(g)
-            if k == 0:
-                dmax = d
-            else:
-                dmax = np.maximum(dmax, d)
-        # Symmetrize and zero diagonals
-        dmax = 0.5 * (dmax + dmax.T)
-        np.fill_diagonal(dmax, 0.0)
-        return dmax * 2.0
+                    if not is_fourmembered:
+                        quartets.append(q)
+        return quartets
 
-    def calculate_covalent_sum(self, elements):
-        """Sum of covalent radii per pair."""
-        N = len(elements)
-        r = np.zeros((N,), dtype=float)
-        for i, e in enumerate(elements):
-            r[i] = self.covalent_radii_lib(e) * UnitValueLib().bohr2angstroms
-        rs = r[:, None] + r[None, :]
-        np.fill_diagonal(rs, 0.0)
-        return rs
-
-    def calculate_vdw_sum(self, elements):
-        """Sum of UFF vdW radii per pair."""
-        N = len(elements)
-        r = np.zeros((N,), dtype=float)
-        for i, e in enumerate(elements):
-            r[i] = self.UFF_VDW_distance_lib(e) * UnitValueLib().bohr2angstroms
-        rs = r[:, None] + r[None, :]
-        np.fill_diagonal(rs, 0.0)
-        return rs
-
-    def build_band_parameters(self, pos):
+    def _initialize_potential(self, reactant_pos, product_pos, element_list):
         """
-        Build per-pair band parameters (d_min, d_max, dd_min, dd_max) using vectorized operations.
+        Initializes the parameters for the CFB-ENM potential function based on
+        reactant and product structures.
         """
-        r = self.pairwise_distances(pos)
-        N = len(r)
+        natoms = len(element_list)
+        images = [reactant_pos, product_pos]
+        
+        Js = []
+        d_bonds_list = []
+        for pos in images:
+            J, d = self._get_connectivity_matrix(pos, element_list)
+            Js.append(J)
+            d_bonds_list.append(np.where(J, d, 0.0))
+        
+        d_bond = np.max(np.array(d_bonds_list), axis=0)
 
-        # Determine which pairs are bonded (covalent)
-        bonded_threshold = self.bond_scale * self.cov_sum
-        bonded = r <= bonded_threshold
+        J_only_r = Js[0] & (~Js[1])
+        J_only_p = Js[1] & (~Js[0])
+        J_both = Js[0] & Js[1]
+
+        self.quartets = self._get_quartets(J_only_r, J_only_p, J_both,
+                                           self.pivotal, self.single, self.remove_fourmembered)
         
-        # Initialize d_min and d_max arrays
-        d_min = np.zeros((N, N), dtype=float)
-        d_max = np.zeros((N, N), dtype=float)
+        self.d_corr0 = self.corr0_scale * d_bond
+        self.d_corr1 = self.corr1_scale * d_bond
+        self.d_corr2 = self.corr2_scale * d_bond
         
-        # Create masks for upper triangle (to avoid duplicate work)
-        triu_indices = np.triu_indices(N, k=1)
-        
-        # Extract relevant distances for all upper triangle pairs
-        current_dists = r[triu_indices]
-        d0_dists = self.d0[triu_indices]
-        dL_dists = self.dL[triu_indices]
-        
-        # Determine which endpoint is closer for each pair
-        use_d0 = np.abs(current_dists - d0_dists) <= np.abs(current_dists - dL_dists)
-        
-        # Create target distances array based on the closer endpoint
-        target_dists = np.where(use_d0, d0_dists, dL_dists)
-        
-        # Create mask arrays for bonded and non-bonded pairs in upper triangle
-        bonded_pairs = bonded[triu_indices]
-        bonded_pairs[:] = False
-        nonbonded_pairs = ~bonded_pairs
-        
-        # Create temporary arrays for upper triangle values
-        d_min_upper = np.zeros_like(current_dists)
-        d_max_upper = np.zeros_like(current_dists)
-        
-        # Set values for bonded pairs (strong constraint)
-        d_min_upper[bonded_pairs] = target_dists[bonded_pairs]
-        d_max_upper[bonded_pairs] = target_dists[bonded_pairs]
-        
-        # Set values for non-bonded pairs (weak constraint)
-        vdw_values = self.vdw_sum[triu_indices]
-        dmax_values = self.d_max_path[triu_indices]
-        
-        d_min_upper[nonbonded_pairs] = vdw_values[nonbonded_pairs]
-        d_max_upper[nonbonded_pairs] = dmax_values[nonbonded_pairs]
-        
-        # Fill the upper triangle of the matrices
-        d_min[triu_indices] = d_min_upper
-        d_max[triu_indices] = d_max_upper
-        
-        # Make symmetric by adding transpose (diagonal will be doubled, but we zero it later)
-        d_min = d_min + d_min.T
-        d_max = d_max + d_max.T
-        
-        # Zero the diagonal to handle division safely
-        np.fill_diagonal(d_min, 0.0)
-        np.fill_diagonal(d_max, 0.0)
-        
-        # Calculate delta parameters
-        dd_min = self.delta_scale * np.maximum(d_min, self.eps)
-        dd_max = self.delta_scale * np.maximum(d_max, self.eps)
-        np.fill_diagonal(dd_min, 1.0)
-        np.fill_diagonal(dd_max, 1.0)
-        
-        return d_min, d_max, dd_min, dd_max
+        # Ensure diagonal is zero
+        I = np.identity(natoms, dtype='bool')
+        self.d_corr0[I] = 0.0
+        self.d_corr1[I] = 0.0
+        self.d_corr2[I] = 0.0
+
+        print(f"CFB-ENM: Initialized potential with {len(self.quartets)} quartets.")
+
+    def calc_dist_matrix(self, pos):
+        """
+        Calculates the pairwise distance matrix for a given geometry.
+        """
+        pos_diff = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
+        dist_matrix = np.sqrt(np.sum(pos_diff**2, axis=-1))
+        return dist_matrix
 
     def get_func_and_deriv(self, pos):
         """
-        Compute FB-ENM energy and Cartesian gradient.
+        Calculates the CFB-ENM objective function and its analytical gradient
+        for a single image, based on the quartet potential from dmf.py.
+        """
+        natoms = pos.shape[0]
+        r = pos
+        dr = r[:, np.newaxis, :] - r
+        d = np.sqrt(np.sum(dr**2, axis=-1))
 
-        Args:
-            pos: (N,3) array of positions.
+        energy = 0.0
+        forces = np.zeros_like(pos)
+
+        d_d0 = d - self.d_corr0
+        d1_d0 = self.d_corr1 - self.d_corr0
+        d2_d0 = self.d_corr2 - self.d_corr0
+        
+        for t in self.quartets:
+            # t = [atom1, atom2, atom3, atom4]
+            # Bond pair 1: (t[0], t[1]), Bond pair 2: (t[2], t[3])
+            
+            # Check if atoms are in the repulsive region
+            if (d_d0[t[0], t[1]] > 0.0 and d_d0[t[2], t[3]] > 0.0):
+                
+                pp = (d_d0[t[0], t[1]] * d_d0[t[2], t[3]]
+                      - d1_d0[t[0], t[1]] * d1_d0[t[2], t[3]])
+                
+                # Check if potential is active
+                if pp > 0.0:
+                    dnm = (d2_d0[t[0], t[1]] * d2_d0[t[2], t[3]]
+                           - d1_d0[t[0], t[1]] * d1_d0[t[2], t[3]])
+                    
+                    # Avoid division by zero
+                    if abs(dnm) < 1e-10: continue
+
+                    pp_norm = pp / dnm
+                    sqrt_pp2_eps2 = np.sqrt(pp_norm**2 + self.eps**2)
+                    
+                    energy += sqrt_pp2_eps2 - self.eps
+                    
+                    # Common factor for gradient
+                    alpha = pp_norm / sqrt_pp2_eps2
+                    
+                    # Gradient vectors
+                    v1 = d_d0[t[2], t[3]] / d[t[0], t[1]] * (r[t[0]] - r[t[1]])
+                    v2 = d_d0[t[0], t[1]] / d[t[2], t[3]] * (r[t[2]] - r[t[3]])
+                    
+                    v1_norm = v1 / dnm
+                    v2_norm = v2 / dnm
+
+                    # Accumulate forces
+                    forces[t[0]] -= alpha * v1_norm
+                    forces[t[1]] += alpha * v1_norm
+                    forces[t[2]] -= alpha * v2_norm
+                    forces[t[3]] += alpha * v2_norm
+        
+        # The optimizer expects the gradient of the objective function.
+        # Force is the negative of the gradient.
+        gradient = -forces
+        
+        return energy, gradient
+
+    def opt_path(self, geometry_list, element_list, memory_size=30):
+        """
+        Optimize the path using L-BFGS algorithm.
+
+        Parameters:
+        -----------
+        geometry_list : list of np.ndarray
+            List of geometries (images) to optimize. The first and last are
+            fixed as reactant and product.
+        element_list : list of str
+            List of element symbols for the atoms.
+        memory_size : int
+            Number of correction pairs to store for L-BFGS.
 
         Returns:
-            energy: float
-            grad: (N,3) array, gradient dE/dR
+        --------
+        list of np.ndarray
+            The list of optimized geometries.
         """
-        pos = np.asarray(pos, dtype=float)
-        N = pos.shape[0]
-        assert N == self.N, f"Position size {N} does not match the number of elements {self.N}."
+        print("CFB-ENM Optimization with L-BFGS")
 
-        # Pairwise differences and distances
-        dr = pos[:, None, :] - pos[None, :, :]  # (N,N,3)
-        r = np.linalg.norm(dr, axis=-1)         # (N,N)
+        # Initialize the potential based on the start and end points of the path
+        self._initialize_potential(geometry_list[0], geometry_list[-1], element_list)
         
-        # Safe reciprocal distance (for gradient calculation)
-        rinv = np.zeros_like(r)
-        mask = r > 0.0
-        rinv[mask] = 1.0 / r[mask]
+        # Initialize L-BFGS memory for each image
+        s_list = [[] for _ in range(len(geometry_list))]
+        y_list = [[] for _ in range(len(geometry_list))]
+        rho_list = [[] for _ in range(len(geometry_list))]
 
-        # Build band parameters for the current configuration
-        d_min, d_max, dd_min, dd_max = self.build_band_parameters(pos)
-
-        # Compute energy contributions per pair
-        energy_rep = np.zeros_like(r)
-        energy_att = np.zeros_like(r)
-        
-        # Repulsive contribution (r < d_min)
-        rep_mask = r < d_min
-        if np.any(rep_mask):
-            energy_rep[rep_mask] = ((r[rep_mask] - d_min[rep_mask]) / dd_min[rep_mask]) ** 2
+        def lbfgs_direction(gradient, j):
+            """Compute the L-BFGS search direction using two-loop recursion"""
+            if len(s_list[j]) == 0:
+                return -gradient
             
-        # Attractive contribution (r > d_max)
-        att_mask = r > d_max
-        if np.any(att_mask):
-            energy_att[att_mask] = ((r[att_mask] - d_max[att_mask]) / dd_max[att_mask]) ** 2
-
-        # Total pair energy
-        energy_pairs = energy_rep + energy_att
-        
-        # Calculate derivatives dV/dr for gradient
-        dVdr = np.zeros_like(r)
-        
-        # Derivative for repulsion (r < d_min)
-        if np.any(rep_mask):
-            dVdr[rep_mask] = 2.0 * (r[rep_mask] - d_min[rep_mask]) / (dd_min[rep_mask] ** 2)
+            q = gradient.copy()
+            alpha_list = []
             
-        # Derivative for attraction (r > d_max)
-        if np.any(att_mask):
-            dVdr[att_mask] = 2.0 * (r[att_mask] - d_max[att_mask]) / (dd_max[att_mask] ** 2)
+            for i in range(len(s_list[j])-1, -1, -1):
+                alpha = rho_list[j][i] * np.sum(s_list[j][i] * q)
+                alpha_list.insert(0, alpha)
+                q -= alpha * y_list[j][i]
+            
+            i = len(s_list[j]) - 1
+            denominator = np.sum(y_list[j][i] * y_list[j][i])
+            if np.abs(denominator) > 1e-10:
+                gamma = np.sum(s_list[j][i] * y_list[j][i]) / denominator
+            else:
+                gamma = 1.0 # Fallback to steepest descent scaling
+            r = gamma * q
+            
+            for i in range(len(s_list[j])):
+                beta = rho_list[j][i] * np.sum(y_list[j][i] * r)
+                r += s_list[j][i] * (alpha_list[i] - beta)
+            
+            return -r
         
-        # Compute gradient: dE/dr_i = sum_j [(dV_ij/dr_ij) * (r_i - r_j) / r_ij]
-        # Vectorized version: multiply weights by direction vectors and sum
-        weights = dVdr * rinv  # (N,N)
-        grad = np.einsum('ij,ijk->ik', weights, dr)  # Einstein summation to compute weighted sum
-
-        # Total energy (0.5 * sum to avoid double-counting)
-        total_energy = 0.5 * np.sum(energy_pairs)
-
-        return total_energy, grad
-
-
+        # FIX: Ensure self.iteration is an integer before using in range()
+        for i in range(int(self.iteration)):
+            obj_func_list = []
+            
+            # Iterate over intermediate images (endpoints are fixed)
+            for j in range(1, len(geometry_list) - 1):
+                current_pos = geometry_list[j].copy()
+                
+                obj_func, gradient = self.get_func_and_deriv(current_pos)
+                obj_func_list.append(obj_func)
+                
+                search_dir = lbfgs_direction(gradient, j)
+                
+                # Simple step size control
+                step_norm = self.lr
+                if np.linalg.norm(search_dir) > 1e-10:
+                    norm_step = search_dir / np.linalg.norm(search_dir)
+                    geometry_list[j] += step_norm * norm_step
+                
+                # Update L-BFGS memory
+                new_pos = geometry_list[j]
+                _, new_gradient = self.get_func_and_deriv(new_pos)
+                
+                s = new_pos - current_pos
+                y = new_gradient - gradient
+                
+                sy_product = np.sum(s * y)
+                if sy_product > 1e-10: # Curvature condition
+                    if len(s_list[j]) >= memory_size:
+                        s_list[j].pop(0)
+                        y_list[j].pop(0)
+                        rho_list[j].pop(0)
+                    
+                    s_list[j].append(s)
+                    y_list[j].append(y)
+                    rho_list[j].append(1.0 / sy_product)
+            
+            if i % 200 == 0:
+                max_obj = max(obj_func_list) if obj_func_list else 0.0
+                print(f"ITR: {i}, Objective function (Max): {max_obj:.6e}")
+            
+            if not obj_func_list or max(obj_func_list) < self.threshold:
+                print(f"ITR: {i}")
+                print("CFB-ENM Converged!!!")
+                break
+        
+        print("CFB-ENM Optimization Done.")
+        return geometry_list
