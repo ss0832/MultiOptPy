@@ -207,7 +207,22 @@ class iEIP:
     def optimize(self):
         """Load calculation modules based on configuration and run optimization"""
         if self.config.othersoft != "None":
-            from multioptpy.Calculator.ase_calculation_tools import Calculation
+            if self.config.othersoft.lower() == "lj":
+                from multioptpy.Calculator.lj_calculation_tools import Calculation
+                print("Use Lennard-Jones cluster potential.")
+            elif self.config.othersoft.lower() == "emt":
+                from multioptpy.Calculator.emt_calculation_tools import Calculation
+                print("Use EMT cluster potential.")
+            elif self.config.othersoft.lower() == "tersoff":
+                from multioptpy.Calculator.tersoff_calculation_tools import Calculation
+                print("Use Tersoff cluster potential.")
+            else:
+                print("Use", self.config.othersoft)
+                with open(self.config.iEIP_FOLDER_DIRECTORY + "use_" + self.config.othersoft + ".txt", "w") as f:
+                    f.write(self.config.othersoft + "\n")
+                    f.write(self.config.BASIS_SET + "\n")
+                    f.write(self.config.FUNCTIONAL + "\n")
+                from multioptpy.Calculator.ase_calculation_tools import Calculation
         elif self.config.args.sqm1:
             from multioptpy.Calculator.sqm1_calculation_tools import Calculation
         elif self.config.args.pyscf:

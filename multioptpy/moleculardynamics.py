@@ -164,12 +164,23 @@ class MD:
         if self.args.pyscf:
             from multioptpy.Calculator.pyscf_calculation_tools import Calculation
         elif self.args.othersoft != "None":
-            from multioptpy.Calculator.ase_calculation_tools import Calculation
-            print("Use", self.args.othersoft)
-            with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
-                f.write(self.args.othersoft+"\n")
-                f.write(self.BASIS_SET+"\n")
-                f.write(self.FUNCTIONAL+"\n")
+            if self.args.othersoft.lower() == "lj":
+                from multioptpy.Calculator.lj_calculation_tools import Calculation
+                print("Use Lennard-Jones cluster potential.")
+            elif self.args.othersoft.lower() == "emt":
+                from multioptpy.Calculator.emt_calculation_tools import Calculation
+                print("Use EMT cluster potential.")
+            elif self.args.othersoft.lower() == "tersoff":
+                from multioptpy.Calculator.tersoff_calculation_tools import Calculation
+                print("Use Tersoff cluster potential.")
+                
+            else:
+                from multioptpy.Calculator.ase_calculation_tools import Calculation
+                print("Use", self.args.othersoft)
+                with open(self.BPA_FOLDER_DIRECTORY+"use_"+self.args.othersoft+".txt", "w") as f:
+                    f.write(self.args.othersoft+"\n")
+                    f.write(self.BASIS_SET+"\n")
+                    f.write(self.FUNCTIONAL+"\n")
         else:
             if self.args.usextb != "None":
                 from multioptpy.Calculator.tblite_calculation_tools import Calculation

@@ -56,6 +56,9 @@ from multioptpy.Calculator.psi4_calculation_tools import Psi4Engine
 from multioptpy.Calculator.dxtb_calculation_tools import DXTBEngine
 from multioptpy.Calculator.ase_calculation_tools import ASEEngine
 from multioptpy.Calculator.sqm1_calculation_tools import SQM1Engine
+from multioptpy.Calculator.lj_calculation_tools import LJEngine
+from multioptpy.Calculator.emt_calculation_tools import EMTEngine
+from multioptpy.Calculator.tersoff_calculation_tools import TersoffEngine
 from multioptpy.Utils.calc_tools import apply_climbing_image, calc_path_length_list
 from multioptpy.Interpolation.geodesic_interpolation import distribute_geometry_geodesic
 from multioptpy.Interpolation.binomial_interpolation import bernstein_interpolation, distribute_geometry_by_length_bernstein
@@ -293,7 +296,17 @@ class CalculationEngineFactory:
     def create_engine(config):
         """Create appropriate calculation engine based on configuration"""
         if config.othersoft != "None":
-            return ASEEngine(software_path_file = config.software_path_file)
+            if config.othersoft.lower() == "lj":
+                print("Use Lennard-Jones cluster potential.")
+                return LJEngine()
+            elif config.othersoft.lower() == "emt":
+                print("Use EMT cluster potential.")
+                return EMTEngine()
+            elif config.othersoft.lower() == "tersoff":
+                print("Use Tersoff cluster potential.")
+                return TersoffEngine()
+            else:
+                return ASEEngine(software_path_file=config.software_path_file)
         elif config.sqm1:
             return SQM1Engine()
         elif config.usextb != "None":
