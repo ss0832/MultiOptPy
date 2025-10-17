@@ -724,13 +724,22 @@ class Optimize:
             
         
         elif self.args.othersoft and self.args.othersoft != "None":
-            from multioptpy.Calculator.ase_calculation_tools import Calculation
-            
-            print("Use", self.args.othersoft)
-            with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
-                f.write(self.args.othersoft + "\n")
-                f.write(self.BASIS_SET + "\n")
-                f.write(self.FUNCTIONAL + "\n")
+            if self.args.othersoft.lower() == "lj":
+                from multioptpy.Calculator.lj_calculation_tools import Calculation
+                print("Use Lennard-Jones cluster potential.")
+            elif self.args.othersoft.lower() == "emt":
+                from multioptpy.Calculator.emt_calculation_tools import Calculation
+                print("Use ETM potential.")
+            elif self.args.othersoft.lower() == "tersoff":
+                from multioptpy.Calculator.tersoff_calculation_tools import Calculation
+                print("Use Tersoff potential.")
+            else:
+                from multioptpy.Calculator.ase_calculation_tools import Calculation
+                print("Use", self.args.othersoft)
+                with open(self.BPA_FOLDER_DIRECTORY + "use_" + self.args.othersoft + ".txt", "w") as f:
+                    f.write(self.args.othersoft + "\n")
+                    f.write(self.BASIS_SET + "\n")
+                    f.write(self.FUNCTIONAL + "\n")
         else:
             if self.args.usedxtb and self.args.usedxtb != "None":
                 from multioptpy.Calculator.dxtb_calculation_tools import Calculation
