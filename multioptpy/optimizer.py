@@ -30,7 +30,7 @@ from multioptpy.Optimizer.conjugate_gradient import ConjgateGradient
 #from multioptpy.Optimizer.hybrid_rfo import HybridRFO
 #from multioptpy.Optimizer.rfo import RationalFunctionOptimization
 #from multioptpy.Optimizer.ric_rfo import RedundantInternalRFO
-from multioptpy.Optimizer.rsprfo import RSPRFO, EnhancedRSPRFO
+from multioptpy.Optimizer.rsprfo import EnhancedRSPRFO
 from multioptpy.Optimizer.rsirfo import RSIRFO
 #from multioptpy.Optimizer.newton import Newton
 from multioptpy.Optimizer.lbfgs import LBFGS
@@ -53,6 +53,7 @@ from multioptpy.Optimizer.coordinate_locking import CoordinateLocking
 from multioptpy.Optimizer.trust_radius import TrustRadius
 from multioptpy.Optimizer.gradientdescent import GradientDescent, MassWeightedGradientDescent
 from multioptpy.Optimizer.gpmin import GPmin
+from multioptpy.Optimizer.trim import TRIM
 
 optimizer_mapping = {
     "adabelief": Adabelief,
@@ -95,22 +96,17 @@ quasi_newton_mapping = {
     "rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
     
-    "ersprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_fsb": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_bofill": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_msp": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_sr1": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_psb": {"delta": 0.50, "rfo_type": 1},
-    "ersprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-    
     "rsprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "rsprfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_msp": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_sr1": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-
+   
 }
 
 
@@ -126,7 +122,8 @@ class CalculateMoveVector:
         self.MIN_MAX_FORCE_SWITCHING_THRESHOLD = 0.0010
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
-        self.max_trust_radius = max_trust_radius
+        
+        self.max_trust_radius = max_trust_radius        
         self.min_trust_radius = min_trust_radius
         self.CALC_TRUST_RADII = TrustRadius()
         if self.max_trust_radius is not None:
@@ -135,8 +132,12 @@ class CalculateMoveVector:
                 exit()
                 
             self.CALC_TRUST_RADII.set_max_trust_radius(self.max_trust_radius)
-        
-        self.trust_radii = max_trust_radius if max_trust_radius is not None else 0.5
+        if self.max_trust_radius is None:
+            if saddle_order > 0:
+                self.max_trust_radius = 0.1
+            else:
+                self.max_trust_radius = 0.5
+        self.trust_radii = self.max_trust_radius if type(self.max_trust_radius) is float else 0.5
 
         if self.min_trust_radius is not None:
             if self.min_trust_radius <= 0.0:
@@ -173,6 +174,7 @@ class CalculateMoveVector:
         gan_step_instances = []
         rl_step_instances = []
         geodesic_step_instances = []
+        trim_step_instances = []
 
 
         for i, m in enumerate(method):
@@ -202,8 +204,8 @@ class CalculateMoveVector:
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                 geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-           
-                
+                trim_step_instances.append(None)
+
             elif any(key in lower_m for key in optimizer_mapping):
                 for key, optimizer_class in optimizer_mapping.items():
                     if key in lower_m:
@@ -234,7 +236,7 @@ class CalculateMoveVector:
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                         geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                     
+                        trim_step_instances.append(None)
                         break
                     
             elif lower_m in ["cg", "cg_pr", "cg_fr", "cg_hs", "cg_dy"]:
@@ -260,18 +262,17 @@ class CalculateMoveVector:
                 gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                 rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                 geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
+                trim_step_instances.append(None)
               
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
                         print(key)
-                        if "ersprfo" in key:
-                            optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
-                        elif "rsprfo" in key:
-                            optimizer_instances.append(RSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))
-
+                        if "rsprfo" in key:
+                            optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius))
+                       
                         elif "rsirfo" in key:
-                            optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list))   
+                            optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius))   
                         #elif "rfo" in key:
                         #    optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
                         else:
@@ -303,7 +304,7 @@ class CalculateMoveVector:
                         gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
                         rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
                         geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                    
+                        trim_step_instances.append(TRIM(saddle_order=self.saddle_order) if "trim" in lower_m else None)
                         break
             else:
                 print("This method is not implemented. :", m, " Thus, Default method is used.")
@@ -323,6 +324,7 @@ class CalculateMoveVector:
                 gan_step_instances.append(None)
                 rl_step_instances.append(None)
                 geodesic_step_instances.append(None)
+                trim_step_instances.append(None)
               
 
         self.method = method
@@ -341,6 +343,7 @@ class CalculateMoveVector:
         self.gan_step_instances = gan_step_instances
         self.rl_step_instances = rl_step_instances
         self.geodesic_step_instances = geodesic_step_instances
+        self.trim_step_instances = trim_step_instances
       
         return optimizer_instances
             
@@ -441,14 +444,19 @@ class CalculateMoveVector:
             pre_move_vector,
             initial_geom_num_list,
             g,
-            pre_g):
+            pre_g,
+        ):
         """
         Update a list of move vectors from multiple optimizer instances,
         including optional enhancements through various techniques.
         """
         move_vector_list = []
       
-
+        tmp_hess = None
+        for i in range(len(optimizer_instances)):
+            if self.newton_tag[i]:
+                tmp_hess = optimizer_instances[i].hessian + optimizer_instances[i].bias_hessian
+                break
         # Enhancement techniques and their parameter configurations
         # Format: [list_of_instances, method_name, [parameters]]
         enhancement_config = [
@@ -482,8 +490,9 @@ class CalculateMoveVector:
             [self.rl_step_instances, "apply_rl_step", [B_g, pre_B_g, B_e, pre_B_e]],
             # Geodesic stepping techniques
             [self.geodesic_step_instances, "apply_geodesic_step", []],
-        
-        ]
+            # TRIM step adjustment techniques
+            [self.trim_step_instances, "apply_trim_step", [B_g, tmp_hess, self.trust_radii]],
+            ]
 
         for i, optimizer_instance in enumerate(optimizer_instances):
             # Get initial move vector from base optimizer
