@@ -2,12 +2,16 @@ import glob
 import os
 import copy
 import numpy as np
+import torch
 
-from multioptpy.SQM.sqm1.sqm1_core import SQM1Calculator
+
+from multioptpy.SQM.sqm1.sqm1_core import SQM1Calculator, SQM1Parameters, ANGSTROM_TO_BOHR, BOHR_TO_ANGSTROM, is_covalently_bonded
 from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.Parameters.parameter import UnitValueLib, element_number
 from multioptpy.fileio import xyz2list
 from multioptpy.Visualization.visualization import NEBVisualizer
+
+
 """
 Experimental semiempirical electronic structure approach inspired by GFN0-xTB (SQM1)
 
@@ -18,8 +22,11 @@ It mirrors the interface style of tblite_calculation_tools for convenience.
 
 class Calculation:
     def __init__(self, **kwarg):
-        UVL = UnitValueLib()
-        self.bohr2angstroms = UVL.bohr2angstroms
+        if UnitValueLib is not None:
+            UVL = UnitValueLib()
+            self.bohr2angstroms = UVL.bohr2angstroms
+        else:
+            self.bohr2angstroms = BOHR_TO_ANGSTROM
         # Optional keys kept for interface parity; use .get to avoid KeyError
         self.START_FILE = kwarg.get("START_FILE")
         self.N_THREAD = kwarg.get("N_THREAD", 1)
@@ -31,15 +38,250 @@ class Calculation:
         self.unrestrict = kwarg.get("unrestrict", False)
         self.dft_grid = kwarg.get("dft_grid")
         self.hessian_flag = False
-        # SQM1 specific calculator instance
-        self.calculator = SQM1Calculator()
+        # Load SQM1 parameters (now embedded, no file needed)
+        self.params = SQM1Parameters()
+        self.device = kwarg.get("device", "cpu")
+        self.dtype = kwarg.get("dtype", torch.float64)
+        # Calculator instance will be created per calculation with appropriate geometry
+        self.calculator = None
+        # Distance constraint parameters
+        self.use_distance_constraints = kwarg.get("use_distance_constraints", True)
+        self.max_distance_deviation = kwarg.get("max_distance_deviation", 0.10)  # 10% default
+        self.constraint_penalty_strength = kwarg.get("constraint_penalty_strength", 1000.0)
+        self.initial_distances = {}  # Will store bonded pair distances on first calculation
+        self.bonded_pairs = set()
+        self.constraints_initialized = False
+
+    def _update_distance_constraints(self, positions, element_number_list):
+        """
+        Update distance constraints for covalently bonded atom pairs.
+        This is called every time energy is calculated to track dynamic bond formation/breaking.
+        
+        Args:
+            positions: Atomic positions in Angstrom (n_atoms, 3)
+            element_number_list: Atomic numbers
+        """
+        if not self.use_distance_constraints:
+            return
+        
+        positions = np.array(positions, dtype='float64').reshape(-1, 3)
+        n_atoms = len(positions)
+        
+        # Update bonded pairs based on current geometry
+        current_bonded_pairs = set()
+        
+        # Identify covalently bonded pairs at current geometry
+        for i in range(n_atoms):
+            for j in range(i + 1, n_atoms):
+                # Calculate distance in Angstrom
+                d_angstrom = np.linalg.norm(positions[i] - positions[j])
+                
+                # Check if atoms are covalently bonded at current geometry
+                if is_covalently_bonded(element_number_list[i], element_number_list[j], d_angstrom):
+                    current_bonded_pairs.add((i, j))
+                    
+                    # If this is a new bond, record its initial distance
+                    if (i, j) not in self.initial_distances:
+                        d_bohr = d_angstrom * ANGSTROM_TO_BOHR
+                        self.initial_distances[(i, j)] = d_bohr
+        
+        # Update the bonded pairs to reflect current state
+        self.bonded_pairs = current_bonded_pairs
+        self.constraints_initialized = True
+        
+    def _calculate_distance_constraint_penalty(self, positions):
+        """
+        Calculate penalty energy and gradient for distance constraint violations.
+        
+        Args:
+            positions: Current positions in Angstrom (n_atoms, 3)
+            
+        Returns:
+            Tuple of (penalty_energy, penalty_gradient)
+            - penalty_energy: Penalty energy in Hartree
+            - penalty_gradient: Gradient of penalty in Hartree/Bohr (n_atoms, 3)
+        """
+        if not self.use_distance_constraints or not self.constraints_initialized:
+            return 0.0, None
+        
+        positions = np.array(positions, dtype='float64').reshape(-1, 3)
+        n_atoms = len(positions)
+        penalty = 0.0
+        penalty_gradient = np.zeros((n_atoms, 3), dtype='float64')
+        
+        # Only apply penalty to CURRENTLY bonded pairs
+        for (i, j) in self.bonded_pairs:
+            if (i, j) not in self.initial_distances:
+                continue  # Skip if we don't have a reference distance
+            
+            d_init_bohr = self.initial_distances[(i, j)]
+            
+            # Calculate distance vector in Angstrom
+            r_ij_angstrom = positions[i] - positions[j]
+            d_current_angstrom = np.linalg.norm(r_ij_angstrom)
+            
+            # Convert to Bohr
+            r_ij_bohr = r_ij_angstrom * ANGSTROM_TO_BOHR
+            d_current_bohr = d_current_angstrom * ANGSTROM_TO_BOHR
+            
+            # Calculate relative deviation (dimensionless)
+            deviation = abs(d_current_bohr - d_init_bohr) / d_init_bohr
+            
+            # Apply penalty if deviation exceeds threshold
+            if deviation > self.max_distance_deviation:
+                # Energy penalty (in Hartree)
+                penalty += self.constraint_penalty_strength * (deviation - self.max_distance_deviation)**2
+                
+                # Gradient penalty calculation:
+                # E = k * (dev - thresh)²
+                # dev = |d_curr - d_init| / d_init
+                # 
+                # Using chain rule:
+                # ∂E/∂r_bohr = ∂E/∂dev * ∂dev/∂d_curr * ∂d_curr/∂r_bohr
+                # 
+                # ∂E/∂dev = 2*k*(dev - thresh)
+                # ∂dev/∂d_curr = sign(d_curr - d_init) / d_init
+                # ∂d_curr/∂r_bohr = r_ij_bohr / d_curr_bohr (unit vector in Bohr)
+                #
+                # Combined:
+                # ∂E/∂r_bohr = 2*k*(dev - thresh) * sign(d_curr - d_init)/d_init * r_ij_bohr/d_curr_bohr
+                
+                # Sign of deviation
+                sign = 1.0 if d_current_bohr > d_init_bohr else -1.0
+                
+                # Gradient prefactor (in Hartree/Bohr)
+                grad_prefactor = 2.0 * self.constraint_penalty_strength * (deviation - self.max_distance_deviation) * sign / d_init_bohr
+                
+                # Direction vector (unit vector in Bohr space)
+                direction_bohr = r_ij_bohr / d_current_bohr
+                
+                # Gradient in Hartree/Bohr
+                grad_contribution = grad_prefactor * direction_bohr
+                
+                # Apply to both atoms (i and j)
+                penalty_gradient[i] += grad_contribution
+                penalty_gradient[j] -= grad_contribution
+        
+        return penalty, penalty_gradient
+
+    def _calculate_distance_constraint_penalty_hessian(self, positions):
+        """
+        Calculate Hessian of distance constraint penalty.
+        
+        Args:
+            positions: Current positions in Angstrom (n_atoms, 3)
+            
+        Returns:
+            Hessian of penalty in Hartree/Bohr^2 (3*n_atoms, 3*n_atoms)
+        """
+        if not self.use_distance_constraints or not self.constraints_initialized:
+            return None
+        
+        positions = np.array(positions, dtype='float64').reshape(-1, 3)
+        n_atoms = len(positions)
+        penalty_hessian = np.zeros((3*n_atoms, 3*n_atoms), dtype='float64')
+        
+        # Only apply penalty to CURRENTLY bonded pairs
+        for (i, j) in self.bonded_pairs:
+            if (i, j) not in self.initial_distances:
+                continue  # Skip if we don't have a reference distance
+            
+            d_init_bohr = self.initial_distances[(i, j)]
+            # Calculate distance vector in Angstrom
+            r_ij_angstrom = positions[i] - positions[j]
+            d_current_angstrom = np.linalg.norm(r_ij_angstrom)
+            
+            # Convert to Bohr
+            r_ij_bohr = r_ij_angstrom * ANGSTROM_TO_BOHR
+            d_current_bohr = d_current_angstrom * ANGSTROM_TO_BOHR
+            
+            # Calculate relative deviation (dimensionless)
+            deviation = abs(d_current_bohr - d_init_bohr) / d_init_bohr
+            
+            # Only calculate if deviation exceeds threshold
+            if deviation > self.max_distance_deviation:
+                # Sign of deviation
+                sign = 1.0 if d_current_bohr > d_init_bohr else -1.0
+                
+                # Unit vector along bond (in Bohr)
+                u = r_ij_bohr / d_current_bohr
+                
+                # For harmonic penalty E = k * (dev - thresh)²
+                # where dev = sign * (d - d0) / d0
+                #
+                # The Hessian has two terms:
+                # H = ∂²E/∂r_i∂r_j
+                #
+                # For a pair of atoms (atom_a, atom_b):
+                # H_aa = projection along bond + projection perpendicular
+                # H_ab = -H_aa (Newton's 3rd law)
+                # H_bb = H_aa
+                #
+                # The full formula for harmonic penalty Hessian:
+                # H_αβ = (2k/d0²) * [u_α u_β + (dev-thresh)/sign * (δ_αβ - u_α u_β) / d]
+                #
+                # Simplified for the case where dev > thresh:
+                # Second derivative along bond direction:
+                k = self.constraint_penalty_strength
+                d0 = d_init_bohr
+                d = d_current_bohr
+                
+                # Prefactor for second derivative (in Hartree/Bohr²)
+                # ∂²E/∂d² = 2k/d0²
+                prefactor = 2.0 * k / (d0 * d0)
+                
+                # Additional term from directional derivative
+                # When dev > thresh, we have an active constraint
+                # The Hessian includes both the force constant and geometric terms
+                if abs(d - d0) > 1e-10:  # Avoid division by zero
+                    # Coefficient for the projection onto bond direction
+                    coeff_parallel = prefactor
+                    # Coefficient for the projection perpendicular to bond
+                    # This comes from the d/dr term in the gradient
+                    coeff_perp = prefactor * (deviation - self.max_distance_deviation) * sign / d
+                else:
+                    coeff_parallel = prefactor
+                    coeff_perp = 0.0
+                
+                # Build 3x3 block for this atom pair
+                # H_block = coeff_parallel * u⊗u + coeff_perp * (I - u⊗u)
+                identity = np.eye(3, dtype='float64')
+                u_outer = np.outer(u, u)
+                H_block = coeff_parallel * u_outer + coeff_perp * (identity - u_outer)
+                
+                # Add to Hessian (symmetric contributions)
+                # H_ii += H_block
+                penalty_hessian[3*i:3*i+3, 3*i:3*i+3] += H_block
+                # H_jj += H_block (symmetric)
+                penalty_hessian[3*j:3*j+3, 3*j:3*j+3] += H_block
+                # H_ij -= H_block (off-diagonal)
+                penalty_hessian[3*i:3*i+3, 3*j:3*j+3] -= H_block
+                # H_ji -= H_block (symmetric off-diagonal)
+                penalty_hessian[3*j:3*j+3, 3*i:3*i+3] -= H_block
+        
+        return penalty_hessian
 
     def numerical_hessian(self, geom_num_list, element_list, total_charge):
-        numerical_delivative_delta = 1.0e-4
+        """
+        Calculate numerical Hessian using finite differences of gradients.
+        
+        Args:
+            geom_num_list: Atomic positions in Angstrom (n_atoms, 3)
+            element_list: Atomic numbers (n_atoms,)
+            total_charge: Total molecular charge
+            
+        Returns:
+            Hessian matrix (3*n_atoms, 3*n_atoms) in Hartree/Bohr^2
+        """
+        numerical_delivative_delta = 1.0e-4  # in Angstrom
         geom_num_list = np.array(geom_num_list, dtype="float64")
         n_atoms = len(geom_num_list)
         hessian = np.zeros((3*n_atoms, 3*n_atoms))
         count = 0
+        
+        # Update distance constraints based on current geometry
+        self._update_distance_constraints(geom_num_list, element_list)
+        
         for a in range(n_atoms):
             for i in range(3):
                 for b in range(n_atoms):
@@ -50,8 +292,27 @@ class Calculation:
                         for direction in [1, -1]:
                             shifted = geom_num_list.copy()
                             shifted[a, i] += direction * numerical_delivative_delta
-                            grad = self.calculator.calculate_gradient(shifted, element_list, total_charge, method='analytical')
-                            tmp_grad.append(grad[b, j])
+                            # Create calculator for this geometry
+                            calc = SQM1Calculator(
+                                atomic_numbers=element_list,
+                                positions=shifted,
+                                charge=total_charge,
+                                uhf=0,
+                                params=self.params,
+                                device=self.device,
+                                dtype=self.dtype
+                            )
+                            # Get gradient in Hartree/Bohr
+                            _, grad = calc.calculate_energy_and_gradient()
+                            grad_np = grad.cpu().detach().numpy()
+                            
+                            # Add penalty gradient
+                            _, penalty_grad = self._calculate_distance_constraint_penalty(shifted)
+                            if penalty_grad is not None:
+                                grad_np += penalty_grad
+                            
+                            tmp_grad.append(grad_np[b, j])
+                        # Finite difference in Angstrom, convert to Bohr
                         val = (tmp_grad[0] - tmp_grad[1]) / (2*numerical_delivative_delta)
                         hessian[3*a+i, 3*b+j] = val
                         hessian[3*b+j, 3*a+i] = val
@@ -59,13 +320,60 @@ class Calculation:
         return hessian
 
     def exact_hessian(self, element_number_list, total_charge, positions):
-        exact_hess = self.numerical_hessian(positions, element_number_list, total_charge)
-        exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_number_list.tolist(), positions, display_eigval=False)
-        self.Model_hess = exact_hess
+        """
+        Calculate exact Hessian using automatic differentiation.
+        
+        Args:
+            element_number_list: Atomic numbers (n_atoms,)
+            total_charge: Total molecular charge
+            positions: Atomic positions in Angstrom (n_atoms, 3)
+            
+        Returns:
+            Projected Hessian matrix (3*n_atoms, 3*n_atoms) in Hartree/Bohr^2
+        """
+        # Update distance constraints based on current geometry
+        self._update_distance_constraints(positions, element_number_list)
+        
+        # Create calculator for this geometry
+        calc = SQM1Calculator(
+            atomic_numbers=element_number_list,
+            positions=positions,
+            charge=total_charge,
+            uhf=0,
+            params=self.params,
+            device=self.device,
+            dtype=self.dtype
+        )
+        # Calculate Hessian using automatic differentiation
+        exact_hess = calc.calculate_hessian(method='analytical')
+        exact_hess_np = exact_hess.cpu().detach().numpy()
+        
+        # Add penalty Hessian
+        penalty_hess = self._calculate_distance_constraint_penalty_hessian(positions)
+        if penalty_hess is not None:
+            exact_hess_np += penalty_hess
+        
+        # Project out translation and rotation if Calculationtools is available
+        if Calculationtools is not None:
+            exact_hess_np = Calculationtools().project_out_hess_tr_and_rot_for_coord(
+                exact_hess_np, element_number_list.tolist(), positions, display_eigval=False
+            )
+        self.Model_hess = exact_hess_np
 
     def single_point(self, file_directory, element_number_list, iter_index, electric_charge_and_multiplicity, geom_num_list=None):
-        print("Warning: This function is not fully tested. Please do not use this method.")
-        raise NotImplementedError("This method is not fully implemented and tested.")
+        """
+        Calculate single point energy and gradient.
+        
+        Args:
+            file_directory: Directory containing xyz files
+            element_number_list: Atomic numbers
+            iter_index: Iteration index
+            electric_charge_and_multiplicity: [charge, multiplicity]
+            geom_num_list: Optional geometry (n_atoms, 3) in Angstrom
+            
+        Returns:
+            Tuple of (energy, gradient, positions, finish_flag)
+        """
         gradient_list = []
         energy_list = []
         geometry_num_list = []
@@ -74,8 +382,9 @@ class Calculation:
         if isinstance(element_number_list[0], str):
             tmp = copy.copy(element_number_list)
             element_number_list = []
-            for elem in tmp:
-                element_number_list.append(element_number(elem))
+            if element_number is not None:
+                for elem in tmp:
+                    element_number_list.append(element_number(elem))
             element_number_list = np.array(element_number_list)
 
         try:
@@ -91,18 +400,40 @@ class Calculation:
         total_charge = int(electric_charge_and_multiplicity[0])
 
         for num, input_file in enumerate(file_list):
-            if True:#try:
-                if geom_num_list is None:
+            try:
+                if geom_num_list is None and xyz2list is not None:
                     tmp_positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
                     tmp_positions = geom_num_list
 
-                positions = np.array(tmp_positions, dtype="float64").reshape(-1, 3) / self.bohr2angstroms  # angstrom
-                results = self.calculator.calculate_energy_and_gradient(positions, element_number_list, total_charge, gradient_method='analytical')
-                e = results['total']
-                g = results['gradient']  # Hartree/Bohr
-
-                # Save orbital-like placeholders (not available; keep compatibility attributes if needed)
+                positions = np.array(tmp_positions, dtype="float64").reshape(-1, 3)  # Angstrom
+                
+                # Update distance constraints on every calculation to track dynamic bonding
+                self._update_distance_constraints(positions, element_number_list)
+                
+                # Create calculator for this geometry
+                calc = SQM1Calculator(
+                    atomic_numbers=element_number_list,
+                    positions=positions,
+                    charge=total_charge,
+                    uhf=0,
+                    params=self.params,
+                    device=self.device,
+                    dtype=self.dtype
+                )
+                
+                # Calculate energy and gradient
+                e, g = calc.calculate_energy_and_gradient()
+                e = e.cpu().detach().numpy().item()  # Hartree
+                g = g.cpu().detach().numpy()  # Hartree/Bohr
+                
+                # Apply distance constraint penalty
+                penalty, penalty_grad = self._calculate_distance_constraint_penalty(positions)
+                e += penalty
+                if penalty_grad is not None:
+                    g += penalty_grad
+                positions /= BOHR_TO_ANGSTROM  # Convert back to Angstrom for output
+                # Save results
                 self.energy = e
                 self.gradient = g
                 self.coordinate = positions
@@ -113,31 +444,64 @@ class Calculation:
                 elif iter_index % self.FC_COUNT == 0 or self.hessian_flag:
                     self.exact_hessian(element_number_list, total_charge, positions)
 
-          
-
-            #except Exception as error:
-            #    print(error)
-            #    print("This molecule could not be optimized.")
-            #    print("Input file: ", file_list, "\n")
-            #    finish_frag = True
-            #    return np.array([0]), np.array([0]), positions, finish_frag
+            except Exception as error:
+                print(error)
+                print("This molecule could not be optimized.")
+                print("Input file: ", file_list, "\n")
+                finish_frag = True
+                return np.array([0]), np.array([0]), positions, finish_frag
        
         return e, g, positions, finish_frag
 
     def single_point_no_directory(self, positions, element_number_list, electric_charge_and_multiplicity):
+        """
+        Calculate single point energy and gradient without file I/O.
+        
+        Args:
+            positions: Atomic positions in Angstrom (n_atoms, 3)
+            element_number_list: Atomic numbers
+            electric_charge_and_multiplicity: [charge, multiplicity]
+            
+        Returns:
+            Tuple of (energy, gradient, finish_flag)
+        """
         finish_frag = False
         if isinstance(element_number_list[0], str):
             tmp = copy.copy(element_number_list)
             element_number_list = []
-            for elem in tmp:
-                element_number_list.append(element_number(elem))
+            if element_number is not None:
+                for elem in tmp:
+                    element_number_list.append(element_number(elem))
             element_number_list = np.array(element_number_list)
         try:
             positions = np.array(positions, dtype='float64')
             total_charge = int(electric_charge_and_multiplicity[0])
-            results = self.calculator.calculate_energy_and_gradient(positions, element_number_list, total_charge, gradient_method='analytical')
-            e = results['total']
-            g = results['gradient']
+            
+            # Update distance constraints on every calculation to track dynamic bonding
+            self._update_distance_constraints(positions, element_number_list)
+            
+            # Create calculator for this geometry
+            calc = SQM1Calculator(
+                atomic_numbers=element_number_list,
+                positions=positions,
+                charge=total_charge,
+                uhf=0,
+                params=self.params,
+                device=self.device,
+                dtype=self.dtype
+            )
+            
+            # Calculate energy and gradient
+            e, g = calc.calculate_energy_and_gradient()
+            e = e.cpu().detach().numpy().item()  # Hartree
+            g = g.cpu().detach().numpy()  # Hartree/Bohr
+            
+            # Apply distance constraint penalty
+            penalty, penalty_grad = self._calculate_distance_constraint_penalty(positions)
+            e += penalty
+            if penalty_grad is not None:
+                g += penalty_grad
+            
             self.energy = e
             self.gradient = g
         except Exception as error:
@@ -171,8 +535,11 @@ class CalculationEngine:
 
 class SQM1Engine(CalculationEngine):
     """SQM1 calculation engine wrapping SQM1Calculator"""
-    def __init__(self):
-        self.calculator = SQM1Calculator()
+    def __init__(self, param_file=None, device="cpu", dtype=torch.float64):
+        # Parameters are now embedded, param_file is ignored (kept for backward compatibility)
+        self.params = SQM1Parameters()
+        self.device = device
+        self.dtype = dtype
 
     def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         gradient_list = []
@@ -184,21 +551,40 @@ class SQM1Engine(CalculationEngine):
 
         os.makedirs(file_directory, exist_ok=True)
         file_list = self._get_file_list(file_directory)
+        
+        if xyz2list is None:
+            raise ImportError("xyz2list is required for this method")
+            
         geometry_list_tmp, element_list, _ = xyz2list(file_list[0], None)
         element_number_list = []
-        for elem in element_list:
-            element_number_list.append(element_number(elem))
+        if element_number is not None:
+            for elem in element_list:
+                element_number_list.append(element_number(elem))
         element_number_list = np.array(element_number_list, dtype='int')
 
         for num, input_file in enumerate(file_list):
             try:
                 print(input_file)
                 positions, _, electric_charge_and_multiplicity = xyz2list(input_file, None)
-                positions = np.array(positions, dtype='float64').reshape(-1, 3)  # angstrom
+                positions = np.array(positions, dtype='float64').reshape(-1, 3)  # Angstrom
                 total_charge = int(electric_charge_and_multiplicity[0])
-                results = self.calculator.calculate_energy_and_gradient(positions, element_number_list, total_charge, gradient_method='analytical')
-                e = results['total']
-                g = results['gradient']
+                
+                # Create calculator for this geometry
+                calc = SQM1Calculator(
+                    atomic_numbers=element_number_list,
+                    positions=positions,
+                    charge=total_charge,
+                    uhf=0,
+                    params=self.params,
+                    device=self.device,
+                    dtype=self.dtype
+                )
+                
+                # Calculate energy and gradient
+                e, g = calc.calculate_energy_and_gradient()
+                e = e.cpu().detach().numpy().item()  # Hartree
+                g = g.cpu().detach().numpy()  # Hartree/Bohr
+                
                 print("\n")
                 energy_list.append(e)
                 gradient_list.append(g)
