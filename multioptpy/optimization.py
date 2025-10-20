@@ -721,8 +721,6 @@ class Optimize:
             from multioptpy.Calculator.pyscf_calculation_tools import Calculation
         elif self.args.sqm1:
             from multioptpy.Calculator.sqm1_calculation_tools import Calculation
-            
-        
         elif self.args.othersoft and self.args.othersoft != "None":
             if self.args.othersoft.lower() == "lj":
                 from multioptpy.Calculator.lj_calculation_tools import Calculation
