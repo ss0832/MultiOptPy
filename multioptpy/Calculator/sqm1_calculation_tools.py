@@ -360,7 +360,7 @@ class Calculation:
             )
         self.Model_hess = exact_hess_np
 
-    def single_point(self, file_directory, element_number_list, iter_index, electric_charge_and_multiplicity, geom_num_list=None):
+    def single_point(self, file_directory, element_number_list, iter_index, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """
         Calculate single point energy and gradient.
         
@@ -400,7 +400,7 @@ class Calculation:
         total_charge = int(electric_charge_and_multiplicity[0])
 
         for num, input_file in enumerate(file_list):
-            try:
+            if True:
                 if geom_num_list is None and xyz2list is not None:
                     tmp_positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
@@ -444,12 +444,12 @@ class Calculation:
                 elif iter_index % self.FC_COUNT == 0 or self.hessian_flag:
                     self.exact_hessian(element_number_list, total_charge, positions)
 
-            except Exception as error:
-                print(error)
-                print("This molecule could not be optimized.")
-                print("Input file: ", file_list, "\n")
-                finish_frag = True
-                return np.array([0]), np.array([0]), positions, finish_frag
+            #except Exception as error:
+            #    print(error)
+            #    print("This molecule could not be optimized.")
+            #    print("Input file: ", file_list, "\n")
+            #    finish_frag = True
+            #    return np.array([0]), np.array([0]), positions, finish_frag
        
         return e, g, positions, finish_frag
 
