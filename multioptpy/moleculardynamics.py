@@ -112,6 +112,7 @@ class MD:
         self.alpb_solv_model = args.alpb_solv_model
         self.software_path_file = args.software_path_file
         self.dft_grid = int(args.dft_grid)
+        self.sqm1 = args.sqm1
         return
     
 
@@ -163,6 +164,9 @@ class MD:
         os.makedirs(self.BPA_FOLDER_DIRECTORY, exist_ok=True)
         if self.args.pyscf:
             from multioptpy.Calculator.pyscf_calculation_tools import Calculation
+        elif self.args.sqm1:
+            from multioptpy.Calculator.sqm1_calculation_tools import Calculation    
+        
         elif self.args.othersoft != "None":
             if self.args.othersoft.lower() == "lj":
                 from multioptpy.Calculator.lj_calculation_tools import Calculation
