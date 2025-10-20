@@ -171,7 +171,7 @@ class Calculation:
             exact_hess, element_list, positions_bohr, display_eigval=False
         )
 
-    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, geom_num_list=None):
+    def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """
         Executes a Lennard-Jones single point calculation, reading from a file
         or using a provided geometry.
