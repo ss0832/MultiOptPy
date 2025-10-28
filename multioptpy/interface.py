@@ -52,6 +52,7 @@ def ieipparser(parser):
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
+    parser.add_argument("-sqm2", "--sqm2", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
@@ -120,6 +121,7 @@ def optimizeparser(parser):
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd differential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
+    parser.add_argument("-sqm2", "--sqm2", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument("-cpcm", "--cpcm_solv_model",  type=str, default=None, help='use CPCM solvent model for xTB (Default setting is not using this model.) (ex.) water')
     parser.add_argument("-alpb", "--alpb_solv_model",  type=str, default=None, help='use ALPB solvent model for xTB (Default setting is not using this model.) (ex.) water')#ref.: J. Chem. Theory Comput. 2021, 17, 7, 4250–4261 https://doi.org/10.1021/acs.jctc.1c00471
 
@@ -258,6 +260,7 @@ def nebparser(parser):
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
+    parser.add_argument("-sqm2", "--sqm2", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument('-pyscf','--pyscf', help="use pyscf module.", action='store_true')
     parser.add_argument("-fe", "--fixedges",  type=int, default=0, help='fix edges of nodes (1=initial_node, 2=end_node, 3=both_nodes) ')
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default=[], help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
@@ -325,6 +328,7 @@ def mdparser(parser):
     parser.add_argument('-cmds','--cmds', help="apply classical multidimensional scaling to calculated approx. reaction path.", action='store_true')
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is GFN2-xTB (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-sqm1", "--sqm1", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
+    parser.add_argument("-sqm2", "--sqm2", action='store_true', help='use experimental semiempirical method based on GFN0-xTB to calculate. default is not using semiempirical method.')
     parser.add_argument("-ct", "--change_temperature",  type=str, nargs="*", default=[], help='change temperature of thermostat (defalut) No change (ex.) [1000(time), 500(K) 5000(time), 1000(K)...]')
     parser.add_argument("-cc", "--constraint_condition", nargs="*", type=str, default=[], help="apply constraint conditions for optimazation (ex.) [[(dinstance (ang.)), (atom1),(atom2)] [(bond_angle (deg.)), (atom1),(atom2),(atom3)] [(dihedral_angle (deg.)), (atom1),(atom2),(atom3),(atom4)] ...] ")
     parser.add_argument("-os", "--othersoft",  type=str, default="None", help='use other QM software. default is not using other QM software. (require python module, ASE (Atomic Simulation Environment)) (ex.) orca, gaussian, gamessus, mace_mp etc.')

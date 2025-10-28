@@ -56,6 +56,7 @@ from multioptpy.Calculator.psi4_calculation_tools import Psi4Engine
 from multioptpy.Calculator.dxtb_calculation_tools import DXTBEngine
 from multioptpy.Calculator.ase_calculation_tools import ASEEngine
 from multioptpy.Calculator.sqm1_calculation_tools import SQM1Engine
+from multioptpy.Calculator.sqm2_calculation_tools import SQM2Engine
 from multioptpy.Calculator.lj_calculation_tools import LJEngine
 from multioptpy.Calculator.emt_calculation_tools import EMTEngine
 from multioptpy.Calculator.tersoff_calculation_tools import TersoffEngine
@@ -88,6 +89,7 @@ class NEBConfig:
         self.usextb = args.usextb
         self.usedxtb = args.usedxtb
         self.sqm1 = args.sqm1
+        self.sqm2 = args.sqm2
         
         # NEB specific settings
         self.NEB_NUM = args.NSTEP
@@ -277,6 +279,9 @@ class NEBConfig:
         timestamp = str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2])
         if self.othersoft != "None":
             return tmp_name + "_NEB_" + self.othersoft + "_" + timestamp + "/"
+        elif self.sqm2:
+            return tmp_name + "_NEB_SQM2_" + timestamp + "/"    
+
         elif self.sqm1:
             return tmp_name + "_NEB_SQM1_" + timestamp + "/"
 
@@ -307,6 +312,8 @@ class CalculationEngineFactory:
                 return TersoffEngine()
             else:
                 return ASEEngine(software_path_file=config.software_path_file)
+        elif config.sqm2:
+            return SQM2Engine()
         elif config.sqm1:
             return SQM1Engine()
         elif config.usextb != "None":
