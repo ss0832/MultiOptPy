@@ -88,6 +88,7 @@ class Optimize:
         self.oniom = args.oniom_flag
         self.use_model_hessian = args.use_model_hessian
         self.sqm1 = args.sqm1
+        self.sqm2 = args.sqm2
         self.freq_analysis = args.frequency_analysis
         self.thermo_temperature = float(args.temperature)
         self.thermo_pressure = float(args.pressure)
@@ -148,6 +149,8 @@ class Optimize:
 
         if self.othersoft != "None":
             self.BPA_FOLDER_DIRECTORY = f"{base_dir}ASE_{timestamp}/"
+        elif self.sqm2:
+            self.BPA_FOLDER_DIRECTORY = f"{base_dir}SQM2_{timestamp}/"
         elif self.sqm1:
             self.BPA_FOLDER_DIRECTORY = f"{base_dir}SQM1_{timestamp}/"
         elif self.args.usextb == "None" and self.args.usedxtb == "None":
@@ -719,6 +722,9 @@ class Optimize:
         xtb_method = None
         if self.args.pyscf:
             from multioptpy.Calculator.pyscf_calculation_tools import Calculation
+        elif self.args.sqm2:
+            from multioptpy.Calculator.sqm2_calculation_tools import Calculation
+            print("Use SQM2 potential.")
         elif self.args.sqm1:
             from multioptpy.Calculator.sqm1_calculation_tools import Calculation
         elif self.args.othersoft and self.args.othersoft != "None":

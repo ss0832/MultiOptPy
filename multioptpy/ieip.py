@@ -126,6 +126,9 @@ class IEIPConfig:
         # Set up output directory
         if self.othersoft != "None":
             self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_" + args.othersoft + "_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
+        elif args.sqm2:
+            self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_SQM2_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
+        
         elif args.sqm1:
             self.iEIP_FOLDER_DIRECTORY = args.INPUT + "_iEIP_SQM1_" + str(datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]) + "/"
         elif args.usextb == "None" and args.usedxtb == "None":
@@ -223,6 +226,10 @@ class iEIP:
                     f.write(self.config.BASIS_SET + "\n")
                     f.write(self.config.FUNCTIONAL + "\n")
                 from multioptpy.Calculator.ase_calculation_tools import Calculation
+        elif self.config.args.sqm2:
+            from multioptpy.Calculator.sqm2_calculation_tools import Calculation
+            print("Use SQM2 potential.")
+        
         elif self.config.args.sqm1:
             from multioptpy.Calculator.sqm1_calculation_tools import Calculation
         elif self.config.args.pyscf:
