@@ -48,3 +48,17 @@ def factorial(n):
     # Calculate if not in precomputed table (usually not needed for large n)
     arr = np.arange(2, n + 1)
     return int(np.prod(arr))
+    
+def dfactorial(n):
+    
+    
+    DFACTORIAL = [1.0, 1.0, 3.0, 15.0, 105.0, 945.0, 10395.0, 135135.0]
+    n_DFACTORIAL = len(DFACTORIAL)
+    
+    if n_DFACTORIAL < n or n < 0:
+        print(f"invaild value: dfactorial, n={n}")
+        raise
+        
+    
+    return DFACTORIAL[n]
+    

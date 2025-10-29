@@ -69,7 +69,7 @@ class RSIRFO:
         self.prev_energy = None
         self.converged = False
         self.iteration = 0
-  
+
         # Define modes to maximize based on saddle order
         self.roots = list(range(self.saddle_order))
         
@@ -80,7 +80,7 @@ class RSIRFO:
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         self.NEB_mode = False
-    
+
     def switch_NEB_mode(self):
         if self.NEB_mode:
             self.NEB_mode = False
@@ -105,13 +105,13 @@ class RSIRFO:
         
         if small_num > 6:
             self.log(f"Warning: Found {small_num} small eigenvalues, which is more than expected. "
-                    "This may indicate numerical issues. Proceeding with caution.", force=True)
+                     "This may indicate numerical issues. Proceeding with caution.", force=True)
         
         if mask:
             return filtered_eigvals, filtered_eigvecs, small_inds
         else:
             return filtered_eigvals, filtered_eigvecs
-        
+            
     def run(self, geom_num_list, B_g, pre_B_g=[], pre_geom=[], B_e=0.0, pre_B_e=0.0, pre_move_vector=[], initial_geom_num_list=[], g=[], pre_g=[]):
         """Execute one step of RS-I-RFO optimization"""
         # Print iteration header
@@ -164,7 +164,7 @@ class RSIRFO:
             if last_energy_change < self.energy_change_threshold:
                 self.log(f"Converged: Energy change {last_energy_change:.6f} below threshold {self.energy_change_threshold:.6f}", force=True)
                 self.converged = True
-            
+                
         # Store current energy
         current_energy = B_e
         
@@ -225,7 +225,7 @@ class RSIRFO:
             self.log(f"Resetting previous eigenvector due to dimension change: "
                      f"{self.prev_eigvec_size} → {current_eigvec_size}")
             self.prev_eigvec_min = None
-        
+            
         # Get the RS step using the image Hessian and gradient
         move_vector = self.get_rs_step(eigvals_star, eigvecs_star, grad_star)
         
@@ -233,7 +233,9 @@ class RSIRFO:
         self.prev_eigvec_size = current_eigvec_size
         
         # Calculate predicted energy change
-        predicted_energy_change = -1*self.rfo_model(gradient, H, move_vector)
+        # (BUG FIX: Removed -1. rfo_model is the predicted change, which should be
+        # negative for a downhill step, matching the sign of actual_energy_change)
+        predicted_energy_change = self.rfo_model(gradient, H, move_vector)
         
         # Keep limited history - only store the last few values
         if len(self.predicted_energy_changes) >= 3:
@@ -245,7 +247,7 @@ class RSIRFO:
         # Evaluate step quality if we have history
         if self.actual_energy_changes and len(self.predicted_energy_changes) > 1:
             self.evaluate_step_quality()
-        
+            
         # Store current geometry, gradient and energy for next iteration (no deep copy)
         # Just store references to avoid duplicating large arrays
         self.prev_geometry = geom_num_list
@@ -255,8 +257,8 @@ class RSIRFO:
         # Increment iteration counter
         self.iteration += 1
         
-        return move_vector.reshape(-1, 1)
-    
+        return -1 * move_vector.reshape(-1, 1)
+
     def adjust_trust_radius(self, actual_change, predicted_change):
         """Dynamically adjust trust radius based on the agreement between actual and predicted energy changes"""
         # Skip if either value is too small
@@ -265,6 +267,7 @@ class RSIRFO:
             return
             
         # Calculate ratio between actual and predicted changes
+        # (Both should be negative for a good step, so ratio is positive)
         ratio = actual_change / predicted_change
         
         self.log(f"Energy change: actual={actual_change:.6f}, predicted={predicted_change:.6f}, ratio={ratio:.3f}", force=True)
@@ -275,19 +278,19 @@ class RSIRFO:
         if ratio > self.good_step_threshold:
             # Good agreement - increase trust radius
             self.trust_radius = min(self.trust_radius * self.trust_radius_increase_factor, 
-                                    self.trust_radius_max)
+                                     self.trust_radius_max)
             if self.trust_radius != old_trust_radius:
                 self.log(f"Good step quality (ratio={ratio:.3f}), increasing trust radius to {self.trust_radius:.6f}", force=True)
         elif ratio < self.poor_step_threshold:
             # Poor agreement - decrease trust radius
             self.trust_radius = max(self.trust_radius * self.trust_radius_decrease_factor, 
-                                    self.trust_radius_min)
+                                     self.trust_radius_min)
             if self.trust_radius != old_trust_radius:
                 self.log(f"Poor step quality (ratio={ratio:.3f}), decreasing trust radius to {self.trust_radius:.6f}", force=True)
         else:
             # Acceptable agreement - keep trust radius
             self.log(f"Acceptable step quality (ratio={ratio:.3f}), keeping trust radius at {self.trust_radius:.6f}", force=True)
-    
+
     def evaluate_step_quality(self):
         """Evaluate the quality of recent optimization steps"""
         if len(self.predicted_energy_changes) < 2 or len(self.actual_energy_changes) < 2:
@@ -321,7 +324,7 @@ class RSIRFO:
             
         self.log(f"Step quality assessment: {quality} (avg ratio: {avg_ratio:.3f})", force=True)
         return quality
-    
+
     def get_rs_step(self, eigvals, eigvecs, gradient):
         """Compute the Rational Step using the RS-I-RFO algorithm"""
         # Transform gradient to basis of eigenvectors - use matrix multiplication for efficiency
@@ -329,9 +332,8 @@ class RSIRFO:
         
         # Try initial alpha (alpha0) first
         try:
-            # Calculate step with default alpha
-            H_aug_initial = self.get_augmented_hessian(eigvals, gradient_trans, self.alpha0)
-            initial_step, _, _, _ = self.solve_rfo(H_aug_initial, "min")
+            # Calculate step with default alpha using the new O(N) solver
+            initial_step, _, _, _ = self.solve_rfo(eigvals, gradient_trans, self.alpha0)
             initial_step_norm = np.linalg.norm(initial_step)
             
             self.log(f"Initial step with alpha={self.alpha0:.6f} has norm={initial_step_norm:.6f}", force=True)
@@ -421,29 +423,34 @@ class RSIRFO:
         self.log(f"Final norm(step)={step_norm:.6f}", force=True)
         
         return step
-    
+
     def compute_rsprfo_step(self, eigvals, gradient_trans, alpha_init):
         """Compute an RS-P-RFO step using a specific initial alpha value"""
+        
+        # Pre-calculate squared gradient components for efficiency
+        grad_trans_sq = gradient_trans**2
+        
         # Create proxy functions for step norm calculation
         def calculate_step(alpha):
             """Calculate RFO step for a given alpha value"""
             try:
-                H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
-                step, _, _, _ = self.solve_rfo(H_aug, "min")
-                return step
+                # Use the new O(N) solver
+                step, eigval_min, _, _ = self.solve_rfo(eigvals, gradient_trans, alpha)
+                return step, eigval_min
             except Exception as e:
                 self.log(f"Error in step calculation: {str(e)}")
                 raise
                 
         def step_norm_squared(alpha):
             """Calculate ||step||^2 for a given alpha value"""
-            step = calculate_step(alpha)
+            # This function is only used by brentq, which only needs the step norm
+            step, _ = calculate_step(alpha)
             return np.dot(step, step)
             
         def objective_function(alpha):
             """U(a) = ||step||^2 - R^2"""
             return step_norm_squared(alpha) - self.trust_radius**2
-        
+
         # Find alpha that gives step with norm close to trust radius
         # First, try bracketing the root
         alpha_lo = 1e-6  # Very small alpha gives large step
@@ -451,11 +458,11 @@ class RSIRFO:
         
         # Check step norms at boundaries to establish bracket
         try:
-            step_lo = calculate_step(alpha_lo)
+            step_lo, _ = calculate_step(alpha_lo)
             norm_lo = np.linalg.norm(step_lo)
             obj_lo = norm_lo**2 - self.trust_radius**2
             
-            step_hi = calculate_step(alpha_hi) 
+            step_hi, _ = calculate_step(alpha_hi) 
             norm_hi = np.linalg.norm(step_hi)
             obj_hi = norm_hi**2 - self.trust_radius**2
             
@@ -500,7 +507,8 @@ class RSIRFO:
             
             try:
                 # Calculate current step and its properties
-                step = calculate_step(alpha)
+                # (Re-use eigval_min from calculate_step)
+                step, eigval_min = calculate_step(alpha)
                 step_norm = np.linalg.norm(step)
                 self.log(f"norm(step)={step_norm:.6f}")
                 
@@ -540,7 +548,9 @@ class RSIRFO:
                     history_count += 1
                 
                 # Compute derivative of squared step norm with respect to alpha
-                dstep2_dalpha = self.get_step_derivative(alpha, eigvals, gradient_trans, step)
+                # (Pass computed step and eigval_min to avoid re-calculation)
+                dstep2_dalpha = self.get_step_derivative(alpha, eigvals, gradient_trans, 
+                                                         step=step, eigval_min=eigval_min)
                 self.log(f"d(||step||^2)/dα={dstep2_dalpha:.6e}")
                 
                 # Update alpha with correct Newton formula: a' = a - U(a)/U'(a)
@@ -621,23 +631,22 @@ class RSIRFO:
                 step_norm = np.linalg.norm(step)
         
         return step, step_norm, alpha
-    
-    def get_step_derivative(self, alpha, eigvals, gradient_trans, step=None):
-        """Compute derivative of squared step norm with respect to alpha directly"""
-        # If step was not provided, compute it
-        if step is None:
+
+    def get_step_derivative(self, alpha, eigvals, gradient_trans, step=None, eigval_min=None):
+        """
+        Compute derivative of squared step norm with respect to alpha directly.
+        Assumes eigval_min is (approximately) constant w.r.t alpha.
+        """
+        # If step or eigval_min was not provided, compute them
+        if step is None or eigval_min is None:
             try:
-                H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
-                step, eigval_min, _, _ = self.solve_rfo(H_aug, "min")
+                # Use the new O(N) solver
+                step, eigval_min, _, _ = self.solve_rfo(eigvals, gradient_trans, alpha)
             except Exception as e:
                 self.log(f"Error in step calculation for derivative: {str(e)}")
                 return 1e-8  # Return a small value as fallback
         
         try:
-            # Get the minimum eigenvalue from the augmented Hessian
-            H_aug = self.get_augmented_hessian(eigvals, gradient_trans, alpha)
-            _, eigval_min, _, _ = self.solve_rfo(H_aug, "min")
-            
             # Calculate the denominators with safety
             denominators = eigvals - eigval_min * alpha
             
@@ -687,7 +696,7 @@ class RSIRFO:
         except Exception as e:
             self.log(f"Error in derivative calculation: {str(e)}")
             return 1e-8  # Return a small positive value as fallback
-    
+
     def update_hessian(self, current_geom, current_grad, previous_geom, previous_grad):
         """Update the Hessian using the specified update method"""
         # Calculate displacement and gradient difference (avoid unnecessary reshaping)
@@ -713,45 +722,45 @@ class RSIRFO:
         
         # Apply the selected Hessian update method
         if "flowchart" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: flowchart")            
+            self.log(f"Hessian update method: flowchart")        
             delta_hess = self.hessian_updater.flowchart_hessian_update(
                 self.hessian, displacement, delta_grad, "auto"
             )
         elif "block_cfd_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_cfd_fsb")            
+            self.log(f"Hessian update method: block_cfd_fsb")        
             delta_hess = self.block_hessian_updater.block_CFD_FSB_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         elif "block_cfd_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_cfd_bofill")            
+            self.log(f"Hessian update method: block_cfd_bofill")        
             delta_hess = self.block_hessian_updater.block_CFD_Bofill_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         
         elif "block_bfgs" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_bfgs")            
+            self.log(f"Hessian update method: block_bfgs")        
             delta_hess = self.block_hessian_updater.block_BFGS_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         elif "block_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_fsb")            
+            self.log(f"Hessian update method: block_fsb")        
             delta_hess = self.block_hessian_updater.block_FSB_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         elif "block_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_bofill")            
+            self.log(f"Hessian update method: block_bofill")        
             delta_hess = self.block_hessian_updater.block_Bofill_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         
         
         elif "bfgs" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: bfgs")            
+            self.log(f"Hessian update method: bfgs")        
             delta_hess = self.hessian_updater.BFGS_hessian_update(
                 self.hessian, displacement, delta_grad
             )
         elif "sr1" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: sr1")            
+            self.log(f"Hessian update method: sr1")        
             delta_hess = self.hessian_updater.SR1_hessian_update(
                 self.hessian, displacement, delta_grad
             )
@@ -759,10 +768,10 @@ class RSIRFO:
             self.log(f"Hessian update method: pcfd_bofill")
             delta_hess = self.hessian_updater.pCFD_Bofill_hessian_update(
                 self.hessian, displacement, delta_grad
-            )    
+            )   
             
         elif "cfd_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: cfd_fsb")            
+            self.log(f"Hessian update method: cfd_fsb")        
             delta_hess = self.hessian_updater.CFD_FSB_hessian_update(
                 self.hessian, displacement, delta_grad
             )
@@ -770,9 +779,9 @@ class RSIRFO:
             self.log(f"Hessian update method: cfd_bofill")
             delta_hess = self.hessian_updater.CFD_Bofill_hessian_update(
                 self.hessian, displacement, delta_grad
-            )    
+            )   
         elif "fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: fsb")            
+            self.log(f"Hessian update method: fsb")        
             delta_hess = self.hessian_updater.FSB_hessian_update(
                 self.hessian, displacement, delta_grad
             )
@@ -782,7 +791,7 @@ class RSIRFO:
                 self.hessian, displacement, delta_grad
             )
         elif "psb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: psb")            
+            self.log(f"Hessian update method: psb")        
             delta_hess = self.hessian_updater.PSB_hessian_update(
                 self.hessian, displacement, delta_grad
             )
@@ -799,75 +808,122 @@ class RSIRFO:
             
         # Update the Hessian (in-place addition)
         self.hessian += delta_hess
-      
+    
         # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
-    
-    def get_augmented_hessian(self, eigvals, gradient_components, alpha=1.0):
-        """Create the augmented hessian matrix for RFO calculation"""
-        n = len(eigvals)
-        H_aug = np.zeros((n + 1, n + 1))
+
+    def _solve_secular_equation(self, eigvals, grad_comps, alpha):
+        """
+        Solves the secular equation f(lambda_aug) = 0 for the smallest root.
+        Handles the "trivial" case where g_i = 0 robustly to set the bracket.
+        """
+        # 1. Prepare scaled values
+        eigvals_prime = eigvals / alpha
+        grad_comps_prime = grad_comps / alpha
+        grad_comps_prime_sq = grad_comps_prime**2
         
-        # Fill the upper-left block with eigenvalues / alpha
-        np.fill_diagonal(H_aug[:n, :n], eigvals / alpha)
+        # 2. Define the secular function f(lambda)
+        def f(lambda_aug):
+            denoms = eigvals_prime - lambda_aug
+            # Strictly avoid division by zero
+            denoms[np.abs(denoms) < 1e-30] = np.sign(denoms[np.abs(denoms) < 1e-30]) * 1e-30
+            terms = grad_comps_prime_sq / denoms
+            return lambda_aug + np.sum(terms)
+
+        # --- 3. Robust bracket (asymptote) search ---
         
-        # Make sure gradient_components is flattened
-        gradient_components = np.asarray(gradient_components).ravel()
+        # Sort eigenvalues and rearrange corresponding gradients
+        sort_indices = np.argsort(eigvals_prime)
+        eigvals_sorted = eigvals_prime[sort_indices]
+        grad_comps_sorted_sq = grad_comps_prime_sq[sort_indices]
+
+        b_upper = None
+        min_eig_val_overall = eigvals_sorted[0] # Fallback value
+
+        # Find the "first" asymptote where the gradient is non-zero
+        for i in range(len(eigvals_sorted)):
+            if grad_comps_sorted_sq[i] > 1e-20: # Gradient is non-zero
+                # This is the first asymptote
+                b_upper = eigvals_sorted[i] - 1e-10 
+                break
         
-        # Fill the upper-right and lower-left blocks with gradient components / alpha
-        H_aug[:n, n] = gradient_components / alpha
-        H_aug[n, :n] = gradient_components / alpha
-        
-        return H_aug
-    
-    def solve_rfo(self, H_aug, mode="min", prev_eigvec=None):
-        """Solve the RFO equations to get the step"""
-        # Solve the eigenvalue problem for the augmented Hessian
-        eigvals, eigvecs = np.linalg.eigh(H_aug)
-        
-        # Select the appropriate eigenvalue/vector based on mode
-        if mode == "min":
-            idx = np.argmin(eigvals)
-        else:  # mode == "max"
-            idx = np.argmax(eigvals)
-        
-        # Get the selected eigenvector
-        eigval = eigvals[idx]
-        eigvec = eigvecs[:, idx]
-        
-        # Check if we need to flip the eigenvector to maintain consistency with the previous step
-        if prev_eigvec is not None:
-            # Check dimensions first to avoid the ValueError
-            if prev_eigvec.size == eigvec.size:
-                overlap = np.dot(eigvec, prev_eigvec)
-                if overlap < 0:
-                    eigvec *= -1
-            else:
-                # Dimensions don't match, can't compute overlap
-                self.log(f"Warning: Eigenvector dimension mismatch. "
-                         f"Current: {eigvec.size}, Previous: {prev_eigvec.size}. "
-                         f"Skipping eigenvector consistency check.")
-                prev_eigvec = None  # Reset for future iterations
-                
-        # The last component is nu
-        nu = eigvec[-1]
-        
-        # Ensure nu is not too close to zero
-        if abs(nu) < 1e-10:
-            self.log(f"Warning: Very small nu value: {nu}. Using safe value.")
-            nu = np.sign(nu) * max(1e-10, abs(nu))
+        if b_upper is None:
+            # All gradient components are zero (already at a stationary point)
+            self.log("All gradient components in RFO space are zero.", force=True)
+            return 0.0 # Step will be zero
+
+        # --- 4. Set the lower bracket bound (b_lower) ---
+        g_norm_sq = np.sum(grad_comps_prime_sq)
+        b_lower = b_upper - 1e6 - g_norm_sq # A robust heuristic lower bound
+
+        # --- 5. Check bracket validity ---
+        try:
+            f_upper = f(b_upper)
+            f_lower = f(b_lower)
+        except Exception as e:
+            self.log(f"f(lambda) calculation failed: {e}. Using fallback.", force=True)
+            return min_eig_val_overall - 1e-6 # Worst-case fallback
+
+        if f_lower * f_upper >= 0:
+            # Bracket is invalid (meaning f(b_upper) did not go to +inf)
+            self.log(f"brentq bracket invalid: f(lower)={f_lower:.2e}, f(upper)={f_upper:.2e}", force=True)
             
-        # The step is -p/nu where p are the first n components of the eigenvector
-        step = -eigvec[:-1] / nu
+            # Try a much lower b_lower
+            b_lower = b_upper - 1e12 # Even lower
+            f_lower = f(b_lower)
+            
+            if f_lower * f_upper >= 0:
+                #self.log("FATAL: Could not find valid bracket. Using fallback.", force=True)
+                return min_eig_val_overall - 1e-6 # Worst-case fallback
         
-        return step, eigval, nu, eigvec
-    
+        # --- 6. Root finding ---
+        try:
+            root = brentq(f, b_lower, b_upper, xtol=1e-10, rtol=1e-10, maxiter=100)
+            return root
+        except Exception as e:
+            # This is the error the user reported
+            self.log(f"brentq failed: {e}. Using fallback.", force=True)
+            return min_eig_val_overall - 1e-6
+
+    def solve_rfo(self, eigvals, gradient_components, alpha, mode="min"):
+        """
+        Solve the RFO equations to get the step using the O(N) secular equation.
+        """
+        if mode != "min":
+            raise NotImplementedError("Secular equation solver is only implemented for RFO minimization (mode='min')")
+            
+        # 1. Find the smallest eigenvalue (lambda_aug) of the augmented Hessian
+        #    by solving the secular equation. This is O(N).
+        eigval_min = self._solve_secular_equation(eigvals, gradient_components, alpha)
+
+        # 2. Calculate the step components directly. This is O(N).
+        #    s_i = - (g_i/alpha) / ( (lambda_i/alpha) - lambda_aug )
+        #        = - g_i / ( lambda_i - alpha * lambda_aug )
+        
+        # Calculate denominators (lambda_i/alpha) - lambda_aug
+        denominators = (eigvals / alpha) - eigval_min
+        
+        # Safety for division
+        safe_denoms = denominators
+        small_denoms = np.abs(safe_denoms) < 1e-10
+        if np.any(small_denoms):
+            safe_denoms[small_denoms] = np.sign(safe_denoms[small_denoms]) * np.maximum(1e-10, np.abs(safe_denoms[small_denoms]))
+            zero_mask = safe_denoms[small_denoms] == 0
+            if np.any(zero_mask):
+                safe_denoms[small_denoms][zero_mask] = 1e-10
+        
+        # Calculate step s_i = -(g_i/alpha) / (denominators)
+        step = -(gradient_components / alpha) / safe_denoms
+        
+        # Return dummy values for nu and eigvec, as they are no longer computed
+        return step, eigval_min, 1.0, None
+
     def rfo_model(self, gradient, hessian, step):
         """Estimate energy change based on RFO model"""
         # Use more efficient matrix operations
         return np.dot(gradient, step) + 0.5 * np.dot(np.dot(step, hessian), step)
-    
+
     def is_converged(self):
         """Check if optimization has converged"""
         return self.converged
@@ -889,7 +945,7 @@ class RSIRFO:
         """Set the bias Hessian matrix"""
         self.bias_hessian = bias_hessian
         return
-    
+        
     def get_hessian(self):
         """Get the current Hessian matrix"""
         return self.hessian

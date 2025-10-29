@@ -4,7 +4,7 @@ import math
 
 from multioptpy.SQM.sqm2.sqm2_overlapint import OverlapCalculator
 from multioptpy.SQM.sqm2.sqm2_basis import BasisSet
-from multioptpy.SQM.sqm2.calc_tools import factorial2
+from multioptpy.SQM.sqm2.calc_tools import factorial2, dfactorial
 
 
 class EHTCalculator:
@@ -184,7 +184,7 @@ class EHTCalculator:
             torch.arange(self.n_shell, device=self.device),
             self.shell_ao_nao
         )
-        self.holistic_k_factor = 1.4  # Overall scaling factor
+        self.holistic_k_factor = 1.4 #1.0#  # Overall scaling factor
         return
         
     def _get_eht_k_factor(self, ishtyp, jshtyp, iat, jat, delta_en):
@@ -577,8 +577,3 @@ class EHTCalculator:
         
         return hessian
 
-
-if __name__ == "__main__":
-    print("Double factorial test:")
-    for i in range(21):
-        print(f"{i}!! = {factorial2(i)}")
