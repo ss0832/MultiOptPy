@@ -1,6 +1,6 @@
 import numpy as np
 import copy
-from Coordinate.redundant_coordinate import calc_int_grad_from_pBmat, calc_cart_grad_from_pBmat
+from multioptpy.Coordinate.redundant_coordinate import calc_int_grad_from_pBmat, calc_cart_grad_from_pBmat
 from scipy.signal import argrelextrema
 
 def extremum_list_index(energy_list):

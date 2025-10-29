@@ -1,7 +1,7 @@
 import numpy as np
 
 
-from multioptpy.SQM.sqm2.calc_tools import factorial2
+from multioptpy.SQM.sqm2.calc_tools import factorial2, dfactorial
         
 class BasisSet:
     def __init__(self, element_list, param):
@@ -698,7 +698,7 @@ class BasisSet:
 
         if need_normalization:
             top = 2.0 / np.pi
-            coeff = coeff * (top * alpha) ** 0.75 * np.sqrt(4.0 * alpha) ** angmn / np.sqrt(factorial2(angmn + 1))
+            coeff = coeff * (top * alpha) ** 0.75 * np.sqrt(4.0 * alpha) ** angmn / np.sqrt(dfactorial(angmn + 1))
                 
         return alpha, coeff
 
