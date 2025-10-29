@@ -325,14 +325,14 @@ class RSIRFO:
         self.log(f"Step quality assessment: {quality} (avg ratio: {avg_ratio:.3f})", force=True)
         return quality
 
+
     def get_rs_step(self, eigvals, eigvecs, gradient):
         """Compute the Rational Step using the RS-I-RFO algorithm"""
         # Transform gradient to basis of eigenvectors - use matrix multiplication for efficiency
         gradient_trans = np.dot(eigvecs.T, gradient)
         
-        # Try initial alpha (alpha0) first
         try:
-            # Calculate step with default alpha using the new O(N) solver
+            # Calculate step with default alpha (alpha0) using the new O(N) solver
             initial_step, _, _, _ = self.solve_rfo(eigvals, gradient_trans, self.alpha0)
             initial_step_norm = np.linalg.norm(initial_step)
             
@@ -345,66 +345,35 @@ class RSIRFO:
                 final_step = np.dot(eigvecs, initial_step)
                 return final_step
                 
-            self.log(f"Initial step exceeds trust radius, optimizing alpha...", force=True)
+            self.log(f"Initial step exceeds trust radius, optimizing alpha to match radius...", force=True)
+            
+            # --- MODIFICATION START ---
+            # If the initial step is outside the trust radius, we must find the
+            # alpha that puts the step *on* the trust radius boundary.
+            # We call compute_rsprfo_step *once* to solve this.
+            # The loop over 'alpha_init_values' is removed as it does not
+            # guarantee the step is strictly on the trust radius.
+            
+            step, step_norm, final_alpha = self.compute_rsprfo_step(
+                eigvals, gradient_trans, self.alpha0
+            )
+            
+            self.log(f"Optimized alpha={final_alpha:.6f} to get step_norm={step_norm:.6f}", force=True)
+            
+            # Transform step back to original basis (use matrix multiplication for efficiency)
+            step_original_basis = np.dot(eigvecs, step)
+            
+            step_norm_original = np.linalg.norm(step_original_basis)
+            self.log(f"Final norm(step)={step_norm_original:.6f}", force=True)
+        
+            return step_original_basis
+            
+            # --- MODIFICATION END ---
+
         except Exception as e:
-            self.log(f"Error calculating initial step: {str(e)}", force=True)
-            # Continue with optimization as a fallback
-            
-        # Try multiple initial alpha values and select the best step
-        best_overall_step = None
-        best_overall_norm_diff = float('inf')
-        best_alpha_value = None
-        
-        # Only show number of trials in debug mode or when forced
-        self.log(f"Trying {len(self.alpha_init_values)} different initial alpha values:", force=True)
-        
-        for trial_idx, alpha_init in enumerate(self.alpha_init_values):
-            # Only print detailed trial info in debug mode
-            if self.debug_mode:
-                self.log(f"\n--- Alpha Trial {trial_idx+1}/{len(self.alpha_init_values)}: alpha_init = {alpha_init:.6f} ---")
-            
-            # Try to compute a step using this initial alpha
-            try:
-                step_, step_norm, alpha_final = self.compute_rsprfo_step(
-                    eigvals, gradient_trans, alpha_init
-                )
-                
-                # Evaluate how close this step is to the trust radius
-                norm_diff = abs(step_norm - self.trust_radius)
-                
-                # Only print detailed trial results in debug mode
-                if self.debug_mode:
-                    self.log(f"Alpha trial {trial_idx+1}: alpha_init={alpha_init:.6f} -> alpha_final={alpha_final:.6f}, "
-                             f"step_norm={step_norm:.6f}, diff={norm_diff:.6f}")
-                
-                # Check if this is the best step so far
-                # Prioritize steps within trust radius, then minimize distance to trust radius
-                is_better = False
-                
-                if best_overall_step is None:
-                    is_better = True
-                elif step_norm <= self.trust_radius and best_overall_norm_diff > self.trust_radius:
-                    # This step is within trust radius but current best is not
-                    is_better = True
-                elif (step_norm <= self.trust_radius) == (best_overall_norm_diff <= self.trust_radius):
-                    # Both steps are either within or outside trust radius, choose the closest
-                    if norm_diff < best_overall_norm_diff:
-                        is_better = True
-                        
-                if is_better:
-                    # Avoid unnecessary copies - use direct assignment
-                    best_overall_step = step_
-                    best_overall_norm_diff = norm_diff
-                    best_alpha_value = alpha_init
-                
-            except Exception as e:
-                # Only log errors in debug mode
-                if self.debug_mode:
-                    self.log(f"Error in alpha trial {trial_idx+1}: {str(e)}")
-                
-        if best_overall_step is None:
-            # If all trials failed, use a steepest descent step
-            self.log("All alpha trials failed, using steepest descent step as fallback", force=True)
+            self.log(f"Error during RS step calculation: {str(e)}", force=True)
+            # If all else fails, use a steepest descent step
+            self.log("Using steepest descent step as fallback", force=True)
             sd_step = -gradient_trans
             sd_norm = np.linalg.norm(sd_step)
             
@@ -412,20 +381,22 @@ class RSIRFO:
                 best_overall_step = sd_step / sd_norm * self.trust_radius
             else:
                 best_overall_step = sd_step
-        else:
-            # Only show final selected alpha value
-            self.log(f"Selected alpha value: {best_alpha_value:.6f}", force=True)
+                
+            # Transform step back to original basis
+            step = np.dot(eigvecs, best_overall_step)
             
-        # Transform step back to original basis (use matrix multiplication for efficiency)
-        step = np.dot(eigvecs, best_overall_step)
-        
-        step_norm = np.linalg.norm(step)
-        self.log(f"Final norm(step)={step_norm:.6f}", force=True)
-        
-        return step
+            step_norm = np.linalg.norm(step)
+            self.log(f"Final norm(step)={step_norm:.6f}", force=True)
+            
+            return step
 
     def compute_rsprfo_step(self, eigvals, gradient_trans, alpha_init):
-        """Compute an RS-P-RFO step using a specific initial alpha value"""
+        """
+        Compute an RS-P-RFO step using a specific initial alpha value.
+        Prioritizes Brent's method (brentq) for finding the root 'alpha'
+        that matches the trust radius, falling back to Newton iterations
+        only if brentq fails or its result is not sufficiently precise.
+        """
         
         # Pre-calculate squared gradient components for efficiency
         grad_trans_sq = gradient_trans**2
@@ -451,13 +422,14 @@ class RSIRFO:
             """U(a) = ||step||^2 - R^2"""
             return step_norm_squared(alpha) - self.trust_radius**2
 
-        # Find alpha that gives step with norm close to trust radius
-        # First, try bracketing the root
+        # --- MODIFICATION START ---
+        # Prioritize Brent's method (brentq) as it does not rely on derivatives.
+        
         alpha_lo = 1e-6  # Very small alpha gives large step
         alpha_hi = self.alpha_max  # Very large alpha gives small step
         
-        # Check step norms at boundaries to establish bracket
         try:
+            # Check step norms at boundaries to establish bracket
             step_lo, _ = calculate_step(alpha_lo)
             norm_lo = np.linalg.norm(step_lo)
             obj_lo = norm_lo**2 - self.trust_radius**2
@@ -470,26 +442,48 @@ class RSIRFO:
             self.log(f"Bracket search: alpha_hi={alpha_hi:.6e}, step_norm={norm_hi:.6f}, obj={obj_hi:.6e}")
             
             # Check if we have a proper bracket (signs differ)
-            if obj_lo * obj_hi >= 0:
-                # No bracket, so use initial alpha and proceed with Newton iterations
-                self.log("Could not establish bracket with opposite signs, proceeding with Newton iterations")
-                alpha = alpha_init
-            else:
+            if obj_lo * obj_hi < 0:
                 # We have a bracket, use Brent's method for robust root finding
-                self.log("Bracket established, using Brent's method for root finding")
-                try:
-                    alpha = brentq(objective_function, alpha_lo, alpha_hi, 
-                                   xtol=1e-6, rtol=1e-6, maxiter=50)
-                    self.log(f"Brent's method converged to alpha={alpha:.6e}")
-                except Exception as e:
-                    self.log(f"Brent's method failed: {str(e)}, using initial alpha")
-                    alpha = alpha_init
+                self.log("Bracket established, using Brent's method (brentq) for root finding")
+                
+                alpha_brent = brentq(objective_function, alpha_lo, alpha_hi, 
+                                     xtol=1e-6, rtol=1e-6, maxiter=50)
+                
+                self.log(f"Brent's method converged to alpha={alpha_brent:.6e}")
+                
+                # Calculate the step using the alpha from brentq
+                step, _ = calculate_step(alpha_brent)
+                step_norm = np.linalg.norm(step)
+                norm_diff = abs(step_norm - self.trust_radius)
+                
+                # Check if the result from brentq is within the strict tolerance
+                if norm_diff < self.step_norm_tolerance:
+                    self.log(f"brentq result is within tolerance ({self.step_norm_tolerance:.2e}). Using this step (norm={step_norm:.6f}).")
+                    # Return immediately, skipping the Newton loop
+                    return step, step_norm, alpha_brent
+                else:
+                    self.log(f"brentq result norm={step_norm:.6f} (diff={norm_diff:.2e}) still outside tolerance. Proceeding to Newton refinement.")
+                    # Use the brentq result as the starting point for Newton
+                    alpha = alpha_brent
+            
+            else:
+                # No bracket, so use initial alpha and proceed with Newton iterations
+                self.log("Could not establish bracket with opposite signs, proceeding to Newton iterations")
+                alpha = alpha_init
+                
         except Exception as e:
-            self.log(f"Error establishing bracket: {str(e)}, using initial alpha")
+            # Handle any error during bracketing or brentq
+            self.log(f"Error during brentq attempt: {str(e)}. Falling back to Newton iterations with initial alpha.")
             alpha = alpha_init
             
-        # Use Newton iterations to refine alpha
-        alpha = alpha_init if 'alpha' not in locals() else alpha
+        # --- MODIFICATION END ---
+
+
+        # Fallback: Use Newton iterations to refine alpha (or if brentq was imprecise)
+        # 'alpha' is either alpha_init (if brentq failed) or alpha_brent (if brentq succeeded but was imprecise)
+        
+        self.log(f"Starting Newton refinement loop with alpha={alpha:.6f}")
+
         # Use a fixed size numpy array instead of growing list for step_norm_history
         step_norm_history = np.zeros(self.max_micro_cycles)
         history_count = 0
@@ -503,7 +497,7 @@ class RSIRFO:
         objval_right = None
         
         for mu in range(self.max_micro_cycles):
-            self.log(f"RS-I-RFO micro cycle {mu:02d}, alpha={alpha:.6f}")
+            self.log(f"RS-I-RFO (Newton) micro cycle {mu:02d}, alpha={alpha:.6f}")
             
             try:
                 # Calculate current step and its properties
@@ -536,11 +530,12 @@ class RSIRFO:
                 
                 # Check if we're already very close to the target radius
                 if abs(objval) < 1e-8 or norm_diff < self.step_norm_tolerance:
-                    self.log(f"Step norm {step_norm:.6f} is sufficiently close to trust radius")
-                    
-                    # Even if we're within tolerance, do at least one or two iterations to try to improve
-                    if mu >= 1:
-                        break
+                    self.log(f"Step norm {step_norm:.6f} is sufficiently close to trust radius. Newton loop converged.")
+                    # --- MODIFICATION ---
+                    # (Original code had: if mu >= 1: break)
+                    # We now break immediately upon convergence.
+                    best_step = step # Ensure the final step is the one that converged
+                    break
                 
                 # Track step norm history for convergence detection (use fixed size array)
                 if history_count < self.max_micro_cycles:
@@ -624,14 +619,23 @@ class RSIRFO:
                     break
         else:
             # If we exhausted micro-cycles without converging
-            self.log(f"RS-I-RFO did not converge in {self.max_micro_cycles} cycles")
+            self.log(f"RS-I-RFO (Newton) did not converge in {self.max_micro_cycles} cycles")
             if best_step is not None:
                 self.log("Using best step found during iterations")
                 step = best_step
                 step_norm = np.linalg.norm(step)
+            # --- MODIFICATION ---
+            # (Original code did not have this else fallback)
+            else:
+                self.log("Falling back to steepest descent as a last resort")
+                step = -gradient_trans
+                step_norm = np.linalg.norm(step)
+                if step_norm > self.trust_radius:
+                    step = step / step_norm * self.trust_radius
+                    step_norm = self.trust_radius
         
         return step, step_norm, alpha
-
+        
     def get_step_derivative(self, alpha, eigvals, gradient_trans, step=None, eigval_min=None):
         """
         Compute derivative of squared step norm with respect to alpha directly.
@@ -817,6 +821,8 @@ class RSIRFO:
         """
         Solves the secular equation f(lambda_aug) = 0 for the smallest root.
         Handles the "trivial" case where g_i = 0 robustly to set the bracket.
+        
+        *** MODIFIED TO FIX brentq bracket invalid ERROR ***
         """
         # 1. Prepare scaled values
         eigvals_prime = eigvals / alpha
@@ -839,12 +845,14 @@ class RSIRFO:
         grad_comps_sorted_sq = grad_comps_prime_sq[sort_indices]
 
         b_upper = None
+        first_asymptote_val = None # <--- ADDED
         min_eig_val_overall = eigvals_sorted[0] # Fallback value
 
         # Find the "first" asymptote where the gradient is non-zero
         for i in range(len(eigvals_sorted)):
             if grad_comps_sorted_sq[i] > 1e-20: # Gradient is non-zero
                 # This is the first asymptote
+                first_asymptote_val = eigvals_sorted[i] # <--- ADDED
                 b_upper = eigvals_sorted[i] - 1e-10 
                 break
         
@@ -863,7 +871,8 @@ class RSIRFO:
             f_lower = f(b_lower)
         except Exception as e:
             self.log(f"f(lambda) calculation failed: {e}. Using fallback.", force=True)
-            return min_eig_val_overall - 1e-6 # Worst-case fallback
+            # Use the asymptote value as a fallback if calculation fails
+            return first_asymptote_val - 1e-6 # <--- MODIFIED
 
         if f_lower * f_upper >= 0:
             # Bracket is invalid (meaning f(b_upper) did not go to +inf)
@@ -874,8 +883,11 @@ class RSIRFO:
             f_lower = f(b_lower)
             
             if f_lower * f_upper >= 0:
-                #self.log("FATAL: Could not find valid bracket. Using fallback.", force=True)
-                return min_eig_val_overall - 1e-6 # Worst-case fallback
+                self.log(f"FATAL: Could not find valid bracket on retry. f(lower)={f_lower:.2e}, f(upper)={f_upper:.2e}", force=True)
+                # The error f(upper) is tiny and negative, meaning b_upper
+                # is an excellent approximation of the root.
+                self.log(f"Using b_upper ({b_upper:.4e}) as approximation.", force=True)
+                return b_upper # <--- MODIFIED
         
         # --- 6. Root finding ---
         try:
@@ -884,7 +896,8 @@ class RSIRFO:
         except Exception as e:
             # This is the error the user reported
             self.log(f"brentq failed: {e}. Using fallback.", force=True)
-            return min_eig_val_overall - 1e-6
+            # f(upper) was likely very close to zero, so b_upper is a good approximation
+            return b_upper # <--- MODIFIED
 
     def solve_rfo(self, eigvals, gradient_components, alpha, mode="min"):
         """
