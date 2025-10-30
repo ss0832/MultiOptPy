@@ -23,13 +23,51 @@ import numpy as np
 
 
 
-
-def init_parser():
-    parser = argparse.ArgumentParser()
-    return parser
-
-
 def ieipparser(parser):
+    parser = call_ieipparser(parser)
+    parser = parser_for_biasforce(parser)
+    args = parser2args(parser)
+    args.fix_atoms = []
+    args.gradient_fix_atoms = []
+    args.geom_info = ["0"]
+    args.projection_constrain = []
+    args.opt_fragment = []
+    args.oniom_flag = []
+    return args
+
+def optimizeparser(parser):
+    parser = call_optimizeparser(parser)
+    parser = parser_for_biasforce(parser)
+    args = parser2args(parser)
+    if len(args.INPUT) < 2:
+        args.INPUT = args.INPUT[0]
+    args.constraint_condition = []
+    return args
+
+def nebparser(parser):
+    parser = call_nebparser(parser)
+    parser = parser_for_biasforce(parser)
+    args = parser2args(parser)
+    args.geom_info = ["0"]
+    args.opt_method = ""
+    args.opt_fragment = []
+    args.oniom_flag = []
+    return args
+
+def mdparser(parser):
+
+    parser = call_mdparser(parser)
+    parser = parser_for_biasforce(parser)
+    args = parser2args(parser)
+    args.geom_info = ["0"]
+    args.opt_method = ""
+    args.opt_fragment = []
+    args.oniom_flag = []
+    return args
+
+
+
+def call_ieipparser(parser):
     parser.add_argument("INPUT", help='input folder')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -47,7 +85,7 @@ def ieipparser(parser):
                         help='calculate excited state (default: [0(initial state), 0(final state)]) (e.g.) if you set spin_multiplicity as 1 and set this option as "n", this program calculate S"n" state.')
     parser.add_argument("-mf", "--model_function_mode", help="use model function to optimization (seam, avoiding, conical, mesx, meci)", type=str, default='None',)
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per steps (ex.) [steps per one hess calculation]')
-    parser = parser_for_biasforce(parser)
+    
     
     parser.add_argument("-xtb", "--usextb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (ex.) GFN1-xTB, GFN2-xTB ')
     parser.add_argument("-dxtb", "--usedxtb",  type=str, default="None", help='use extended tight bonding method to calculate. default is not using extended tight binding method (This option is for dxtb module (hessian calculated by autograd diffential method is available.)) (ex.) GFN1-xTB, GFN2-xTB ')
@@ -84,19 +122,9 @@ def ieipparser(parser):
     parser.add_argument('-dimer_sep','--dimer_separation', help="set dimer separation (default: 0.0001)", type=float, default=0.0001)
     parser.add_argument('-dimer_trial_angle','--dimer_trial_angle', help="set dimer trial angle (default: pi/32)", type=float, default=np.pi / 32.0)
     parser.add_argument('-dimer_maxiter','--dimer_max_iterations', help="set max iterations for dimer method (default: 1000)", type=int, default=1000)
-    
+    return parser
 
-    args = parser.parse_args()#model_function_mode
-    args.fix_atoms = []
-    args.gradient_fix_atoms = []
-    args.geom_info = ["0"]
-    args.projection_constrain = []
-    args.opt_fragment = []
-    args.oniom_flag = []
-    return args
-
-
-def optimizeparser(parser):
+def call_optimizeparser(parser):
     parser.add_argument("INPUT", help='input xyz file name', nargs="*")
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -110,7 +138,7 @@ def optimizeparser(parser):
     parser.add_argument("-tr", "--max_trust_radius",  type=float, default=None, help='max trust radius to restrict step size (unit: ang.) (default: 0.1 for n-th order saddle point optimization, 0.5 for minimum point optimization) (notice: default minimum trust radius is 0.01)')
     parser.add_argument("-mintr", "--min_trust_radius",  type=float, default=0.01, help='min trust radius to restrict step size (unit: ang.) (default: 0.01) ')
     parser.add_argument('-u','--unrestrict', help="use unrestricted method (for radical reaction and excite state etc.)", action='store_true')
-    parser = parser_for_biasforce(parser)
+    
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
@@ -155,12 +183,7 @@ def optimizeparser(parser):
     parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperatrue to calculate thermochemistry (Unit: K) (default: 298.15K)')
     parser.add_argument("-press", "--pressure",  type=float, default='101325', help='pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa)')
     
-    args = parser.parse_args()
-    if len(args.INPUT) < 2:
-        args.INPUT = args.INPUT[0]
-    args.constraint_condition = []
-   
-    return args
+    return parser
 
 def parser_for_biasforce(parser):
     parser.add_argument("-ma", "--manual_AFIR", nargs="*",  type=str, default=[], help='manual-AFIR (ex.) [[Gamma(kJ/mol)] [Fragm.1(ex. 1,2,3-5)] [Fragm.2] ...]')
@@ -202,8 +225,7 @@ def parser_for_biasforce(parser):
     parser.add_argument("-nrp", "--nano_reactor_potential", nargs="*",  type=str, default=[], help='add nano reactor potential (ex.) [[inner wall (ang.)] [outer wall (ang.)] [contraction time (ps)] [expansion time (ps)] [contraction force const (kcal/mol/A^2)] [expansion force const (kcal/mol/A^2)]] (Recommendation: 8.0 14.0 1.5 0.5 1.0 0.5)')
     return parser
 
-
-def nebparser(parser):
+def call_nebparser(parser):
     parser.add_argument("INPUT", help='input folder', nargs="*")
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-sub_bs", "--sub_basisset", type=str, nargs="*", default='', help='sub_basisset (ex. I LanL2DZ)')
@@ -287,18 +309,10 @@ def nebparser(parser):
     parser.add_argument("-osp", "--software_path_file",  type=str, default="./software_path.conf", help='read the list of file directory of other QM softwares to use them. default is current directory. (require python module, ASE (Atomic Simulation Environment)) (ex.) ./software_path.conf')
     parser.add_argument("-rrs", "--ratio_of_rfo_step", type=float, default=0.5, help='ratio of rfo step (default: 0.5).  This option is for optimizer using Hessian (-fc or -modelhess).')
 
-    parser = parser_for_biasforce(parser)
-    args = parser.parse_args()
-
-    args.geom_info = ["0"]
-    args.opt_method = ""
-    args.opt_fragment = []
-    args.oniom_flag = []
-   
-    return args
-
-
-def mdparser(parser):
+    
+    return parser
+    
+def call_mdparser(parser):
     parser.add_argument("INPUT", help='input psi4 files')
     parser.add_argument("-bs", "--basisset", default='6-31G(d)', help='basisset (ex. 6-31G*)')
     parser.add_argument("-func", "--functional", default='b3lyp', help='functional(ex. b3lyp)')
@@ -341,14 +355,18 @@ def mdparser(parser):
     parser.add_argument("-grid", "--dft_grid", type=int, default=3, help="fineness of grid for DFT calculation (default: 3 (0~9))")
 
     
-    parser = parser_for_biasforce(parser)
-    args = parser.parse_args()
-    args.geom_info = ["0"]
-    args.opt_method = ""
-    args.opt_fragment = []
-    args.oniom_flag = []
-    return args
+    
+    return parser
 
+
+def init_parser():
+    parser = argparse.ArgumentParser()
+    return parser
+
+
+def parser2args(parser):
+    args = parser.parse_args()
+    return args
 
 def force_data_parser(args):
     def num_parse(numbers):
