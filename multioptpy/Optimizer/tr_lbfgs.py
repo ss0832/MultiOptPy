@@ -32,6 +32,15 @@ class TRLBFGS:
         self.delta_tr = config.get("initial_delta", self.delta_hat * 0.75)  # Current trust region radius
         self.eta = config.get("eta", 0.25 * 0.9)  # η ∈ [0, 1/4)
         
+        # Powell damping parameters
+        self.use_powell_damping = config.get("use_powell_damping", True)
+        self.powell_theta = config.get("powell_theta", 0.2)  # Damping threshold
+        
+        # Newton solver parameters
+        self.newton_max_iter = config.get("newton_max_iter", 50)
+        self.newton_tol = config.get("newton_tol", 1e-6)
+        self.newton_alpha_min = config.get("newton_alpha_min", 1e-8)
+        
         # Storage for L-BFGS vectors
         self.s = []  # Position differences
         self.y = []  # Gradient differences
@@ -52,6 +61,8 @@ class TRLBFGS:
         print(f"Initialized TRLBFGS optimizer with memory={self.memory}, "
               f"initial trust region radius={self.delta_tr}, "
               f"bounds=[{self.delta_min}, {self.delta_hat}]")
+        print(f"Powell damping: {self.use_powell_damping}, theta={self.powell_theta}")
+        print(f"Newton solver: max_iter={self.newton_max_iter}, tol={self.newton_tol}")
         
     def set_hessian(self, hessian):
         """Set explicit Hessian matrix."""
@@ -71,20 +82,120 @@ class TRLBFGS:
         """Get bias Hessian matrix."""
         return self.bias_hessian
     
+    def apply_powell_damping(self, s, y):
+        """Apply Powell's damping strategy to ensure positive definiteness.
+        
+        This method modifies the gradient difference y to satisfy the curvature condition
+        y^T s > 0, which is necessary for maintaining a positive definite Hessian approximation.
+        
+        Parameters:
+        -----------
+        s : ndarray
+            Position difference vector (x_{k+1} - x_k)
+        y : ndarray
+            Gradient difference vector (g_{k+1} - g_k)
+            
+        Returns:
+        --------
+        y_corrected : ndarray
+            Corrected gradient difference that satisfies curvature condition
+        damped : bool
+            True if damping was applied, False otherwise
+        """
+        s_flat = s.flatten()
+        y_flat = y.flatten()
+        
+        s_dot_y = np.dot(s_flat, y_flat)
+        s_dot_s = np.dot(s_flat, s_flat)
+        
+        # Check if curvature condition is satisfied
+        threshold = self.powell_theta * s_dot_s
+        
+        if s_dot_y < threshold:
+            # Apply damping correction
+            # y_corrected = r * y + (1 - r) * B * s
+            # where B * s ≈ s for simplicity (identity approximation)
+            r = (1 - self.powell_theta) * s_dot_s / (s_dot_s - s_dot_y)
+            y_corrected = r * y_flat + (1 - r) * self.gamma * s_flat
+            
+            print(f"Powell damping applied: s^T y = {s_dot_y:.4e} < {threshold:.4e}, r = {r:.4f}")
+            return y_corrected, True
+        
+        return y_flat, False
+    
+    def check_curvature_condition(self, s, y, epsilon=1e-10):
+        """Check if the curvature condition is satisfied.
+        
+        The curvature condition y^T s > 0 must be satisfied to maintain
+        a positive definite Hessian approximation.
+        
+        Parameters:
+        -----------
+        s : ndarray
+            Position difference vector
+        y : ndarray
+            Gradient difference vector
+        epsilon : float
+            Tolerance for checking positivity
+            
+        Returns:
+        --------
+        satisfied : bool
+            True if curvature condition is satisfied
+        dot_product : float
+            The value of y^T s
+        """
+        s_flat = s.flatten()
+        y_flat = y.flatten()
+        
+        dot_product = np.dot(y_flat, s_flat)
+        
+        # Also check for numerical issues
+        s_norm = norm(s_flat)
+        y_norm = norm(y_flat)
+        
+        if s_norm < epsilon or y_norm < epsilon:
+            print(f"Warning: Very small vector norms (||s||={s_norm:.4e}, ||y||={y_norm:.4e})")
+            return False, dot_product
+        
+        # Normalized check for better numerical stability
+        cos_angle = dot_product / (s_norm * y_norm)
+        
+        satisfied = dot_product > epsilon
+        
+        if not satisfied:
+            print(f"Curvature condition violated: y^T s = {dot_product:.4e}, cos(angle) = {cos_angle:.4f}")
+        
+        return satisfied, dot_product
+    
     def update_vectors(self, displacement, delta_grad):
-        """Update the vectors used for the L-BFGS approximation."""
+        """Update the vectors used for the L-BFGS approximation.
+        
+        This method incorporates improved curvature condition checking
+        and optional Powell damping for better numerical stability.
+        """
         # Flatten vectors if they're not already
         s = displacement.flatten()
         y = delta_grad.flatten()
         
-        # Calculate rho = 1 / (y^T * s)
-        dot_product = np.dot(y, s)
+        # Check curvature condition
+        curvature_satisfied, dot_product = self.check_curvature_condition(s, y)
+        
+        # Apply Powell damping if enabled and curvature condition is not satisfied
+        if self.use_powell_damping and not curvature_satisfied:
+            y, damped = self.apply_powell_damping(s, y)
+            if damped:
+                # Recompute dot product after damping
+                dot_product = np.dot(y, s)
+                print(f"After damping: y^T s = {dot_product:.4e}")
+        
+        # Final check before updating
         if abs(dot_product) < 1e-10:
-            # Avoid division by very small numbers
-            rho = 1000.0
-            print("Warning: y^T s is very small, using default rho value")
-        else:
-            rho = 1.0 / dot_product
+            print("Warning: y^T s is still too small after correction, skipping update")
+            return False
+        
+        # Calculate rho = 1 / (y^T * s)
+        rho = 1.0 / dot_product
         
         # Add to history
         self.s.append(s)
@@ -98,11 +209,140 @@ class TRLBFGS:
             self.rho.pop(0)
         
         # Update gamma (scaling factor for initial Hessian approximation)
-        if dot_product > 1e-10:
-            self.gamma = np.dot(y, y) / dot_product
-            print(f"Updated gamma = {self.gamma:.4f}")
+        y_dot_y = np.dot(y, y)
+        self.gamma = y_dot_y / dot_product
+        print(f"Updated gamma = {self.gamma:.4f}, memory size = {len(self.s)}")
+        
+        return True
+    
+    def solve_trust_region_newton(self, g_ll, g_NL_norm, delta):
+        """Solve the trust region subproblem using improved Newton's method.
+        
+        This method finds the Lagrange multiplier sigma that satisfies:
+        ||p(sigma)|| = delta, where p(sigma) is the step in the trust region.
+        
+        Parameters:
+        -----------
+        g_ll : ndarray
+            Projection of gradient onto eigenspace
+        g_NL_norm : float
+            Norm of gradient component orthogonal to eigenspace
+        delta : float
+            Trust region radius
+            
+        Returns:
+        --------
+        sigma_star : float
+            Optimal Lagrange multiplier
+        iterations : int
+            Number of Newton iterations performed
+        """
+        # Define the trust region constraint function
+        def phi_bar_func(sigma):
+            """Compute phi_bar(sigma) = 1/||p(sigma)|| - 1/delta"""
+            u = np.sum((g_ll ** 2) / ((self.Lambda_1 + sigma) ** 2)) + \
+                (g_NL_norm ** 2) / ((self.gamma + sigma) ** 2)
+            v = np.sqrt(u)
+            return 1.0 / v - 1.0 / delta
+        
+        def phi_bar_prime_func(sigma):
+            """Compute the derivative of phi_bar function."""
+            lambda_sigma = self.Lambda_1 + sigma
+            gamma_sigma = self.gamma + sigma
+            
+            u = np.sum(g_ll ** 2 / lambda_sigma ** 2) + g_NL_norm ** 2 / gamma_sigma ** 2
+            u_prime = -2.0 * np.sum(g_ll ** 2 / lambda_sigma ** 3) - 2.0 * g_NL_norm ** 2 / gamma_sigma ** 3
+            
+            return -0.5 * u ** (-1.5) * u_prime
+        
+        # Initialize sigma
+        sigma = max(0.0, -self.lambda_min)
+        phi_bar_0 = phi_bar_func(sigma)
+        
+        print(f"Newton solver: initial sigma = {sigma:.6e}, phi_bar = {phi_bar_0:.6e}")
+        
+        # Check if we're already at the solution (interior case)
+        if abs(phi_bar_0) < self.newton_tol:
+            print("Interior solution found (sigma = 0 or -lambda_min)")
+            return sigma, 0
+        
+        # Need to solve for positive sigma if phi_bar_0 < 0
+        if phi_bar_0 < 0:
+            # Initialize with a better starting guess
+            sigma_hat = max(np.max(np.abs(g_ll) / delta - self.Lambda_1), 0.0)
+            sigma = max(sigma, sigma_hat)
+            
+            print(f"Boundary case: starting Newton from sigma = {sigma:.6e}")
+            
+            # Newton iterations with backtracking line search
+            for iteration in range(self.newton_max_iter):
+                phi_bar = phi_bar_func(sigma)
+                
+                # Check convergence
+                if abs(phi_bar) < self.newton_tol:
+                    print(f"Newton converged in {iteration + 1} iterations, sigma = {sigma:.6e}")
+                    return sigma, iteration + 1
+                
+                # Compute Newton direction
+                phi_bar_prime = phi_bar_prime_func(sigma)
+                
+                # Check for zero derivative (should not happen in practice)
+                if abs(phi_bar_prime) < 1e-15:
+                    print(f"Warning: phi_bar_prime too small ({phi_bar_prime:.4e}), stopping Newton")
+                    break
+                
+                # Newton step
+                delta_sigma = -phi_bar / phi_bar_prime
+                
+                # Backtracking line search to ensure progress
+                alpha = 1.0
+                sigma_new = sigma + alpha * delta_sigma
+                
+                # Ensure sigma stays non-negative
+                while sigma_new < 0:
+                    alpha *= 0.5
+                    sigma_new = sigma + alpha * delta_sigma
+                    if alpha < self.newton_alpha_min:
+                        sigma_new = sigma * 0.5
+                        break
+                
+                # Simple backtracking: ensure |phi_bar| decreases
+                phi_bar_new = phi_bar_func(sigma_new)
+                backtrack_count = 0
+                max_backtrack = 10
+                
+                while abs(phi_bar_new) > abs(phi_bar) and backtrack_count < max_backtrack:
+                    alpha *= 0.5
+                    if alpha < self.newton_alpha_min:
+                        # Can't make progress, accept current sigma
+                        print(f"Backtracking failed, accepting sigma = {sigma:.6e}")
+                        return sigma, iteration + 1
+                    
+                    sigma_new = max(0.0, sigma + alpha * delta_sigma)
+                    phi_bar_new = phi_bar_func(sigma_new)
+                    backtrack_count += 1
+                
+                if backtrack_count > 0:
+                    print(f"  Iter {iteration + 1}: backtracked {backtrack_count} times, alpha = {alpha:.4f}")
+                
+                # Update sigma
+                sigma = sigma_new
+                
+                if iteration % 10 == 0 or iteration == self.newton_max_iter - 1:
+                    print(f"  Iter {iteration + 1}: sigma = {sigma:.6e}, phi_bar = {phi_bar:.6e}, alpha = {alpha:.4f}")
+            
+            print(f"Newton reached max iterations ({self.newton_max_iter}), sigma = {sigma:.6e}")
+            return sigma, self.newton_max_iter
+        
+        elif self.lambda_min < 0:
+            # Hard case: negative curvature, set sigma to make Hessian PSD
+            sigma_star = -self.lambda_min
+            print(f"Hard case (negative curvature), using sigma = {sigma_star:.6e}")
+            return sigma_star, 0
         else:
-            print("Warning: Not updating gamma due to small y^T s")
+            # Interior solution
+            print("Interior solution (no constraint active)")
+            return 0.0, 0
     
     def compute_lbfgs_tr_step(self, gradient, delta):
         """Compute trust region step using L-BFGS approximation.
@@ -187,55 +427,8 @@ class TRLBFGS:
                 g_NL_norm_squared = max(0, norm(g)**2 - norm(g_ll)**2)
                 g_NL_norm = np.sqrt(g_NL_norm_squared)
                 
-                # Solve trust region subproblem
-                def phi_bar_func(sigma, delta):
-                    """Compute the trust region constraint function."""
-                    u = np.sum((g_ll ** 2) / ((self.Lambda_1 + sigma) ** 2)) + \
-                        (g_NL_norm ** 2) / ((self.gamma + sigma) ** 2)
-                    v = np.sqrt(u)
-                    return 1/v - 1/delta
-                
-                def phi_bar_prime_func(sigma):
-                    """Compute the derivative of phi_bar function."""
-                    u = np.sum(g_ll ** 2 / (self.Lambda_1 + sigma) ** 2) + \
-                        g_NL_norm ** 2 / (self.gamma + sigma) ** 2
-                    u_prime = np.sum(g_ll ** 2 / (self.Lambda_1 + sigma) ** 3) + \
-                            g_NL_norm ** 2 / (self.gamma + sigma) ** 3
-                    return u ** (-3/2) * u_prime
-                
-                # Find sigma that solves the trust region constraint
-                tol = 1e-4
-                sigma = max(0, -self.lambda_min)
-                
-                if phi_bar_func(sigma, delta) < 0:
-                    # Need to find a positive sigma
-                    sigma_hat = max(np.max(np.abs(g_ll) / delta - self.Lambda_1), 0)
-                    sigma = max(0, sigma_hat)
-                    
-                    # Newton iterations to find optimal sigma
-                    for i in range(10):  # limit iterations for safety
-                        phi_bar = phi_bar_func(sigma, delta)
-                        if abs(phi_bar) < tol:
-                            break
-                        phi_bar_prime = phi_bar_prime_func(sigma)
-                        sigma_new = sigma - phi_bar / phi_bar_prime
-                        
-                        # Safeguard against negative sigma
-                        if sigma_new <= 0:
-                            sigma = sigma / 2
-                        else:
-                            sigma = sigma_new
-                        
-                    sigma_star = sigma
-                    print(f"Found sigma_star = {sigma_star} after {i+1} iterations")
-                elif self.lambda_min < 0:
-                    # Hard case: negative curvature
-                    sigma_star = -self.lambda_min
-                    print(f"Hard case (negative curvature), using sigma_star = {sigma_star}")
-                else:
-                    # No need for regularization
-                    sigma_star = 0
-                    print("No regularization needed (sigma_star = 0)")
+                # Solve trust region subproblem using improved Newton method
+                sigma_star, newton_iters = self.solve_trust_region_newton(g_ll, g_NL_norm, delta)
                 
                 # Compute trust region step
                 tau_star = self.gamma + sigma_star
@@ -246,10 +439,12 @@ class TRLBFGS:
                 # Verify step is within trust region
                 step_norm = norm(p_star)
                 if step_norm > delta * (1 + 1e-6):  # Allow slight numerical error
-                    print(f"Warning: Step length ({step_norm}) exceeds trust region radius ({delta})")
+                    print(f"Warning: Step length ({step_norm:.6e}) exceeds trust region radius ({delta:.6e})")
                     p_star = p_star * (delta / step_norm)
+                    print(f"Rescaled step to length {norm(p_star):.6e}")
                 
                 self.tr_subproblem_solved = True
+                print(f"Trust region step computed: ||p|| = {norm(p_star):.6e}, sigma = {sigma_star:.6e}")
                 return p_star.reshape(gradient.shape)
                 
             except (np.linalg.LinAlgError, ValueError) as e:
@@ -473,8 +668,11 @@ class TRLBFGS:
             delta_grad = (g - pre_g).reshape(len(geom_num_list), 1)
             displacement = (geom_num_list - pre_geom).reshape(len(geom_num_list), 1)
             
-            # Update L-BFGS vectors
-            self.update_vectors(displacement, delta_grad)
+            # Update L-BFGS vectors with improved curvature checking
+            update_success = self.update_vectors(displacement, delta_grad)
+            
+            if not update_success:
+                print("Warning: L-BFGS update skipped due to curvature condition failure")
         
         self.iter += 1
         return -move_vector

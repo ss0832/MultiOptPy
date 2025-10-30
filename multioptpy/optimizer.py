@@ -48,6 +48,7 @@ from multioptpy.Optimizer.gpr_step import GPRStep
 from multioptpy.Optimizer.gan_step import GANStep
 from multioptpy.Optimizer.rl_step import RLStepSizeOptimizer
 from multioptpy.Optimizer.geodesic_step import GeodesicStepper
+from multioptpy.Optimizer.linesearch import LineSearch
 from multioptpy.Optimizer.component_wise_scaling import ComponentWiseScaling
 from multioptpy.Optimizer.coordinate_locking import CoordinateLocking
 from multioptpy.Optimizer.trust_radius import TrustRadius
@@ -65,6 +66,7 @@ optimizer_mapping = {
     "fire": FIRE,
     "mwgradientdescent": MassWeightedGradientDescent,
     "gradientdescent": GradientDescent,
+    "steepest_descent": GradientDescent,
     "gpmin": GPmin,
     "tr_lbfgs": TRLBFGS,
     "lbfgs": LBFGS,
@@ -156,8 +158,87 @@ class CalculateMoveVector:
         self.element_list = element_list
         self.model_hess_flag = model_hess_flag
 
-        
     def initialization(self, method):
+        """
+        Initializes the optimizer instances based on the provided method names.
+        
+        This function parses a list of method strings. Each string defines a
+        base optimizer (e.g., LBFGS, FIRE, RSIRFO) and optionally
+        a set of enhancements (e.g., "lookahead", "gdiis", "lars")
+        which are chained together.
+        
+        Args:
+            method (list[str]): A list of method name strings.
+        
+        Returns:
+            list: A list of initialized base optimizer instances.
+        """
+
+        # --- Helper Function to Handle Enhancements ---
+        
+        def _append_enhancements(lower_m, is_newton_method, specific_lookahead=None, specific_lars=None):
+            """
+            Private helper to append all enhancement instances for a given method.
+            This avoids duplicating this logic in every 'if/elif' block.
+            
+            Args:
+                lower_m (str): The lowercased method name string.
+                is_newton_method (bool): Flag indicating if the base optimizer is a quasi-Newton method.
+                specific_lookahead (object, optional): A pre-defined LookAhead instance from 'specific_cases'.
+                specific_lars (object, optional): A pre-defined LARS instance from 'specific_cases'.
+            """
+            
+            # Handle LookAhead and LARS, prioritizing 'specific_cases' config
+            if specific_lookahead is not None:
+                lookahead_instances.append(specific_lookahead)
+            else:
+                lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
+
+            if specific_lars is not None:
+                lars_instances.append(specific_lars)
+            else:
+                lars_instances.append(LARS() if "lars" in lower_m else None)
+            
+            # LineSearch
+            linesearch_instances.append(LineSearch() if "linesearch" in lower_m else None)
+            
+            
+            # DIIS family
+            gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
+            kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
+            adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
+            c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
+            
+            
+            # Handle mutually exclusive EDIIS/GEDIIS
+            if "gediis" in lower_m:
+                gediis_instances.append(GEDIIS())
+                ediis_instances.append(None)
+            else:
+                ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
+                gediis_instances.append(None)
+                
+            # Coordinate transformations
+            coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
+            coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+            
+            # ML-based step optimizers
+            gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
+            gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
+            rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
+            
+            # Other step modifiers
+            geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
+            
+            # TRIM is only relevant for quasi-Newton methods
+            if is_newton_method:
+                trim_step_instances.append(TRIM(saddle_order=self.saddle_order) if "trim" in lower_m else None)
+            else:
+                trim_step_instances.append(None)
+
+        # --- End of Helper Function ---
+
+        # Initialize lists to store instances for each method
         optimizer_instances = []
         newton_tag = []
         lookahead_instances = []
@@ -175,158 +256,97 @@ class CalculateMoveVector:
         rl_step_instances = []
         geodesic_step_instances = []
         trim_step_instances = []
-
-
+        linesearch_instances = []
+        
+        # Loop over each requested method string
         for i, m in enumerate(method):
             lower_m = m.lower()
+            optimizer_added = False
+            is_newton = False
+            optimizer = None
 
+            # 1. Check hard-coded specific cases (e.g., "ranger")
             if lower_m in specific_cases:
                 case = specific_cases[lower_m]
-                optimizer_instances.append(case["optimizer"]())
-                newton_tag.append(False)
-                lookahead_instances.append(case["lookahead"])
-                lars_instances.append(case["lars"])
-                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
-                if "gediis" in lower_m:
-                    gediis_instances.append(GEDIIS())
-                    ediis_instances.append(None)
-                else:
-                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
-                    gediis_instances.append(None)
-                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
-                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
-                kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
-                
-                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
-                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
-                
-                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-                geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                trim_step_instances.append(None)
+                optimizer = case["optimizer"]()
+                is_newton = False
+                optimizer_instances.append(optimizer)
+                newton_tag.append(is_newton)
+                _append_enhancements(lower_m, 
+                                     is_newton, 
+                                     specific_lookahead=case.get("lookahead"), 
+                                     specific_lars=case.get("lars"))
+                optimizer_added = True
 
-            elif any(key in lower_m for key in optimizer_mapping):
-                for key, optimizer_class in optimizer_mapping.items():
-                    if key in lower_m:
-                        optimizer_instances.append(optimizer_class())
-                        if lower_m == "mwgradientdescent":#Eulur method to calculate IRC path.
-                            optimizer_instances[i].element_list = self.element_list
-                            optimizer_instances[i].atomic_mass = atomic_mass # function in parameter.py
-                        
-                        
-                        newton_tag.append(False)
-                        lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
-                        lars_instances.append(LARS() if "lars" in lower_m else None)
-                        gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
-                        if "gediis" in lower_m:
-                            gediis_instances.append(GEDIIS())
-                            ediis_instances.append(None)
-                        else:
-                            ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
-                            gediis_instances.append(None)
-                        c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
-                        adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
-                        kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
-                     
-                        coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
-                        coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
-                        
-                        gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                        gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                        rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-                        geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                        trim_step_instances.append(None)
-                        break
-                    
-            elif lower_m in ["cg", "cg_pr", "cg_fr", "cg_hs", "cg_dy"]:
-                optimizer_instances.append(ConjgateGradient(method=m))
-                newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-                gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
-                kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
-                if "gediis" in lower_m:
-                    gediis_instances.append(GEDIIS())
-                    ediis_instances.append(None)
-                else:
-                    ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
-                    gediis_instances.append(None)
-                c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
-                adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
-                
-                coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
-                coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
-                
-                gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-                geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                trim_step_instances.append(None)
-              
+            # 2. Check quasi-Newton methods
             elif any(key in lower_m for key in quasi_newton_mapping):
                 for key, settings in quasi_newton_mapping.items():
                     if key in lower_m:
                         print(key)
                         if "rsprfo" in key:
-                            optimizer_instances.append(EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius))
-                       
+                            optimizer = EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
                         elif "rsirfo" in key:
-                            optimizer_instances.append(RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius))   
-                        #elif "rfo" in key:
-                        #    optimizer_instances.append(RationalFunctionOptimization(method=m, saddle_order=self.saddle_order, trust_radius=self.trust_radii, element_list=self.element_list))
+                            optimizer = RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
                         else:
-                            print("This method is not implemented. :", m, " Thus, exiting.")
+                            print(f"This method is not implemented: {m}. Thus, exiting.")
                             exit()
-                            
 
-                        optimizer_instances[i].DELTA = settings["delta"]
+                        optimizer.DELTA = settings["delta"]
                         if "linesearch" in settings:
-                            optimizer_instances[i].linesearchflag = True
-                        newton_tag.append(True)
-                        lookahead_instances.append(LookAhead() if "lookahead" in lower_m else None)
-                        lars_instances.append(LARS() if "lars" in lower_m else None)
-                        gdiis_instances.append(GDIIS() if "gdiis" in lower_m else None)
-                        kdiis_instances.append(KDIIS() if "kdiis" in lower_m else None)
-                        if "gediis" in lower_m:
-                            gediis_instances.append(GEDIIS())
-                            ediis_instances.append(None)
-                        else:
-                            ediis_instances.append(EDIIS() if "ediis" in lower_m else None)
-                            gediis_instances.append(None)
-                        c2diis_instances.append(C2DIIS() if "c2diis" in lower_m else None)
-                        adiis_instances.append(ADIIS() if "adiis" in lower_m else None)
-                       
-                        coordinate_locking_instances.append(CoordinateLocking() if "coordinate_locking" in lower_m else None)
-                        coordinate_wise_scaling_instances.append(ComponentWiseScaling() if "component_wise_scaling" in lower_m else None)
+                            optimizer.linesearchflag = True
                         
-                        gpr_step_instances.append(GPRStep() if "gpr_step" in lower_m else None)
-                        gan_step_instances.append(GANStep() if "gan_step" in lower_m else None)
-                        rl_step_instances.append(RLStepSizeOptimizer() if "rl_step" in lower_m else None)
-                        geodesic_step_instances.append(GeodesicStepper(element_list=self.element_list) if "geodesic_step" in lower_m else None)
-                        trim_step_instances.append(TRIM(saddle_order=self.saddle_order) if "trim" in lower_m else None)
-                        break
-            else:
-                print("This method is not implemented. :", m, " Thus, Default method is used.")
-                optimizer_instances.append(FIRE())
-                newton_tag.append(False)
-                lookahead_instances.append(None)
-                lars_instances.append(None)
-                gdiis_instances.append(None)
-                ediis_instances.append(None)
-                gediis_instances.append(None)
-                c2diis_instances.append(None)
-                adiis_instances.append(None)
-                kdiis_instances.append(None)
-                coordinate_locking_instances.append(None)
-                coordinate_wise_scaling_instances.append(None)
-                gpr_step_instances.append(None)
-                gan_step_instances.append(None)
-                rl_step_instances.append(None)
-                geodesic_step_instances.append(None)
-                trim_step_instances.append(None)
-              
+                        is_newton = True
+                        optimizer_instances.append(optimizer)
+                        newton_tag.append(is_newton)
+                        _append_enhancements(lower_m, is_newton)
+                        optimizer_added = True
+                        break  # Exit inner loop once match is found
+            
+            # 3. Check standard gradient-based optimizers
+            if not optimizer_added:
+                for key, optimizer_class in optimizer_mapping.items():
+                    if key in lower_m:
+                        optimizer = optimizer_class()
+                        if lower_m == "mwgradientdescent":
+                            optimizer.element_list = self.element_list
+                            optimizer.atomic_mass = atomic_mass
+                        
+                        is_newton = False
+                        optimizer_instances.append(optimizer)
+                        newton_tag.append(is_newton)
+                        _append_enhancements(lower_m, is_newton)
+                        optimizer_added = True
+                        break  # Exit inner loop once match is found
+            
+            # 4. Check Conjugate Gradient methods
+            # Define CG keys. Put "cg" last so "cg_pr" matches first if present.
+            cg_keys = ["cg_pr", "cg_fr", "cg_hs", "cg_dy", "cg"] 
+            if not optimizer_added:
+                for key in cg_keys:
+                    if key in lower_m:
+                        # Use the matched key (e.g., "cg" or "cg_pr") for the constructor,
+                        optimizer = ConjgateGradient(method=key) 
+                        is_newton = False
+                        optimizer_instances.append(optimizer)
+                        newton_tag.append(is_newton)
+                        # Pass the full 'lower_m' string to check for other enhancements
+                        _append_enhancements(lower_m, is_newton) 
+                        optimizer_added = True
+                        break # Found a cg match, exit inner loop
 
+            # 5. Handle default case (method not found)
+            if not optimizer_added:
+                print(f"This method is not implemented: {m}. Thus, Default method (FIRE) is used.")
+                optimizer = FIRE()
+                is_newton = False
+                optimizer_instances.append(optimizer)
+                newton_tag.append(is_newton)
+                _append_enhancements(lower_m, is_newton)
+        
+        # --- End of loop ---
+
+        # Store all instance lists as class attributes
+        # These are used by other methods in the class
         self.method = method
         self.newton_tag = newton_tag
         self.lookahead_instances = lookahead_instances
@@ -344,9 +364,8 @@ class CalculateMoveVector:
         self.rl_step_instances = rl_step_instances
         self.geodesic_step_instances = geodesic_step_instances
         self.trim_step_instances = trim_step_instances
-      
-        return optimizer_instances
-            
+        self.linesearch_instances = linesearch_instances
+        return optimizer_instances  
 
     def update_trust_radius_conditionally(self, optimizer_instances, B_e, pre_B_e, pre_B_g, pre_move_vector, geom_num_list):
         """
@@ -467,6 +486,9 @@ class CalculateMoveVector:
                                                 initial_geom_num_list, g, pre_g]],
             [self.lookahead_instances, "apply_lookahead", [B_g, pre_B_g, pre_geom, B_e, pre_B_e, pre_move_vector,
                                                         initial_geom_num_list, g, pre_g]],
+            
+            # linesearch
+            [self.linesearch_instances, "apply_linesearch", [B_g, pre_B_g, B_e, pre_B_e]],
             
             # DIIS family techniques
             [self.ediis_instances, "apply_ediis", [B_e, B_g]],

@@ -53,6 +53,36 @@ class RSIRFO:
         self.debug_mode = config.get("debug_mode", False)
         self.display_flag = config.get("display_flag", True)
         
+        # Adaptive Trust Radius Management Settings
+        self.use_adaptive_trust_radius = config.get("use_adaptive_trust_radius", True)
+        self.max_curvature_factor = config.get("max_curvature_factor", 2.5)
+        self.negative_curvature_safety = config.get("negative_curvature_safety", 0.8)
+        self.min_eigenvalue_history = []
+        
+        # === [MODIFIED] Level-Shifting Configuration (v2) ===
+        # Replaces v1 implementation.
+        
+        # Enable/disable level-shifting manually
+        # Default is False for conservative approach
+        self.use_level_shift = config.get("use_level_shift", False)
+        
+        # Magnitude of the level shift
+        # Typical values: 1e-6 to 1e-5
+        # Should be much smaller than typical eigenvalue magnitudes
+        self.level_shift_value = config.get("level_shift_value", 1e-6)
+        
+        # Automatic level-shifting based on condition number
+        # Enabled by default for adaptive behavior
+        self.auto_level_shift = config.get("auto_level_shift", True)
+        
+        # Threshold condition number for automatic level-shifting
+        # If condition number exceeds this, automatically apply shift
+        self.condition_number_threshold = config.get("condition_number_threshold", 1e8)
+        
+        # Track whether shift was applied in current iteration
+        self.level_shift_applied = False
+        # === [END MODIFICATION] ===
+
         # Initialize state variables
         self.Initialization = True
         self.hessian = None
@@ -129,19 +159,7 @@ class RSIRFO:
             self.converged = False
             self.iteration = 0
             self.Initialization = False
-        else:
-            # Adjust trust radius based on previous step's performance
-            if self.prev_energy is not None:
-                actual_energy_change = B_e - self.prev_energy
-                
-                # Keep limited history - only store the last few values
-                if len(self.actual_energy_changes) >= 3:
-                    self.actual_energy_changes.pop(0)
-                self.actual_energy_changes.append(actual_energy_change)
-                
-                if self.predicted_energy_changes:
-                    self.adjust_trust_radius(actual_energy_change, self.predicted_energy_changes[-1])
-            
+        
         # Check if hessian is set
         if self.hessian is None:
             raise ValueError("Hessian matrix must be set before running optimization")
@@ -179,13 +197,38 @@ class RSIRFO:
             H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess + self.bias_hessian, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
         else:
             H = Calculationtools().project_out_hess_tr_and_rot_for_coord(tmp_hess, geom_num_list.reshape(-1, 3), geom_num_list.reshape(-1, 3), False)
-        # Compute eigenvalues and eigenvectors of the hessian
-        H = 0.5 * (H + H.T)  # Ensure symmetry
-        eigvals, eigvecs = np.linalg.eigh(H)
         
+        # === [MODIFIED] First eigendecomposition: Full Hessian H ===
+        H = 0.5 * (H + H.T)  # Ensure symmetry
+        # Use new method that applies/removes shift for numerical stability
+        eigvals, eigvecs = self.compute_eigendecomposition_with_shift(H)
+
+        # Always check conditioning (provides useful diagnostic information)
+        condition_number, is_ill_conditioned = self.check_hessian_conditioning(eigvals)
+        # [REMOVED] v1's adjust_level_shift_value call is no longer needed
+
+        # Trust Radius Adjustment (Moved here to use eigenvalues)
+        if not self.Initialization:
+            if self.prev_energy is not None:
+                actual_energy_change = B_e - self.prev_energy
+                
+                # Keep limited history
+                if len(self.actual_energy_changes) >= 3:
+                    self.actual_energy_changes.pop(0)
+                self.actual_energy_changes.append(actual_energy_change)
+                
+                if self.predicted_energy_changes:
+                    # Pass the minimum eigenvalue (which is the first one after eigh)
+                    min_eigval = eigvals[0] if len(eigvals) > 0 else None
+                    self.adjust_trust_radius(
+                        actual_energy_change,
+                        self.predicted_energy_changes[-1],
+                        min_eigval  # Pass minimum eigenvalue
+                    )
+
         # Count negative eigenvalues for diagnostic purposes
         neg_eigvals = np.sum(eigvals < -1e-10)
-        self.log(f"Found {neg_eigvals} negative eigenvalues (target for this saddle order: {self.saddle_order})", force=True)
+        self.log(f"Found {neg_eigvals} negative eigenvalues (target for saddle order {self.saddle_order}: {self.saddle_order})", force=True)
         
         # Create the projection matrix for RS-I-RFO
         self.log(f"Using projection to construct image potential gradient and hessian for root(s) {self.roots}.")
@@ -210,10 +253,14 @@ class RSIRFO:
         H_star = 0.5 * (H_star + H_star.T)  # Symmetrize the Hessian
         grad_star = np.dot(P, gradient)
         
-        # Compute eigenvalues and eigenvectors of the image Hessian
-        eigvals_star, eigvecs_star = np.linalg.eigh(H_star)
+        # === [MODIFIED] Second eigendecomposition: Image Hessian H_star ===
+        # Use new method that applies/removes shift for numerical stability
+        eigvals_star, eigvecs_star = self.compute_eigendecomposition_with_shift(H_star)
         
-        # Filter out small eigenvalues
+        # === Apply existing small eigenvalue filter ===
+        # This is INDEPENDENT of level-shifting.
+        # Level-shifting affects numerical stability during computation.
+        # This filtering affects which eigenvalues are used in optimization.
         eigvals_star, eigvecs_star = self.filter_small_eigvals(eigvals_star, eigvecs_star)
         
         # Remember the size of the eigenvalue/vector arrays after filtering
@@ -233,8 +280,6 @@ class RSIRFO:
         self.prev_eigvec_size = current_eigvec_size
         
         # Calculate predicted energy change
-        # (BUG FIX: Removed -1. rfo_model is the predicted change, which should be
-        # negative for a downhill step, matching the sign of actual_energy_change)
         predicted_energy_change = self.rfo_model(gradient, H, move_vector)
         
         # Keep limited history - only store the last few values
@@ -249,7 +294,6 @@ class RSIRFO:
             self.evaluate_step_quality()
             
         # Store current geometry, gradient and energy for next iteration (no deep copy)
-        # Just store references to avoid duplicating large arrays
         self.prev_geometry = geom_num_list
         self.prev_gradient = B_g
         self.prev_energy = current_energy
@@ -259,36 +303,377 @@ class RSIRFO:
         
         return -1 * move_vector.reshape(-1, 1)
 
-    def adjust_trust_radius(self, actual_change, predicted_change):
-        """Dynamically adjust trust radius based on the agreement between actual and predicted energy changes"""
-        # Skip if either value is too small
+    # === [MODIFIED] Level-Shifting Methods (v2) ===
+    # Replaces v1 implementation.
+
+    def check_hessian_conditioning(self, eigvals):
+        """
+        Check the condition number of the Hessian.
+        
+        The condition number κ = |λ_max| / |λ_min| indicates how ill-conditioned
+        the matrix is. Large condition numbers suggest numerical instability.
+        
+        This method filters out near-zero eigenvalues (likely from projected-out
+        modes like translation/rotation) before computing the condition number.
+        
+        Parameters:
+            eigvals: np.ndarray
+                Eigenvalues of the Hessian (sorted in ascending order)
+        
+        Returns:
+            condition_number: float or None
+                Condition number of the Hessian, or None if cannot be computed
+            is_ill_conditioned: bool
+                True if Hessian is considered ill-conditioned
+        """
+        if len(eigvals) < 2:
+            self.log("Warning: Too few eigenvalues to compute condition number", force=True)
+            return None, False
+        
+        # Filter eigenvalues: exclude those near zero
+        # These are typically translation/rotation modes that were projected out
+        # Note: This is different from filter_small_eigvals() which filters after all processing
+        nonzero_mask = np.abs(eigvals) > 1e-10
+        nonzero_eigvals = eigvals[nonzero_mask]
+        
+        if len(nonzero_eigvals) < 2:
+            self.log("Warning: Insufficient non-zero eigenvalues for condition number", force=True)
+            return None, True  # Likely ill-conditioned
+        
+        # Condition number = |λ_max| / |λ_min| among non-zero eigenvalues
+        max_abs_eigval = np.max(np.abs(nonzero_eigvals))
+        min_abs_eigval = np.min(np.abs(nonzero_eigvals))
+        
+        if min_abs_eigval < 1e-15:
+            self.log("Warning: Extremely small minimum eigenvalue detected", force=True)
+            return None, True
+        
+        condition_number = max_abs_eigval / min_abs_eigval
+        
+        # Classify conditioning
+        is_ill_conditioned = condition_number > self.condition_number_threshold
+        
+        # Diagnostic output
+        if condition_number > 1e10:
+            self.log(f"WARNING: Hessian is severely ill-conditioned (κ={condition_number:.2e})", force=True)
+            if not self.use_level_shift and not self.auto_level_shift:
+                self.log("  Suggestion: Enable auto_level_shift=True for better stability", force=True)
+        elif condition_number > 1e8:
+            self.log(f"CAUTION: Hessian is ill-conditioned (κ={condition_number:.2e})", force=True)
+        elif condition_number > 1e6:
+            self.log(f"Hessian condition number is moderate (κ={condition_number:.2e})")
+        else:
+            self.log(f"Hessian is well-conditioned (κ={condition_number:.2e})")
+        
+        return condition_number, is_ill_conditioned
+
+    def compute_eigendecomposition_with_shift(self, H):
+        """
+        Compute eigenvalue decomposition with optional level-shifting.
+        
+        Level-shifting temporarily improves numerical conditioning during the
+        eigenvalue computation by adding a uniform shift to all diagonal elements:
+            H_shifted = H + shift * I
+        
+        The shift is removed from eigenvalues afterward, so the returned eigenvalues
+        are identical to those from standard eigendecomposition (in exact arithmetic).
+        
+        Key properties:
+        - Eigenvalues: λ_shifted = λ + shift, so λ = λ_shifted - shift
+        - Eigenvectors: Unchanged by uniform shift
+        - Numerical stability: Improved during computation
+        - Final result: Same as non-shifted (after shift removal)
+        
+        This is fully compatible with subsequent filter_small_eigvals():
+            Workflow: shift → compute → remove shift → filter small eigenvalues
+        
+        The method works for ALL saddle orders:
+        - saddle_order = 0: Shift improves positive eigenvalue conditioning
+        - saddle_order > 0: Shift improves conditioning without affecting negative eigenvalues
+                           (negative eigenvalues remain negative after shift removal)
+        
+        Parameters:
+            H: np.ndarray
+                Hessian matrix (symmetric, n×n)
+        
+        Returns:
+            eigvals: np.ndarray
+                Eigenvalues (with shift removed, identical to original)
+            eigvecs: np.ndarray
+                Eigenvectors (unchanged by shift)
+        """
+        n = H.shape[0]
+        self.level_shift_applied = False
+        
+        # === Decide whether to apply level-shifting ===
+        apply_shift = False
+        shift_reason = ""
+        eigvals_check = None # To store results from auto-check
+        eigvecs_check = None
+        
+        if self.use_level_shift:
+            # User explicitly requested level-shifting
+            apply_shift = True
+            shift_reason = "user-enabled"
+            
+        elif self.auto_level_shift:
+            # Automatic level-shifting based on condition number
+            try:
+                # Quick eigendecomposition to check conditioning
+                eigvals_check, eigvecs_check = np.linalg.eigh(H)
+                condition_number, is_ill_conditioned = self.check_hessian_conditioning(eigvals_check)
+                
+                if is_ill_conditioned:
+                    apply_shift = True
+                    shift_reason = f"auto (κ={condition_number:.2e})"
+                    self.log(f"Auto level-shifting triggered: κ={condition_number:.2e} > threshold={self.condition_number_threshold:.2e}", force=True)
+            except Exception as e:
+                self.log(f"Could not check condition number for auto level-shift: {e}")
+                apply_shift = False
+        
+        # === Perform eigendecomposition ===
+        if apply_shift:
+            shift = self.level_shift_value
+            self.log(f"Applying level shift: {shift:.2e} ({shift_reason})", force=True)
+            
+            # Add uniform shift to all diagonal elements
+            H_shifted = H + shift * np.eye(n)
+            
+            # Eigendecomposition of shifted matrix
+            eigvals_shifted, eigvecs = np.linalg.eigh(H_shifted)
+            
+            # Remove shift to restore original eigenvalues
+            eigvals = eigvals_shifted - shift
+            
+            self.level_shift_applied = True
+            
+            # Diagnostic output
+            if self.debug_mode:
+                self.log(f"  Eigenvalue range (original):      [{eigvals[0]:.6e}, {eigvals[-1]:.6e}]")
+                self.log(f"  Eigenvalue range (shifted):     [{eigvals_shifted[0]:.6e}, {eigvals_shifted[-1]:.6e}]")
+                self.log(f"  Eigenvalue range (after removal): [{eigvals[0]:.6e}, {eigvals[-1]:.6e}]")
+                self.log(f"  Note: Small eigenvalue filtering (if any) will be applied separately by filter_small_eigvals()")
+            else:
+                self.log(f"  Level shift applied during computation and removed from eigenvalues")
+                self.log(f"  Final eigenvalues are identical to non-shifted computation")
+        
+        else:
+            # Standard eigendecomposition without shift
+            # Check if we already computed it during the auto-check
+            if eigvals_check is not None:
+                self.log("No level shift applied (auto-check passed)")
+                eigvals, eigvecs = eigvals_check, eigvecs_check
+            else:
+                # Both use_level_shift and auto_level_shift were False
+                self.log("No level shift applied (disabled)")
+                eigvals, eigvecs = np.linalg.eigh(H)
+                
+            if self.debug_mode and not (eigvals_check is not None):
+                self.log(f"No level shift applied")
+        
+        return eigvals, eigvecs
+    
+    # [REMOVED] v1's adjust_level_shift_value() method is deleted.
+
+    # === [EXISTING] Adaptive Trust Radius Method ===
+    def adjust_trust_radius_adaptive(self, actual_change, predicted_change, min_eigenvalue):
+        """
+        Adaptive trust radius update.
+        Adjusts the trust radius considering Hessian curvature information (minimum eigenvalue).
+        
+        Parameters:
+            actual_change: float
+                Actual energy change (current energy - previous energy)
+            predicted_change: float
+                Predicted energy change from the RFO model
+            min_eigenvalue: float
+                Minimum eigenvalue of the Hessian (curvature information)
+                - Positive value: curvature in the minimization direction
+                - Negative value: curvature in the maximization/saddle point direction
+        """
+        # Skip if predicted change is too small
         if abs(predicted_change) < 1e-10:
             self.log("Skipping trust radius update: predicted change too small")
             return
+        
+        # === Step 1: Evaluate prediction accuracy ===
+        # ratio = actual change / predicted change
+        # Ideally ratio ≈ 1.0 (prediction is accurate)
+        ratio = actual_change / predicted_change
+        
+        self.log(f"Step quality: actual={actual_change:.6e}, predicted={predicted_change:.6e}, ratio={ratio:.3f}")
+        
+        # === Step 2: Calculate adjustment factor based on curvature ===
+        # Large curvature (steep) → small step is appropriate → smaller factor
+        # Small curvature (flat) → large step is safe → larger factor
+        
+        abs_eigenvalue = abs(min_eigenvalue)
+        
+        if abs_eigenvalue > 1e-6:
+            # When curvature is clearly present
+            # Use relationship like curvature_factor = 1 / sqrt(|λ_min|)
+            # But set an upper limit
+            curvature_factor = min(
+                self.max_curvature_factor,
+                1.0 / max(abs_eigenvalue, 0.1)
+            )
+        else:
+            # When curvature is nearly zero (very flat)
+            # Allow larger steps
+            curvature_factor = 1.5
+        
+        # === Step 3: Additional adjustment for transition state searches ===
+        if self.saddle_order > 0:
+            if min_eigenvalue < -1e-6:
+                # Negative curvature direction (reaction coordinate of transition state)
+                # Adjust step size more carefully
+                curvature_factor *= self.negative_curvature_safety
+                self.log(f"Negative curvature detected (λ_min={min_eigenvalue:.6e}), "
+                         f"applying safety factor {self.negative_curvature_safety}")
+            elif min_eigenvalue > 1e-6:
+                # If minimum is positive curvature, may have crossed the transition state
+                self.log(f"Warning: Positive minimum eigenvalue (λ_min={min_eigenvalue:.6e}) "
+                         f"in transition state search", force=True)
+        
+        # === Step 4: Trust radius adjustment based on ratio ===
+        old_trust_radius = self.trust_radius
+        
+        if ratio > 0.75:
+            # === Excellent prediction accuracy (ratio > 0.75) ===
+            # Model is very accurate → aggressively increase
+            increase_factor = 1.5 * curvature_factor
+            # Set upper limit (don't change too drastically at once)
+            increase_factor = min(increase_factor, self.max_curvature_factor)
             
-        # Calculate ratio between actual and predicted changes
-        # (Both should be negative for a good step, so ratio is positive)
+            self.trust_radius = min(
+                self.trust_radius * increase_factor,
+                self.trust_radius_max
+            )
+            status = "excellent"
+            
+        elif ratio > 0.5:
+            # === Good prediction accuracy (0.5 < ratio ≤ 0.75) ===
+            # Model is generally accurate → gradually increase
+            increase_factor = 1.1 * curvature_factor
+            increase_factor = min(increase_factor, 1.5)
+            
+            self.trust_radius = min(
+                self.trust_radius * increase_factor,
+                self.trust_radius_max
+            )
+            status = "good"
+            
+        elif ratio > 0.25:
+            # === Acceptable prediction accuracy (0.25 < ratio ≤ 0.5) ===
+            # Model accuracy is moderate
+            
+            if curvature_factor > 1.2:
+                # Flat region (small curvature) → try increasing slightly
+                self.trust_radius = min(
+                    self.trust_radius * 1.05,
+                    self.trust_radius_max
+                )
+                status = "acceptable (expanding slowly)"
+            else:
+                # Steep region or normal curvature → maintain
+                status = "acceptable (maintaining)"
+            
+        elif ratio > 0.1:
+            # === Poor prediction (0.1 < ratio ≤ 0.25) ===
+            # Model accuracy is low → decrease
+            self.trust_radius = max(
+                self.trust_radius * 0.5,
+                self.trust_radius_min
+            )
+            status = "poor"
+            
+        else:
+            # === Very poor prediction (ratio ≤ 0.1 or ratio < 0) ===
+            # Model is completely inaccurate, or energy increased → drastically decrease
+            self.trust_radius = max(
+                self.trust_radius * 0.25,
+                self.trust_radius_min
+            )
+            status = "very poor"
+        
+        # === Step 5: Boundary check ===
+        self.trust_radius = np.clip(
+            self.trust_radius,
+            self.trust_radius_min,
+            self.trust_radius_max
+        )
+        
+        # === Step 6: Log output ===
+        if self.trust_radius != old_trust_radius:
+            self.log(
+                f"Trust radius adjusted: {old_trust_radius:.6f} → {self.trust_radius:.6f}",
+                force=True
+            )
+            self.log(
+                f"  Reason: ratio={ratio:.3f}, curvature_factor={curvature_factor:.3f}, "
+                f"λ_min={min_eigenvalue:.6e}, status={status}"
+            )
+        else:
+            self.log(f"Trust radius maintained: {self.trust_radius:.6f} (status={status})")
+        
+        # Optional: Save minimum eigenvalue history (for trend analysis)
+        if len(self.min_eigenvalue_history) >= 10:
+            self.min_eigenvalue_history.pop(0)
+        self.min_eigenvalue_history.append(min_eigenvalue)
+
+    # === [EXISTING] Router for Trust Radius Adjustment ===
+    def adjust_trust_radius(self, actual_change, predicted_change, min_eigenvalue=None):
+        """
+        Trust radius adjustment.
+        
+        If the adaptive method is enabled and min_eigenvalue is provided,
+        performs adjustment considering curvature information.
+        Otherwise, uses the conventional simple method (for backward compatibility).
+        
+        Parameters:
+            actual_change: float
+                Actual energy change
+            predicted_change: float
+                Predicted energy change
+            min_eigenvalue: float, optional
+                Minimum eigenvalue of the Hessian (default: None)
+        """
+        # === Use adaptive method ===
+        if self.use_adaptive_trust_radius and min_eigenvalue is not None:
+            self.adjust_trust_radius_adaptive(actual_change, predicted_change, min_eigenvalue)
+            return
+        
+        # === Conventional simple method (for backward compatibility) ===
+        if abs(predicted_change) < 1e-10:
+            self.log("Skipping trust radius update: predicted change too small")
+            return
+        
         ratio = actual_change / predicted_change
         
         self.log(f"Energy change: actual={actual_change:.6f}, predicted={predicted_change:.6f}, ratio={ratio:.3f}", force=True)
         
         old_trust_radius = self.trust_radius
         
-        # Adjust trust radius based on the ratio
         if ratio > self.good_step_threshold:
-            # Good agreement - increase trust radius
-            self.trust_radius = min(self.trust_radius * self.trust_radius_increase_factor, 
-                                     self.trust_radius_max)
+            # Good step
+            self.trust_radius = min(
+                self.trust_radius * self.trust_radius_increase_factor,
+                self.trust_radius_max
+            )
             if self.trust_radius != old_trust_radius:
                 self.log(f"Good step quality (ratio={ratio:.3f}), increasing trust radius to {self.trust_radius:.6f}", force=True)
+                
         elif ratio < self.poor_step_threshold:
-            # Poor agreement - decrease trust radius
-            self.trust_radius = max(self.trust_radius * self.trust_radius_decrease_factor, 
-                                     self.trust_radius_min)
+            # Poor step
+            self.trust_radius = max(
+                self.trust_radius * self.trust_radius_decrease_factor,
+                self.trust_radius_min
+            )
             if self.trust_radius != old_trust_radius:
                 self.log(f"Poor step quality (ratio={ratio:.3f}), decreasing trust radius to {self.trust_radius:.6f}", force=True)
+                
         else:
-            # Acceptable agreement - keep trust radius
+            # Acceptable step
             self.log(f"Acceptable step quality (ratio={ratio:.3f}), keeping trust radius at {self.trust_radius:.6f}", force=True)
 
     def evaluate_step_quality(self):
@@ -351,8 +736,6 @@ class RSIRFO:
             # If the initial step is outside the trust radius, we must find the
             # alpha that puts the step *on* the trust radius boundary.
             # We call compute_rsprfo_step *once* to solve this.
-            # The loop over 'alpha_init_values' is removed as it does not
-            # guarantee the step is strictly on the trust radius.
             
             step, step_norm, final_alpha = self.compute_rsprfo_step(
                 eigvals, gradient_trans, self.alpha0
@@ -807,7 +1190,7 @@ class RSIRFO:
         else:
             self.log(f"Unknown Hessian update method: {self.hessian_update_method}. Using auto selection.")
             delta_hess = self.hessian_updater.flowchart_hessian_update(
-                self.hessian, displacement, delta_grad
+                self.hessian, displacement, delta_grad, "auto"
             )
             
         # Update the Hessian (in-place addition)
@@ -817,87 +1200,106 @@ class RSIRFO:
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
 
-    def _solve_secular_equation(self, eigvals, grad_comps, alpha):
+    # === [EXISTING] Robust RFO Solver ===
+    def _solve_secular_more_sorensen(self, eigvals, grad_comps, alpha):
         """
-        Solves the secular equation f(lambda_aug) = 0 for the smallest root.
-        Handles the "trivial" case where g_i = 0 robustly to set the bracket.
+        Moré-Sorensen-style robust Newton solver for the RFO secular equation.
         
-        *** MODIFIED TO FIX brentq bracket invalid ERROR ***
+        Finds the smallest root (lambda_aug) of the secular equation:
+            f(λ) = λ + Σ_i [g_i'^2 / (λ_i' - λ)] = 0
+        
+        Where: λ_i' = λ_i/α, g_i' = g_i/α
+        
+        Parameters:
+            eigvals: np.ndarray (sorted ascending)
+            grad_comps: np.ndarray
+            alpha: float
+        
+        Returns:
+            lambda_aug: float (smallest root)
         """
-        # 1. Prepare scaled values
+        # Scale values
         eigvals_prime = eigvals / alpha
         grad_comps_prime = grad_comps / alpha
         grad_comps_prime_sq = grad_comps_prime**2
         
-        # 2. Define the secular function f(lambda)
-        def f(lambda_aug):
-            denoms = eigvals_prime - lambda_aug
-            # Strictly avoid division by zero
-            denoms[np.abs(denoms) < 1e-30] = np.sign(denoms[np.abs(denoms) < 1e-30]) * 1e-30
-            terms = grad_comps_prime_sq / denoms
-            return lambda_aug + np.sum(terms)
-
-        # --- 3. Robust bracket (asymptote) search ---
+        # Find the first asymptote (smallest λ_i') where g_i' is non-zero
+        lambda_min_asymptote = None
+        g_norm_sq = 0.0
         
-        # Sort eigenvalues and rearrange corresponding gradients
-        sort_indices = np.argsort(eigvals_prime)
-        eigvals_sorted = eigvals_prime[sort_indices]
-        grad_comps_sorted_sq = grad_comps_prime_sq[sort_indices]
+        for i in range(len(eigvals_prime)):
+            g_sq = grad_comps_prime_sq[i]
+            g_norm_sq += g_sq
+            
+            if lambda_min_asymptote is None and g_sq > 1e-20:
+                lambda_min_asymptote = eigvals_prime[i]
+                
+        if lambda_min_asymptote is None:
+            # Hard case: All gradient components are zero
+            self.log("Hard case detected: All gradient components are zero.", force=True)
+            return eigvals_prime[0]
+        
+        # === Normal Case: Newton iteration ===
+        
+        # Initial guess (Baker, JCC 1986, Eq. 15)
+        lambda_aug = 0.5 * (lambda_min_asymptote - np.sqrt(lambda_min_asymptote**2 + 4 * g_norm_sq))
 
-        b_upper = None
-        first_asymptote_val = None # <--- ADDED
-        min_eig_val_overall = eigvals_sorted[0] # Fallback value
+        self.log(f"Normal case: solving RFO secular equation f(λ)=0")
+        self.log(f"First asymptote (lambda_min_asymptote) = {lambda_min_asymptote:.6e}")
+        self.log(f"Initial lambda_aug guess = {lambda_aug:.6e}")
+        
+        max_iterations = 50
+        tolerance = (1e-10 * abs(lambda_min_asymptote)) + 1e-12 
 
-        # Find the "first" asymptote where the gradient is non-zero
-        for i in range(len(eigvals_sorted)):
-            if grad_comps_sorted_sq[i] > 1e-20: # Gradient is non-zero
-                # This is the first asymptote
-                first_asymptote_val = eigvals_sorted[i] # <--- ADDED
-                b_upper = eigvals_sorted[i] - 1e-10 
+        for iteration in range(max_iterations):
+            # Denominators (λ_i' - λ)
+            denominators = eigvals_prime - lambda_aug
+            
+            # Safe denominators
+            safe_denoms = np.where(
+                np.abs(denominators) < 1e-30,
+                np.sign(denominators) * 1e-30,
+                denominators
+            )
+            
+            # f(λ) and f'(λ)
+            terms_f = grad_comps_prime_sq / safe_denoms
+            terms_f_prime = grad_comps_prime_sq / (safe_denoms**2)
+            
+            f_lambda = lambda_aug + np.sum(terms_f)
+            f_prime_lambda = 1.0 + np.sum(terms_f_prime)
+            
+            # Check convergence
+            if abs(f_lambda) < tolerance:
+                self.log(f"RFO Newton converged in {iteration + 1} iterations", force=True)
+                self.log(f"Final: lambda_aug={lambda_aug:.6e}, f(λ)={f_lambda:.2e}")
                 break
-        
-        if b_upper is None:
-            # All gradient components are zero (already at a stationary point)
-            self.log("All gradient components in RFO space are zero.", force=True)
-            return 0.0 # Step will be zero
-
-        # --- 4. Set the lower bracket bound (b_lower) ---
-        g_norm_sq = np.sum(grad_comps_prime_sq)
-        b_lower = b_upper - 1e6 - g_norm_sq # A robust heuristic lower bound
-
-        # --- 5. Check bracket validity ---
-        try:
-            f_upper = f(b_upper)
-            f_lower = f(b_lower)
-        except Exception as e:
-            self.log(f"f(lambda) calculation failed: {e}. Using fallback.", force=True)
-            # Use the asymptote value as a fallback if calculation fails
-            return first_asymptote_val - 1e-6 # <--- MODIFIED
-
-        if f_lower * f_upper >= 0:
-            # Bracket is invalid (meaning f(b_upper) did not go to +inf)
-            self.log(f"brentq bracket invalid: f(lower)={f_lower:.2e}, f(upper)={f_upper:.2e}", force=True)
             
-            # Try a much lower b_lower
-            b_lower = b_upper - 1e12 # Even lower
-            f_lower = f(b_lower)
+            if abs(f_prime_lambda) < 1e-20:
+                self.log(f"Warning: f'(λ) too small ({f_prime_lambda:.2e}) at iteration {iteration}", force=True)
+                break 
+
+            # Newton update
+            delta_lambda = -f_lambda / f_prime_lambda
             
-            if f_lower * f_upper >= 0:
-                self.log(f"FATAL: Could not find valid bracket on retry. f(lower)={f_lower:.2e}, f(upper)={f_upper:.2e}", force=True)
-                # The error f(upper) is tiny and negative, meaning b_upper
-                # is an excellent approximation of the root.
-                self.log(f"Using b_upper ({b_upper:.4e}) as approximation.", force=True)
-                return b_upper # <--- MODIFIED
+            lambda_aug_old = lambda_aug
+            lambda_aug += delta_lambda
+            
+            # Safeguard: must stay below the asymptote
+            if lambda_aug >= lambda_min_asymptote:
+                self.log(f"Warning: lambda_aug ({lambda_aug:.6e}) >= lambda_min_asymptote ({lambda_min_asymptote:.6e}), adjusting")
+                lambda_aug = 0.5 * (lambda_aug_old + lambda_min_asymptote)
+            
+            if self.debug_mode:
+                 self.log(f"  Iter {iteration:2d}: λ={lambda_aug:.6e}, f(λ)={f_lambda:.2e}, "
+                          f"f'(λ)={f_prime_lambda:.2e}, Δλ={delta_lambda:.2e}")
+
+        else:
+            # Max iterations reached
+            self.log(f"Warning: RFO Newton (Moré-Sorensen style) did not converge in {max_iterations} iterations", force=True)
+            self.log(f"Final residual f(λ): {f_lambda:.2e}", force=True)
         
-        # --- 6. Root finding ---
-        try:
-            root = brentq(f, b_lower, b_upper, xtol=1e-10, rtol=1e-10, maxiter=100)
-            return root
-        except Exception as e:
-            # This is the error the user reported
-            self.log(f"brentq failed: {e}. Using fallback.", force=True)
-            # f(upper) was likely very close to zero, so b_upper is a good approximation
-            return b_upper # <--- MODIFIED
+        return lambda_aug
 
     def solve_rfo(self, eigvals, gradient_components, alpha, mode="min"):
         """
@@ -907,14 +1309,9 @@ class RSIRFO:
             raise NotImplementedError("Secular equation solver is only implemented for RFO minimization (mode='min')")
             
         # 1. Find the smallest eigenvalue (lambda_aug) of the augmented Hessian
-        #    by solving the secular equation. This is O(N).
-        eigval_min = self._solve_secular_equation(eigvals, gradient_components, alpha)
+        eigval_min = self._solve_secular_more_sorensen(eigvals, gradient_components, alpha)
 
         # 2. Calculate the step components directly. This is O(N).
-        #    s_i = - (g_i/alpha) / ( (lambda_i/alpha) - lambda_aug )
-        #        = - g_i / ( lambda_i - alpha * lambda_aug )
-        
-        # Calculate denominators (lambda_i/alpha) - lambda_aug
         denominators = (eigvals / alpha) - eigval_min
         
         # Safety for division
