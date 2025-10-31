@@ -138,7 +138,7 @@ class MolecularVibrations:
     visualization of vibrational modes for molecular systems.
     """
 
-    def __init__(self, atoms, coordinates, hessian, symm_tolerance=0.25, max_symm_fold=6):
+    def __init__(self, atoms, coordinates, hessian, symm_tolerance=1e-2, max_symm_fold=6):
         """
         Parameters
         ----------
@@ -161,7 +161,7 @@ class MolecularVibrations:
         self.max_symm_fold = max_symm_fold
 
         # Initialize symmetry analyzer
-        self.symmetry_analyzer = SymmetryAnalyzer(atoms, coordinates, dist_tol=symm_tolerance, max_n_fold=max_symm_fold)
+        self.symmetry_analyzer = SymmetryAnalyzer(atoms, coordinates, tol=symm_tolerance, max_n_fold=max_symm_fold)
         self.point_group = self.symmetry_analyzer.analyze()
 
         # Atomic masses in atomic mass units
