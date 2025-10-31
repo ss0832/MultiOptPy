@@ -59,8 +59,6 @@ class RSIRFO:
         self.negative_curvature_safety = config.get("negative_curvature_safety", 0.8)
         self.min_eigenvalue_history = []
         
-        # === [MODIFIED] Level-Shifting Configuration (v2) ===
-        # Replaces v1 implementation.
         
         # Enable/disable level-shifting manually
         # Default is False for conservative approach
@@ -107,9 +105,75 @@ class RSIRFO:
         self.hessian_updater = ModelHessianUpdate()
         self.block_hessian_updater = BlockHessianUpdate()
         
+        # Build the prioritized list of Hessian updaters
+        self._build_hessian_updater_list()
+        
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         self.NEB_mode = False
+
+
+    def _build_hessian_updater_list(self):
+        """
+        Builds the prioritized dispatch list for Hessian updaters.
+        The order of this list is CRITICAL as it mimics the original
+        if/elif chain (most specific matches must come first).
+        """
+        
+        # Define the default (fallback) method
+        # We store this tuple (name, function)
+        self.default_update_method = (
+            "auto (default)",
+            lambda h, d, g: self.hessian_updater.flowchart_hessian_update(h, d, g, "auto")
+        )
+
+        # List of (substring_key, display_name, function) tuples
+        # The order MUST match the original if/elif logic exactly.
+        self.updater_dispatch_list = [
+            # (key to check with 'in', name for logging, function to call)
+            
+            ("flowchart", "flowchart", lambda h, d, g: self.hessian_updater.flowchart_hessian_update(h, d, g, "auto")),
+            
+            # --- Block methods (most specific first) ---
+            ("block_cfd_fsb_dd", "block_cfd_fsb_dd", self.block_hessian_updater.block_CFD_FSB_hessian_update_dd),
+            ("block_cfd_fsb_weighted", "block_cfd_fsb_weighted", self.block_hessian_updater.block_CFD_FSB_hessian_update_weighted),
+            ("block_cfd_fsb", "block_cfd_fsb", self.block_hessian_updater.block_CFD_FSB_hessian_update),
+            
+            ("block_cfd_bofill_weighted", "block_cfd_bofill_weighted", self.block_hessian_updater.block_CFD_Bofill_hessian_update_weighted),
+            ("block_cfd_bofill", "block_cfd_bofill", self.block_hessian_updater.block_CFD_Bofill_hessian_update),
+            
+            ("block_bfgs_dd", "block_bfgs_dd", self.block_hessian_updater.block_BFGS_hessian_update_dd),
+            ("block_bfgs", "block_bfgs", self.block_hessian_updater.block_BFGS_hessian_update),
+            
+            ("block_fsb_dd", "block_fsb_dd", self.block_hessian_updater.block_FSB_hessian_update_dd),
+            ("block_fsb_weighted", "block_fsb_weighted", self.block_hessian_updater.block_FSB_hessian_update_weighted),
+            ("block_fsb", "block_fsb", self.block_hessian_updater.block_FSB_hessian_update),
+            
+            ("block_bofill_weighted", "block_bofill_weighted", self.block_hessian_updater.block_Bofill_hessian_update_weighted),
+            ("block_bofill", "block_bofill", self.block_hessian_updater.block_Bofill_hessian_update),
+
+            # --- Standard methods (specific first) ---
+            ("bfgs_dd", "bfgs_dd", self.hessian_updater.BFGS_hessian_update_dd),
+            ("bfgs", "bfgs", self.hessian_updater.BFGS_hessian_update),
+            
+            ("sr1", "sr1", self.hessian_updater.SR1_hessian_update),
+            
+            ("pcfd_bofill", "pcfd_bofill", self.hessian_updater.pCFD_Bofill_hessian_update),
+            
+            ("cfd_fsb_dd", "cfd_fsb_dd", self.hessian_updater.CFD_FSB_hessian_update_dd),
+            ("cfd_fsb", "cfd_fsb", self.hessian_updater.CFD_FSB_hessian_update),
+            
+            ("cfd_bofill", "cfd_bofill", self.hessian_updater.CFD_Bofill_hessian_update),
+            
+            ("fsb_dd", "fsb_dd", self.hessian_updater.FSB_hessian_update_dd),
+            ("fsb", "fsb", self.hessian_updater.FSB_hessian_update),
+            
+            ("bofill", "bofill", self.hessian_updater.Bofill_hessian_update),
+            
+            ("psb", "psb", self.hessian_updater.PSB_hessian_update),
+            ("msp", "msp", self.hessian_updater.MSP_hessian_update),
+        ]
+
 
     def switch_NEB_mode(self):
         if self.NEB_mode:
@@ -1084,6 +1148,7 @@ class RSIRFO:
             self.log(f"Error in derivative calculation: {str(e)}")
             return 1e-8  # Return a small positive value as fallback
 
+
     def update_hessian(self, current_geom, current_grad, previous_geom, previous_grad):
         """Update the Hessian using the specified update method"""
         # Calculate displacement and gradient difference (avoid unnecessary reshaping)
@@ -1107,91 +1172,33 @@ class RSIRFO:
             
         self.log(f"Hessian update: displacement norm={disp_norm:.6f}, gradient diff norm={grad_diff_norm:.6f}, dot product={dot_product:.6f}")
         
-        # Apply the selected Hessian update method
-        if "flowchart" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: flowchart")        
-            delta_hess = self.hessian_updater.flowchart_hessian_update(
-                self.hessian, displacement, delta_grad, "auto"
-            )
-        elif "block_cfd_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_cfd_fsb")        
-            delta_hess = self.block_hessian_updater.block_CFD_FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "block_cfd_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_cfd_bofill")        
-            delta_hess = self.block_hessian_updater.block_CFD_Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
+        # --- [Refactored Method Dispatch (maintaining 'in' logic)] ---
         
-        elif "block_bfgs" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_bfgs")        
-            delta_hess = self.block_hessian_updater.block_BFGS_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "block_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_fsb")        
-            delta_hess = self.block_hessian_updater.block_FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "block_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: block_bofill")        
-            delta_hess = self.block_hessian_updater.block_Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
+        method_key_lower = self.hessian_update_method.lower()
         
+        # Default values (fallback)
+        method_name, update_function = self.default_update_method
+        found_method = False
+
+        # Iterate through the prioritized list
+        for key, name, func in self.updater_dispatch_list:
+            if key in method_key_lower:
+                method_name = name
+                update_function = func
+                found_method = True
+                break  # Found the first (highest priority) match
+
+        if not found_method:
+             self.log(f"Unknown Hessian update method: {self.hessian_update_method}. Using auto selection.")
         
-        elif "bfgs" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: bfgs")        
-            delta_hess = self.hessian_updater.BFGS_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "sr1" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: sr1")        
-            delta_hess = self.hessian_updater.SR1_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "pcfd_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: pcfd_bofill")
-            delta_hess = self.hessian_updater.pCFD_Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )   
-            
-        elif "cfd_fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: cfd_fsb")        
-            delta_hess = self.hessian_updater.CFD_FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "cfd_bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: cfd_bofill")
-            delta_hess = self.hessian_updater.CFD_Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )   
-        elif "fsb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: fsb")        
-            delta_hess = self.hessian_updater.FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "bofill" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: bofill")
-            delta_hess = self.hessian_updater.Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "psb" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: psb")        
-            delta_hess = self.hessian_updater.PSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "msp" in self.hessian_update_method.lower():
-            self.log(f"Hessian update method: msp")
-            delta_hess = self.hessian_updater.MSP_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        else:
-            self.log(f"Unknown Hessian update method: {self.hessian_update_method}. Using auto selection.")
-            delta_hess = self.hessian_updater.flowchart_hessian_update(
-                self.hessian, displacement, delta_grad, "auto"
-            )
+        self.log(f"Hessian update method: {method_name}")
+        
+        # Call the selected function (either found or default)
+        delta_hess = update_function(
+            self.hessian, displacement, delta_grad
+        )
+        
+        # --- [End of Refactored Section] ---
             
         # Update the Hessian (in-place addition)
         self.hessian += delta_hess
@@ -1199,8 +1206,8 @@ class RSIRFO:
         # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
-
-    # === [EXISTING] Robust RFO Solver ===
+        
+        
     def _solve_secular_more_sorensen(self, eigvals, grad_comps, alpha):
         """
         Moré-Sorensen-style robust Newton solver for the RFO secular equation.

@@ -587,7 +587,9 @@ class NEB:
                 adaptive_neb_count += 1
             
          
-        self.make_traj_file(file_directory) 
+        self.make_traj_file(file_directory)
+        
+        self.get_result_file()
         print("Complete...")
         return
 
@@ -1067,4 +1069,112 @@ class NEB:
         velocity_list = gradient_list
         return np.array(velocity_list, dtype="float64")
 
+    def get_result_file(self):
+        """
+        Gets the absolute file paths for the geometry files corresponding to 
+        energy maxima (TS candidates) from the final iteration results.
+        """
+        self.ts_guess_file_list = []
+        
+        # 1. Get the last energy list from energy_plot.csv
+        energy_file_path = os.path.join(self.config.NEB_FOLDER_DIRECTORY, "energy_plot.csv")
+        
+        if not os.path.exists(energy_file_path):
+            print(f"Error: Energy log file not found: {energy_file_path}")
+            return
 
+        try:
+            with open(energy_file_path, 'r') as f:
+                lines = f.readlines()
+                if not lines:
+                    print(f"Error: {energy_file_path} is empty.")
+                    return
+                # Get the last line
+                last_line = lines[-1].strip()
+            
+            # Load the energy list from CSV as a numpy array
+            biased_energy_list = np.array([float(e) for e in last_line.split(',') if e.strip()])
+        
+        except Exception as e:
+            print(f"Error: Failed to read {energy_file_path}: {e}")
+            return
+            
+        if len(biased_energy_list) == 0:
+            print("Error: No energy data found in the last line of energy_plot.csv.")
+            return
+
+        # 2. Identify the indices (Z) of energy maxima
+        ts_indices = np.array([], dtype=int)
+        if len(biased_energy_list) > 2:
+            # Find local maxima, excluding endpoints (0 and -1)
+            ts_indices = argrelmax(biased_energy_list[1:-1])[0] + 1
+            
+            # If no local maxima are found (e.g., monotonic path),
+            # set the highest energy point (excluding endpoints) as the TS candidate.
+            if len(ts_indices) == 0:
+                print("No local maxima found. Setting the highest energy point (excluding endpoints) as the TS candidate.")
+                ts_indices = np.array([np.argmax(biased_energy_list[1:-1]) + 1])
+        
+        elif len(biased_energy_list) > 0:
+            print("Warning: Path has 2 or fewer images. Cannot identify a non-endpoint TS.")
+        
+        else:
+            return # Energy list is empty (already caught above, but just in case)
+
+        #print(f"Final energy profile (kcal/mol, relative to start): {[(e - biased_energy_list[0]) * self.config.hartree2kcalmol for e in biased_energy_list]}")
+        print(f"TS candidate indices: {ts_indices}")
+        
+        if len(ts_indices) == 0:
+            print("No TS candidates were found.")
+            return
+
+        # 3. Identify the last iteration directory (path_ITR_YYY_XXX)
+        # Find the directory with the largest YYY
+        itr_dirs = glob.glob(os.path.join(self.config.NEB_FOLDER_DIRECTORY, "path_ITR_*"))
+        if not itr_dirs:
+            print(f"Error: Iteration directories not found in {self.config.NEB_FOLDER_DIRECTORY}.")
+            return
+
+        last_itr_num = -1
+        last_itr_dir = ""
+        
+        # Pattern: path_ITR_(number)_(init_input_name)
+        # Escape special characters in init_input with re.escape and confirm it matches the end ($)
+        base_name = re.escape(self.config.init_input)
+        pattern = re.compile(r"path_ITR_(\d+)_" + base_name + r"$")
+
+        for d in itr_dirs:
+            dir_name = os.path.basename(d) # Get the directory name itself
+            match = pattern.match(dir_name)
+            if match:
+                try:
+                    itr_num = int(match.group(1))
+                    if itr_num > last_itr_num:
+                        last_itr_num = itr_num
+                        last_itr_dir = d
+                except ValueError:
+                    continue 
+
+        if not last_itr_dir:
+            print(f"Error: No valid last iteration directory ('path_ITR_*_{self.config.init_input}') found.")
+            return
+
+        print(f"Last iteration directory: {last_itr_dir}")
+
+        # 4. Assemble the file paths and add to the list
+        for z in ts_indices:
+            # File format: XXX_Z.xyz (e.g., input_name_5.xyz)
+            file_name = f"{self.config.init_input}_{z}.xyz"
+            file_path = os.path.join(last_itr_dir, file_name)
+            
+            if os.path.exists(file_path):
+                # Get the absolute path, as requested
+                abs_path = os.path.abspath(file_path)
+                self.ts_guess_file_list.append(abs_path)
+                print(f"Found TS candidate file: {abs_path}")
+            else:
+                print(f"Warning: Expected file not found: {file_path}")
+        
+        return
+    
+    

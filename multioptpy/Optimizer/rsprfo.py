@@ -92,11 +92,45 @@ class EnhancedRSPRFO:
         self.hessian_updater = ModelHessianUpdate()
         self.block_hessian_updater = BlockHessianUpdate()
         
+        # Build Hessian updater dispatch list
+        self._build_hessian_updater_list()
+        
         self.log(f"Initialized EnhancedRSPRFO with trust radius={self.trust_radius:.6f}, "
                 f"bounds=[{self.trust_radius_min:.6f}, {self.trust_radius_max:.6f}]")
 
-
-
+    def _build_hessian_updater_list(self):
+        """Builds the prioritized dispatch list for Hessian updaters (from RSIRFO)."""
+        self.default_update_method = (
+            "auto (default)",
+            lambda h, d, g: self.hessian_updater.flowchart_hessian_update(h, d, g, "auto")
+        )
+        self.updater_dispatch_list = [
+            ("flowchart", "flowchart", lambda h, d, g: self.hessian_updater.flowchart_hessian_update(h, d, g, "auto")),
+            ("block_cfd_fsb_dd", "block_cfd_fsb_dd", self.block_hessian_updater.block_CFD_FSB_hessian_update_dd),
+            ("block_cfd_fsb_weighted", "block_cfd_fsb_weighted", self.block_hessian_updater.block_CFD_FSB_hessian_update_weighted),
+            ("block_cfd_fsb", "block_cfd_fsb", self.block_hessian_updater.block_CFD_FSB_hessian_update),
+            ("block_cfd_bofill_weighted", "block_cfd_bofill_weighted", self.block_hessian_updater.block_CFD_Bofill_hessian_update_weighted),
+            ("block_cfd_bofill", "block_cfd_bofill", self.block_hessian_updater.block_CFD_Bofill_hessian_update),
+            ("block_bfgs_dd", "block_bfgs_dd", self.block_hessian_updater.block_BFGS_hessian_update_dd),
+            ("block_bfgs", "block_bfgs", self.block_hessian_updater.block_BFGS_hessian_update),
+            ("block_fsb_dd", "block_fsb_dd", self.block_hessian_updater.block_FSB_hessian_update_dd),
+            ("block_fsb_weighted", "block_fsb_weighted", self.block_hessian_updater.block_FSB_hessian_update_weighted),
+            ("block_fsb", "block_fsb", self.block_hessian_updater.block_FSB_hessian_update),
+            ("block_bofill_weighted", "block_bofill_weighted", self.block_hessian_updater.block_Bofill_hessian_update_weighted),
+            ("block_bofill", "block_bofill", self.block_hessian_updater.block_Bofill_hessian_update),
+            ("bfgs_dd", "bfgs_dd", self.hessian_updater.BFGS_hessian_update_dd),
+            ("bfgs", "bfgs", self.hessian_updater.BFGS_hessian_update),
+            ("sr1", "sr1", self.hessian_updater.SR1_hessian_update),
+            ("pcfd_bofill", "pcfd_bofill", self.hessian_updater.pCFD_Bofill_hessian_update),
+            ("cfd_fsb_dd", "cfd_fsb_dd", self.hessian_updater.CFD_FSB_hessian_update_dd),
+            ("cfd_fsb", "cfd_fsb", self.hessian_updater.CFD_FSB_hessian_update),
+            ("cfd_bofill", "cfd_bofill", self.hessian_updater.CFD_Bofill_hessian_update),
+            ("fsb_dd", "fsb_dd", self.hessian_updater.FSB_hessian_update_dd),
+            ("fsb", "fsb", self.hessian_updater.FSB_hessian_update),
+            ("bofill", "bofill", self.hessian_updater.Bofill_hessian_update),
+            ("psb", "psb", self.hessian_updater.PSB_hessian_update),
+            ("msp", "msp", self.hessian_updater.MSP_hessian_update),
+        ]
 
     def compute_reduction_ratio(self, gradient, hessian, step, actual_reduction):
         """
@@ -872,120 +906,74 @@ class EnhancedRSPRFO:
     
     def update_hessian(self, current_geom, current_grad, previous_geom, previous_grad):
         """
-        Update the Hessian using the specified update method
-        
-        Parameters:
-        current_geom: numpy.ndarray - Current geometry
-        current_grad: numpy.ndarray - Current gradient
-        previous_geom: numpy.ndarray - Previous geometry
-        previous_grad: numpy.ndarray - Previous gradient
+        Update the Hessian using the specified update method.
+        WARNING: This version FORCES the update even if dot_product <= 0,
+        which may lead to numerical instability or crashes.
         """
-        # Calculate displacement and gradient difference
-        displacement = np.array(current_geom - previous_geom).reshape(-1, 1)
-        delta_grad = np.array(current_grad - previous_grad).reshape(-1, 1)
+        displacement = np.asarray(current_geom - previous_geom).reshape(-1, 1)
+        delta_grad = np.asarray(current_grad - previous_grad).reshape(-1, 1)
         
-        # Skip update if changes are too small
-        disp_norm = norm(displacement)
-        grad_diff_norm = norm(delta_grad)
+        disp_norm = np.linalg.norm(displacement)
+        grad_diff_norm = np.linalg.norm(delta_grad)
         
+        # This is a pre-check from the original code, kept for safety
         if disp_norm < 1e-10 or grad_diff_norm < 1e-10:
             self.log("Skipping Hessian update due to small changes")
             return
             
-        # Check if displacement and gradient difference are sufficiently aligned
         dot_product = np.dot(displacement.T, delta_grad)[0, 0]
         
-        # Skip update if dot product is negative or zero
+        # === [IMPROVEMENT 3] Selective Hessian update ===
+        # Uncomment the following lines if should_update_hessian method is implemented
+        # if not self.should_update_hessian(displacement, delta_grad, dot_product):
+        #     return
+        # === [END IMPROVEMENT 3] ===
+        
+        # === [MODIFICATION] Safety check removed per user request ===
         if dot_product <= 0:
-            self.log("Skipping Hessian update due to poor alignment (negative or zero dot product)")
-            return
-            
-        # Calculate curvature for diagnostic
-        curvature = dot_product / (disp_norm**2)
-        
-        self.log(f"Hessian update: displacement norm={disp_norm:.6f}, gradient diff norm={grad_diff_norm:.6f}")
-        self.log(f"Dot product={dot_product:.6f}, curvature={curvature:.6f}")
-        
-        # Apply the selected Hessian update method
-        if "flowchart" in self.hessian_update_method.lower():
-            self.log(f"Using flowchart-based Hessian update selection")
-            delta_hess = self.hessian_updater.flowchart_hessian_update(
-                self.hessian, displacement, delta_grad, "auto"
-            )
-        elif "block_bfgs" in self.hessian_update_method.lower():
-            self.log(f"Using Block BFGS Hessian update")
-            delta_hess = self.block_hessian_updater.block_BFGS_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "block_fsb" in self.hessian_update_method.lower():
-            self.log(f"Using Block FSB Hessian update")
-            delta_hess = self.block_hessian_updater.block_FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "block_bofill" in self.hessian_update_method.lower():
-            self.log(f"Using Block Bofill Hessian update")
-            delta_hess = self.block_hessian_updater.block_Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        
-        elif "bfgs" in self.hessian_update_method.lower():
-            self.log(f"Using BFGS Hessian update")
-            delta_hess = self.hessian_updater.BFGS_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "sr1" in self.hessian_update_method.lower():
-            self.log(f"Using SR1 Hessian update")
-            delta_hess = self.hessian_updater.SR1_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "fsb" in self.hessian_update_method.lower():
-            self.log(f"Using FSB Hessian update")
-            delta_hess = self.hessian_updater.FSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "bofill" in self.hessian_update_method.lower():
-            self.log(f"Using Bofill Hessian update")
-            delta_hess = self.hessian_updater.Bofill_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "psb" in self.hessian_update_method.lower():
-            self.log(f"Using PSB Hessian update")
-            delta_hess = self.hessian_updater.PSB_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
-        elif "msp" in self.hessian_update_method.lower():
-            self.log(f"Using MSP Hessian update")
-            delta_hess = self.hessian_updater.MSP_hessian_update(
-                self.hessian, displacement, delta_grad
-            )
+            self.log(f"WARNING: Forcing Hessian update despite poor alignment (dot_product={dot_product:.6f}).", force=True)
+            self.log("This may cause instability or errors in the update function.", force=True)
+        # =======================================================
         else:
-            self.log(f"Unknown Hessian update method: {self.hessian_update_method}. Using auto selection.")
-            # Default to Bofill for saddle points, BFGS for minimization
-            if self.saddle_order > 0:
-                delta_hess = self.hessian_updater.Bofill_hessian_update(
-                    self.hessian, displacement, delta_grad
-                )
-                self.log("Auto-selected Bofill update for saddle point")
-            else:
-                delta_hess = self.hessian_updater.BFGS_hessian_update(
-                    self.hessian, displacement, delta_grad
-                )
-                self.log("Auto-selected BFGS update for minimization")
-            
-        # Update the Hessian
-        self.hessian += delta_hess
+            self.log(f"Hessian update: displacement norm={disp_norm:.6f}, gradient diff norm={grad_diff_norm:.6f}, dot product={dot_product:.6f}")
         
-        # Ensure Hessian symmetry (numerical errors might cause slight asymmetry)
-        self.hessian = (self.hessian + self.hessian.T) / 2
+        method_key_lower = self.hessian_update_method.lower()
+        method_name, update_function = self.default_update_method
+        found_method = False
+
+        for key, name, func in self.updater_dispatch_list:
+            if key in method_key_lower:
+                method_name = name
+                update_function = func
+                found_method = True
+                break
+
+        if not found_method:
+             self.log(f"Unknown Hessian update method: {self.hessian_update_method}. Using auto selection.")
+        
+        self.log(f"Hessian update method: {method_name}")
+        
+        try:
+            delta_hess = update_function(
+                self.hessian, displacement, delta_grad
+            )
+            self.hessian += delta_hess
+            self.hessian = 0.5 * (self.hessian + self.hessian.T)
+            self.log("Hessian update attempted.")
+            
+        except Exception as e:
+            self.log(f"ERROR during forced Hessian update ({method_name}): {e}", force=True)
+            self.log("Hessian may be corrupted. Proceeding with caution.", force=True)
     
-    def log(self, message):
+    def log(self, message, force=False):
         """
-        Print log message if display flag is enabled
+        Print log message if display flag is enabled or force is True
         
         Parameters:
         message: str - Message to display
+        force: bool - If True, display message regardless of display_flag
         """
-        if self.display_flag:
+        if self.display_flag or force:
             print(message)
     
     def set_hessian(self, hessian):
@@ -1061,83 +1049,3 @@ class EnhancedRSPRFO:
         list - Trust radius values for each iteration
         """
         return self.trust_radius_history
-    
-
-
-def project_out_hess_tr_and_rot_for_coord(hessian, geometry, display_eigval=True):#do not consider atomic mass
-    def gram_schmidt(vectors):
-        basis = []
-        for v in vectors:
-            w = v.copy()
-            for b in basis:
-                w -= np.dot(v, b) * b
-            norm = np.linalg.norm(w)
-            if norm > 1e-10:
-                basis.append(w / norm)
-        return np.array(basis)
-    
-    natoms = len(geometry) // 3
-    # Center the geometry
-    geometry = geometry - calc_center(geometry, element_list=[])
-    
-    # Initialize arrays for translation and rotation vectors
-    tr_vectors = np.zeros((3, 3 * natoms))
-    rot_vectors = np.zeros((3, 3 * natoms))
-    
-    # Create translation vectors (mass-weighted normalization is not used as specified)
-    for i in range(3):
-        tr_vectors[i, i::3] = 1.0
-    
-    # Create rotation vectors
-    for atom in range(natoms):
-        # Get atom coordinates
-        x, y, z = geometry[atom]
-        
-        # Rotation around x-axis: (0, -z, y)
-        rot_vectors[0, 3*atom:3*atom+3] = np.array([0.0, -z, y])
-        
-        # Rotation around y-axis: (z, 0, -x)
-        rot_vectors[1, 3*atom:3*atom+3] = np.array([z, 0.0, -x])
-        
-        # Rotation around z-axis: (-y, x, 0)
-        rot_vectors[2, 3*atom:3*atom+3] = np.array([-y, x, 0.0])
-
-    # Combine translation and rotation vectors
-    TR_vectors = np.vstack([tr_vectors, rot_vectors])
-    
-
-    
-    # Orthonormalize the translation and rotation vectors
-    TR_vectors = gram_schmidt(TR_vectors)
-    
-    # Calculate projection matrix
-    P = np.eye(3 * natoms)
-    for vector in TR_vectors:
-        P -= np.outer(vector, vector)
-    P = 0.5 * (P + P.T)
-    # Project the Hessian
-    hess_proj = np.dot(np.dot(P.T, hessian), P)
-    
-    # Make the projected Hessian symmetric (numerical stability)
-    hess_proj = (hess_proj + hess_proj.T) / 2
-    
-    if display_eigval:
-        eigenvalues, _ = np.linalg.eigh(hess_proj)
-        eigenvalues = np.sort(eigenvalues)
-        # Filter out near-zero eigenvalues
-        idx_eigenvalues = np.where(np.abs(eigenvalues) > 1e-6)[0]
-        print(f"EIGENVALUES (NORMAL COORDINATE, NUMBER OF VALUES: {len(idx_eigenvalues)}):")
-        for i in range(0, len(idx_eigenvalues), 6):
-            tmp_arr = eigenvalues[idx_eigenvalues[i:i+6]]
-            print(" ".join(f"{val:12.8f}" for val in tmp_arr))
-        
-    return hess_proj  
-    
-def calc_center(geomerty, element_list=[]):#geomerty:Bohr
-    center = np.array([0.0, 0.0, 0.0], dtype="float64")
-    for i in range(len(geomerty)):
-        
-        center += geomerty[i] 
-    center /= float(len(geomerty))
-    
-    return center
