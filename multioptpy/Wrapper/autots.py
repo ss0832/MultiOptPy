@@ -1,6 +1,7 @@
 
 import os
 import shutil
+import numpy as np
 
 from multioptpy.Wrapper.optimize_wrapper import OptimizationJob
 from multioptpy.Wrapper.neb_wrapper import NEBJob
