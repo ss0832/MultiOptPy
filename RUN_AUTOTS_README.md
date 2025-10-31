@@ -11,6 +11,7 @@ This script accepts a combination of **required** and **optional** arguments to 
 **Example Command:**
 ```bash
 python run_autots.py molecule.xyz -ma 150 6 8 150 1 9 -n 2 -osp /path/to/my/software_path.conf
+```
 Required Arguments
 input_file
 
@@ -53,7 +54,7 @@ If you need to change detailed calculation conditions (like the optimization met
 step1_settings: AFIR Scan (Step 1)
 These settings are passed to the OptimizationJob for Step 1.
 
-Python
+```Python
 
 "step1_settings": {
     # QM software to use (str)
@@ -64,10 +65,11 @@ Python
     "use_model_hessian": 'fischerd3'
     # "manual_AFIR" is overridden by the command-line argument
 }
+```
 step2_settings: NEB Path Optimization (Step 2)
 These settings are passed to the NEBJob for Step 2.
 
-Python
+```Python
 
 "step2_settings": {
     "othersoft": "uma-s-1p1",
@@ -89,10 +91,11 @@ Python
     # Charge (int)
     "electronic_charge": 0
 }
+```
 step3_settings: TS Refinement (Step 3)
 These settings are passed to the OptimizationJob for Step 3.
 
-Python
+```Python
 
 "step3_settings": {
     "othersoft": "uma-s-1p1",
@@ -107,4 +110,6 @@ Python
     # Run frequency analysis (bool)
     "frequency_analysis": True
     # "saddle_order": 1 is set automatically by autots.py
+
 }
+```
