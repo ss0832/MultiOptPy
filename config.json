@@ -1,0 +1,36 @@
+{
+  "work_dir": "autots_run",
+  "top_n_candidates": 3,
+  
+  "step1_settings": {
+    "othersoft": "uma-s-1p1",
+    "opt_method": ["rsirfo_block_fsb"],
+    "use_model_hessian": "fischerd3",
+    "spin_multiplicity": 1,
+    "electronic_charge": -1
+  },
+  
+  "step2_settings": {
+    "othersoft": "uma-s-1p1",
+    "NSTEP": 15,
+    "ANEB": [3, 5],
+    "QSM": true,
+    "use_model_hessian": "fischerd3",
+    "save_pict": true,
+    "node_distance_bernstein": 0.75,
+    "align_distances": 9999,
+    "spin_multiplicity": 1,
+    "electronic_charge": -1
+  },
+  
+  "step3_settings": {
+    "othersoft": "uma-s-1p1",
+    "opt_method": ["rsirfo_block_bofill"],
+    "calc_exact_hess": 5,
+    "tight_convergence_criteria": true,
+    "max_trust_radius": 0.2,
+    "frequency_analysis": true,
+    "spin_multiplicity": 1,
+    "electronic_charge": -1
+  }
+}
