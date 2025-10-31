@@ -7,7 +7,7 @@
     "opt_method": ["rsirfo_block_fsb"],
     "use_model_hessian": "fischerd3",
     "spin_multiplicity": 1,
-    "electronic_charge": -1
+    "electronic_charge": 0
   },
   
   "step2_settings": {
@@ -20,7 +20,7 @@
     "node_distance_bernstein": 0.75,
     "align_distances": 9999,
     "spin_multiplicity": 1,
-    "electronic_charge": -1
+    "electronic_charge": 0
   },
   
   "step3_settings": {
@@ -31,6 +31,6 @@
     "max_trust_radius": 0.2,
     "frequency_analysis": true,
     "spin_multiplicity": 1,
-    "electronic_charge": -1
+    "electronic_charge": 0
   }
 }
