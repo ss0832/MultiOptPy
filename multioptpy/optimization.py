@@ -1381,6 +1381,45 @@ class Optimize:
         self.final_energy = real_e  # Hartree
         self.final_bias_energy = real_B_e  # Hartree
         return
+    
+    def get_result_file_path(self):
+        """
+        Sets the absolute file paths for optimization results as instance variables after run() is executed.
+        Before calling this method, run() must have been executed,
+        and self.BPA_FOLDER_DIRECTORY and self.START_FILE must be set.
+        The file names will be xxx_optimized.xyz / xxx_traj.xyz, where xxx is the input file name.
+        """
+        try:
+            if (hasattr(self, 'BPA_FOLDER_DIRECTORY') and self.BPA_FOLDER_DIRECTORY and
+                hasattr(self, 'START_FILE') and self.START_FILE):
+                
+                # Get the base name (xxx) from the input file name, removing the extension
+                base_name = os.path.splitext(os.path.basename(self.START_FILE))[0]
+                
+                # Build file names based on user-specified naming convention
+                # (Assuming xxx_optimized.py was a typo for .xyz)
+                optimized_filename = f"{base_name}_optimized.xyz"
+                traj_filename = f"{base_name}_traj.xyz"
+
+                # Set the full, absolute file paths as instance variables
+                # Use os.path.abspath to ensure the path is absolute
+                self.optimized_struct_file = os.path.abspath(os.path.join(self.BPA_FOLDER_DIRECTORY, optimized_filename))
+                self.traj_file = os.path.abspath(os.path.join(self.BPA_FOLDER_DIRECTORY, traj_filename))
+                
+                print("Optimized structure file path:", self.optimized_struct_file)
+                print("Trajectory file path:", self.traj_file)
+            
+            else:
+                print("Error: BPA_FOLDER_DIRECTORY or START_FILE is not set. Please run optimize() or optimize_oniom() first.")
+                self.optimized_struct_file = None
+                self.traj_file = None
+                
+        except Exception as e:
+            print(f"Error setting result file paths: {e}")
+            self.optimized_struct_file = None
+            self.traj_file = None
+
+        return
 
     def run(self):
         if type(self.args.INPUT) is str:
@@ -1433,4 +1472,8 @@ class Optimize:
                 EXEC_IRC.run()
             print(f"Trial of geometry optimization ({file}) was completed.")
         print("All calculations were completed.")
+        
+        self.get_result_file_path()
+        
+        
         return

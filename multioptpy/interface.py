@@ -22,11 +22,13 @@ import numpy as np
 """
 
 
-
-def ieipparser(parser):
+def ieipparser(parser, args_list=None):
     parser = call_ieipparser(parser)
     parser = parser_for_biasforce(parser)
-    args = parser2args(parser)
+    
+    # Pass the args_list to parser2args
+    args = parser2args(parser, args_list)
+    
     args.fix_atoms = []
     args.gradient_fix_atoms = []
     args.geom_info = ["0"]
@@ -35,36 +37,45 @@ def ieipparser(parser):
     args.oniom_flag = []
     return args
 
-def optimizeparser(parser):
+def optimizeparser(parser, args_list=None):
     parser = call_optimizeparser(parser)
     parser = parser_for_biasforce(parser)
-    args = parser2args(parser)
-    if len(args.INPUT) < 2:
+
+    # Pass the args_list to parser2args
+    args = parser2args(parser, args_list)
+
+    # Handle INPUT logic safely
+    if isinstance(args.INPUT, list) and len(args.INPUT) == 1:
         args.INPUT = args.INPUT[0]
+    
     args.constraint_condition = []
     return args
 
-def nebparser(parser):
+def nebparser(parser, args_list=None):
     parser = call_nebparser(parser)
     parser = parser_for_biasforce(parser)
-    args = parser2args(parser)
+
+    # Pass the args_list to parser2args
+    args = parser2args(parser, args_list)
+    
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
     args.oniom_flag = []
     return args
 
-def mdparser(parser):
-
+def mdparser(parser, args_list=None):
     parser = call_mdparser(parser)
     parser = parser_for_biasforce(parser)
-    args = parser2args(parser)
+
+    # Pass the args_list to parser2args
+    args = parser2args(parser, args_list)
+    
     args.geom_info = ["0"]
     args.opt_method = ""
     args.opt_fragment = []
     args.oniom_flag = []
     return args
-
 
 
 def call_ieipparser(parser):
@@ -363,9 +374,19 @@ def init_parser():
     parser = argparse.ArgumentParser()
     return parser
 
-
-def parser2args(parser):
-    args = parser.parse_args()
+def parser2args(parser, args_list=None):
+    """
+    Parses arguments and returns the args namespace.
+    
+    If args_list is None, it parses from sys.argv[1:] (command line).
+    If args_list is provided (e.g., []), it parses from that list.
+    """
+    if args_list is None:
+        # Original behavior: parse from command line
+        args = parser.parse_args()
+    else:
+        # New behavior: parse from the provided list
+        args = parser.parse_args(args_list)
     return args
 
 def force_data_parser(args):
