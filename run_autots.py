@@ -22,9 +22,10 @@ except ImportError as e:
 # To understand or modify any option (e.g., 'opt_method', 'NSTEP'),
 # always refer to the detailed help strings in 'multioptpy/interface.py':
 # 
-# 1. Step 1 (AFIR Scan) & Step 3 (TS Refinement): call_optimizeparser()
-# 2. Step 2 (NEB Optimization): call_nebparser()
+# 1. Step 1, 3, & 4 Settings: call_optimizeparser()
+# 2. Step 2 Settings: call_nebparser()
 # ======================================================================
+
 
 def load_config_from_file(config_path):
     """Loads configuration settings from a JSON file."""
@@ -44,95 +45,126 @@ def load_config_from_file(config_path):
         sys.exit(1)
 
 
+def launch_workflow(config):
+    """
+    Launches the AutoTSWorkflow with a prepared configuration dictionary.
+    This function is callable from other Python scripts.
+    
+    Args:
+        config (dict): The complete configuration dictionary.
+    """
+    
+    # --- 1. Apply settings from the config dict ---
+    
+    # Ensure 'software_path_file' is applied to all steps
+    local_conf_name = os.path.basename(config.get("software_path_file_source", "software_path.conf"))
+    for i in range(1, 5): # Steps 1, 2, 3, and 4
+        step_key = f"step{i}_settings"
+        if step_key in config:
+            config[step_key]["software_path_file"] = local_conf_name
+        elif i == 4 and "step4_settings" not in config: # Create step4 settings if not in config
+             config["step4_settings"] = {"software_path_file": local_conf_name}
+
+    # --- 2. Print Summary ---
+    print("--- AutoTS Workflow Starting ---")
+    print(f"Input File: {config.get('initial_mol_file')}")
+    print(f"Skip Step 1: {config.get('skip_step1', False)}")
+    print(f"Skip to Step 4: {config.get('skip_to_step4', False)}")
+    print(f"Run Step 4 (IRC): {config.get('run_step4', False)}")
+    
+    if not config.get('skip_step1', False) and not config.get('skip_to_step4', False):
+        print(f"AFIR Params: {config.get('step1_settings', {}).get('manual_AFIR')}")
+    
+    # --- 3. Create and Run the Workflow ---
+    workflow = AutoTSWorkflow(config=config)
+    workflow.run_workflow()
+
+
 def main():
+    """
+    Main function for command-line execution.
+    Parses CMD arguments, loads config, merges them, and calls launch_workflow.
+    """
     parser = argparse.ArgumentParser(
         description="Run the Automated Transition State (AutoTS) workflow."
     )
     
+    # --- (Parser arguments remain the same) ---
     parser.add_argument(
         "input_file",
         type=str,
-        help="Path to the initial molecular structure file. If --skip_step1 is used, this file must be the NEB trajectory."
+        help="Path to the initial structure file. If --skip_to_step4 is used, this must be the TS file."
     )
-    
     parser.add_argument(
         "-cfg", "--config_file",
         type=str,
         default="./config.json",
         help="Path to the configuration JSON file. Default is './config.json'."
     )
-    
     parser.add_argument(
         "-ma", "--manual_AFIR",
         nargs="*",
-        required=False, # No longer required if --skip_step1 is used
+        required=False,
         help="Manual AFIR parameters for Step 1 (e.g., 150 6 8 150 1 9)"
     )
-    
     parser.add_argument(
         "-osp", "--software_path_file",
         type=str,
         default="./software_path.conf",
         help="Path to the 'software_path.conf' file. Defaults to './software_path.conf'"
     )
-    
     parser.add_argument(
         "-n", "--top_n",
         type=int,
         default=None, # Default will be read from JSON
         help="Refine the top N highest energy candidates from NEB. Overrides config file."
     )
-    
-    # --- ADDED FLAG: Skip Step 1 ---
     parser.add_argument(
         "--skip_step1",
         action="store_true",
         help="Skip the AFIR scan (Step 1). The input_file must be the NEB trajectory file."
     )
+    parser.add_argument(
+        "--run_step4",
+        action="store_true",
+        help="Run Step 4 (IRC + Endpoint Optimization) after Step 3 completes."
+    )
+    parser.add_argument(
+        "--skip_to_step4",
+        action="store_true",
+        help="Skip Steps 1-3 and run only Step 4. The 'input_file' must be the TS structure file."
+    )
     
     args = parser.parse_args()
 
-    # --- 1. Load Configuration from File ---
+    # --- 1. Load Base Configuration from File ---
     workflow_config = load_config_from_file(args.config_file)
     
     # --- 2. Override Config with CMD Arguments ---
     workflow_config["initial_mol_file"] = args.input_file
     workflow_config["software_path_file_source"] = os.path.abspath(args.software_path_file)
     workflow_config["skip_step1"] = args.skip_step1
+    workflow_config["run_step4"] = args.run_step4
+    workflow_config["skip_to_step4"] = args.skip_to_step4
 
-    # Override top_n only if explicitly set on command line
     if args.top_n is not None:
         workflow_config["top_n_candidates"] = args.top_n
 
-    # Validation: Check for required AFIR args if not skipping
-    if not args.skip_step1 and not args.manual_AFIR:
-        print("\nError: The -ma/--manual_AFIR argument is required unless --skip_step1 is used.")
+    # --- Validation ---
+    if not args.skip_step1 and not args.skip_to_step4 and not args.manual_AFIR:
+        print("\nError: The -ma/--manual_AFIR argument is required unless skipping Step 1 or Step 4.")
         sys.exit(1)
 
     if args.manual_AFIR:
         workflow_config["step1_settings"]["manual_AFIR"] = args.manual_AFIR
-    elif not args.skip_step1:
-        # Ensure the key exists if we are running step 1 but -ma wasn't provided
-        # (This case is caught by the validation above, but defensive programming)
-        workflow_config["step1_settings"]["manual_AFIR"] = []
+    elif not args.skip_step1 and not args.skip_to_step4:
+        # Ensure 'manual_AFIR' key exists if running Step 1
+        workflow_config.setdefault("step1_settings", {})["manual_AFIR"] = []
 
+    # --- 3. Call the launcher function ---
+    launch_workflow(workflow_config)
 
-    local_conf_name = os.path.basename(args.software_path_file)
-    workflow_config["step1_settings"]["software_path_file"] = local_conf_name
-    workflow_config["step2_settings"]["software_path_file"] = local_conf_name
-    workflow_config["step3_settings"]["software_path_file"] = local_conf_name
-
-    print("--- AutoTS Workflow Starting ---")
-    print(f"Input File: {workflow_config['initial_mol_file']}")
-    print(f"Skip Step 1: {workflow_config['skip_step1']}")
-    if not args.skip_step1:
-        print(f"AFIR Params: {workflow_config['step1_settings']['manual_AFIR']}")
-    print(f"Software Conf: {workflow_config['software_path_file_source']}")
-    print(f"Refining Top {workflow_config['top_n_candidates']} NEB candidates.")
-    
-    # --- 3. Create and Run the Workflow ---
-    workflow = AutoTSWorkflow(config=workflow_config)
-    workflow.run_workflow()
 
 if __name__ == "__main__":
     main()
+
