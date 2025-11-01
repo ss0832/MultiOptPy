@@ -1470,6 +1470,10 @@ class Optimize:
                     hessian = None
                 EXEC_IRC = IRC(self.BPA_FOLDER_DIRECTORY, self.final_file_directory, self.irc, self.SP, self.element_list, self.electric_charge_and_multiplicity, self.force_data, xtb_method, FC_count=int(self.FC_COUNT), hessian=hessian) 
                 EXEC_IRC.run()
+                self.irc_terminal_struct_paths = EXEC_IRC.terminal_struct_paths
+            else:
+                self.irc_terminal_struct_paths = []
+            
             print(f"Trial of geometry optimization ({file}) was completed.")
         print("All calculations were completed.")
         

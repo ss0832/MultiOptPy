@@ -300,8 +300,17 @@ class LQA:
         # Reshape gradient for matrix operations
         flattened_gradient = mw_gradient.flatten()
         
+        # --- START MODIFICATION (Fix for numerical stability) ---
+
         # Time step for numerical integration
-        dt = 1 / self.N_euler * self.step_size / np.linalg.norm(flattened_gradient)
+        # Original: dt = 1 / self.N_euler * self.step_size / np.linalg.norm(flattened_gradient)
+        # This can diverge if np.linalg.norm(flattened_gradient) -> 0
+        
+        epsilon = 1e-6  # Prevent divergence when gradient norm is near zero
+        norm_g = np.linalg.norm(flattened_gradient)
+        dt = 1 / self.N_euler * self.step_size / max(norm_g, epsilon)
+
+        # --- END MODIFICATION ---
 
         # Transform gradient to eigensystem of the hessian
         mw_gradient_proj = np.dot(eigenvectors.T, flattened_gradient)
@@ -316,8 +325,31 @@ class LQA:
                 break
             t += dt
         
+        # --- START MODIFICATION (Fix for numerical stability) ---
+        
         # Calculate alphas and the IRC step
-        alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
+        # Original: alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
+        # This suffers from catastrophic cancellation (桁落ち) if (eigenvalues*t) is near zero.
+        
+        x = -eigenvalues * t
+        
+        # Use np.expm1(x) for numerical stability.
+        # np.expm1(x) calculates exp(x) - 1 accurately.
+        # We need (exp(x) - 1) / eigenvalues.
+        # Since x = -eigenvalues * t, then eigenvalues = -x / t
+        # (exp(x) - 1) / (-x / t) = -t * (exp(x) - 1) / x
+        
+        # We use np.where to handle the limit x -> 0, where (exp(x)-1)/x -> 1, so alpha -> -t
+        small_x_mask = np.abs(x) < 1e-8
+        
+        alphas = np.where(
+            small_x_mask,
+            -t,  # Limit of (exp(x)-1)/eigenvalues as x->0 is -t
+            np.expm1(x) / eigenvalues # Use numerically stable function
+        )
+        
+        # --- END MODIFICATION ---
+        
         A = np.dot(eigenvectors, np.dot(np.diag(alphas), eigenvectors.T))
         step = np.dot(A, flattened_gradient)
         

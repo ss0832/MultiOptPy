@@ -7,6 +7,7 @@ from multioptpy.Potential.potential import BiasPotentialCalculation
 from multioptpy.Parameters.parameter import atomic_mass
 from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.IRC.lqa import LQA
+from multioptpy.IRC.hpc import HPC
 from multioptpy.IRC.rk4 import RK4
 from multioptpy.IRC.dvv import DVV
 from multioptpy.IRC.modekill import ModeKill
@@ -66,8 +67,8 @@ class IRC:
             self.method = irc_method[2]
             self.method_options = []
 
-        self.file_directory = directory
-        self.final_directory = final_directory
+        self.file_directory = os.path.abspath(directory)+"/"
+        self.final_directory = os.path.abspath(final_directory)+"/"
         self.QM_interface = QM_interface
         
         self.element_list = element_list
@@ -86,6 +87,8 @@ class IRC:
         self.initial_step = None
         self.geom_num_list = None
         self.ts_coords = None
+        self.fin_xyz_base = None # Added
+        self.terminal_struct_paths = [] # Added
     
     def saddle_check(self):
         """Check if starting point is a saddle point and calculate initial displacement
@@ -111,6 +114,14 @@ class IRC:
         
         # Read input geometry
         fin_xyz = glob.glob(self.final_directory+"/*.xyz")
+        # --- Added ---
+        if fin_xyz:
+            self.fin_xyz_base = os.path.basename(fin_xyz[0]).split('.')[0]
+        else:
+            print("Warning: No XYZ file found in final_directory. Using default name 'input' for terminal structures.")
+            self.fin_xyz_base = "input"
+        # --- End of addition ---
+            
         with open(fin_xyz[0], "r") as f:
             words = f.read().splitlines()
         geom_num_list = []
@@ -201,6 +212,16 @@ class IRC:
             
         return initial_step, IRC_flag, geom_num_list, finish_frag
     
+    # --- New method added ---
+    def write_xyz(self, filename, geometry):
+        """Write a single geometry to an XYZ file"""
+        with open(filename, 'w') as outfile:
+            outfile.write(f"{len(geometry)}\n")
+            outfile.write("Terminal structure\n") # Comment line
+            for i in range(len(geometry)):
+                outfile.write(f"{self.element_list[i]}  {' '.join(map(str, geometry[i]))}\n")
+    # --- End of new method ---
+
     def _get_irc_method_class(self):
         """Get the appropriate IRC method class based on method name
         
@@ -214,7 +235,8 @@ class IRC:
             "RK4": RK4,
             "MODEKILL": ModeKill,
             "EULER": Euler,
-            "DVV": DVV
+            "DVV": DVV,
+            "HPC": HPC
         }
         
         method_key = self.method.upper()
@@ -244,6 +266,7 @@ class IRC:
         
         MethodClass = self._get_irc_method_class()
         
+        kill_inds = None # Initialize kill_inds
         if len(self.method_options) > 0 and MethodClass == ModeKill:
             # Pass kill_inds if specified in method options
             try:
@@ -266,7 +289,7 @@ class IRC:
             init_hess=self.hessian, 
             calc_engine=self.QM_interface,
             xtb_method=self.xtb_method,
-            kill_inds=kill_inds if 'kill_inds' in locals() else None
+            kill_inds=kill_inds
         )
         
         irc_instance.run()
@@ -315,6 +338,20 @@ class IRC:
             self._run_irc()
         else:
             self._run_meta_irc()
+            # --- Added for terminal structure output (meta-IRC) ---
+            meta_irc_xyz_file = os.path.join(self.file_directory, "irc_structures.xyz")
+            if os.path.exists(meta_irc_xyz_file):
+                try:
+                    meta_irc_geometry_list, _, _ = traj2list(meta_irc_xyz_file, [0, 1])
+                    if meta_irc_geometry_list: # Check if list is not empty
+                        terminal_geom_meta = meta_irc_geometry_list[-1]
+                        outfile_name_meta = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_1.xyz")
+                        self.write_xyz(outfile_name_meta, terminal_geom_meta)
+                        self.terminal_struct_paths = [os.path.abspath(outfile_name_meta)]
+                        print(f"Meta-IRC terminal structure saved to {outfile_name_meta}")
+                except Exception as e:
+                    print(f"Error processing meta-IRC terminal structure: {e}")
+            # --- End of addition ---
         
         return
     
@@ -333,19 +370,33 @@ class IRC:
         
         # Read backward data (to be reversed)
         bwd_data = []
-        with open(os.path.join(bwd_dir, "irc_energies_gradients.csv"), 'r') as csvfile:
-            reader = csv.reader(csvfile)
-            next(reader)  # Skip header
-            for row in reader:
-                bwd_data.append(row)
-        
+        bwd_csv_path = os.path.join(bwd_dir, "irc_energies_gradients.csv")
+        if os.path.exists(bwd_csv_path):
+            with open(bwd_csv_path, 'r') as csvfile:
+                reader = csv.reader(csvfile)
+                try:
+                    next(reader)  # Skip header
+                    for row in reader:
+                        bwd_data.append(row)
+                except StopIteration:
+                    print("Warning: Backward CSV file is empty.")
+        else:
+            print(f"Warning: Backward CSV file not found at {bwd_csv_path}")
+
         # Read forward data
         fwd_data = []
-        with open(os.path.join(fwd_dir, "irc_energies_gradients.csv"), 'r') as csvfile:
-            reader = csv.reader(csvfile)
-            next(reader)  # Skip header
-            for row in reader:
-                fwd_data.append(row)
+        fwd_csv_path = os.path.join(fwd_dir, "irc_energies_gradients.csv")
+        if os.path.exists(fwd_csv_path):
+            with open(fwd_csv_path, 'r') as csvfile:
+                reader = csv.reader(csvfile)
+                try:
+                    next(reader)  # Skip header
+                    for row in reader:
+                        fwd_data.append(row)
+                except StopIteration:
+                    print("Warning: Forward CSV file is empty.")
+        else:
+            print(f"Warning: Forward CSV file not found at {fwd_csv_path}")
         
         # Prepare TS point data
         ts_data = [0, self.init_e, self.init_B_e, np.sqrt((self.init_g**2).mean()), np.sqrt((self.init_B_g**2).mean())]
@@ -357,24 +408,27 @@ class IRC:
             
             # Write reversed backward data with negative step numbers
             for i, row in enumerate(reversed(bwd_data)):
-                step = -int(row[0])
-                writer.writerow([step, row[1], row[2], row[3], row[4]])
+                try:
+                    step = -int(row[0])
+                    writer.writerow([step, row[1], row[2], row[3], row[4]])
+                except (IndexError, ValueError) as e:
+                    print(f"Warning: Skipping malformed row in backward CSV data: {row} ({e})")
             
             # Write TS point (step 0)
             writer.writerow(ts_data)
             
             # Write forward data with positive step numbers
             for row in fwd_data:
-                writer.writerow(row)
-        
+                try:
+                    writer.writerow(row)
+                except (IndexError, ValueError) as e:
+                    print(f"Warning: Skipping malformed row in forward CSV data: {row} ({e})")
+
         print(f"Combined IRC data saved to {combined_csv}")
 
     def combine_xyz_files(self, fwd_dir, bwd_dir):
         """Combine forward and backward XYZ structures into a single XYZ file
-        
-        The combined file will start with the last structure of the forward path,
-        go through all structures in reverse order to the TS, then through the 
-        backward path structures from first to last.
+        and output terminal structures.
         
         Parameters
         ----------
@@ -390,12 +444,46 @@ class IRC:
         fwd_xyz_file = os.path.join(fwd_dir, "irc_structures.xyz")
         bwd_xyz_file = os.path.join(bwd_dir, "irc_structures.xyz")
         
-        fwd_irc_geometry_list, _, _ = traj2list(fwd_xyz_file, [0, 1])
-        bwd_irc_geometry_list, _, _ = traj2list(bwd_xyz_file, [0, 1])
+        fwd_irc_geometry_list = []
+        if os.path.exists(fwd_xyz_file):
+            try:
+                fwd_irc_geometry_list, _, _ = traj2list(fwd_xyz_file, [0, 1])
+            except Exception as e:
+                print(f"Error reading forward XYZ file: {e}")
+        else:
+            print(f"Warning: Forward XYZ file not found at {fwd_xyz_file}")
+
+        bwd_irc_geometry_list = []
+        if os.path.exists(bwd_xyz_file):
+            try:
+                bwd_irc_geometry_list, _, _ = traj2list(bwd_xyz_file, [0, 1])
+            except Exception as e:
+                print(f"Error reading backward XYZ file: {e}")
+        else:
+            print(f"Warning: Backward XYZ file not found at {bwd_xyz_file}")
+        
+
+      
+        self.terminal_struct_paths = [] # Clear any previous paths
+        if fwd_irc_geometry_list: # Check if list is not empty
+            terminal_geom_fwd = fwd_irc_geometry_list[-1]
+            outfile_name_fwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_1.xyz")
+            self.write_xyz(outfile_name_fwd, terminal_geom_fwd)
+            self.terminal_struct_paths.append(os.path.abspath(outfile_name_fwd))
+            print(f"Forward terminal structure saved to {outfile_name_fwd}")
+
+        if bwd_irc_geometry_list: # Check if list is not empty
+            terminal_geom_bwd = bwd_irc_geometry_list[-1]
+            outfile_name_bwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_2.xyz")
+            self.write_xyz(outfile_name_bwd, terminal_geom_bwd)
+            self.terminal_struct_paths.append(os.path.abspath(outfile_name_bwd))
+            print(f"Backward terminal structure saved to {outfile_name_bwd}")
+      
+
         fwd_irc_geometry_list = fwd_irc_geometry_list[::-1]  # Reverse forward list
 
         # TS structure from the final directory
-        ts_xyz_file = glob.glob(os.path.join(self.final_directory, "*.xyz"))[0]
+        ts_xyz_file_path = glob.glob(os.path.join(self.final_directory, "*.xyz"))
         
         # Write combined XYZ file
         with open(combined_xyz, 'w') as outfile:
@@ -407,8 +495,11 @@ class IRC:
                     outfile.write(self.element_list[i] + "  " + " ".join(map(str, xyz[i])) + "\n")
                 
             # TS structure
-            with open(ts_xyz_file, 'r') as infile:
-                outfile.write(infile.read())
+            if ts_xyz_file_path:
+                with open(ts_xyz_file_path[0], 'r') as infile:
+                    outfile.write(infile.read())
+            else:
+                print(f"Warning: TS XYZ file not found in {self.final_directory}")
             
             # Backward structures (from first to last)
             for xyz in bwd_irc_geometry_list:
@@ -427,10 +518,12 @@ class IRC:
         
         if finish_flag:
             print("IRC calculation failed.")
+            self.terminal_struct_paths = []
             return
             
         # Calculate the IRC path
         self.calc_IRCpath()
         
         print("IRC calculation is finished.")
+        # self.terminal_struct_paths can be accessed for terminal structure file paths.
         return
