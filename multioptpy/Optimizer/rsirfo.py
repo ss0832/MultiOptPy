@@ -55,6 +55,15 @@ class RSIRFO:
         
         # Adaptive Trust Radius Management Settings
         self.use_adaptive_trust_radius = config.get("use_adaptive_trust_radius", True)
+        
+        # === [NEW] Threshold to activate adaptive radius ===
+        # Only use adaptive trust radius if grad_norm is *below* this value
+        self.adaptive_trust_gradient_norm_threshold = config.get(
+            "adaptive_trust_gradient_norm_threshold", 
+            1e-2  # Default: activate when norm is 0.01 (adjust as needed)
+        ) 
+        # === [END NEW] ===
+        
         self.max_curvature_factor = config.get("max_curvature_factor", 2.5)
         self.negative_curvature_safety = config.get("negative_curvature_safety", 0.8)
         self.min_eigenvalue_history = []
@@ -111,7 +120,6 @@ class RSIRFO:
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         self.NEB_mode = False
-
 
     def _build_hessian_updater_list(self):
         """
@@ -287,7 +295,8 @@ class RSIRFO:
                     self.adjust_trust_radius(
                         actual_energy_change,
                         self.predicted_energy_changes[-1],
-                        min_eigval  # Pass minimum eigenvalue
+                        min_eigval,  # Pass minimum eigenvalue
+                        gradient_norm # === [MODIFIED] Pass gradient norm ===
                     )
 
         # Count negative eigenvalues for diagnostic purposes
@@ -366,9 +375,6 @@ class RSIRFO:
         self.iteration += 1
         
         return -1 * move_vector.reshape(-1, 1)
-
-    # === [MODIFIED] Level-Shifting Methods (v2) ===
-    # Replaces v1 implementation.
 
     def check_hessian_conditioning(self, eigvals):
         """
@@ -686,13 +692,15 @@ class RSIRFO:
         self.min_eigenvalue_history.append(min_eigenvalue)
 
     # === [EXISTING] Router for Trust Radius Adjustment ===
-    def adjust_trust_radius(self, actual_change, predicted_change, min_eigenvalue=None):
+    # === [EXISTING] Router for Trust Radius Adjustment ===
+    def adjust_trust_radius(self, actual_change, predicted_change, min_eigenvalue=None, gradient_norm=None):
         """
         Trust radius adjustment.
         
-        If the adaptive method is enabled and min_eigenvalue is provided,
+        If the adaptive method is enabled, min_eigenvalue is provided,
+        AND the gradient_norm is below the threshold,
         performs adjustment considering curvature information.
-        Otherwise, uses the conventional simple method (for backward compatibility).
+        Otherwise, uses the conventional simple method.
         
         Parameters:
             actual_change: float
@@ -701,13 +709,42 @@ class RSIRFO:
                 Predicted energy change
             min_eigenvalue: float, optional
                 Minimum eigenvalue of the Hessian (default: None)
+            gradient_norm: float, optional
+                Current L2 norm of the gradient. Used to conditionally
+                activate the adaptive method.
         """
-        # === Use adaptive method ===
-        if self.use_adaptive_trust_radius and min_eigenvalue is not None:
-            self.adjust_trust_radius_adaptive(actual_change, predicted_change, min_eigenvalue)
-            return
         
-        # === Conventional simple method (for backward compatibility) ===
+        # === [MODIFIED] Check conditions for using the ADAPTIVE method ===
+        
+        # 1. Must be globally enabled
+        # 2. Must have the minimum eigenvalue
+        can_use_adaptive = self.use_adaptive_trust_radius and min_eigenvalue is not None
+
+        if can_use_adaptive:
+            # If gradient norm was provided, check if it's below the threshold
+            if gradient_norm is not None:
+                if gradient_norm < self.adaptive_trust_gradient_norm_threshold:
+                    # Gradient is small enough -> Use ADAPTIVE
+                    self.log(f"Gradient norm ({gradient_norm:.6f}) < threshold "
+                             f"({self.adaptive_trust_gradient_norm_threshold:.6f}). "
+                             f"Using ADAPTIVE trust radius.", force=True)
+                    self.adjust_trust_radius_adaptive(actual_change, predicted_change, min_eigenvalue)
+                    return
+                else:
+                    # Gradient is still large -> Fallback to CONVENTIONAL
+                    self.log(f"Gradient norm ({gradient_norm:.6f}) >= threshold "
+                             f"({self.adaptive_trust_gradient_norm_threshold:.6f}). "
+                             f"Using CONVENTIONAL trust radius.", force=True)
+            else:
+                # Gradient norm was *not* provided, but adaptive is on.
+                # Default to using it (legacy behavior for backward compatibility).
+                self.log("Gradient norm not provided. Defaulting to ADAPTIVE trust radius.")
+                self.adjust_trust_radius_adaptive(actual_change, predicted_change, min_eigenvalue)
+                return
+        
+        # === Conventional simple method (fallback) ===
+        # (This block is reached if can_use_adaptive=False OR if gradient was too large)
+        
         if abs(predicted_change) < 1e-10:
             self.log("Skipping trust radius update: predicted change too small")
             return
@@ -1065,21 +1102,39 @@ class RSIRFO:
                         step_norm = self.trust_radius
                     break
         else:
-            # If we exhausted micro-cycles without converging
-            self.log(f"RS-I-RFO (Newton) did not converge in {self.max_micro_cycles} cycles")
+            # === [MODIFIED] If we exhausted micro-cycles without converging ===
+            self.log(f"RS-I-RFO (Newton) did not converge in {self.max_micro_cycles} cycles", force=True)
+            
+            # Check if the 'best_step' found is close enough to the trust radius
             if best_step is not None:
-                self.log("Using best step found during iterations")
-                step = best_step
-                step_norm = np.linalg.norm(step)
-            # --- MODIFICATION ---
-            # (Original code did not have this else fallback)
+                best_step_norm = np.linalg.norm(best_step)
+                # Use a slightly relaxed tolerance
+                if abs(best_step_norm - self.trust_radius) < self.step_norm_tolerance * 1.1:
+                     self.log(f"Using best step found during iterations (norm={best_step_norm:.6f} was close enough)")
+                     step = best_step
+                     step_norm = best_step_norm
+                else:
+                     # If 'best_step' is not close (e.g., norm=506),
+                     # discard it as junk and fall back to safe steepest descent.
+                     self.log(f"Best step found (norm={best_step_norm:.6f}) was NOT close to trust radius. Forcing steepest descent.", force=True)
+                     step = -gradient_trans
+                     step_norm = np.linalg.norm(step)
+                     if step_norm > 1e-10:
+                         step = step / step_norm * self.trust_radius
+                     else:
+                         step = np.zeros_like(gradient_trans) # Gradient is zero
+                     step_norm = self.trust_radius
             else:
-                self.log("Falling back to steepest descent as a last resort")
+                # If no 'best_step' was ever found, fall back to steepest descent.
+                self.log("No usable step found. Forcing steepest descent as a last resort.", force=True)
                 step = -gradient_trans
                 step_norm = np.linalg.norm(step)
-                if step_norm > self.trust_radius:
+                if step_norm > 1e-10:
                     step = step / step_norm * self.trust_radius
-                    step_norm = self.trust_radius
+                else:
+                    step = np.zeros_like(gradient_trans) # Gradient is zero
+                step_norm = self.trust_radius
+            # === [END MODIFICATION] ===
         
         return step, step_norm, alpha
         
@@ -1217,6 +1272,8 @@ class RSIRFO:
         
         Where: λ_i' = λ_i/α, g_i' = g_i/α
         
+        If the Newton solver fails, it falls back to brentq.
+        
         Parameters:
             eigvals: np.ndarray (sorted ascending)
             grad_comps: np.ndarray
@@ -1249,7 +1306,8 @@ class RSIRFO:
         # === Normal Case: Newton iteration ===
         
         # Initial guess (Baker, JCC 1986, Eq. 15)
-        lambda_aug = 0.5 * (lambda_min_asymptote - np.sqrt(lambda_min_asymptote**2 + 4 * g_norm_sq))
+        lambda_initial_guess = 0.5 * (lambda_min_asymptote - np.sqrt(lambda_min_asymptote**2 + 4 * g_norm_sq))
+        lambda_aug = lambda_initial_guess
 
         self.log(f"Normal case: solving RFO secular equation f(λ)=0")
         self.log(f"First asymptote (lambda_min_asymptote) = {lambda_min_asymptote:.6e}")
@@ -1268,6 +1326,8 @@ class RSIRFO:
                 np.sign(denominators) * 1e-30,
                 denominators
             )
+            # Handle exact zeros that slipped through
+            safe_denoms[safe_denoms == 0] = 1e-30
             
             # f(λ) and f'(λ)
             terms_f = grad_comps_prime_sq / safe_denoms
@@ -1302,11 +1362,74 @@ class RSIRFO:
                           f"f'(λ)={f_prime_lambda:.2e}, Δλ={delta_lambda:.2e}")
 
         else:
-            # Max iterations reached
+            # === [MODIFIED] Max iterations reached: Fallback to brentq ===
             self.log(f"Warning: RFO Newton (Moré-Sorensen style) did not converge in {max_iterations} iterations", force=True)
             self.log(f"Final residual f(λ): {f_lambda:.2e}", force=True)
+            self.log("Attempting fallback to brentq solver...")
+            
+            try:
+                # Define the secular function locally for brentq
+                def f_secular(lmd):
+                    denominators = eigvals_prime - lmd
+                    # Use safety check for division
+                    safe_denoms = np.where(
+                        np.abs(denominators) < 1e-30,
+                        np.sign(denominators) * 1e-30,
+                        denominators
+                    )
+                    # Handle exact zeros that slipped through
+                    safe_denoms[safe_denoms == 0] = 1e-30
+                    terms_f = grad_comps_prime_sq / safe_denoms
+                    return lmd + np.sum(terms_f)
+
+                g_norm = np.sqrt(g_norm_sq)
+                
+                # Establish bracket [a, b]
+                # b is just below the asymptote, f(b) should be large positive
+                b = lambda_min_asymptote - 1e-15 
+                f_b = f_secular(b)
+                
+                # If f(b) is somehow negative, the root is between b and the asymptote.
+                # This is an unstable region. Force f(b) to be positive
+                # by evaluating *at* the asymptote, relying on the safety checks.
+                if f_b < 0:
+                    self.log(f"  Warning: f(b) < 0 at {b:.6e}. Evaluating at asymptote limit.")
+                    b = lambda_min_asymptote
+                    f_b = f_secular(b) # This will be large and positive due to safe_denoms
+                
+                # a is our lower bound, f(a) must be < 0
+                # Start from the original initial guess
+                a = lambda_initial_guess
+                f_a = f_secular(a)
+                
+                search_limit = 10
+                while f_a > 0 and search_limit > 0:
+                    self.log(f"  brentq bracket search: f(a) > 0 at a={a:.6e}. Stepping back by g_norm={g_norm:.2e}.")
+                    # Step back by a reasonable amount (g_norm)
+                    a = a - g_norm
+                    f_a = f_secular(a)
+                    search_limit -= 1
+
+                if f_a * f_b >= 0:
+                    # Failed to find a bracket
+                    self.log(f"  Error: Could not establish a bracket for brentq. [a,b]=[{a:.2e},{b:.2e}], [f(a),f(b)]=[{f_a:.2e},{f_b:.2e}]", force=True)
+                    return lambda_aug # Return last Newton guess
+                
+                self.log(f"  brentq bracket established: [a, b] = [{a:.6e}, {b:.6e}], [f(a), f(b)] = [{f_a:.2e}, {f_b:.2e}]")
+                
+                # Use brentq to find the root
+                lambda_aug_brent = brentq(f_secular, a, b, xtol=1e-10, rtol=1e-10, maxiter=100)
+                
+                self.log(f"  brentq solver converged: lambda_aug = {lambda_aug_brent:.6e}")
+                return lambda_aug_brent # Return the brentq result
+
+            except Exception as e:
+                self.log(f"  brentq solver failed: {str(e)}", force=True)
+                return lambda_aug # Return last Newton guess
+            # === [END MODIFICATION] ===
         
         return lambda_aug
+        
 
     def solve_rfo(self, eigvals, gradient_components, alpha, mode="min"):
         """
