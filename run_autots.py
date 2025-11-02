@@ -79,7 +79,6 @@ def launch_workflow(config):
     workflow = AutoTSWorkflow(config=config)
     workflow.run_workflow()
 
-
 def main():
     """
     Main function for command-line execution.
@@ -104,8 +103,8 @@ def main():
     parser.add_argument(
         "-ma", "--manual_AFIR",
         nargs="*",
-        required=False,
-        help="Manual AFIR parameters for Step 1 (e.g., 150 6 8 150 1 9)"
+        required=False, # <-- This is no longer strictly required at parse time
+        help="Manual AFIR parameters for Step 1 (e.g., 150 6 8 150 1 9). Overrides config file."
     )
     parser.add_argument(
         "-osp", "--software_path_file",
@@ -140,7 +139,7 @@ def main():
     # --- 1. Load Base Configuration from File ---
     workflow_config = load_config_from_file(args.config_file)
     
-    # --- 2. Override Config with CMD Arguments ---
+    # --- 2. Override Config with CMD Arguments (Except AFIR) ---
     workflow_config["initial_mol_file"] = args.input_file
     workflow_config["software_path_file_source"] = os.path.abspath(args.software_path_file)
     workflow_config["skip_step1"] = args.skip_step1
@@ -150,20 +149,41 @@ def main():
     if args.top_n is not None:
         workflow_config["top_n_candidates"] = args.top_n
 
-    # --- Validation ---
-    if not args.skip_step1 and not args.skip_to_step4 and not args.manual_AFIR:
-        print("\nError: The -ma/--manual_AFIR argument is required unless skipping Step 1 or Step 4.")
-        sys.exit(1)
+    # --- 3. NEW: AFIR Validation and Handling ---
+    
+    # Ensure 'step1_settings' key exists to avoid errors
+    workflow_config.setdefault("step1_settings", {})
+    
+    is_running_step1 = not args.skip_step1 and not args.skip_to_step4
+    
+    # Check if AFIR is defined in the loaded config
+    # Use .get() to safely check for the key, default to None if not present
+    config_has_afir = workflow_config["step1_settings"].get("manual_AFIR")
+    
+    # Check if AFIR is provided on the command line
+    cmd_has_afir = args.manual_AFIR is not None
 
-    if args.manual_AFIR:
-        workflow_config["step1_settings"]["manual_AFIR"] = args.manual_AFIR
-    elif not args.skip_step1 and not args.skip_to_step4:
-        # Ensure 'manual_AFIR' key exists if running Step 1
-        workflow_config.setdefault("step1_settings", {})["manual_AFIR"] = []
+    if is_running_step1:
+        if cmd_has_afir:
+            # Case 1: CMD argument is given. It *always* overrides the config.
+            workflow_config["step1_settings"]["manual_AFIR"] = args.manual_AFIR
+            print(f"Using 'manual_AFIR' from command line (overrides config): {args.manual_AFIR}")
+        
+        elif config_has_afir:
+            # Case 2: CMD argument is NOT given, but config *has* AFIR.
+            # This is your desired behavior. We just print a confirmation.
+            print(f"Using 'manual_AFIR' from config file: {config_has_afir}")
+            # No action needed, the value is already loaded.
+            
+        else:
+            # Case 3: Running Step 1, but no AFIR in config OR command line.
+            # This is an error.
+            print("\nError: 'manual_AFIR' is not defined in the config file and was not provided via -ma.")
+            print("       Please add 'manual_AFIR' to your JSON or use the -ma argument.")
+            sys.exit(1)
 
-    # --- 3. Call the launcher function ---
+    # --- 4. Call the launcher function ---
     launch_workflow(workflow_config)
-
 
 if __name__ == "__main__":
     main()
