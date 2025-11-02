@@ -3,6 +3,8 @@ Multifunctional geometry optimization tools for quantum chemical calculations
 
 This program implements many geometry optimization methods in Python for learning purposes.
 
+This program can also automatically calculate the transition-state structure from a single equilibrium geometry.
+
 **Notice:** This program has NOT been experimentally validated in laboratory settings. I release this code to enable community contributions and collaborative development. Use at your own discretion and validate results independently. 
 
 (For Japanese users) Instructions on how to use: https://ss0832.github.io/
