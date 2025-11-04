@@ -670,13 +670,19 @@ class ProjectOutConstrain:
         tmp_b_mat_1st_derivative = None
         projection_vec_count = 0
         arbitrary_vec_count = 0
+
+        # --- FIX: Calculate grad_rms from the ORIGINAL gradient ---
+        grad_rms = np.sqrt(np.mean(grad**2))
+        grad_rms_threshold = 1.0e-3
+        # ---------------------------------------------------------
+
         for i_constrain in range(len(self.constraint_name)):
             if self.constraint_name[i_constrain] == "bond":
                 atom_label = [self.constraint_atoms_list[i_constrain][0], self.constraint_atoms_list[i_constrain][1]]
                 tmp_b_mat = torch_B_matrix(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy().reshape(1, -1)
                 tmp_b_mat_1st_derivative = torch_B_matrix_derivative(torch.tensor(coord, dtype=torch.float64), atom_label, torch_calc_distance).detach().numpy()
-               
-               
+                
+                
             elif self.constraint_name[i_constrain] == "fbond":
                 divide_index = self.constraint_atoms_list[i_constrain][-1]
                 fragm_1 = torch.tensor(self.constraint_atoms_list[i_constrain][:divide_index], dtype=torch.int64) 
@@ -742,31 +748,56 @@ class ProjectOutConstrain:
                 B_mat = tmp_b_mat
                 B_mat_1st_derivative = tmp_b_mat_1st_derivative
             else:  
-                B_mat = np.vstack((B_mat, tmp_b_mat))
-                if tmp_b_mat_1st_derivative is not None:
+                # FIX: Handle vstack/concatenate when B_mat or B_mat_1st_derivative is None
+                # (e.g., if 'eigvec' is the first constraint)
+                if B_mat is None:
+                    B_mat = tmp_b_mat
+                elif tmp_b_mat is not None:
+                    B_mat = np.vstack((B_mat, tmp_b_mat))
+                
+                if B_mat_1st_derivative is None:
+                    B_mat_1st_derivative = tmp_b_mat_1st_derivative
+                elif tmp_b_mat_1st_derivative is not None:
                     B_mat_1st_derivative = np.concatenate((B_mat_1st_derivative, tmp_b_mat_1st_derivative), axis=2)
                 
                     
-        if tmp_b_mat_1st_derivative is None:
-            proj_hess = tmp_hessian
-        else:
-            int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
-            proj_hess = tmp_hessian
-            int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            #hess_x = calc_cart_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
-            try:
-                int_hess_inv = np.linalg.pinv(int_hess)
-            except np.linalg.LinAlgError:
-                int_hess = int_hess + np.eye(len(int_hess)) * 1e-10
-                int_hess_inv = np.linalg.pinv(int_hess)
-            eff_hess = np.dot(couple_hess.T, np.dot(int_hess_inv, couple_hess))
-            proj_hess = proj_hess - eff_hess
-     
+        # --- FIX: Main projection logic based on RMS and B_mat existence ---
         
+        # Case 1: No B-matrix constraints were added (e.g., only 'eigvec'/'atoms_pair')
+        if B_mat is None:
+            proj_hess = tmp_hessian
+        
+        # Case 2: B-matrix exists, but the *last* constraint had no B'' (e.g., 'rot'/'eigvec' was last)
+        elif tmp_b_mat_1st_derivative is None:
+            proj_hess = tmp_hessian
+        
+        # Case 3: B-matrix and B'' (for the last constraint) exist
+        else:
+            # Case 3a: Gradient RMS is low (Stationary Point)
+            if grad_rms < grad_rms_threshold:
+                print(f"Gradient RMS ({grad_rms:.2e}) < {grad_rms_threshold:.2e}. Using stationary projection logic (fallback).")
+                # Fallback to the 'eigvec'-projected Hessian, per "mix-in" logic
+                proj_hess = tmp_hessian
+            
+            # Case 3b: Gradient RMS is high (Non-Stationary Point)
+            else:
+                print(f"Gradient RMS ({grad_rms:.2e}) >= {grad_rms_threshold:.2e}. Using non-stationary projection.")
+                # Use the 'eigvec'-projected tmp_grad for int_grad calculation
+                int_grad = calc_int_grad_from_pBmat(tmp_grad.reshape(3*natom, 1), B_mat)
+                # Use the 'eigvec'-projected tmp_hessian for non-stationary calculation
+                proj_hess = tmp_hessian
+                int_hess = calc_int_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+                couple_hess = calc_int_cart_coupling_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+                #hess_x = calc_cart_hess_from_pBmat_for_non_stationary_point(tmp_hessian, B_mat, B_mat_1st_derivative, int_grad)
+                try:
+                    int_hess_inv = np.linalg.pinv(int_hess)
+                except np.linalg.LinAlgError:
+                    int_hess = int_hess + np.eye(len(int_hess)) * 1e-10
+                    int_hess_inv = np.linalg.pinv(int_hess)
+                eff_hess = np.dot(couple_hess.T, np.dot(int_hess_inv, couple_hess))
+                proj_hess = proj_hess - eff_hess
+     
         return proj_hess
-    
-    
     
 def constract_partial_rot_B_mat(geom_num_list, target_atoms_list):#1-based index
     target_atoms_list = np.array(target_atoms_list, dtype=np.int32) - 1
