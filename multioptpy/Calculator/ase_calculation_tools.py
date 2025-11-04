@@ -21,6 +21,7 @@ from multioptpy.Calculator.ase_tools.orca import ASE_ORCA
 from multioptpy.Calculator.ase_tools.fairchem import ASE_FAIRCHEM
 from multioptpy.Calculator.ase_tools.mace import ASE_MACE
 from multioptpy.Calculator.ase_tools.mopac import ASE_MOPAC
+from multioptpy.Calculator.ase_tools.pygfn0 import ASE_GFN0
 
 """
 referrence:
@@ -402,6 +403,12 @@ def setup_calculator(atom_obj, software_type, electric_charge_and_multiplicity, 
         calc_obj = ASE_MACE(atom_obj=atom_obj,
                              electric_charge_and_multiplicity=electric_charge_and_multiplicity,
                              software_path=software_path_dict.get("mace_off"),
+                             software_type=software_type)
+        
+        return calc_obj
+    if software_type == "GFN0-xTB":
+        calc_obj = ASE_GFN0(atom_obj=atom_obj,
+                             electric_charge_and_multiplicity=electric_charge_and_multiplicity,
                              software_type=software_type)
         
         return calc_obj
