@@ -1,0 +1,138 @@
+{
+  "work_dir": "autots_v2_test",
+  "top_n_candidates": 3,
+  "multioptpy_version": "v1.19.5",
+  "step1_settings": {
+    "othersoft": "uma-s-1p1",
+    "opt_method": [
+      "rsirfo_block_fsb"
+    ],
+    "use_model_hessian": "fischerd3",
+    "spin_multiplicity": 1,
+    "electronic_charge": 0,
+    "manual_AFIR": [
+      "300",
+      "3",
+      "21"
+    ]
+  },
+  "step2_settings": {
+    "othersoft": "uma-s-1p1",
+    "NSTEP": 15,
+    "save_pict": true,
+    "node_distance_bernstein": 0.8,
+    "align_distances": 9999,
+    "spin_multiplicity": 1,
+    "electronic_charge": 0
+  },
+  "step3_settings": {
+    "othersoft": "uma-s-1p1",
+    "opt_method": [
+      "rsirfo_block_bofill"
+    ],
+    "calc_exact_hess": 5,
+    "tight_convergence_criteria": true,
+    "max_trust_radius": 0.2,
+    "frequency_analysis": true,
+    "spin_multiplicity": 1,
+    "electronic_charge": 0
+  },
+  "step4_settings": {
+    "othersoft": "uma-s-1p1",
+    "opt_method": [
+      "rsirfo_block_bofill"
+    ],
+    "spin_multiplicity": 1,
+    "electronic_charge": 0,
+    "calc_exact_hess": 10,
+    "tight_convergence_criteria": true,
+    "frequency_analysis": true,
+    "intrinsic_reaction_coordinates": [
+      "0.5",
+      "200",
+      "lqa"
+    ],
+    "step4b_opt_method": [
+      "rsirfo_block_fsb"
+    ]
+  },
+  "workflow": [
+    {
+      "step": "step1",
+      "enabled": true,
+      "repeat": 2,
+      "settings_key": "step1_settings",
+      "repeat_settings": [
+        {
+          "param_override": {
+            "manual_AFIR": [
+              "50",
+              "1",
+              "16",
+              "50",
+              "14",
+              "15"
+            ]
+          }
+        },
+        {
+          "param_override": {
+            "manual_AFIR": [
+              "-300",
+              "1",
+              "14",
+              "-300",
+              "16",
+              "15"
+            ],
+            "NSTEP": 20
+          }
+        }
+      ]
+    },
+    {
+      "step": "step2",
+      "enabled": true,
+      "repeat": 2,
+      "settings_key": "step2_settings",
+      "repeat_settings": [
+        {
+          "param_override": {
+            "NSTEP": 10,
+            "DMF": true,
+            "align_distances": 4,
+            "use_model_hessian": "fischerd3"
+          }
+        },
+        {
+          "param_override": {
+            "NSTEP": 15,
+            "ANEB": [
+              4,
+              5
+            ],
+            "QSM": true,
+            "use_model_hessian": "fischerd3"
+          }
+        }
+      ]
+    },
+    {
+      "step": "step3",
+      "enabled": true,
+      "repeat": 1,
+      "settings_key": "step3_settings",
+      "repeat_settings": [
+        {
+          "param_override": {}
+        }
+      ]
+    },
+    {
+      "step": "step4",
+      "enabled": true,
+      "repeat": 1,
+      "settings_key": "step4_settings"
+    }
+  ]
+}

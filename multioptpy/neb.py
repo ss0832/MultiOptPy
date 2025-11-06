@@ -1174,6 +1174,10 @@ class NEB:
                 print(f"Found TS candidate file: {abs_path}")
             else:
                 print(f"Warning: Expected file not found: {file_path}")
+            
+        # 5. Get traj file path
+        last_itr_traj_file_path = os.path.join(last_itr_dir, f"{self.config.init_input}_path.xyz")
+        self.last_itr_traj_file_path = last_itr_traj_file_path
         
         return
     

@@ -1,4 +1,4 @@
-(ver. 2024/11/12)
+(ver. 2025/11/06)
 ```
 python optmain.py 222cycle.xyz -xtb GFN2-xTB -ma 70 1 9 70 11 5 70 7 3 -opt RFO_FSB -modelhess
 ```
@@ -31,4 +31,10 @@ python optmain.py witting_rxn.xyz -xtb GFN2-xTB -ma 100 1 26 150 14 24
 ```
 ```
 python ieipmain.py curtius_rearrgement -xtb GFN2-xTB
+```
+```
+python run_autots.py autots_v2_test.py -cfg config_autots_v2_test.json
+```
+```
+python run_autots.py aldol_rxn.py -cfg config_autots_run_xtb_test.json
 ```
