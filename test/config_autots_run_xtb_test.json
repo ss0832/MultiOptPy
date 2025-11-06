@@ -1,0 +1,52 @@
+{
+  "work_dir": "autots_run_xtb_test",
+  "top_n_candidates": 3,
+  
+  "step1_settings": {
+    "manual_AFIR": ["95", "1", "5", "50", "3", "11"],
+    "usextb": "GFN2-xTB",
+    "opt_method": ["rsirfo_block_fsb"],
+    "use_model_hessian": "fischerd3",
+    "spin_multiplicity": 1,
+    "electronic_charge": 0
+  },
+  
+  "step2_settings": {
+    "usextb": "GFN2-xTB",
+    "NSTEP": 15,
+    "ANEB": [3, 5],
+    "QSM": true,
+    "use_model_hessian": "fischerd3",
+    "save_pict": true,
+    "node_distance_bernstein": 0.80,
+    "align_distances": 9999,
+    "spin_multiplicity": 1,
+    "electronic_charge": 0
+  },
+  
+  "step3_settings": {
+    "usextb": "GFN2-xTB",
+    "opt_method": ["rsirfo_block_bofill"],
+    "calc_exact_hess": 5,
+    "tight_convergence_criteria": true,
+    "max_trust_radius": 0.2,
+    "frequency_analysis": true,
+    "spin_multiplicity": 1,
+    "electronic_charge": 0
+  },
+
+  "step4_settings": {
+    "usextb": "GFN2-xTB",
+	"opt_method": ["rsirfo_block_bofill"],
+    "spin_multiplicity": 1,
+    "electronic_charge": 0,
+	"calc_exact_hess": 10,
+    "tight_convergence_criteria": true,
+    "frequency_analysis": true,
+    
+    "intrinsic_reaction_coordinates": ["0.5", "200", "lqa"],
+
+    "step4b_opt_method": ["rsirfo_block_fsb"]
+  }
+}
+
