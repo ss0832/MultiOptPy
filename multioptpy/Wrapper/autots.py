@@ -649,10 +649,23 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             if not wf_entry.get("enabled", True):
                 print(f"\n--- SKIPPING STEP: {wf_entry['step']} (disabled) ---")
                 continue
-
+            
+            
             step_name = wf_entry["step"]
             method = getattr(self, f"_run_{step_name}")
             repeat = wf_entry.get("repeat", 1)
+            
+            if step_name == "step4" and self.run_step4 is not True:
+                print(f"\n--- SKIPPING STEP: {step_name} (run_step4 flag not set) ---")
+                continue
+            if step_name == "step1" and self.skip_step1 is True:
+                print(f"\n--- SKIPPING STEP: {step_name} (skip_step1 flag set) ---")
+                continue
+            
+            if step_name != "step4" and self.skip_to_step4 is True:
+                print(f"\n--- SKIPPING STEP: {step_name} (skip_to_step4 flag set) ---")
+                continue
+            
             
             print(f"\n--- 🏁 EXECUTING STEP: {step_name} (Repeat={repeat}) ---")
 
