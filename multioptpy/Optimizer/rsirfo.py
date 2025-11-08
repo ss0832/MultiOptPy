@@ -24,7 +24,7 @@ class RSIRFO:
         self.hessian_update_method = config.get("method", "auto")
         self.small_eigval_thresh = config.get("small_eigval_thresh", 1e-6)
         
-        self.alpha_max = config.get("alpha_max", 1e6)
+        self.alpha_max = config.get("alpha_max", 1000.0)
         self.alpha_step_max = config.get("alpha_step_max", 10.0)
         
         # Trust radius parameters
@@ -74,9 +74,8 @@ class RSIRFO:
         self.use_level_shift = config.get("use_level_shift", False)
         
         # Magnitude of the level shift
-        # Typical values: 1e-6 to 1e-5
         # Should be much smaller than typical eigenvalue magnitudes
-        self.level_shift_value = config.get("level_shift_value", 1e-6)
+        self.level_shift_value = config.get("level_shift_value", 1e-5)
         
         # Automatic level-shifting based on condition number
         # Enabled by default for adaptive behavior
@@ -120,6 +119,8 @@ class RSIRFO:
         # Initial alpha values to try - more memory efficient than np.linspace
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         self.NEB_mode = False
+        
+        
 
     def _build_hessian_updater_list(self):
         """
@@ -277,8 +278,9 @@ class RSIRFO:
 
         # Always check conditioning (provides useful diagnostic information)
         condition_number, is_ill_conditioned = self.check_hessian_conditioning(eigvals)
-        # [REMOVED] v1's adjust_level_shift_value call is no longer needed
-
+        print(f"Condition number of Hessian: {condition_number:.2f}, Ill-conditioned: {is_ill_conditioned}")
+        
+        
         # Trust Radius Adjustment (Moved here to use eigenvalues)
         if not self.Initialization:
             if self.prev_energy is not None:
@@ -301,7 +303,7 @@ class RSIRFO:
 
         # Count negative eigenvalues for diagnostic purposes
         neg_eigvals = np.sum(eigvals < -1e-10)
-        self.log(f"Found {neg_eigvals} negative eigenvalues (target for saddle order {self.saddle_order}: {self.saddle_order})", force=True)
+        self.log(f"Found {neg_eigvals} negative eigenvalues (target for saddle order: {self.saddle_order})", force=True)
         
         # Create the projection matrix for RS-I-RFO
         self.log(f"Using projection to construct image potential gradient and hessian for root(s) {self.roots}.")
@@ -326,8 +328,6 @@ class RSIRFO:
         H_star = 0.5 * (H_star + H_star.T)  # Symmetrize the Hessian
         grad_star = np.dot(P, gradient)
         
-        # === [MODIFIED] Second eigendecomposition: Image Hessian H_star ===
-        # Use new method that applies/removes shift for numerical stability
         eigvals_star, eigvecs_star = self.compute_eigendecomposition_with_shift(H_star)
         
         # === Apply existing small eigenvalue filter ===
@@ -543,9 +543,7 @@ class RSIRFO:
         
         return eigvals, eigvecs
     
-    # [REMOVED] v1's adjust_level_shift_value() method is deleted.
 
-    # === [EXISTING] Adaptive Trust Radius Method ===
     def adjust_trust_radius_adaptive(self, actual_change, predicted_change, min_eigenvalue):
         """
         Adaptive trust radius update.
@@ -691,8 +689,6 @@ class RSIRFO:
             self.min_eigenvalue_history.pop(0)
         self.min_eigenvalue_history.append(min_eigenvalue)
 
-    # === [EXISTING] Router for Trust Radius Adjustment ===
-    # === [EXISTING] Router for Trust Radius Adjustment ===
     def adjust_trust_radius(self, actual_change, predicted_change, min_eigenvalue=None, gradient_norm=None):
         """
         Trust radius adjustment.
@@ -1262,17 +1258,150 @@ class RSIRFO:
         # Use in-place operation for symmetrization
         self.hessian = 0.5 * (self.hessian + self.hessian.T)
         
+    def _solve_secular_safeguarded(self, eigvals_prime, grad_comps_prime_sq, lambda_min_asymptote, initial_guess):
+        """
+        [NEW] Safeguarded Newton's Method for the RFO Secular Equation.
+        
+        This solver is specifically designed for the secular equation's structure.
+        It combines the rapid convergence of Newton's method with the
+        guaranteed convergence of bisection.
+        
+        It maintains a bracket [a, b] known to contain the root and uses
+        Newton's method. If the Newton step would fall outside the bracket,
+        it reverts to a bisection step.
+        """
+        
+        # Define the secular function and its derivative
+        def f_secular(lmd):
+            denominators = eigvals_prime - lmd
+            # Safety for division
+            safe_denoms = np.where(
+                np.abs(denominators) < 1e-30,
+                np.sign(denominators) * 1e-30,
+                denominators
+            )
+            safe_denoms[safe_denoms == 0] = 1e-30 # Handle exact zeros
+            terms_f = grad_comps_prime_sq / safe_denoms
+            return lmd + np.sum(terms_f)
+            
+        def f_prime_secular(lmd):
+            denominators = eigvals_prime - lmd
+            safe_denoms = np.where(
+                np.abs(denominators) < 1e-30,
+                np.sign(denominators) * 1e-30,
+                denominators
+            )
+            safe_denoms[safe_denoms == 0] = 1e-30
+            terms_f_prime = grad_comps_prime_sq / (safe_denoms**2)
+            return 1.0 + np.sum(terms_f_prime)
+
+        # --- Setup Bracket [a, b] ---
+        # b is the upper bound (the first pole)
+        b = lambda_min_asymptote
+        
+        # a is the lower bound. We need f(a) < 0.
+        # Start with the initial guess.
+        a = initial_guess
+        f_a = f_secular(a)
+        
+        # If f(a) is not negative, step back until it is.
+        g_norm = np.sqrt(np.sum(grad_comps_prime_sq))
+        search_limit = 10
+        while f_a > 0 and search_limit > 0:
+            self.log(f"  Safeguard Solver: f(a) > 0 at a={a:.6e}. Stepping back.")
+            step_back = max(g_norm, np.abs(a) * 0.1, 1e-8)
+            a = a - step_back
+            f_a = f_secular(a)
+            search_limit -= 1
+            
+        if f_a > 0:
+            self.log(f"  Safeguard Solver: Could not establish lower bound 'a'.", force=True)
+            return initial_guess # Fallback
+
+        # We don't calculate f(b) because it's +infinity.
+        # We know the root is in [a, b).
+        
+        # Start iteration from the best initial guess
+        lambda_k = initial_guess
+        if lambda_k <= a or lambda_k >= b:
+             lambda_k = (a + b) / 2.0 # Fallback to bisection if guess is out of bounds
+
+        self.log(f"  Safeguard Solver: Starting search in [{a:.6e}, {b:.6e}]")
+
+        max_iterations = 50
+        # Use a tolerance relative to the pole
+        tolerance = (1e-10 * abs(lambda_min_asymptote)) + 1e-12 
+
+        for iteration in range(max_iterations):
+            f_lambda = f_secular(lambda_k)
+            
+            # Check convergence
+            if abs(f_lambda) < tolerance:
+                self.log(f"  Safeguard Solver: Converged in {iteration + 1} iterations", force=True)
+                self.log(f"  Final: lambda_aug={lambda_k:.6e}, f(λ)={f_lambda:.2e}")
+                return lambda_k
+            
+            f_prime_lambda = f_prime_secular(lambda_k)
+            
+            # --- Calculate Newton Step ---
+            delta_newton = 0.0
+            if abs(f_prime_lambda) > 1e-20:
+                delta_newton = -f_lambda / f_prime_lambda
+            else:
+                self.log(f"  Warning: f'(λ) too small. Switching to bisection.")
+
+            lambda_newton = lambda_k + delta_newton
+            
+            # --- Calculate Bisection Step ---
+            lambda_bisection = (a + b) / 2.0
+
+            # --- Safeguard Check ---
+            # Is the Newton step safe (i.e., within the bracket [a, b])?
+            if (delta_newton != 0.0) and (lambda_newton > a) and (lambda_newton < b):
+                # Yes: Use Newton step
+                lambda_k_next = lambda_newton
+                if self.debug_mode:
+                    self.log(f"  Iter {iteration:2d} (Newton): λ={lambda_k_next:.6e}")
+            else:
+                # No: Use safe bisection step
+                lambda_k_next = lambda_bisection
+                if self.debug_mode:
+                    self.log(f"  Iter {iteration:2d} (Bisection): λ={lambda_k_next:.6e}")
+            
+            # --- Update Bracket [a, b] for next iteration ---
+            # (This is the key to safety)
+            if f_lambda > 0:
+                # Root is to the left, new upper bound is current lambda
+                b = lambda_k
+            else:
+                # Root is to the right, new lower bound is current lambda
+                a = lambda_k
+                
+            lambda_k = lambda_k_next
+            
+            # Check if bracket is too small
+            if abs(b - a) < tolerance:
+                 self.log(f"  Safeguard Solver: Bracket converged", force=True)
+                 return (a + b) / 2.0
+
+        else:
+            # Max iterations reached
+            self.log(f"Warning: Safeguard Solver did not converge in {max_iterations} iterations", force=True)
+            return (a + b) / 2.0 # Return the center of the last known bracket
         
     def _solve_secular_more_sorensen(self, eigvals, grad_comps, alpha):
         """
-        Moré-Sorensen-style robust Newton solver for the RFO secular equation.
+        [MODIFIED] Robust solver for the RFO secular equation with fallback.
         
-        Finds the smallest root (lambda_aug) of the secular equation:
+        Attempts to find the smallest root (lambda_aug) of the secular equation
+        using brentq first for maximum robustness. If brentq fails (e.g.,
+        cannot establish a bracket), it falls back to the Moré-Sorensen
+        (Newton-style) solver.
+        
+        Secular equation:
             f(λ) = λ + Σ_i [g_i'^2 / (λ_i' - λ)] = 0
         
         Where: λ_i' = λ_i/α, g_i' = g_i/α
-        
-        If the Newton solver fails, it falls back to brentq.
         
         Parameters:
             eigvals: np.ndarray (sorted ascending)
@@ -1282,12 +1411,28 @@ class RSIRFO:
         Returns:
             lambda_aug: float (smallest root)
         """
-        # Scale values
+        
+                # Define the secular function and its derivative
+        def f_secular(lmd):
+            denominators = eigvals_prime - lmd
+            # Safety for division
+            safe_denoms = np.where(
+                np.abs(denominators) < 1e-30,
+                np.sign(denominators) * 1e-30,
+                denominators
+            )
+            safe_denoms[safe_denoms == 0] = 1e-30 # Handle exact zeros
+            terms_f = grad_comps_prime_sq / safe_denoms
+            return lmd + np.sum(terms_f)
+            
+   
+        
+        # 1. Scale values
         eigvals_prime = eigvals / alpha
         grad_comps_prime = grad_comps / alpha
         grad_comps_prime_sq = grad_comps_prime**2
         
-        # Find the first asymptote (smallest λ_i') where g_i' is non-zero
+        # 2. Find the first asymptote (smallest λ_i') where g_i' is non-zero
         lambda_min_asymptote = None
         g_norm_sq = 0.0
         
@@ -1302,134 +1447,130 @@ class RSIRFO:
             # Hard case: All gradient components are zero
             self.log("Hard case detected: All gradient components are zero.", force=True)
             return eigvals_prime[0]
-        
-        # === Normal Case: Newton iteration ===
-        
-        # Initial guess (Baker, JCC 1986, Eq. 15)
-        lambda_initial_guess = 0.5 * (lambda_min_asymptote - np.sqrt(lambda_min_asymptote**2 + 4 * g_norm_sq))
-        lambda_aug = lambda_initial_guess
 
-        self.log(f"Normal case: solving RFO secular equation f(λ)=0")
-        self.log(f"First asymptote (lambda_min_asymptote) = {lambda_min_asymptote:.6e}")
-        self.log(f"Initial lambda_aug guess = {lambda_aug:.6e}")
-        
-        max_iterations = 50
-        tolerance = (1e-10 * abs(lambda_min_asymptote)) + 1e-12 
+        # 3. Initial guess (Baker, JCC 1986, Eq. 15)
+        lambda_initial_guess = 0.5 * (lambda_min_asymptote - np.sqrt(max(0.0, lambda_min_asymptote**2 + 4 * g_norm_sq)))
 
-        for iteration in range(max_iterations):
-            # Denominators (λ_i' - λ)
-            denominators = eigvals_prime - lambda_aug
-            
-            # Safe denominators
-            safe_denoms = np.where(
-                np.abs(denominators) < 1e-30,
-                np.sign(denominators) * 1e-30,
-                denominators
+        # 4. Call the dedicated solver
+        try:
+            lambda_aug = self._solve_secular_safeguarded(
+                eigvals_prime,
+                grad_comps_prime_sq,
+                lambda_min_asymptote,
+                lambda_initial_guess
             )
-            # Handle exact zeros that slipped through
-            safe_denoms[safe_denoms == 0] = 1e-30
+            return lambda_aug
             
-            # f(λ) and f'(λ)
-            terms_f = grad_comps_prime_sq / safe_denoms
-            terms_f_prime = grad_comps_prime_sq / (safe_denoms**2)
+        except Exception as e:
+            self.log(f"CRITICAL ERROR in _solve_secular_safeguarded: {e}", force=True)
+            self.log("Falling back to initial guess as last resort.", force=True)
+             
+        # --- Primary Strategy: brentq ---
+        try:
+            self.log(f"Normal case: solving RFO secular equation f(λ)=0 using brentq (Primary)")
+            self.log(f"First asymptote (lambda_min_asymptote) = {lambda_min_asymptote:.6e}")
             
-            f_lambda = lambda_aug + np.sum(terms_f)
-            f_prime_lambda = 1.0 + np.sum(terms_f_prime)
+            # --- Establish bracket [a, b] ---
             
-            # Check convergence
-            if abs(f_lambda) < tolerance:
-                self.log(f"RFO Newton converged in {iteration + 1} iterations", force=True)
-                self.log(f"Final: lambda_aug={lambda_aug:.6e}, f(λ)={f_lambda:.2e}")
-                break
+            # b (upper bound) is just below the asymptote, f(b) should be large positive
+            b_margin = max(1e-12, np.abs(lambda_min_asymptote) * 1e-10)
+            b = lambda_min_asymptote - b_margin 
+            f_b = f_secular(b)
             
-            if abs(f_prime_lambda) < 1e-20:
-                self.log(f"Warning: f'(λ) too small ({f_prime_lambda:.2e}) at iteration {iteration}", force=True)
-                break 
-
-            # Newton update
-            delta_lambda = -f_lambda / f_prime_lambda
+            if f_b < 0:
+                self.log(f"  Warning: f(b) < 0 at {b:.6e}. Evaluating at asymptote limit.")
+                b = lambda_min_asymptote
+                f_b = f_secular(b) # This will be large and positive due to safe_denoms
             
-            lambda_aug_old = lambda_aug
-            lambda_aug += delta_lambda
+            # a (lower bound), f(a) must be < 0
+            a = lambda_initial_guess
+            f_a = f_secular(a)
             
-            # Safeguard: must stay below the asymptote
-            if lambda_aug >= lambda_min_asymptote:
-                self.log(f"Warning: lambda_aug ({lambda_aug:.6e}) >= lambda_min_asymptote ({lambda_min_asymptote:.6e}), adjusting")
-                lambda_aug = 0.5 * (lambda_aug_old + lambda_min_asymptote)
-            
-            if self.debug_mode:
-                 self.log(f"  Iter {iteration:2d}: λ={lambda_aug:.6e}, f(λ)={f_lambda:.2e}, "
-                          f"f'(λ)={f_prime_lambda:.2e}, Δλ={delta_lambda:.2e}")
-
-        else:
-            # === [MODIFIED] Max iterations reached: Fallback to brentq ===
-            self.log(f"Warning: RFO Newton (Moré-Sorensen style) did not converge in {max_iterations} iterations", force=True)
-            self.log(f"Final residual f(λ): {f_lambda:.2e}", force=True)
-            self.log("Attempting fallback to brentq solver...")
-            
-            try:
-                # Define the secular function locally for brentq
-                def f_secular(lmd):
-                    denominators = eigvals_prime - lmd
-                    # Use safety check for division
-                    safe_denoms = np.where(
-                        np.abs(denominators) < 1e-30,
-                        np.sign(denominators) * 1e-30,
-                        denominators
-                    )
-                    # Handle exact zeros that slipped through
-                    safe_denoms[safe_denoms == 0] = 1e-30
-                    terms_f = grad_comps_prime_sq / safe_denoms
-                    return lmd + np.sum(terms_f)
-
-                g_norm = np.sqrt(g_norm_sq)
-                
-                # Establish bracket [a, b]
-                # b is just below the asymptote, f(b) should be large positive
-                b = lambda_min_asymptote - 1e-15 
-                f_b = f_secular(b)
-                
-                # If f(b) is somehow negative, the root is between b and the asymptote.
-                # This is an unstable region. Force f(b) to be positive
-                # by evaluating *at* the asymptote, relying on the safety checks.
-                if f_b < 0:
-                    self.log(f"  Warning: f(b) < 0 at {b:.6e}. Evaluating at asymptote limit.")
-                    b = lambda_min_asymptote
-                    f_b = f_secular(b) # This will be large and positive due to safe_denoms
-                
-                # a is our lower bound, f(a) must be < 0
-                # Start from the original initial guess
-                a = lambda_initial_guess
+            search_limit = 10
+            while f_a > 0 and search_limit > 0:
+                self.log(f"  brentq bracket search: f(a) > 0 at a={a:.6e}. Stepping back.")
+                step_back = max(g_norm, np.abs(a) * 0.1, 1e-8) # Ensure step back is non-zero
+                a = a - step_back
                 f_a = f_secular(a)
-                
-                search_limit = 10
-                while f_a > 0 and search_limit > 0:
-                    self.log(f"  brentq bracket search: f(a) > 0 at a={a:.6e}. Stepping back by g_norm={g_norm:.2e}.")
-                    # Step back by a reasonable amount (g_norm)
-                    a = a - g_norm
-                    f_a = f_secular(a)
-                    search_limit -= 1
+                search_limit -= 1
 
-                if f_a * f_b >= 0:
-                    # Failed to find a bracket
-                    self.log(f"  Error: Could not establish a bracket for brentq. [a,b]=[{a:.2e},{b:.2e}], [f(a),f(b)]=[{f_a:.2e},{f_b:.2e}]", force=True)
-                    return lambda_aug # Return last Newton guess
-                
-                self.log(f"  brentq bracket established: [a, b] = [{a:.6e}, {b:.6e}], [f(a), f(b)] = [{f_a:.2e}, {f_b:.2e}]")
-                
-                # Use brentq to find the root
-                lambda_aug_brent = brentq(f_secular, a, b, xtol=1e-10, rtol=1e-10, maxiter=100)
-                
-                self.log(f"  brentq solver converged: lambda_aug = {lambda_aug_brent:.6e}")
-                return lambda_aug_brent # Return the brentq result
+            if f_a * f_b >= 0:
+                # Failed to find a bracket
+                self.log(f"  Error: Could not establish a bracket for brentq. [a,b]=[{a:.2e},{b:.2e}], [f(a),f(b)]=[{f_a:.2e},{f_b:.2e}]", force=True)
+                # This will raise an exception, triggering the fallback
+                raise ValueError("brentq bracketing failed")
+            
+            self.log(f"  brentq bracket established: [a, b] = [{a:.6e}, {b:.6e}], [f(a), f(b)] = [{f_a:.2e}, {f_b:.2e}]")
+            
+            # Use brentq to find the root
+            lambda_aug_brent = brentq(f_secular, a, b, xtol=1e-10, rtol=1e-10, maxiter=100)
+            
+            self.log(f"  brentq solver converged: lambda_aug = {lambda_aug_brent:.6e}", force=True)
+            return lambda_aug_brent # Return the successful brentq result
 
-            except Exception as e:
-                self.log(f"  brentq solver failed: {str(e)}", force=True)
-                return lambda_aug # Return last Newton guess
-            # === [END MODIFICATION] ===
-        
-        return lambda_aug
-        
+        except Exception as e:
+            self.log(f"brentq solver failed ({str(e)}). Falling back to Moré-Sorensen (Newton) solver.", force=True)
+            
+            # --- Fallback Strategy: Moré-Sorensen (Newton) ---
+            # (This logic is from the original file, lines 1445-1502, with English comments)
+            
+            lambda_aug = lambda_initial_guess
+            self.log(f"Fallback (Newton): Initial lambda_aug guess = {lambda_aug:.6e}")
+            
+            max_iterations = 50
+            tolerance = (1e-10 * abs(lambda_min_asymptote)) + 1e-12 
+
+            for iteration in range(max_iterations):
+                # Denominators (λ_i' - λ)
+                denominators = eigvals_prime - lambda_aug
+                
+                # Safe denominators
+                safe_denoms = np.where(
+                    np.abs(denominators) < 1e-30,
+                    np.sign(denominators) * 1e-30,
+                    denominators
+                )
+                safe_denoms[safe_denoms == 0] = 1e-30 # Handle exact zeros
+                
+                # f(λ) and f'(λ)
+                terms_f = grad_comps_prime_sq / safe_denoms
+                terms_f_prime = grad_comps_prime_sq / (safe_denoms**2)
+                
+                f_lambda = lambda_aug + np.sum(terms_f)
+                f_prime_lambda = 1.0 + np.sum(terms_f_prime)
+                
+                # Check convergence
+                if abs(f_lambda) < tolerance:
+                    self.log(f"RFO Newton (Fallback) converged in {iteration + 1} iterations", force=True)
+                    self.log(f"Final: lambda_aug={lambda_aug:.6e}, f(λ)={f_lambda:.2e}")
+                    break
+                
+                if abs(f_prime_lambda) < 1e-20:
+                    self.log(f"Warning: f'(λ) too small ({f_prime_lambda:.2e}) at iteration {iteration}", force=True)
+                    break 
+
+                # Newton update
+                delta_lambda = -f_lambda / f_prime_lambda
+                
+                lambda_aug_old = lambda_aug
+                lambda_aug += delta_lambda
+                
+                # Safeguard: must stay below the asymptote
+                if lambda_aug >= lambda_min_asymptote:
+                    self.log(f"Warning: lambda_aug ({lambda_aug:.6e}) >= asymptote ({lambda_min_asymptote:.6e}), adjusting")
+                    lambda_aug = 0.5 * (lambda_aug_old + lambda_min_asymptote)
+                
+                if self.debug_mode:
+                     self.log(f"  Iter {iteration:2d}: λ={lambda_aug:.6e}, f(λ)={f_lambda:.2e}, "
+                              f"f'(λ)={f_prime_lambda:.2e}, Δλ={delta_lambda:.2e}")
+
+            else:
+                # Max iterations reached for Newton
+                self.log(f"Warning: RFO Newton (Fallback) did not converge in {max_iterations} iterations", force=True)
+                self.log(f"Final residual f(λ): {f_lambda:.2e}. Using last value.", force=True)
+            
+            # Return the result from the Newton solver (even if it didn't converge, it's the best guess)
+            return lambda_aug
 
     def solve_rfo(self, eigvals, gradient_components, alpha, mode="min"):
         """
@@ -1445,13 +1586,14 @@ class RSIRFO:
         denominators = (eigvals / alpha) - eigval_min
         
         # Safety for division
-        safe_denoms = denominators
-        small_denoms = np.abs(safe_denoms) < 1e-10
-        if np.any(small_denoms):
-            safe_denoms[small_denoms] = np.sign(safe_denoms[small_denoms]) * np.maximum(1e-10, np.abs(safe_denoms[small_denoms]))
-            zero_mask = safe_denoms[small_denoms] == 0
-            if np.any(zero_mask):
-                safe_denoms[small_denoms][zero_mask] = 1e-10
+        safe_denoms = np.where(
+            np.abs(denominators) < 1e-20,
+            np.sign(denominators) * 1e-20,
+            denominators
+        )
+        
+        # Handle exact zeros that slipped through (e.g., in the 'hard case')
+        safe_denoms[safe_denoms == 0] = 1e-20
         
         # Calculate step s_i = -(g_i/alpha) / (denominators)
         step = -(gradient_components / alpha) / safe_denoms

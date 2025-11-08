@@ -193,6 +193,7 @@ def call_optimizeparser(parser):
     parser.add_argument("-freq", "--frequency_analysis",  help="Perform normal vibrational analysis after converging geometry optimization. (Caution: Unable to use this analysis with oniom method)", action='store_true')
     parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperatrue to calculate thermochemistry (Unit: K) (default: 298.15K)')
     parser.add_argument("-press", "--pressure",  type=float, default='101325', help='pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa)')
+    parser.add_argument("-negeigval", "--detect_negative_eigenvalues", help="Detect negative eigenvalues in the Hessian matrix at ITR. 0 if you caluculate exact hessian (-fc >0). If negative eigenvalues are not detected and saddle_order > 0, the optimization is stopped.", action='store_true')
     
     return parser
 
