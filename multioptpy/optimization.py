@@ -97,6 +97,7 @@ class Optimize:
         self.min_trust_radius = args.min_trust_radius
         self.software_path_file = args.software_path_file
         self.koopman_analysis = args.koopman
+        self.detect_negative_eigenvalues = args.detect_negative_eigenvalues
 
     def _check_sub_basisset(self, args):
         if len(args.sub_basisset) % 2 != 0:
@@ -439,7 +440,24 @@ class Optimize:
         
         return vars_dict
 
+    def check_negative_eigenvalues(self, geom_num_list, hessian):
+        proj_hessian = Calculationtools().project_out_hess_tr_and_rot_for_coord(hessian, geom_num_list, geom_num_list, display_eigval=False)
+        if proj_hessian is not None:
+            eigvals = np.linalg.eigvalsh(proj_hessian)
+            if np.any(eigvals < 0):
+                print("Notice: Negative eigenvalues detected.")
+                return True
+        return False
 
+    def judge_early_stop_due_to_no_negative_eigenvalues(self, geom_num_list, hessian):
+        if self.detect_negative_eigenvalues and self.FC_COUNT > 0:
+            negative_eigenvalues_detected = self.check_negative_eigenvalues(geom_num_list, hessian)
+            if not negative_eigenvalues_detected and self.args.saddle_order > 0:
+                print("No negative eigenvalues detected while saddle_order > 0. Stopping optimization.")
+                with open(self.BPA_FOLDER_DIRECTORY+"no_negative_eigenvalues_detected.txt", "w") as f:
+                    f.write("No negative eigenvalues detected while saddle_order > 0. Stopping optimization.")
+                return True
+        return False
 
     def optimize(self):
         # Initialize all variables needed for optimization
@@ -523,6 +541,12 @@ class Optimize:
 
           
             Hess = BPA_hessian + self.Model_hess
+
+            if iter == 0:
+                if self.judge_early_stop_due_to_no_negative_eigenvalues(geom_num_list, Hess) and iter == 0:
+                    break
+            
+            
             PC = self._init_projection_constraint(PC, geom_num_list, iter, projection_constrain, hessian=Hess)
 
             optimizer_instances = self._calc_eff_hess_for_fix_atoms_and_set_hess(allactive_flag, force_data, BPA_hessian, n_fix, optimizer_instances, geom_num_list, B_g, g, projection_constrain, PC)

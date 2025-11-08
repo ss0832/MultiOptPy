@@ -1,6 +1,6 @@
 # **MultiOptPy Configuration Reference**
 
-(ver. 1.19.4)
+(ver. 1.19.6)
 
 This document outlines all available settings for MultiOptPy, based on the definitions in interface.py. These settings can be configured either via a JSON file (like config.json used by run\_autots.py) or as command-line arguments (used by optmain.py, nebmain.py, etc.).
 
@@ -67,6 +67,7 @@ Used by: optmain.py, run\_autots.py (Steps 1, 3, & 4\)
 | frequency\_analysis | \-freq, \--frequency\_analysis | Perform normal vibrational analysis after converging geometry optimization. (Caution: Unable to use this analysis with oniom method) | boolean | false | "frequency\_analysis": true |
 | temperature | \-temp, \--temperature | temperatrue to calculate thermochemistry (Unit: K) (default: 298.15K) | float | 298.15 | "temperature": 300.0 |
 | pressure | \-press, \--pressure | pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa) | float | 101325 | "pressure": 100000 |
+| detect_negative_eigenvalues | \-negeigval, \--detect_negative_eigenvalues | Detect negative eigenvalues in the Hessian matrix at ITR. 0 if you caluculate exact hessian (-fc >0). If negative eigenvalues are not detected and saddle_order > 0, the optimization is stopped. | boolean | false | "detect_negative_eigenvalues": false |
 
 ## **2\. NEB Settings (nebparser)**
 
