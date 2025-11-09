@@ -444,7 +444,7 @@ class Optimize:
         proj_hessian = Calculationtools().project_out_hess_tr_and_rot_for_coord(hessian, geom_num_list, geom_num_list, display_eigval=False)
         if proj_hessian is not None:
             eigvals = np.linalg.eigvalsh(proj_hessian)
-            if np.any(eigvals < 0):
+            if np.any(eigvals < -1e-10):
                 print("Notice: Negative eigenvalues detected.")
                 return True
         return False
