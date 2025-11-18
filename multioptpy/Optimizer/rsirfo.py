@@ -16,6 +16,11 @@ class RSIRFO:
         [2] Heyden et al., J. Chem. Phys., 123, 224101 (2005)
         [3] Baker, J. Comput. Chem., 7, 385-395 (1986)
         [4] Besalú and Bofill, Theor. Chem. Acc., 100, 265-274 (1998)
+        
+        This code is made based on the below codes.
+        1, https://github.com/eljost/pysisyphus/blob/master/pysisyphus/tsoptimizers/TSHessianOptimizer.py
+        2, https://github.com/eljost/pysisyphus/blob/master/pysisyphus/tsoptimizers/RSIRFOptimizer.py
+
         """
         # Configuration parameters
         self.alpha0 = config.get("alpha0", 1.0)
