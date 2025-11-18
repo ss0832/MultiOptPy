@@ -917,29 +917,66 @@ class Optimize:
                 f.write(",".join(list(map(str,data_list)))+"\n")          
         return
     
+    
     def dissociation_check(self, new_geometry, element_list):
+        """
+        Checks if the molecular geometry has dissociated into multiple fragments
+        based on a distance threshold.
+        """
         # (Reads self.config.DC_check_dist)
-        atom_label_list = [i for i in range(len(new_geometry))]
+        atom_label_list = list(range(len(new_geometry)))
         fragm_atom_num_list = []
+
+        # 1. Identify all molecular fragments (connected components)
         while len(atom_label_list) > 0:
             tmp_fragm_list = Calculationtools().check_atom_connectivity(new_geometry, element_list, atom_label_list[0])
-            
             atom_label_list = list(set(atom_label_list) - set(tmp_fragm_list))
             fragm_atom_num_list.append(tmp_fragm_list)
         
+        # 2. Check distances only if there is more than one fragment
         if len(fragm_atom_num_list) > 1:
             fragm_dist_list = []
-            for fragm_1_num, fragm_2_num in list(itertools.combinations(fragm_atom_num_list, 2)):
-                dist = Calculationtools().calc_fragm_distance(new_geometry, fragm_1_num, fragm_2_num)
-                fragm_dist_list.append(dist)
+            
+            # Ensure geometry is a NumPy array for efficient slicing
+            geom_np = np.asarray(new_geometry)
+            
+            # Iterate through all unique pairs of fragments
+            for fragm_1_indices, fragm_2_indices in itertools.combinations(fragm_atom_num_list, 2):
                 
-            if min(fragm_dist_list) > self.config.DC_check_dist:
-                print("mean fragm distance (ang.)", min(fragm_dist_list), ">", self.config.DC_check_dist)
+                # Get the coordinates for all atoms in each fragment
+                coords1 = geom_np[fragm_1_indices] # Shape (M, 3)
+                coords2 = geom_np[fragm_2_indices] # Shape (K, 3)
+                
+                # Reshape coords1 to (M, 1, 3) and coords2 to (1, K, 3)
+                # This allows NumPy broadcasting to create all pairs of differences
+                # The result (diff_matrix) will have shape (M, K, 3)
+                diff_matrix = coords1[:, np.newaxis, :] - coords2[np.newaxis, :, :]
+                
+                # Square the differences and sum along the last axis (axis=2)
+                # This calculates the squared Euclidean distance for all pairs
+                # The result (sq_dist_matrix) will have shape (M, K)
+                sq_dist_matrix = np.sum(diff_matrix**2, axis=2)
+                
+                # Find the minimum value in the squared distance matrix
+                min_sq_dist = np.min(sq_dist_matrix)
+                
+                # Take the square root of only the minimum value to get the final distance
+                min_dist = np.sqrt(min_sq_dist)
+           
+                fragm_dist_list.append(min_dist)
+                
+            # 3. Check if the closest distance between any two fragments
+            #    is greater than the dissociation threshold.
+            min_interfragment_dist = min(fragm_dist_list)
+            
+            if min_interfragment_dist > self.config.DC_check_dist:
+                print(f"Minimum fragment distance (ang.) {min_interfragment_dist:.4f} > {self.config.DC_check_dist}")
                 print("These molecules are dissociated.")
                 DC_exit_flag = True
             else:
                 DC_exit_flag = False
         else:
+            # Only one fragment, so it's not dissociated
             DC_exit_flag = False
             
         return DC_exit_flag
