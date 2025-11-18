@@ -153,7 +153,7 @@ def call_optimizeparser(parser):
     
     parser.add_argument("-fix", "--fix_atoms", nargs="*",  type=str, default="", help='fix atoms (ex.) [atoms (ex.) 1,2,3-6]')
     parser.add_argument("-gi", "--geom_info", nargs="*",  type=str, default="1", help='calculate atom distances, angles, and dihedral angles in every iteration (energy_profile is also saved.) (ex.) [atoms (ex.) 1,2,3-6]')
-    parser.add_argument("-dc", "--dissociate_check", nargs="*",  type=str, default="100", help='Terminate calculation if distance between two fragments is exceed this value. (default) 100 [ang.]')
+    parser.add_argument("-dc", "--dissociate_check", nargs="*",  type=str, default="10", help='Terminate calculation if distance between two fragments is exceed this value. (default) 10 [ang.]')
     parser.add_argument("-opt", "--opt_method", nargs="*", type=str, default=["FIRELARS"], help='optimization method for QM calculation (default: FIRE) (mehod_list:(steepest descent method group) FIRE, CG etc. (quasi-Newton method group) rsirfo_fsb rsirfo_bofill  etc.) (notice you can combine two methods, steepest descent family and quasi-Newton method family. The later method is used if gradient is small enough. [[steepest descent] [quasi-Newton method]]) (ex.) [opt_method]')
     parser.add_argument("-fc", "--calc_exact_hess",  type=int, default=-1, help='calculate exact hessian per geometry optimization steps and IRC steps (ex.) [steps per one hess calculation]')
     parser.add_argument("-mfc", "--calc_model_hess",  type=int, default=50, help='calculate model hessian per steps (ex.) [steps per one hess calculation]')
