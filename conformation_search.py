@@ -290,7 +290,7 @@ if __name__ == '__main__':
         
         bpa = multioptpy.optimization.Optimize(args)
         bpa.run()
-        DC_check_flag = bpa.DC_check_flag
+        DC_check_flag = bpa.state.DC_check_flag
         if not DC_check_flag:
             bias_opted_geom_num_list = bpa.final_geometry #Bohr
             bias_opted_geom_num_list = bias_opted_geom_num_list * bohr2ang #Angstrom
