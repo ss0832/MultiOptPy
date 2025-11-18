@@ -623,6 +623,7 @@ class Optimize:
             file_directory = FIO.make_psi4_input_file(geometry_list, iter+1)
             
         else:
+            optimized_flag = False
             print("Reached maximum number of iterations. This is not converged.")
             with open(self.BPA_FOLDER_DIRECTORY+"not_converged.txt", "w") as f:
                 f.write("Reached maximum number of iterations. This is not converged.")

@@ -220,6 +220,10 @@ class AutoTSWorkflow:
             if not source_final_ts_path or not os.path.exists(source_final_ts_path):
                 print(f"Warning: Refinement for {guess_file_path} finished, but 'optimized_struct_file' was not found.")
                 continue
+
+            if not optimizer_instance.optimized_flag:
+                print(f"Warning: Refinement for {guess_file_path} did not converge (optimized_flag=False). Skipping.")
+                continue
                 
             local_final_name = f"{self.input_base_name}_ts_final_{i+1}.xyz"
             shutil.copy(source_final_ts_path, local_final_name)

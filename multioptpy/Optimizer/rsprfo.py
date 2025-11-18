@@ -20,6 +20,11 @@ class EnhancedRSPRFO:
         [4] Besalú and Bofill, Theor. Chem. Acc., 100, 265-274 (1998)
         [5] Jensen and Jørgensen, J. Chem. Phys., 80, 1204 (1984) [Eigenvector following]
         [6] Yuan, SIAM J. Optim. 11, 325-357 (2000) [Trust region methods]
+        
+        This code is made based on the below codes.
+        1, https://github.com/eljost/pysisyphus/blob/master/pysisyphus/tsoptimizers/RSPRFOptimizer.py
+
+        
         """
         # Standard RSPRFO parameters
         self.alpha0 = config.get("alpha0", 1.0)
