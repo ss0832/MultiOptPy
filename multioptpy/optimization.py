@@ -973,6 +973,7 @@ class Optimize:
                 print(f"Minimum fragment distance (ang.) {min_interfragment_dist:.4f} > {self.config.DC_check_dist}")
                 print("These molecules are dissociated.")
                 DC_exit_flag = True
+                break
             else:
                 DC_exit_flag = False
         else:
