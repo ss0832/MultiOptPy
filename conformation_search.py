@@ -2,7 +2,7 @@ import sys
 import os
 import random
 sys.path.append('./multioptpy')
-import multioptpy.calc_tools
+from multioptpy.Utils import calc_tools
 
 import multioptpy
 import numpy as np
@@ -154,7 +154,7 @@ def read_energy_file(file_name):
 def make_tgt_atom_pair(geom_num_list, element_list, target_atoms):
     norm_dist_min = 1.0
     norm_dist_max = 8.0
-    norm_distance_list = multioptpy.calc_tools.calc_normalized_distance_list(geom_num_list, element_list)
+    norm_distance_list = calc_tools.calc_normalized_distance_list(geom_num_list, element_list)
     bool_tgt_atom_list = np.where((norm_dist_min < norm_distance_list) & (norm_distance_list < norm_dist_max), True, False)
     updated_target_atom_pairs = []
     for i, j in itertools.combinations(target_atoms, 2):

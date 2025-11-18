@@ -2,7 +2,7 @@ import sys
 import os
 import random
 sys.path.append('./multioptpy')
-import multioptpy.calc_tools
+from multioptpy.Utils import calc_tools
 import numpy as np
 
 import multioptpy
@@ -54,15 +54,15 @@ def make_random_orientation_xyz_file(coord_list, part_list, part_dist, input_fil
     # Random rotation
     rand_rotated_part_coord_list = []
     for i in range(len(part_coord_list)):
-        part_center = multioptpy.calc_tools.Calculationtools().calc_center(part_coord_list[i], part_element_list[i])
+        part_center = calc_tools.Calculationtools().calc_center(part_coord_list[i], part_element_list[i])
         centered_part_coord_list = part_coord_list[i] - part_center 
         random_x_angle = random.uniform(0, 2*np.pi)
         random_y_angle = random.uniform(0, 2*np.pi)
         random_z_angle = random.uniform(0, 2*np.pi)
         print("Random angles (Radian): ", random_x_angle, random_y_angle, random_z_angle)
-        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(centered_part_coord_list, "x", random_x_angle)
-        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(rotated_part_coord, "y", random_y_angle)
-        rotated_part_coord = multioptpy.calc_tools.rotate_molecule(rotated_part_coord, "z", random_z_angle)
+        rotated_part_coord = calc_tools.rotate_molecule(centered_part_coord_list, "x", random_x_angle)
+        rotated_part_coord = calc_tools.rotate_molecule(rotated_part_coord, "y", random_y_angle)
+        rotated_part_coord = calc_tools.rotate_molecule(rotated_part_coord, "z", random_z_angle)
         rand_rotated_part_coord_list.append(rotated_part_coord)
 
 
