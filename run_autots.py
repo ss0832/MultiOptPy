@@ -139,17 +139,17 @@ def main():
     parser.add_argument(
         "--skip_step1",
         action="store_true",
-        help="[V1 ONLY] Skip the AFIR scan (Step 1). The input_file must be the NEB trajectory file."
+        help="Skip the AFIR scan (Step 1). The input_file must be the NEB trajectory file."
     )
     parser.add_argument(
         "--run_step4",
         action="store_true",
-        help="[V1 ONLY] Run Step 4 (IRC + Endpoint Optimization) after Step 3 completes."
+        help="Run Step 4 (IRC + Endpoint Optimization) after Step 3 completes."
     )
     parser.add_argument(
         "--skip_to_step4",
         action="store_true",
-        help="[V1 ONLY] Skip Steps 1-3 and run only Step 4. The 'input_file' must be the TS structure file."
+        help="Skip Steps 1-3 and run only Step 4. The 'input_file' must be the TS structure file."
     )
     
     args = parser.parse_args()

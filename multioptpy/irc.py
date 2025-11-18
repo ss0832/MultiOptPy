@@ -345,7 +345,7 @@ class IRC:
                     meta_irc_geometry_list, _, _ = traj2list(meta_irc_xyz_file, [0, 1])
                     if meta_irc_geometry_list: # Check if list is not empty
                         terminal_geom_meta = meta_irc_geometry_list[-1]
-                        outfile_name_meta = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_1.xyz")
+                        outfile_name_meta = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_endpoint_1.xyz")
                         self.write_xyz(outfile_name_meta, terminal_geom_meta)
                         self.terminal_struct_paths = [os.path.abspath(outfile_name_meta)]
                         print(f"Meta-IRC terminal structure saved to {outfile_name_meta}")
@@ -467,14 +467,14 @@ class IRC:
         self.terminal_struct_paths = [] # Clear any previous paths
         if fwd_irc_geometry_list: # Check if list is not empty
             terminal_geom_fwd = fwd_irc_geometry_list[-1]
-            outfile_name_fwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_1.xyz")
+            outfile_name_fwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_endpoint_1.xyz")
             self.write_xyz(outfile_name_fwd, terminal_geom_fwd)
             self.terminal_struct_paths.append(os.path.abspath(outfile_name_fwd))
             print(f"Forward terminal structure saved to {outfile_name_fwd}")
 
         if bwd_irc_geometry_list: # Check if list is not empty
             terminal_geom_bwd = bwd_irc_geometry_list[-1]
-            outfile_name_bwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_terminal_struct_2.xyz")
+            outfile_name_bwd = os.path.join(self.file_directory, f"{self.fin_xyz_base}_irc_endpoint_2.xyz")
             self.write_xyz(outfile_name_bwd, terminal_geom_bwd)
             self.terminal_struct_paths.append(os.path.abspath(outfile_name_bwd))
             print(f"Backward terminal structure saved to {outfile_name_bwd}")

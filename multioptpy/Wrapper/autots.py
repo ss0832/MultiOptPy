@@ -758,8 +758,12 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             return {"input_files": self.data_cache["step2"]["candidates"]}
 
         elif step_name == "step4":
+            if self.skip_to_step4:
+                return {"input_files": [self.initial_mol_file]}
+            
             if "step3" not in self.data_cache or "ts_final" not in self.data_cache["step3"]:
                 raise RuntimeError("Step 4: data_cache[\"step3\"][\"ts_final\"] not found. Did Step 3 run and post-process?")
+                
             return {"input_files": self.data_cache["step3"]["ts_final"]}
         else:
             print(f"Warning: Input determination logic not implemented for {step_name}. Using 'initial_mol_file'.")
@@ -1127,10 +1131,10 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
         (FIXED: Sets WORK_DIR in settings)
         """
         ts_final_files = input_data["input_files"]
-        print(f"    Running Step 4 (IRC) on {len(ts_final_files)} TS files (Run {run_index+1}).")
+        print(f"     Running Step 4 (IRC) on {len(ts_final_files)} TS files (Run {run_index+1}).")
         
         if not ts_final_files:
-            print("    No TS files provided. Skipping Step 4.")
+            print("     No TS files provided. Skipping Step 4.")
             return {"profile_dirs": []}
             
         if "intrinsic_reaction_coordinates" not in settings:
@@ -1141,10 +1145,14 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
         
         for i, ts_path in enumerate(ts_final_files):
             ts_name_base = f"{self.input_base_name}_s4_run{run_index+1}_TS_{i+1}"
-            print(f"    Running Step 4 for TS {i+1}/{len(ts_final_files)} ({ts_path})")
+            print(f"     Running Step 4 for TS {i+1}/{len(ts_final_files)} ({ts_path})")
             
             # --- 4A: Run IRC ---
-            job_irc = OptimizationJob(input_file=ts_path)
+            
+           
+            relative_ts_path = os.path.relpath(ts_path)
+            job_irc = OptimizationJob(input_file=relative_ts_path)
+            
             irc_settings = copy.deepcopy(settings)
             irc_settings["saddle_order"] = 1
             # **FIX**: Set WORK_DIR in settings
@@ -1154,7 +1162,7 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
 
             irc_instance = job_irc.get_results()
             if irc_instance is None:
-                print(f"    Warning: IRC job for {ts_path} failed.")
+                print(f"     Warning: IRC job for {ts_path} failed.")
                 continue
                 
             ts_e = irc_instance.final_energy
@@ -1162,18 +1170,23 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             endpoint_paths = irc_instance.irc_terminal_struct_paths
 
             if not endpoint_paths or len(endpoint_paths) != 2:
-                print(f"    Warning: IRC job for {ts_path} did not return 2 endpoint files.")
+                print(f"     Warning: IRC job for {ts_path} did not return 2 endpoint files.")
                 continue
 
             # --- 4B: Run Endpoint Optimization ---
             endpoint_results = []
             for j, end_path in enumerate(endpoint_paths):
                 opt_settings = copy.deepcopy(settings)
-                opt_settings["opt_method"] = opt_settings.get("step4b_opt_method", ["rsirfo_block_fsb"])
+                opt_settings["opt_method"] = opt_settings.get("opt_method", ["rsirfo_block_fsb"])
                 opt_settings.pop("intrinsic_reaction_coordinates", None)
                 opt_settings['saddle_order'] = 0 # Minimization
                 
-                job_opt = OptimizationJob(input_file=end_path)
+               
+                relative_end_path = os.path.relpath(end_path)
+                base_end_path = os.path.basename(relative_end_path)
+                shutil.copy(relative_end_path, base_end_path)
+                job_opt = OptimizationJob(input_file=base_end_path)
+                
                 # **FIX**: Set WORK_DIR in settings
                 opt_settings["WORK_DIR"] = os.path.join(base_work_dir, f"step4_run_{run_index+1}", f"ts_{i+1}_endpt_{j+1}")
                 job_opt.set_options(**opt_settings)
@@ -1193,34 +1206,34 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
                 })
 
             if not endpoint_results:
-                print(f"  Warning: Failed to optimize any endpoints for {ts_path}.")
+                print(f"     Warning: Failed to optimize any endpoints for {ts_path}.")
                 continue
 
             # --- 4C: Collect Results & Visualize (using parent methods) ---
             result_dir = f"{ts_name_base}_Step4_Profile"
             os.makedirs(result_dir, exist_ok=True)
-           
+            
             e_profile = {"TS": {"e": ts_e, "bias_e": ts_bias_e, "path": ts_path}}
             if len(endpoint_results) >= 1: e_profile["End1"] = endpoint_results[0]
             if len(endpoint_results) >= 2: e_profile["End2"] = endpoint_results[1]
         
             plot_path = os.path.join(result_dir, "energy_profile.png")
             self._create_energy_profile_plot(e_profile, plot_path, ts_name_base)
- 
+
             text_path = os.path.join(result_dir, "energy_profile.txt")
             self._write_energy_profile_text(e_profile, text_path, ts_name_base)
             
-            shutil.copy(ts_path, os.path.join(result_dir, f"{ts_name_base}_ts_final.xyz"))
-            if "End1" in e_profile: shutil.copy(e_profile["End1"]["path"], os.path.join(result_dir, "endpoint_1_opt.xyz"))
-            if "End2" in e_profile: shutil.copy(e_profile["End2"]["path"], os.path.join(result_dir, "endpoint_2_opt.xyz"))
+        
+            shutil.copy(os.path.relpath(ts_path), os.path.join(result_dir, f"{ts_name_base}_ts_final.xyz"))
+            if "End1" in e_profile: 
+                shutil.copy(os.path.relpath(e_profile["End1"]["path"]), os.path.join(result_dir, "endpoint_1_opt.xyz"))
+            if "End2" in e_profile: 
+                shutil.copy(os.path.relpath(e_profile["End2"]["path"]), os.path.join(result_dir, "endpoint_2_opt.xyz"))
             
-            print(f"    Successfully saved profile to: {result_dir}")
+            print(f"     Successfully saved profile to: {result_dir}")
             # --- FIX: Store relative path ---
             profile_dirs.append(result_dir)
         
         return {"profile_dirs": profile_dirs}
-        
-        
-        
         
         
