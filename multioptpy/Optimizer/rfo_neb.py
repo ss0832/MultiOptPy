@@ -5,6 +5,7 @@ from multioptpy.Optimizer.fire_neb import FIREOptimizer
 from scipy.signal import argrelextrema
 from multioptpy.Optimizer import rsirfo
 import os
+import copy
 
 
 class OptimizationAlgorithm(ABC):
@@ -127,8 +128,6 @@ class RFOOptimizer(OptimizationAlgorithm):
         return new_geometry_list
 
 
-
-
 class RFOQSMOptimizer(OptimizationAlgorithm):
     """Rational Function Optimization (RFO) optimizer for QSM"""
     
@@ -141,6 +140,7 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
             fix_end_edge=config.fix_end_edge,
             apply_convergence_criteria=config.apply_convergence_criteria
         )
+        self.ratio_of_rfo_step = config.ratio_of_rfo_step if hasattr(config, "ratio_of_rfo_step") else 0.5  # Ratio of RFO step in combined step
     
     def optimize(self, geometry_num_list, total_force_list, prev_geometry_num_list, 
                 prev_total_force_list, optimize_num, biased_energy_list, 
@@ -225,7 +225,7 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
             if i == 0 or i == len(geometry_num_list) - 1:
                 move_vector_list.append(fire_move_vector_list[i])
             else:
-                move_vector_list.append(0.5 * fire_move_vector_list[i] - 0.5 * rfo_move_vector_list[i])
+                move_vector_list.append((1.0 - self.ratio_of_rfo_step) * fire_move_vector_list[i] - self.ratio_of_rfo_step * rfo_move_vector_list[i])
                 
         move_vector_list = np.array(move_vector_list, dtype="float64")
         new_geometry_list = (geometry_num_list + move_vector_list) * self.config.bohr2angstroms

@@ -38,6 +38,7 @@ from multioptpy.MEP.pathopt_lup_force import CaluculationLUP
 from multioptpy.MEP.pathopt_om_force import CaluculationOM
 from multioptpy.MEP.pathopt_ewbneb_force import CaluculationEWBNEB
 from multioptpy.MEP.pathopt_qsm_force import CaluculationQSM
+from multioptpy.MEP.pathopt_qsmv2_force import CaluculationQSMv2
 from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.Potential.idpp import IDPP, CFB_ENM
 from multioptpy.Constraint.constraint_condition import ProjectOutConstrain
@@ -104,6 +105,7 @@ class NEBConfig:
         self.ewbneb = args.EWBNEB
         self.dmf = args.DMF
         self.qsm = args.QSM
+        self.qsmv2 = args.QSMv2
         tmp_aneb = args.ANEB
         
         if tmp_aneb is None:
@@ -336,7 +338,7 @@ class OptimizationFactory:
             return FIREOptimizer(config)
         elif method == "steepest_descent":
             return SteepestDescentOptimizer(config)
-        elif method == "rfo" and config.qsm:
+        elif method == "rfo" and (config.qsm or config.qsmv2):
             return RFOQSMOptimizer(config)
         elif method == "rfo":
             tmp_opt = RFOOptimizer(config)
@@ -694,6 +696,8 @@ class NEB:
             return CaluculationEWBNEB(self.config.APPLY_CI_NEB)
         elif self.config.qsm:
             return CaluculationQSM(self.config.APPLY_CI_NEB)
+        elif self.config.qsmv2:
+            return CaluculationQSMv2(self.config.APPLY_CI_NEB)
         elif self.config.dmf:
             return CaluculationDMF(self.config.APPLY_CI_NEB)
         else:
