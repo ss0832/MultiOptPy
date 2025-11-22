@@ -256,6 +256,7 @@ def call_nebparser(parser):
     parser.add_argument("-dmf", "--DMF", action='store_true', help='Direct Max Flux (DMF) method')
     parser.add_argument("-ewbneb", "--EWBNEB", action='store_true', help='Energy-weighted Nudged elastic band method')
     parser.add_argument("-qsm", "--QSM", action='store_true', help='Quadratic String Method (J. Chem. Phys. 124, 054109 (2006))')
+    parser.add_argument("-qsmv2", "--QSMv2", action='store_true', help='Quadratic String Method v2 (J. Chem. Phys. 124, 054109 (2006))')
     parser.add_argument("-aneb", "--ANEB", default=None, nargs="*", help='Adaptic NEB method (ref.: J. Chem. Phys. 117, 4651 (2002)) (Usage: -aneb [interpolation_num (ex. 2)] [frequency (ex. 5)], Default setting is not applying adaptic NEB method.)')
 
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
