@@ -262,10 +262,19 @@ def call_nebparser(parser):
     parser.add_argument("-idpp", "--use_image_dependent_pair_potential", action='store_true', help='use image dependent pair potential (IDPP) method (ref. arXiv:1406.1512v1)')
     parser.add_argument("-cfbenm", "--use_correlated_flat_bottom_elastic_network_model", action='store_true', help='use correlated flat-bottom elastic network model (CFBENM) method (ref. s: J.Chem.TheoryComput.2025,21,3513−3522)')
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')
+    parser.add_argument("-adene", "--align_distances_energy", type=int, default=0, help='distribute images at energy-weighted intervals on the reaction coordinate')
+    parser.add_argument("-adpred", "--align_distances_energy_predicted", type=int, default=0, help='distribute images at intervals on the reaction coordinate using cubic predicted interpolation')
     parser.add_argument("-ads", "--align_distances_spline", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation')
     parser.add_argument("-ads2", "--align_distances_spline_ver2", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation ver.2')
     parser.add_argument("-adg", "--align_distances_geodesic", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using geodesic interpolation')
     parser.add_argument("-adb", "--align_distances_bernstein", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using Bernstein interpolation')
+    parser.add_argument("-adbene", "--align_distances_bernstein_energy", type=int, default=0, help='distribute images at energy-weighted intervals on the reaction coordinate using Bernstein interpolation')
+    
+  
+    parser.add_argument("-adadene", "--align_distances_adaptive_energy", type=int, default=0, help='distribute images at energy-weighted intervals on the reaction coordinate using Adaptive Geometry + Energy interpolation')
+    
+
+    
     parser.add_argument("-adsg", "--align_distances_savgol", type=str, default="0,0,0", help='distribute images at equal intervals on the reaction coordinate using Savitzky-Golay interpolation (ex.) [[iteration(int)],[window_size(int, 5 is recommended)],[poly_order(int) 3 is recommended]] (default: 0,0,0 (not using Savitzky-Golay interpolation))')
     
     parser.add_argument("-nd", "--node_distance", type=float, default=None, help='distribute images at equal intervals linearly based ont specific distance (ex.) [distance (ang.)] (default: None)')
