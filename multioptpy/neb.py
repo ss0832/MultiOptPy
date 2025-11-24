@@ -10,20 +10,20 @@ try:
     import psi4
 except:
     psi4 = None
-    print("You can't use psi4.")
+    
 
 try:
     import pyscf
     from pyscf import tdscf
     from pyscf.hessian import thermo
 except:
-    print("You can't use pyscf.")
+    pass
 
 try:
     import dxtb
     dxtb.timer.disable()
 except:
-    print("You can't use dxtb.")
+   pass
 
 from scipy.signal import argrelmax
 
@@ -63,10 +63,13 @@ from multioptpy.Calculator.emt_calculation_tools import EMTEngine
 from multioptpy.Calculator.tersoff_calculation_tools import TersoffEngine
 from multioptpy.Utils.calc_tools import apply_climbing_image, calc_path_length_list
 from multioptpy.Interpolation.geodesic_interpolation import distribute_geometry_geodesic
-from multioptpy.Interpolation.binomial_interpolation import bernstein_interpolation, distribute_geometry_by_length_bernstein
+from multioptpy.Interpolation.binomial_interpolation import bernstein_interpolation, distribute_geometry_by_length_bernstein, distribute_geometry_by_energy_bernstein
 from multioptpy.Interpolation.spline_interpolation import spline_interpolation, distribute_geometry_spline, distribute_geometry_by_length_spline
-from multioptpy.Interpolation.linear_interpolation import distribute_geometry, distribute_geometry_by_length
+from multioptpy.Interpolation.linear_interpolation import distribute_geometry, distribute_geometry_by_length, distribute_geometry_by_energy, distribute_geometry_by_predicted_energy
 from multioptpy.Interpolation.savitzky_golay_interpolation import savitzky_golay_interpolation, distribute_geometry_by_length_savgol
+from multioptpy.Interpolation.adaptive_interpolation import adaptive_geometry_energy_interpolation
+
+
 
 class NEBConfig:
     """Configuration management class for NEB calculations"""
@@ -144,10 +147,16 @@ class NEBConfig:
         self.IDPP_flag = args.use_image_dependent_pair_potential
         self.CFB_ENM_flag = args.use_correlated_flat_bottom_elastic_network_model
         self.align_distances = args.align_distances
+        self.align_distances_energy = args.align_distances_energy
+        self.align_distances_energy_predicted = args.align_distances_energy_predicted
         self.align_distances_spline = args.align_distances_spline
         self.align_distances_spline_ver2 = args.align_distances_spline_ver2
         self.align_distances_geodesic = args.align_distances_geodesic
         self.align_distances_bernstein = args.align_distances_bernstein
+        self.align_distances_bernstein_energy = args.align_distances_bernstein_energy
+        self.align_distances_adaptive_energy = args.align_distances_adaptive_energy
+
+        
         
         tmp_align_savgol_list = args.align_distances_savgol.split(",")
         
@@ -482,7 +491,7 @@ class NEB:
                     psi4.core.clean()
                 break
             
-            print(f"\n\n\n NEB: ITR.  {optimize_num}  \n\n\n")
+            print(f"\n Path Relaxation Method: ITR.  {optimize_num}  \n")
             self.make_traj_file(file_directory)
             
             # Calculate energy and gradients
@@ -557,7 +566,7 @@ class NEB:
                 projection_constraint_flag, PC_list if projection_constraint_flag else None)
             
             # Align geometries if needed
-            new_geometry = self._align_geometries(new_geometry, optimize_num, biased_gradient_list)
+            new_geometry = self._align_geometries(new_geometry, optimize_num, biased_gradient_list, biased_energy_list)
 
             # Save analysis files
             tmp_instance_fileio = FileIO(file_directory + "/", "dummy.txt")
@@ -634,50 +643,120 @@ class NEB:
         print("The number of interpolated nodes: ", len(ene_max_val_indices) * 2 * self.config.aneb_interpolation_num)
         return adaptive_neb_applied_new_geometry
 
-    def _align_geometries(self, new_geometry, optimize_num, gradient_list=None):
-        """Align geometries if needed (private method)"""
+    def _align_geometries(self, new_geometry, optimize_num, gradient_list=None, energy_list=None):
+        """Align geometries if needed based on configuration (private method)."""
         
-        number_of_nodes = len(new_geometry)
-        
-        if self.config.align_distances >= 1 and optimize_num % self.config.align_distances == 0 and optimize_num > 0:
-            print("Aligning geometries...")
-            tmp_new_geometry = distribute_geometry(np.array(new_geometry))
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-        if self.config.align_distances_bernstein >= 1 and optimize_num % self.config.align_distances_bernstein == 0 and optimize_num > 0:
-            print("Aligning geometries using Bernstein interpolation...")
-            tmp_new_geometry = bernstein_interpolation(np.array(new_geometry), number_of_nodes)
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-    
-        
-        if self.config.align_distances_spline >= 1 and optimize_num % self.config.align_distances_spline == 0 and optimize_num > 0:
-            print("Aligning geometries using spline...")
-            tmp_new_geometry = distribute_geometry_spline(np.array(new_geometry))
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-        
-        if self.config.align_distances_spline_ver2 >= 1 and optimize_num % self.config.align_distances_spline_ver2 == 0 and optimize_num > 0:
-            print("Aligning geometries using spline ver2...")
-            tmp_new_geometry = spline_interpolation(np.array(new_geometry), number_of_nodes)
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-       
-        if self.config.align_distances_savgol >= 1 and optimize_num % self.config.align_distances_savgol == 0 and optimize_num > 0:
-            print("Aligning geometries using Savitzky-Golay filter...")
-            tmp_new_geometry = savitzky_golay_interpolation(np.array(new_geometry), number_of_nodes, window_length=self.config.align_distances_savgol_window, polyorder=self.config.align_distances_savgol_poly)
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-     
-        
-        if self.config.align_distances_geodesic >= 1 and optimize_num % self.config.align_distances_geodesic == 0 and optimize_num > 0:
-            print("Aligning geometries using geodesic interpolation...")
-            tmp_new_geometry = distribute_geometry_geodesic(np.array(new_geometry))
-            for k in range(number_of_nodes):
-                new_geometry[k] = copy.copy(tmp_new_geometry[k])
-        
-        return new_geometry
+        # Early exit if optimization hasn't started or is at step 0
+        if optimize_num <= 0:
+            return new_geometry
 
+        n_nodes = len(new_geometry)
+        
+        # Helper function to update the geometry list in-place
+        def update_geometry_in_place(result_geometry):
+            for k in range(n_nodes):
+                new_geometry[k] = copy.copy(result_geometry[k])
+
+        # Define alignment strategies
+        # Format: (config_attribute_name, function_to_call, log_message, kwargs_generator_lambda)
+        alignment_strategies = [
+            (
+                'align_distances', 
+                distribute_geometry, 
+                "Aligning geometries...", 
+                lambda: {}
+            ),
+            (
+                'align_distances_energy', 
+                distribute_geometry_by_energy, 
+                "Aligning geometries (energy-weighted)...", 
+                # Fetch smoothing parameter from config, default to 0.1 if not present
+                lambda: {
+                    'energy_list': energy_list,
+                    'gradient_list': gradient_list,
+                    'smoothing': getattr(self.config, 'align_distances_energy_smoothing', 0.02)
+                }
+            ),
+            (
+                'align_distances_bernstein', 
+                bernstein_interpolation, 
+                "Aligning geometries using Bernstein interpolation...", 
+                lambda: {'n_points': n_nodes}
+            ),
+            (
+                'align_distances_bernstein_energy', 
+                distribute_geometry_by_energy_bernstein, 
+                "Aligning geometries using energy-weighted Bernstein interpolation...", 
+                # Fetch smoothing parameter from config, default to 0.1 if not present
+                lambda: {
+                    'energy_list': energy_list, 
+                    'gradient_list': gradient_list, 
+                    'smoothing': getattr(self.config, 'align_distances_bernstein_energy_smoothing', 0.5)
+                }
+            ),
+            (
+                'align_distances_spline', 
+                distribute_geometry_spline, 
+                "Aligning geometries using spline...", 
+                lambda: {}
+            ),
+            (
+                'align_distances_spline_ver2', 
+                spline_interpolation, 
+                "Aligning geometries using spline ver2...", 
+                lambda: {'n_points': n_nodes}
+            ),
+            (
+                'align_distances_savgol', 
+                savitzky_golay_interpolation, 
+                "Aligning geometries using Savitzky-Golay filter...", 
+                lambda: {
+                    'number_of_nodes': n_nodes, 
+                    'window_length': getattr(self.config, 'align_distances_savgol_window', None), 
+                    'polyorder': getattr(self.config, 'align_distances_savgol_poly', None)
+                }
+            ),
+            (
+                'align_distances_geodesic', 
+                distribute_geometry_geodesic, 
+                "Aligning geometries using geodesic interpolation...", 
+                lambda: {}
+            ),
+            
+
+           (
+                'align_distances_adaptive_energy', 
+                adaptive_geometry_energy_interpolation, 
+                "Aligning geometries (Adaptive Geometry + Energy)...", 
+                lambda: {'energy_list': energy_list, 'gradient_list': gradient_list, 'angle_threshold_deg': 15.0}
+            ), 
+           (
+                'align_distances_energy_predicted', 
+                distribute_geometry_by_predicted_energy,
+                "Aligning geometries using energy-weighted predicted interpolation...", 
+                lambda: {'energy_list': energy_list, 'gradient_list': gradient_list}
+            ), 
+      
+        ]
+
+        # Iterate through strategies and execute if the interval matches
+        for config_attr, func, message, kwargs_gen in alignment_strategies:
+            # Get the interval from config, default to 0 if attribute is missing
+            interval = getattr(self.config, config_attr, 0)
+            
+            if interval >= 1 and optimize_num % interval == 0:
+                print(message)
+                
+                # Execute the function with the generated keyword arguments
+                # The first argument is always assumed to be the geometry array
+                tmp_new_geometry = func(np.array(new_geometry), **kwargs_gen())
+                
+                # Update the result
+                update_geometry_in_place(tmp_new_geometry)
+
+        return new_geometry
+    
+    
     def _setup_force_calculation(self):
         """Setup force calculation method"""
         if self.config.om:
