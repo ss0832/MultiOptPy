@@ -79,14 +79,14 @@ class CaluculationQSMv2:
         # 1. Find TS (Highest Energy)
         # Exclude fixed endpoints (0 and -1) from being the TS source if possible
         search_energies = energies.copy()
-        if n_images > 2:
-            # Usually endpoints are minima, but safety check
-            pass 
+     
         ts_idx = np.argmax(search_energies)
         
         # Safety for edge cases
-        if ts_idx == 0: ts_idx = 1
-        if ts_idx == n_images - 1: ts_idx = n_images - 2
+        if ts_idx == 0: 
+            ts_idx = 1
+        if ts_idx == n_images - 1: 
+            ts_idx = n_images - 2
 
         # 2. Tangent at TS (Eq. 3a)
         q_ts = flat_geoms[ts_idx]
@@ -233,3 +233,72 @@ class CaluculationQSMv2:
         tmp_proj_hess = 0.5 * (tmp_proj_hess + tmp_proj_hess.T)
         
         return tmp_proj_hess
+
+    def get_tau(self, node_num):
+        """Returns the flattened tangent vector at the specified node."""
+        if len(self.tau_list) == 0:
+            raise ValueError("Tangent list is empty. Calculate forces first.")
+        return self.tau_list[node_num]
+
+    def calculate_gamma(self, q_triplet, E_triplet, g_triplet, tangent):
+        """
+        Calculates the curvature gamma along the path using quintic polynomial fitting.
+        
+        Args:
+            q_triplet: List of [q_prev, q_curr, q_next] coordinates
+            E_triplet: List of [E_prev, E_curr, E_next] energies
+            g_triplet: List of [g_prev, g_curr, g_next] gradients
+            tangent: Normalized tangent vector at the current node
+            
+        Returns:
+            gamma: Curvature (2nd derivative) along the path at the current node
+        """
+        q_prev, q_curr, q_next = q_triplet
+        E_prev, E_curr, E_next = E_triplet
+        g_prev, g_curr, g_next = g_triplet
+        
+        # 1. Distances along the path
+        dist_prev = np.linalg.norm(q_curr - q_prev)
+        dist_next = np.linalg.norm(q_next - q_curr)
+        
+        if dist_prev < 1e-6 or dist_next < 1e-6:
+            return 0.0
+
+        # s coordinates: prev at -dist_prev, curr at 0, next at +dist_next
+        s_p = -dist_prev
+        s_c = 0.0
+        s_n = dist_next
+        
+        # 2. Project gradients onto path
+        # Tangent at i-1: Approximated by direction from i-1 to i
+        t_prev = (q_curr - q_prev) / dist_prev
+        gp_proj = np.dot(g_prev.flatten(), t_prev.flatten())
+        
+        # Tangent at i: Given tangent
+        gc_proj = np.dot(g_curr.flatten(), tangent.flatten())
+        
+        # Tangent at i+1: Approximated by direction from i to i+1
+        t_next = (q_next - q_curr) / dist_next
+        gn_proj = np.dot(g_next.flatten(), t_next.flatten())
+        
+        # 3. Solve Quintic Polynomial Coefficients
+        # E(s) = c0 + c1*s + c2*s^2 + c3*s^3 + c4*s^4 + c5*s^5
+        A = np.array([
+            [1, s_p, s_p**2, s_p**3, s_p**4, s_p**5],
+            [1, s_c, s_c**2, s_c**3, s_c**4, s_c**5],
+            [1, s_n, s_n**2, s_n**3, s_n**4, s_n**5],
+            [0, 1, 2*s_p, 3*s_p**2, 4*s_p**3, 5*s_p**4],
+            [0, 1, 2*s_c, 3*s_c**2, 4*s_c**3, 5*s_c**4],
+            [0, 1, 2*s_n, 3*s_n**2, 4*s_n**3, 5*s_n**4]
+        ])
+        
+        b = np.array([E_prev, E_curr, E_next, gp_proj, gc_proj, gn_proj])
+        
+        try:
+            coeffs = np.linalg.solve(A, b)
+            # Curvature gamma = E''(0) = 2 * c2
+            gamma = 2.0 * coeffs[2]
+            return gamma
+        except np.linalg.LinAlgError:
+            # Fallback for singular matrix
+            return 0.0
