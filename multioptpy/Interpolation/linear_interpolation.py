@@ -1,69 +1,48 @@
 import numpy as np
-
 from multioptpy.Utils.calc_tools import calc_path_length_list
 
 
 def _cumulative_path_length(geom):
+    """Calculates cumulative path length along the string."""
     diffs = np.diff(geom, axis=0)
     seg_lengths = np.linalg.norm(diffs, axis=1)
-    seg_lengths = np.nan_to_num(seg_lengths, nan=0.0)  # NaN safety
+    seg_lengths = np.nan_to_num(seg_lengths, nan=0.0)
     return np.concatenate([[0.0], np.cumsum(seg_lengths)])
 
-def _find_candidate_segments(energies, fraction=0.20):
-    if len(energies) < 3:
-        return list(range(len(energies)-1))
-    e_range = np.ptp(energies)
-    if e_range < 1e-12:
-        return list(range(len(energies)-1))
-    threshold = np.max(energies) - fraction * e_range
-    cand = set()
-    for i in range(len(energies)-1):
-        if max(energies[i], energies[i+1]) >= threshold:
-            cand.add(i)
-        if 0 < i < len(energies)-2:
-            if energies[i] > energies[i-1] and energies[i] > energies[i+1]:
-                cand.add(i-1)
-                cand.add(i)
-    return sorted(cand)
-
-def _estimate_curvature(gradients, geom):
-    """Second derivative of energy along path – fully safe version."""
+def _estimate_curvature_and_tangents(gradients, geom):
+    """
+    Calculates curvature and tangent vectors at each node.
+    Returns:
+        curvatures: np.array (N,) - Second derivative along path
+        tangents: np.array (N, atoms*3) - Normalized tangent vectors
+    """
     n = len(geom)
-    if n < 3:
-        return np.zeros(n)
-
-    # Flatten coordinates for vector arithmetic
     gradients = gradients.reshape(n, -1)
     geom = geom.reshape(n, -1)
     
-    diffs = np.diff(geom, axis=0)
-    norms = np.linalg.norm(diffs, axis=1)
-    norms = np.maximum(norms, 1e-12)
-
-    tangents = diffs / norms[:, None]
+    # 1. Calculate Tangents (Central Difference)
+    tangents = np.zeros_like(geom)
     
-    # Pad tangent array for centralized calculation
-    tangents_padded = np.vstack([tangents[0], tangents, tangents[-1]]) 
+    # Internal nodes: T_i ~ (x_{i+1} - x_{i-1})
+    if n > 2:
+        vecs = geom[2:] - geom[:-2]
+        norms = np.linalg.norm(vecs, axis=1)
+        norms = np.maximum(norms, 1e-12)
+        tangents[1:-1] = vecs / norms[:, None]
+        
+    # Endpoints: Forward/Backward difference
+    t_start = geom[1] - geom[0]
+    tangents[0] = t_start / max(np.linalg.norm(t_start), 1e-12)
+    
+    t_end = geom[-1] - geom[-2]
+    tangents[-1] = t_end / max(np.linalg.norm(t_end), 1e-12)
 
-    grad_along = np.zeros(n)
-    for i in range(n):
-        # Use central difference approximation for tangent projection (i-1 to i+1)
-        # Note: This is an approximation of the true tangent at i
-        # We use simple projection for this calculation's needs
-        if 0 < i < n-1:
-             tangent_vec = geom[i+1] - geom[i-1]
-             tangent_norm = np.linalg.norm(tangent_vec)
-             if tangent_norm > 1e-12:
-                 tangent_vec /= tangent_norm
-                 grad_along[i] = np.sum(gradients[i] * tangent_vec)
-        else: # Boundary: Use adjacent segment vector
-             tangent_vec = tangents[i-1] if i > 0 else tangents[i]
-             grad_along[i] = np.sum(gradients[i] * tangent_vec)
+    # 2. Calculate Gradient Projections (Slope)
+    grad_along = np.sum(gradients * tangents, axis=1)
 
-
+    # 3. Calculate Curvature (Numerical differentiation of slope)
     curvature = np.zeros(n)
-    # Use distance of segments for ds
-    dists = np.linalg.norm(geom[1:] - geom[:-1], axis=1)
+    dists = np.linalg.norm(geom[1:] - geom[:-1], axis=1) # Segment lengths
     
     for k in range(1, n - 1):
         ds_prev = dists[k-1]
@@ -71,125 +50,133 @@ def _estimate_curvature(gradients, geom):
         total_ds = ds_prev + ds_next
         
         if total_ds > 1e-10:
-             # Central difference of slopes: (slope[k+1] - slope[k-1]) / ds_total
-             curvature[k] = (grad_along[k+1] - grad_along[k-1]) / total_ds
-        
+            # Centered finite difference of the first derivative
+            curvature[k] = (grad_along[k+1] - grad_along[k-1]) / total_ds
+            
     curvature[0] = curvature[1]
     curvature[-1] = curvature[-2]
-    return curvature
+    
+    return curvature, tangents, grad_along
 
-# =============================================================================
-# TS prediction – returns global arc length or None (Functions remain unchanged)
-# =============================================================================
+def _solve_polynomial_max(s_vals, E_vals, g_vals, gamma_vals=None):
+    """
+    Fits a polynomial to 3 points and finds the local maximum.
+    Calculates 3rd derivative to estimate asymmetry.
+    
+    Args:
+        s_vals: [s_prev, 0, s_next] (relative arc lengths)
+        E_vals: [E_prev, E_curr, E_next]
+        g_vals: [g_prev, g_curr, g_next] (projected gradients)
+        gamma_vals: [c_prev, c_curr, c_next] (curvatures, optional)
+        
+    Returns:
+        s_max: Predicted arc length of TS (relative to center), or None if invalid.
+    """
+    # Coordinate scaling to avoid numerical issues with small s
+    scale = max(abs(s_vals[0]), abs(s_vals[2]))
+    if scale < 1e-12: return None
+    
+    s = np.array(s_vals) / scale
+    E = np.array(E_vals)
+    g = np.array(g_vals) * scale # Derivative scales with 1/scale
+    
+    # Construct Linear System: Ac = b
+    # E(s) = sum(c_k * s^k)
+    
+    rows = []
+    rhs = []
+    
+    # Degree of polynomial
+    # If gamma is provided: 3 points * 3 constraints = 9 constraints -> Degree 8 (Octic)
+    # If gamma is None: 3 points * 2 constraints = 6 constraints -> Degree 5 (Quintic)
+    use_curvature = (gamma_vals is not None)
+    degree = 8 if use_curvature else 5
+    
+    if use_curvature:
+        gamma = np.array(gamma_vals) * (scale**2) # 2nd deriv scales with 1/scale^2
 
-def _predict_ts_position_cubic(y0, y1, m0, m1, L):
-    if L < 1e-12:
+    for i in range(3):
+        si = s[i]
+        # Energy constraint: E(si)
+        rows.append([si**k for k in range(degree + 1)])
+        rhs.append(E[i])
+        
+        # Gradient constraint: E'(si)
+        row_g = [0.0] * (degree + 1)
+        for k in range(1, degree + 1):
+            row_g[k] = k * si**(k-1)
+        rows.append(row_g)
+        rhs.append(g[i])
+        
+        # Curvature constraint: E''(si)
+        if use_curvature:
+            row_c = [0.0] * (degree + 1)
+            for k in range(2, degree + 1):
+                row_c[k] = k * (k-1) * si**(k-2)
+            rows.append(row_c)
+            rhs.append(gamma[i])
+
+    try:
+        # Solve for coefficients
+        coeffs = np.linalg.solve(np.array(rows), np.array(rhs))
+    except np.linalg.LinAlgError:
         return None
 
-    h00 = lambda t: 2*t**3 - 3*t**2 + 1
-    h10 = lambda t: t**3 - 2*t**2 + t
-    h01 = lambda t: -2*t**3 + 3*t**2
-    h11 = lambda t: t**3 - t**2
+    # Find roots of the derivative (E'(s) = 0)
+    deriv_coeffs = [k * coeffs[k] for k in range(1, degree + 1)]
+    roots = np.roots(deriv_coeffs[::-1])
+    
+    # Filter real roots within the interval
+    valid_roots = []
+    s_min, s_max = s[0], s[2]
+    
+    for r in roots:
+        if np.isreal(r):
+            r_real = r.real
+            # Allow slightly outside for prediction, but clamp tightly for safety
+            if s_min * 1.1 <= r_real <= s_max * 1.1:
+                # Check curvature (E''(s) < 0 for maximum)
+                # Calculate 2nd derivative value at this root
+                curvature_val = 0.0
+                for k in range(2, degree + 1):
+                    curvature_val += k * (k-1) * coeffs[k] * (r_real**(k-2))
+                
+                if curvature_val < -1e-5: # Must be concave (maximum)
+                    # --- Added: Calculate 3rd Derivative for Asymmetry Check ---
+                    deriv3_val = 0.0
+                    for k in range(3, degree + 1):
+                        deriv3_val += k * (k-1) * (k-2) * coeffs[k] * (r_real**(k-3))
+                    
+                    # Scale back to physical units
+                    # 3rd derivative scales with 1/scale^3
+                    true_deriv3 = deriv3_val / (scale**3)
+                    true_curvature = curvature_val / (scale**2)
+                    
+                    fit_type = "Octic" if use_curvature else "Quintic"
+                    print(f"  [{fit_type}] TS candidate found at s={r_real*scale:.4f}. "
+                          f"Curvature={true_curvature:.4e}, 3rd Deriv={true_deriv3:.4e}")
+                    
+                    # Calculate Energy at this root
+                    energy_val = np.polynomial.polynomial.polyval(r_real, coeffs)
+                    valid_roots.append((r_real, energy_val))
 
-    def E(t):  return y0*h00(t) + L*m0*h10(t) + y1*h01(t) + L*m1*h11(t)
-    def dE(t):
-        return (y0*(6*t**2-6*t) + L*m0*(3*t**2-4*t+1) +
-                y1*(-6*t**2+6*t) + L*m1*(3*t**2-2*t)) / L
-
-    candidates = []
-    for t0 in np.linspace(0.12, 0.88, 9):
-        t = t0
-        for _ in range(20):
-            f = dE(t)
-            if abs(f) < 1e-10: break
-            fp = (dE(t+1e-7) - dE(t-1e-7)) / 2e-7
-            if abs(fp) < 1e-14: break
-            t -= f / fp
-            t = np.clip(t, 0.0, 1.0)
-        if 0.06 <= t <= 0.94 and abs(dE(t)) < 1e-6:
-            if E(t) > max(y0, y1) + 1e-5:
-                candidates.append(t)
-
-    if not candidates:
+    if not valid_roots:
         return None
-    return max(candidates, key=E) * L
-
-
-def _predict_ts_position_quintic(y0, y1, m0, m1, c0, c1, L):
-    if L < 1e-12:
-        return None
-
-    h00 = lambda t: 1 - 10*t**3 + 15*t**4 - 6*t**5
-    h10 = lambda t: t - 6*t**3 + 8*t**4 - 3*t**5
-    h01 = lambda t: 10*t**3 - 15*t**4 + 6*t**5
-    h11 = lambda t: -4*t**3 + 7*t**4 - 3*t**5
-    h02 = lambda t: 0.5*t**2 - 1.5*t**3 + 1.5*t**4 - 0.5*t**5
-    h12 = lambda t: 0.5*t**3 - t**4 + 0.5*t**5
-
-    def E(t):
-        return (y0*h00(t) + L*m0*h10(t) + y1*h01(t) + L*m1*h11(t) +
-                L**2*c0*h02(t) + L**2*c1*h12(t))
-
-    def dE(t):
-        return (
-            y0*(-30*t**2 + 60*t**3 - 30*t**4) +
-            L*m0*(1 - 18*t**2 + 32*t**3 - 15*t**4) +
-            y1*(30*t**2 - 60*t**3 + 30*t**4) +
-            L*m1*(-12*t**2 + 28*t**3 - 15*t**4) +
-            L**2*c0*(t - 4.5*t**2 + 6*t**3 - 2.5*t**4) +
-            L**2*c1*(1.5*t**2 - 4*t**3 + 2.5*t**4)
-        ) / L
-
-    candidates = []
-    for t0 in np.linspace(0.1, 0.9, 11):
-        t = t0
-        for _ in range(25):
-            f = dE(t)
-            if abs(f) < 1e-12: break
-            fp = (dE(t+1e-7) - dE(t-1e-7)) / 2e-7
-            if abs(fp) < 1e-14: break
-            t -= f / fp
-            t = np.clip(t, 0.0, 1.0)
-        if 0.06 <= t <= 0.94 and abs(dE(t)) < 1e-7:
-            if E(t) > max(y0, y1) + 2e-5:
-                candidates.append(t)
-
-    if not candidates:
-        return None
-    return max(candidates, key=E) * L
+        
+    # Return the root with the highest energy
+    best_s = max(valid_roots, key=lambda x: x[1])[0]
+    
+    return best_s * scale
 
 def distribute_geometry_by_predicted_energy(
     geometry_list,
     energy_list,
-    gradient_list=None,
+    gradient_list,
     n_points=None,
-    method="quintic"
+    method="octic" # Options: 'quintic', 'octic'
 ):
     """
-    Redistributes geometry using Piecewise Linear Interpolation.
-    
-    1. Identifies local maxima (TS candidates).
-    2. Predicts the exact TS arc-length position for each maximum.
-    3. "Pins" the corresponding node index to this exact predicted position.
-    4. Linearly interpolates (uniformly distributes) the nodes between these pinned points.
-
-    Parameters
-    ----------
-    geometry_list : list or np.ndarray
-        List of geometries (N, atoms, 3).
-    energy_list : list or np.ndarray
-        List of energies.
-    gradient_list : list or np.ndarray
-        List of gradients.
-    n_points : int, optional
-        Target number of nodes. Defaults to len(geometry_list).
-    method : str
-        'cubic' or 'quintic'.
-
-    Returns
-    -------
-    np.ndarray
-        The interpolated geometries.
+    Redistributes geometry nodes to align with predicted Transition State (TS).
     """
     geom = np.asarray(geometry_list, dtype=float)
     energies = np.asarray(energy_list, dtype=float)
@@ -200,11 +187,7 @@ def distribute_geometry_by_predicted_energy(
     
     natom = geom.shape[1]
     geom_flat = geom.reshape(n_old, -1)
-
-    if gradient_list is None:
-        gradients = np.zeros_like(geom_flat)
-    else:
-        gradients = np.asarray(gradient_list, dtype=float).reshape(n_old, -1)
+    gradients = np.asarray(gradient_list, dtype=float).reshape(n_old, -1)
 
     # 1. Path length calculation
     s_cum = _cumulative_path_length(geom_flat)
@@ -213,98 +196,71 @@ def distribute_geometry_by_predicted_energy(
     if total_length < 1e-12 or n_old < 3:
         return geom.copy()
 
-    # 2. Identify Anchors (Fixed Points)
-    # An anchor is a tuple: (Target_Node_Index, Target_Arc_Length)
-    # We start with the endpoints.
+    # 2. Calculate properties along the path
+    curvatures, _, projected_gradients = _estimate_curvature_and_tangents(gradients, geom)
+
+    # 3. Identify Anchors
     anchors = [(0, 0.0), (n_points - 1, total_length)]
 
-    # Calculate curvature once if needed
-    curvatures = None
-    if method == "quintic":
-        curvatures = _estimate_curvature(gradients, geom)
-
-    # Loop through internal nodes to find local maxima
+    # Scan for local maxima
     for i in range(1, n_old - 1):
         if energies[i] > energies[i-1] and energies[i] > energies[i+1]:
             
-            # --- Prediction Logic ---
-            # Predict TS using segment (i-1) -> (i)
-            i_prev = i - 1
-            i_curr = i
+            s_prev = s_cum[i-1] - s_cum[i]
+            s_curr = 0.0
+            s_next = s_cum[i+1] - s_cum[i]
             
-            vec = geom_flat[i_curr] - geom_flat[i_prev]
-            L = np.linalg.norm(vec)
+            s_vals = [s_prev, s_curr, s_next]
+            E_vals = [energies[i-1], energies[i], energies[i+1]]
+            g_vals = [projected_gradients[i-1], projected_gradients[i], projected_gradients[i+1]]
+            c_vals = [curvatures[i-1], curvatures[i], curvatures[i+1]]
             
-            s_ts = None
-            if L > 1e-12:
-                tangent = vec / L
-                y0, y1 = energies[i_prev], energies[i_curr]
-                m0 = np.dot(gradients[i_prev], tangent)
-                m1 = np.dot(gradients[i_curr], tangent)
+            s_ts_local = None
+            print(f"NODE {i}: Detected local maximum at s={s_cum[i]:.4f}, E={energies[i]:.4f}")
+            # --- Attempt Method 2: Octic (9-point) ---
+            if method == "octic":
+                s_ts_local = _solve_polynomial_max(s_vals, E_vals, g_vals, c_vals)
+            
+            # --- Fallback/Method 1: Quintic (6-point) ---
+            if s_ts_local is None:
+                # print(f"Node {i}: Fallback to Quintic fitting.")
+                s_ts_local = _solve_polynomial_max(s_vals, E_vals, g_vals, None)
 
-                s_local = None
-                if method == "quintic" and curvatures is not None:
-                    s_local = _predict_ts_position_quintic(
-                        y0, y1, m0, m1, curvatures[i_prev], curvatures[i_curr], L
-                    )
-                else:
-                    s_local = _predict_ts_position_cubic(y0, y1, m0, m1, L)
+            # --- Finalize Position ---
+            if s_ts_local is not None:
+                s_ts_global = s_cum[i] + s_ts_local
                 
-                if s_local is not None:
-                    s_ts = s_cum[i_prev] + s_local
-            
-            # Fallback: if prediction fails, use the current node's position
-            if s_ts is None:
-                s_ts = s_cum[i]
+                # Map old index 'i' to new index 'j'
+                j = int(round(i * (n_points - 1) / (n_old - 1)))
+                
+                if 0 < j < n_points - 1:
+                    anchors.append((j, s_ts_global))
 
-            # --- Mapping Logic ---
-            # Map the old index 'i' to the new index 'j'
-            # We preserve the relative position of the node in the chain.
-            j = int(round(i * (n_points - 1) / (n_old - 1)))
-            
-            # Ensure we don't overwrite endpoints
-            if 0 < j < n_points - 1:
-                anchors.append((j, s_ts))
-
-    # 3. Process Anchors
-    # Sort anchors by index to ensure correct sequential processing
+    # 4. Process Anchors & Interpolate
     anchors.sort(key=lambda x: x[0])
-
-    # Remove duplicates (keep the one with higher energy or simply the first encountered?)
-    # Here we perform a simple cleanup to ensure strictly increasing indices
+    
     unique_anchors = [anchors[0]]
     for k in range(1, len(anchors)):
         curr_idx, curr_s = anchors[k]
         prev_idx, prev_s = unique_anchors[-1]
         
-        # Only add if index is greater (avoid collision)
         if curr_idx > prev_idx:
-            # Enforce physical ordering of arc length (TS must be after previous anchor)
             if curr_s <= prev_s: 
-                curr_s = prev_s + 1e-6 # Tiny nudge to prevent collapse
+                curr_s = prev_s + 1e-6
             unique_anchors.append((curr_idx, curr_s))
             
-    # Ensure the last anchor is strictly the endpoint
     if unique_anchors[-1][0] != n_points - 1:
          unique_anchors.append((n_points - 1, total_length))
 
-    # 4. Construct Target Grid (Piecewise Linear)
+    # Construct Target Grid
     target_s = np.zeros(n_points)
-    
     for k in range(len(unique_anchors) - 1):
         idx_start, s_start = unique_anchors[k]
         idx_end, s_end = unique_anchors[k+1]
-        
-        # Number of points in this segment (inclusive)
         count = idx_end - idx_start + 1
-        
-        # Linear interpolation for this segment
-        segment_values = np.linspace(s_start, s_end, count)
-        
-        # Assign to the target array
-        target_s[idx_start : idx_end + 1] = segment_values
+        target_s[idx_start : idx_end + 1] = np.linspace(s_start, s_end, count)
 
-    # 5. Interpolate Geometry
+    # Interpolate Geometry
     new_flat_geom = np.zeros((n_points, geom_flat.shape[1]))
     for dim in range(geom_flat.shape[1]):
         new_flat_geom[:, dim] = np.interp(target_s, s_cum, geom_flat[:, dim])
