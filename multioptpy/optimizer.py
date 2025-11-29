@@ -161,9 +161,15 @@ class CalculateMoveVector:
         if self.max_trust_radius is None:
             if saddle_order > 0:
                 self.max_trust_radius = 0.1
+                self.trust_radii = 0.1
             else:
                 self.max_trust_radius = 0.5
-        self.trust_radii = self.max_trust_radius if type(self.max_trust_radius) is float else 0.5
+                self.trust_radii = 0.5
+        else:
+            if saddle_order > 0:
+                self.trust_radii = min(self.max_trust_radius, 0.1)
+            else:
+                self.trust_radii = self.max_trust_radius if type(self.max_trust_radius) is float else 0.5
 
         if self.min_trust_radius is not None:
             if self.min_trust_radius <= 0.0:
