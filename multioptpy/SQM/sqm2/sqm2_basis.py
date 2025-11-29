@@ -41,6 +41,7 @@ class BasisSet:
     def _dim_basis(self, param):
         """
         Calculates the total number of shells (nshell), AOs (nao), and CGFs (nbf).
+        Corresponds to Fortran subroutine: dim_basis
         """
         n_atoms = len(self.element_list)
         nao = 0
@@ -67,10 +68,10 @@ class BasisSet:
                     nao += 3
                 elif l == 2: # d
                     nbf += 6 # 6 Cartesian CGFs
-                    nao += 5 # 5 AOs
+                    nao += 5 # 5 spherical AOs
                 elif l == 3: # f
                     nbf += 10 # 10 Cartesian CGFs
-                    nao += 7  # 7 AOs
+                    nao += 7  # 7 spherical AOs
                 elif l == 4: # g
                     nbf += 15
                     nao += 9
@@ -79,28 +80,49 @@ class BasisSet:
         
         return nshell, nao, nbf
 
+    def _get_max_shells_per_atom(self):
+        """
+        Returns the maximum number of shells for any atom in the system.
+        Used for allocating caoshell/saoshell arrays.
+        """
+        max_shells = 0
+        for i in range(len(self.element_list)):
+            n_shells = self.nshells_list[i]
+            if n_shells > max_shells:
+                max_shells = n_shells
+        return max_shells
+
     def _set_basis(self, param):
-        # NOTE: Per-atom parameter lists (like self.nshells_list)
-        # are now set in __init__
-        
-        ### dict of Orbital Information
+        """
+        Main basis set setup routine.
+        Corresponds to Fortran subroutine: newBasisset
+        """
         n_atoms = len(self.element_list)
 
         self.basis = {}
 
         # --- Global Counts (calculated by _dim_basis) ---
         n_shell_total, n_ao_total, n_cgf_total = self._dim_basis(param)
+        max_shells_per_atom = self._get_max_shells_per_atom()
         
         self.basis["number_of_atoms"] = n_atoms
         self.basis["number_of_cgf"] = n_cgf_total      # Corresponds to: nbf
         self.basis["number_of_ao"] = n_ao_total       # Corresponds to: nao
-        self.basis["number_of_shells"] = n_shell_total  # Corresponds to: nsh
+        self.basis["number_of_shells"] = n_shell_total  # Corresponds to: nshell
         self.basis["total_number_of_primitives"] = 0   # Final 'ipr' value
 
         # --- Per-Atom Indices ---
+        # Corresponds to Fortran: shells(2,n), fila(2,n), fila2(2,n)
         self.basis["atom_shells_map"] = np.zeros((n_atoms, 2), dtype=int) # [iat, 0]=start, [iat, 1]=end
-        self.basis["atom_cgf_map"] = np.zeros((n_atoms, 2), dtype=int)    # [iat, 0]=start, [iat, 1]=end
-        self.basis["atom_ao_map"] = np.zeros((n_atoms, 2), dtype=int)     # [iat, 0]=start, [iat, 1]=end
+        self.basis["atom_cgf_map"] = np.zeros((n_atoms, 2), dtype=int)    # [iat, 0]=start, [iat, 1]=end (fila)
+        self.basis["atom_ao_map"] = np.zeros((n_atoms, 2), dtype=int)     # [iat, 0]=start, [iat, 1]=end (fila2)
+
+        # --- Per-Atom Per-Shell Mappings (NEW - corresponds to caoshell/saoshell) ---
+        # caoshell(m, iat) = CGF index at start of shell m for atom iat
+        # saoshell(m, iat) = AO index at start of shell m for atom iat
+        # Using shape (n_atoms, max_shells_per_atom) with -1 for unused slots
+        self.basis["atom_shell_cgf_offset"] = np.full((n_atoms, max_shells_per_atom), -1, dtype=int)  # caoshell
+        self.basis["atom_shell_ao_offset"] = np.full((n_atoms, max_shells_per_atom), -1, dtype=int)   # saoshell
 
         # --- Per-Shell Data (Lists) ---
         self.basis["shell_amqn_list"] = []           # lsh(ish)
@@ -109,10 +131,10 @@ class BasisSet:
         self.basis["shell_ao_map"] = []              # sh2ao(1:2, ish) -> [start, count]
         self.basis["shell_level_list"] = []          # level(ish)
         self.basis["shell_zeta_list"] = []           # zeta(ish)
-        self.basis["shell_valence_flag_list"] = []   # valsh(ish) (valao goes here)
+        self.basis["shell_valence_flag_list"] = []   # valsh(ish)
         self.basis["shell_min_alpha_list"] = []      # minalp(ish)
 
-        # --- Per-CGF (Contracted Gaussian Function) Data (Lists) ---
+        # --- Per-CGF (Contracted Gaussian Function / Cartesian BF) Data (Lists) ---
         self.basis["cgf_primitive_start_idx_list"] = [] # primcount(ibf)
         self.basis["cgf_valence_flag_list"] = []        # valao(ibf)
         self.basis["cgf_atom_list"] = []                # aoat(ibf)
@@ -120,7 +142,7 @@ class BasisSet:
         self.basis["cgf_primitive_count_list"] = []     # nprim(ibf)
         self.basis["cgf_energy_list"] = []              # hdiag(ibf)
 
-        # --- Per-AO (Atomic Orbital) Data (Lists) ---
+        # --- Per-AO (Spherical Atomic Orbital) Data (Lists) ---
         self.basis["ao_valence_flag_list"] = [] # valao2(iao)
         self.basis["ao_atom_list"] = []         # aoat2(iao)
         self.basis["ao_type_id_list"] = []      # lao2(iao)
@@ -133,6 +155,7 @@ class BasisSet:
         self.basis["primitive_coeff_list"] = [] # cont(ipr)
         
         # --- Transformation factors for d/f functions ---
+        # Corresponds to Fortran trafo arrays in set_d_function and set_f_function
         d_trafo = { 5: 1.0, 6: 1.0, 7: 1.0, 8: np.sqrt(3.0), 9: np.sqrt(3.0), 10: np.sqrt(3.0) }
         f_trafo = { 11: 1.0, 12: 1.0, 13: 1.0, 14: np.sqrt(5.0), 15: np.sqrt(5.0),
                     16: np.sqrt(5.0), 17: np.sqrt(5.0), 18: np.sqrt(5.0), 19: np.sqrt(5.0),
@@ -155,6 +178,7 @@ class BasisSet:
             coeff_s_val = np.array([])
 
             # Set Per-Atom Start Indices
+            # Corresponds to: basis%shells(1,iat)=ish+1, basis%fila(1,iat)=ibf+1, basis%fila2(1,iat)=iao+1
             self.basis["atom_shells_map"][iat, 0] = ish 
             self.basis["atom_cgf_map"][iat, 0] = ibf
             self.basis["atom_ao_map"][iat, 0] = iao
@@ -162,8 +186,6 @@ class BasisSet:
             # Corresponds to: shells: do m=1,xtbData%nShell(ati)
             nshell_i = self.nshells_list[iat]
             for m in range(nshell_i):
-                # 'ish' is the current 0-indexed global shell index (0, 1, 2, ...)
-                
                 # --- Get Shell Parameters ---
                 l = self.ang_shells_list[iat][m]
                 npq = self.principal_qn_list[iat][m]
@@ -178,6 +200,10 @@ class BasisSet:
                 ibf_start_shell = ibf
                 iao_start_shell = iao
 
+                # --- Store Per-Atom Per-Shell Offsets (caoshell/saoshell) ---
+                self.basis["atom_shell_cgf_offset"][iat, m] = ibf
+                self.basis["atom_shell_ao_offset"][iat, m] = iao
+
                 # --- Store Per-Shell Data (at index ish) ---
                 self.basis["shell_amqn_list"].append(l)
                 self.basis["shell_atom_list"].append(iat)
@@ -185,21 +211,21 @@ class BasisSet:
                 self.basis["shell_ao_map"].append([iao_start_shell, 0])  # [start, count]
                 self.basis["shell_level_list"].append(level)
                 self.basis["shell_zeta_list"].append(zeta)
-                self.basis["shell_valence_flag_list"].append(valao) # Store valao (int) directly
+                self.basis["shell_valence_flag_list"].append(valao)
                 
                 min_alpha_for_shell = np.inf
 
                 # === Process Shells by Type ===
 
                 # --- H-He s (Valence) ---
-                if l == 0 and ati <= 2 and is_valence: # valao != 0
+                if l == 0 and ati <= 2 and is_valence:
                     
                     alpha, coeff = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
                     min_alpha_for_shell = np.min(alpha)
                     
                     nprim_s_val = current_nprim_or_R
-                    alpha_s_val = alpha
-                    coeff_s_val = coeff
+                    alpha_s_val = alpha.copy()
+                    coeff_s_val = coeff.copy()
                     
                     # Add CGF (1)
                     self.basis["cgf_primitive_start_idx_list"].append(ipr)
@@ -222,37 +248,35 @@ class BasisSet:
                     self.basis["ao_type_id_list"].append(1) # 1=s
                     self.basis["ao_energy_list"].append(level)
                     self.basis["ao_zeta_list"].append(zeta)
-                    self.basis["ao_shell_list"].append(ish) # Link to current shell
+                    self.basis["ao_shell_list"].append(ish)
                     iao += 1
 
                 # --- H-He s (Diffuse) ---
-                # orthogonalize and re-normalize.
-                elif l == 0 and ati <= 2 and not is_valence: # valao == 0
+                elif l == 0 and ati <= 2 and not is_valence:
                   
-                    # current_nprim_or_R is 2 
                     alpha_R, coeff_R = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
                     
                     # Get overlap with valence s 
                     ss = self.calc_overlap_int_for_diffuse_func(0, alpha_s_val, alpha_R, coeff_s_val, coeff_R)
                     min_alpha_for_shell = min(np.min(alpha_s_val), np.min(alpha_R))
 
-                    nprim_total = current_nprim_or_R + nprim_s_val # current_nprim_or_R = 2
+                    nprim_total = current_nprim_or_R + nprim_s_val
                     
                     # Add CGF (1)
                     self.basis["cgf_primitive_start_idx_list"].append(ipr)
-                    self.basis["cgf_valence_flag_list"].append(valao) # valao is 0
+                    self.basis["cgf_valence_flag_list"].append(valao)
                     self.basis["cgf_atom_list"].append(iat)
                     self.basis["cgf_type_id_list"].append(1) # 1=s
-                    self.basis["cgf_primitive_count_list"].append(nprim_total) # 2 + 3 = 5
+                    self.basis["cgf_primitive_count_list"].append(nprim_total)
                     self.basis["cgf_energy_list"].append(level)
                     ibf += 1
                     
-                    # Add Primitives (Diffuse part)
+                    # Add Primitives (Diffuse part first, then valence orthogonalized)
                     all_alphas = []
                     all_coeffs = []
-                    prim_start_idx_for_this_cgf = ipr # idum=ipr+1
+                    prim_start_idx_for_this_cgf = ipr
                     
-                    for p in range(current_nprim_or_R): # nprim = thisprimR (2)
+                    for p in range(current_nprim_or_R):
                         alpha_p = alpha_R[p]
                         coeff_p = coeff_R[p]
                         self.basis["primitive_alpha_list"].append(alpha_p)
@@ -277,12 +301,12 @@ class BasisSet:
                     ss_norm = self.calc_overlap_int_for_diffuse_func(0, all_alphas, all_alphas, all_coeffs, all_coeffs)
                     norm_factor = 1.0 / np.sqrt(ss_norm)
                     
-                    # Update the coefficients in the global list (idum-1+p)
+                    # Update the coefficients in the global list
                     for p in range(nprim_total):
                         self.basis["primitive_coeff_list"][prim_start_idx_for_this_cgf + p] *= norm_factor
                     
                     # Add AO (1)
-                    self.basis["ao_valence_flag_list"].append(valao) # valao is 0
+                    self.basis["ao_valence_flag_list"].append(valao)
                     self.basis["ao_atom_list"].append(iat)
                     self.basis["ao_type_id_list"].append(1) # 1=s
                     self.basis["ao_energy_list"].append(level)
@@ -292,7 +316,6 @@ class BasisSet:
                     
                 # --- H-He p (Polarization) ---
                 elif l == 1 and ati <= 2:
-                    # Here, valao is the flag for the p-pol shell (e.g., 1)
                     valao_p_pol = -valao 
                     
                     alpha, coeff = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
@@ -301,7 +324,7 @@ class BasisSet:
                     for j_type in [2, 3, 4]: # px, py, pz
                         # Add CGF (1)
                         self.basis["cgf_primitive_start_idx_list"].append(ipr)
-                        self.basis["cgf_valence_flag_list"].append(valao_p_pol) # Use negative flag
+                        self.basis["cgf_valence_flag_list"].append(valao_p_pol)
                         self.basis["cgf_atom_list"].append(iat)
                         self.basis["cgf_type_id_list"].append(j_type)
                         self.basis["cgf_primitive_count_list"].append(current_nprim_or_R)
@@ -315,7 +338,7 @@ class BasisSet:
                             ipr += 1
 
                         # Add AO (1)
-                        self.basis["ao_valence_flag_list"].append(valao_p_pol) # Use negative flag
+                        self.basis["ao_valence_flag_list"].append(valao_p_pol)
                         self.basis["ao_atom_list"].append(iat)
                         self.basis["ao_type_id_list"].append(j_type)
                         self.basis["ao_energy_list"].append(level)
@@ -324,14 +347,14 @@ class BasisSet:
                         iao += 1
 
                 # --- General s (Valence) ---
-                elif l == 0 and ati > 2 and is_valence: # valao != 0
+                elif l == 0 and ati > 2 and is_valence:
                     alpha, coeff = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
                     min_alpha_for_shell = np.min(alpha)
                     
-                    # Store for use by diffuse shell (as, cs, nprim)
+                    # Store for use by diffuse shell
                     nprim_s_val = current_nprim_or_R
-                    alpha_s_val = alpha
-                    coeff_s_val = coeff
+                    alpha_s_val = alpha.copy()
+                    coeff_s_val = coeff.copy()
                     
                     # Add CGF (1)
                     self.basis["cgf_primitive_start_idx_list"].append(ipr)
@@ -359,10 +382,8 @@ class BasisSet:
 
                 # --- General p ---
                 elif l == 1 and ati > 2:
-                    # or !=0 (valence p))
                     alpha, coeff = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
                     min_alpha_for_shell = np.min(alpha)
-                    
                     
                     for j_type in [2, 3, 4]: # px, py, pz
                         # Add CGF (1)
@@ -390,19 +411,17 @@ class BasisSet:
                         iao += 1
                         
                 # --- General s (Diffuse) ---
-                elif l == 0 and ati > 2 and not is_valence: # valao == 0
-                    # current_nprim_or_R is 'thisprimR'
-                   
+                elif l == 0 and ati > 2 and not is_valence:
                     alpha_R, coeff_R = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
-                    # Get overlap with valence s (as, cs, nprim)
+                    # Get overlap with valence s
                     ss = self.calc_overlap_int_for_diffuse_func(0, alpha_s_val, alpha_R, coeff_s_val, coeff_R)
                     min_alpha_for_shell = min(np.min(alpha_s_val), np.min(alpha_R))
 
-                    nprim_total = current_nprim_or_R + nprim_s_val # current_nprim = thisprimR
+                    nprim_total = current_nprim_or_R + nprim_s_val
                     
                     # Add CGF (1)
                     self.basis["cgf_primitive_start_idx_list"].append(ipr)
-                    self.basis["cgf_valence_flag_list"].append(valao) # valao is 0
+                    self.basis["cgf_valence_flag_list"].append(valao)
                     self.basis["cgf_atom_list"].append(iat)
                     self.basis["cgf_type_id_list"].append(1) # 1=s
                     self.basis["cgf_primitive_count_list"].append(nprim_total)
@@ -412,9 +431,9 @@ class BasisSet:
                     # Add Primitives (Diffuse part)
                     all_alphas = []
                     all_coeffs = []
-                    prim_start_idx_for_this_cgf = ipr # idum=ipr+1
+                    prim_start_idx_for_this_cgf = ipr
 
-                    for p in range(current_nprim_or_R): # current_nprim = thisprimR
+                    for p in range(current_nprim_or_R):
                         alpha_p = alpha_R[p]
                         coeff_p = coeff_R[p]
                         self.basis["primitive_alpha_list"].append(alpha_p)
@@ -444,7 +463,7 @@ class BasisSet:
                         self.basis["primitive_coeff_list"][prim_start_idx_for_this_cgf + p] *= norm_factor
 
                     # Add AO (1)
-                    self.basis["ao_valence_flag_list"].append(valao) # valao is 0
+                    self.basis["ao_valence_flag_list"].append(valao)
                     self.basis["ao_atom_list"].append(iat)
                     self.basis["ao_type_id_list"].append(1) # 1=s
                     self.basis["ao_energy_list"].append(level)
@@ -474,9 +493,10 @@ class BasisSet:
                             self.basis["primitive_coeff_list"].append(coeff[p] * trafo)
                             ipr += 1
                         
-                        # Add AO (5 AOs for 6 CGFs)
-                        if j_type != 5: # Skip for dxx (j_type=5)
-                            ao_type_id = j_type - 1 # (AO IDs: 5,6,7,8,9)
+                        # Add AO (5 spherical AOs for 6 Cartesian CGFs)
+                        # Skip for j_type=5 (dxx) - Fortran: if (j .eq.5) cycle
+                        if j_type != 5:
+                            ao_type_id = j_type - 1 # AO IDs: 4,5,6,7,8,9 for j_type 6,7,8,9,10
                             self.basis["ao_valence_flag_list"].append(valao)
                             self.basis["ao_atom_list"].append(iat)
                             self.basis["ao_type_id_list"].append(ao_type_id) 
@@ -487,12 +507,13 @@ class BasisSet:
 
                 # --- f functions ---
                 elif l == 3:
+                    # Fortran hardcodes valao=1 for f functions
                     valao_f = 1 
                     
                     alpha, coeff = self.slater2gauss(current_nprim_or_R, npq, l, zeta, param, need_normalization=True)
                     min_alpha_for_shell = np.min(alpha)
                     
-                    for j_type in range(11, 21): # 11..20 (10 CGFs)
+                    for j_type in range(11, 21): # 11..20 (10 Cartesian CGFs)
                         # Add CGF (1)
                         self.basis["cgf_primitive_start_idx_list"].append(ipr)
                         self.basis["cgf_valence_flag_list"].append(valao_f)
@@ -509,9 +530,11 @@ class BasisSet:
                             self.basis["primitive_coeff_list"].append(coeff[p] * trafo)
                             ipr += 1
 
-                        # Add AO (7 AOs for 10 CGFs)
-                        if j_type > 13: # Skip for fxxx, fyyy, fzzz (11,12,13)
-                            ao_type_id = j_type - 3 # (AO IDs: 11..17)
+                        # Add AO (7 spherical AOs for 10 Cartesian CGFs)
+                        # Skip for j_type 11,12,13 (fxxx, fyyy, fzzz)
+                        # Fortran: if (j.ge.11 .and.j.le.13) cycle
+                        if j_type > 13:
+                            ao_type_id = j_type - 3 # AO IDs: 11,12,13,14,15,16,17 for j_type 14..20
                             self.basis["ao_valence_flag_list"].append(valao_f)
                             self.basis["ao_atom_list"].append(iat)
                             self.basis["ao_type_id_list"].append(ao_type_id) 
@@ -540,28 +563,35 @@ class BasisSet:
         # --- Finalize Global Counts ---
         self.basis["total_number_of_primitives"] = ipr
         
-        # --- Final Sanity Checks ---
+        # --- Final Sanity Checks (corresponds to Fortran ok check) ---
+        all_alphas_positive = all(a > 0.0 for a in self.basis["primitive_alpha_list"])
         if n_cgf_total != ibf:
             print(f"Warning: CGF count mismatch. Calculated={n_cgf_total}, Found={ibf}")
         if n_ao_total != iao:
-            print(f"Warning: AO count mismatch. Calculated={n_ao_total}, Found={iao}")
+            print(f"Warning: AO count mismatch.Calculated={n_ao_total}, Found={iao}")
         if n_shell_total != ish:
             print(f"Warning: Shell count mismatch. Calculated={n_shell_total}, Found={ish}")
-        
+        if not all_alphas_positive:
+            print("Warning: Some primitive exponents are non-positive!")
         
         return
 
 
     def get_number_of_primitives(self, element, angmn, pqn, is_valence):
+        """
+        Returns the number of primitive Gaussians for STO-nG expansion.
         
+        This function determines nprim based on element type and orbital type.
+        Note: In the original Fortran, this would be read from xtbData%hamiltonian%numberOfPrimitives.
+        Here we use hardcoded rules matching typical GFN0 behavior.
+        """
         atom_num = element + 1 # Convert 0-indexed to 1-indexed atomic number
-        
         
         if atom_num <= 2: # H, He
             if is_valence:
                 n = 3 # STO-3G 
             else:
-                n = 2 # STO-2G
+                n = 2 # STO-2G (thisprimR for diffuse)
         else:
             if angmn == 0: # s orbital
                 if pqn > 5:
@@ -573,21 +603,22 @@ class BasisSet:
                     n = 6 # STO-6G
                 else:
                     n = 3 # STO-3G
-
             elif angmn == 2 or angmn == 3: # d orbital or f orbital
                 n = 4 # STO-4G
             else:
-                print("Error in get_number_of_primitives: angmn > 3")
-                raise ValueError
+                raise ValueError(f"Error in get_number_of_primitives: angmn={angmn} > 3")
 
-        return n # STO-nG
+        return n
 
 
     def check_transition_metals(self):
+        """
+        Identifies transition metals and Group 11 elements in the element list.
+        """
         is_tm_list = []
         is_g11_element_list = []
         
-        g11_z_numbers = {29, 47, 79, 111}
+        g11_z_numbers = {29, 47, 79, 111} # Cu, Ag, Au, Rg
 
         for atn in self.element_list:
             z = atn + 1
@@ -595,14 +626,12 @@ class BasisSet:
             if z in g11_z_numbers:
                 is_g11_element_list.append(True)
                 is_tm_list.append(False) 
-            
             elif (z >= 21 and z <= 30) or \
                  (z >= 39 and z <= 48) or \
                  (z >= 57 and z <= 80) or \
                  (z >= 89 and z <= 112):
                 is_tm_list.append(True)
                 is_g11_element_list.append(False)
-            
             else:
                 is_tm_list.append(False)
                 is_g11_element_list.append(False)
@@ -611,40 +640,50 @@ class BasisSet:
 
     def set_valence_orbitals(self):
         """
-        NOTE: This method is not called by _set_basis in your example.
-        You may be using it elsewhere.
+        Determines which shells are valence vs diffuse based on angular momentum.
+        NOTE: This method is not called by _set_basis. 
+        It may be used elsewhere for analysis.
         """
-        self.valence_orbitals_list = [] # If valence orbital, True
+        self.valence_orbitals_list = []
         for i in range(len(self.element_list)):
-            atn = self.element_list[i]
-            
             seen_ang_mom = set()
             for shell_idx in range(self.nshells_list[i]):
                 ang = self.ang_shells_list[i][shell_idx]
                 if ang not in seen_ang_mom:
-                    self.valence_orbitals_list.append(True) # Mark as valence
+                    self.valence_orbitals_list.append(True)
                     seen_ang_mom.add(ang)
                 else:
-                    self.valence_orbitals_list.append(False) # Mark as diffuse
+                    self.valence_orbitals_list.append(False)
                         
         return self.valence_orbitals_list
     
     def slater2gauss(self, nprim, pqn, angmn, slater_exp, param, need_normalization=True):
-        # param is already available via self.param
-        # No need to pass it as an argument, but we will keep 
-        # the signature the same as your code.
+        """
+        Converts Slater-type orbital to a sum of Gaussian primitives (STO-nG).
+        Corresponds to Fortran subroutine: slaterToGauss
         
+        Parameters:
+            nprim: Number of primitive Gaussians
+            pqn: Principal quantum number
+            angmn: Angular momentum quantum number (0=s, 1=p, 2=d, 3=f)
+            slater_exp: Slater exponent (zeta)
+            param: Parameter object containing STO-nG coefficients
+            need_normalization: Whether to normalize the primitives
+            
+        Returns:
+            alpha: Array of Gaussian exponents
+            coeff: Array of contraction coefficients
+        """
         alpha = np.zeros(nprim)
         coeff = np.zeros(nprim)
         
         if pqn < angmn + 1:
-            print("Error in slater2gauss: pqn < angmn + 1")
-            raise ValueError
+            raise ValueError(f"Error in slater2gauss: pqn ({pqn}) < angmn + 1 ({angmn + 1})")
         
         if slater_exp <= 0.0:
-            print("Error in slater2gauss: non-positive slater exponent")
-            raise ValueError
+            raise ValueError(f"Error in slater2gauss: non-positive slater exponent ({slater_exp})")
         
+        # Determine index into parameter tables based on orbital type
         tmp_num = -1
         if angmn == 0: # s orbital
             tmp_num = pqn - 1
@@ -657,8 +696,7 @@ class BasisSet:
         elif angmn == 4: # g orbital
             tmp_num = 10 + pqn - 1
         else:
-            print("Error in slater2gauss: angmn > 4")
-            raise ValueError
+            raise ValueError(f"Error in slater2gauss: angmn ({angmn}) > 4")
         
         slater_exp_sq = slater_exp ** 2.0
         
@@ -666,38 +704,43 @@ class BasisSet:
             alpha[0] = param.pAlpha1[tmp_num] * slater_exp_sq
             coeff[0] = 1.0
         elif nprim == 2:
-            alpha = param.pAlpha2[tmp_num, :] * slater_exp_sq
-            coeff = param.pCoeff2[tmp_num, :]
+            alpha = param.pAlpha2[tmp_num, :].copy() * slater_exp_sq
+            coeff = param.pCoeff2[tmp_num, :].copy()
         elif nprim == 3:
-            alpha = param.pAlpha3[tmp_num, :] * slater_exp_sq
-            coeff = param.pCoeff3[tmp_num, :]
+            alpha = param.pAlpha3[tmp_num, :].copy() * slater_exp_sq
+            coeff = param.pCoeff3[tmp_num, :].copy()
         elif nprim == 4:
-            alpha = param.pAlpha4[tmp_num, :] * slater_exp_sq
-            coeff = param.pCoeff4[tmp_num, :]
+            alpha = param.pAlpha4[tmp_num, :].copy() * slater_exp_sq
+            coeff = param.pCoeff4[tmp_num, :].copy()
         elif nprim == 5:
-            alpha = param.pAlpha5[tmp_num, :] * slater_exp_sq
-            coeff = param.pCoeff5[tmp_num, :]
+            alpha = param.pAlpha5[tmp_num, :].copy() * slater_exp_sq
+            coeff = param.pCoeff5[tmp_num, :].copy()
         elif nprim == 6:
             if pqn == 6:
                 if angmn == 0:
-                    alpha = param.pAlpha6s[:] * slater_exp_sq
-                    coeff = param.pCoeff6s[:]
+                    alpha = param.pAlpha6s[:].copy() * slater_exp_sq
+                    coeff = param.pCoeff6s[:].copy()
                 elif angmn == 1:
-                    alpha = param.pAlpha6p[:] * slater_exp_sq
-                    coeff = param.pCoeff6p[:]
+                    alpha = param.pAlpha6p[:].copy() * slater_exp_sq
+                    coeff = param.pCoeff6p[:].copy()
                 else:
-                    print("Error in slater2gauss: invalid angmn for pqn=6 with nprim=6")
-                    raise ValueError
+                    raise ValueError(f"Error in slater2gauss: invalid angmn ({angmn}) for pqn=6 with nprim=6")
             else:
-                alpha = param.pAlpha6[tmp_num, :] * slater_exp_sq
-                coeff = param.pCoeff6[tmp_num, :]
+                alpha = param.pAlpha6[tmp_num, :].copy() * slater_exp_sq
+                coeff = param.pCoeff6[tmp_num, :].copy()
         else:
-            print("Error in slater2gauss: invalid number of primitives")
-            raise ValueError
+            raise ValueError(f"Error in slater2gauss: invalid number of primitives ({nprim})")
         
-
         if need_normalization:
+            # Normalize primitives
+            # Formula: coeff = coeff * (2/pi * alpha)^(3/4) * (4*alpha)^(l/2) / sqrt((2l-1)! !)
+            # where (2l-1)!! is the double factorial
             top = 2.0 / np.pi
+            # dfactorial(angmn + 1) should give (2*angmn - 1)!!  
+            # For l=0: (2*0-1)!! = (-1)!! = 1
+            # For l=1: (2*1-1)!! = 1!! = 1
+            # For l=2: (2*2-1)!! = 3!! = 3
+            # For l=3: (2*3-1)!!  = 5!! = 15
             coeff = coeff * (top * alpha) ** 0.75 * np.sqrt(4.0 * alpha) ** angmn / np.sqrt(dfactorial(angmn + 1))
                 
         return alpha, coeff
@@ -705,7 +748,16 @@ class BasisSet:
     
     def calc_overlap_int_for_diffuse_func(self, angmn, alpha_A, alpha_B, coeff_A, coeff_B):
         """ 
-        Calculates the overlap <A|B> for two CGFs on the same center.
+        Calculates the overlap integral <A|B> for two CGFs on the same center.
+        Corresponds to Fortran subroutine: atovlp
+        
+        Parameters:
+            angmn: Angular momentum quantum number (0=s, 1=p)
+            alpha_A, alpha_B: Primitive exponent arrays
+            coeff_A, coeff_B: Contraction coefficient arrays
+            
+        Returns:
+            overlap_int: The overlap integral value
         """
         overlap_int = 0.0
         
@@ -713,27 +765,86 @@ class BasisSet:
         n_prim_B = len(coeff_B)
 
         if n_prim_A == 0 or n_prim_B == 0:
-            # This would happen if the diffuse shell is processed before
-            # the valence shell, and state is not managed correctly.
             print("Warning: calc_overlap_int_for_diffuse_func called with empty primitive list.")
             return 0.0
 
-        for i in range(n_prim_A):
-            for j in range(n_prim_B):
-                ab = 1.0 / (alpha_A[i] + alpha_B[j])
+        for ii in range(n_prim_A):
+            for jj in range(n_prim_B):
+                ab = 1.0 / (alpha_A[ii] + alpha_B[jj])
                 s00 = (np.pi * ab) ** 1.5
                 
                 sss = 0.0
-                if angmn == 0: # s orbital - s orbital
+                if angmn == 0: # s-s overlap
                     sss = s00
-                elif angmn == 1: # p_a orbital - p_a orbital
+                elif angmn == 1: # p-p overlap (same component)
                     ab05 = ab * 0.5 
                     sss = s00 * ab05
-                # Add angmn==2 for d-d overlap if needed, etc.
-                # S(d,d) = s00 * (ab05*ab05*3) for <xx|xx>
-                # S(d,d) = s00 * (ab05*ab05) for <xy|xy>
                 
-                overlap_int += sss * coeff_A[i] * coeff_B[j]           
+                overlap_int += sss * coeff_A[ii] * coeff_B[jj]           
                 
         return overlap_int
 
+
+    # === Accessor methods for convenient data retrieval ===
+    
+    def get_cgf_offset_for_atom_shell(self, iat, m):
+        """
+        Returns the CGF index at the start of shell m for atom iat.
+        Corresponds to Fortran: caoshell(m, iat)
+        """
+        return self.basis["atom_shell_cgf_offset"][iat, m]
+    
+    def get_ao_offset_for_atom_shell(self, iat, m):
+        """
+        Returns the AO index at the start of shell m for atom iat.
+        Corresponds to Fortran: saoshell(m, iat)
+        """
+        return self.basis["atom_shell_ao_offset"][iat, m]
+    
+    def get_shell_range_for_atom(self, iat):
+        """
+        Returns (start_shell, end_shell) for atom iat.
+        Corresponds to Fortran: shells(1:2, iat)
+        """
+        return (self.basis["atom_shells_map"][iat, 0], 
+                self.basis["atom_shells_map"][iat, 1])
+    
+    def get_cgf_range_for_atom(self, iat):
+        """
+        Returns (start_cgf, end_cgf) for atom iat.
+        Corresponds to Fortran: fila(1:2, iat)
+        """
+        return (self.basis["atom_cgf_map"][iat, 0], 
+                self.basis["atom_cgf_map"][iat, 1])
+    
+    def get_ao_range_for_atom(self, iat):
+        """
+        Returns (start_ao, end_ao) for atom iat.
+        Corresponds to Fortran: fila2(1:2, iat)
+        """
+        return (self.basis["atom_ao_map"][iat, 0], 
+                self.basis["atom_ao_map"][iat, 1])
+    
+    def get_cgf_range_for_shell(self, ish):
+        """
+        Returns (start_cgf, count) for shell ish.
+        Corresponds to Fortran: sh2bf(1:2, ish)
+        """
+        return tuple(self.basis["shell_cgf_map"][ish])
+    
+    def get_ao_range_for_shell(self, ish):
+        """
+        Returns (start_ao, count) for shell ish.
+        Corresponds to Fortran: sh2ao(1:2, ish)
+        """
+        return tuple(self.basis["shell_ao_map"][ish])
+    
+    def get_primitives_for_cgf(self, ibf):
+        """
+        Returns (start_prim_idx, nprim, alphas, coeffs) for CGF ibf.
+        """
+        start_idx = self.basis["cgf_primitive_start_idx_list"][ibf]
+        nprim = self.basis["cgf_primitive_count_list"][ibf]
+        alphas = self.basis["primitive_alpha_list"][start_idx:start_idx + nprim]
+        coeffs = self.basis["primitive_coeff_list"][start_idx:start_idx + nprim]
+        return start_idx, nprim, alphas, coeffs

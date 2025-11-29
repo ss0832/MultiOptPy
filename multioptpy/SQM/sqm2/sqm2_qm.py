@@ -576,4 +576,3 @@ class EHTCalculator:
         hessian = hessian_1 + hessian_2 + hessian_3 + hessian_4 + hessian_5
         
         return hessian
-
