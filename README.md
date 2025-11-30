@@ -18,6 +18,11 @@ Notice: This program has NOT been experimentally validated in laboratory setting
 
 ## Required Modules
 
+```
+cd <directory of repository files>
+pip install -r requirements.txt
+```
+
  - psi4 (Official page:https://psicode.org/) or PySCF 
  - numpy
  - matplotlib
@@ -29,7 +34,7 @@ Optional
  - tblite (If you use extended tight binding (xTB) method, this module is required.)
  - dxtb (same as above)
  - ASE 
-   
+
 ## References
 
 References are given in the source code.
