@@ -258,3 +258,6 @@ GNU Affero General Public License v3.0
 
 highlighty876[at]gmail.com
 
+## Citation
+
+ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.0). Zenodo. https://doi.org/10.5281/zenodo.17759573
