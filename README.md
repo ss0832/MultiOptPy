@@ -256,6 +256,68 @@ GNU Affero General Public License v3.0
 ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.0). Zenodo. https://doi.org/10.5281/zenodo.17759573
 
 
+## Setting Up an Environment for Using NNP(UMA) on Windows 11
+
+### 1. Install Anaconda
+
+Download and install **Anaconda3-2025.06-1-Windows-x86_64.exe** from:
+
+[https://repo.anaconda.com/archive/](https://repo.anaconda.com/archive/)
+
+### 2. Launch the Anaconda PowerShell Prompt
+
+Open **"Anaconda PowerShell Prompt"** from the Windows Start menu.
+
+### 3. Create a New Virtual Environment
+
+```
+conda create -n <env_name> python=3.12.7
+```
+
+### 4. Activate the Environment
+
+```
+conda activate <env_name>
+```
+
+### 5. Install Required Libraries
+
+```
+pip install ase==3.26.0 fairchem-core==2.7.1 torch==2.6.0
+```
+
+* **fairchem-core**: Required for running NNP models provided by FAIR Chemistry.
+* **ase**: Interface for passing molecular structures to the NNP.
+* **torch**: PyTorch library for neural network execution.
+
+---
+
+## Setting Up the Model File (.pt) for Your NNP Library
+
+### 1. Download the Model File
+
+Download **uma-s-1p1.pt** from the following page:
+
+[https://huggingface.co/facebook/UMA](https://huggingface.co/facebook/UMA)
+
+(Ensure that you have permission to use the file.)
+
+### 2. Add the Model Path to MultiOptPy
+
+Open the file `software_path.conf` inside the **MultiOptPy-v1.20.0-rc.4** directory.
+
+Add the following line using the absolute path to the model file:
+
+```
+uma-s-1p1::<absolute_path_to/uma-s-1p1.pt>
+```
+
+This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
+
+### references of UMA
+- arXiv preprint arXiv:2505.08762 (2025).
+- https://github.com/facebookresearch/fairchem
+
 ## Contact
 
 highlighty876[at]gmail.com
