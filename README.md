@@ -1,6 +1,5 @@
 # MultiOptPy
 
-[![DOI](https://zenodo.org/badge/80376408.svg)](https://zenodo.org/badge/latestdoi/80376408)
 
 Multifunctional geometry optimization tools for quantum chemical calculations 
 
