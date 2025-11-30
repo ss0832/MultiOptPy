@@ -19,7 +19,10 @@ This program can also automatically calculate the transition-state structure fro
 
 
 ## Required Modules
-
+```
+cd <directory of repository files>
+pip install -r requirements.txt
+```
  - psi4 (Official page:https://psicode.org/) or PySCF 
  - numpy
  - matplotlib
