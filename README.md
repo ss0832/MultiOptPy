@@ -7,7 +7,9 @@ This program can also automatically calculate the transition-state structure fro
 
 Notice: This program has NOT been experimentally validated in laboratory settings. I release this code to enable community contributions and collaborative development. Use at your own discretion and validate results independently.
 
-(Caution: Using Japanese to explain) Instructions on how to use: https://ss0832.github.io/
+(Caution: Using Japanese to explain) Instructions on how to use: 
+- https://ss0832.github.io/
+- https://ss0832.github.io/posts/20251130_mop_usage_menschutkin_reaction_uma_en/ (In English, auto-translated)
 
 ## Features
 
