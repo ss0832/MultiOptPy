@@ -138,7 +138,7 @@ class MolecularVibrations:
     visualization of vibrational modes for molecular systems.
     """
 
-    def __init__(self, atoms, coordinates, hessian, symm_tolerance=1e-2, max_symm_fold=6):
+    def __init__(self, atoms, coordinates, hessian, symm_tolerance=1e-4, max_symm_fold=6):
         """
         Parameters
         ----------

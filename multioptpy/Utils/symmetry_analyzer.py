@@ -42,7 +42,7 @@ def rotation_matrix(axis, theta):
 class SymmetryAnalyzer:
     """Analyzer for molecular symmetry elements and point group determination"""
 
-    def __init__(self, atoms, coordinates, tol=1e-2, angle_tol=1e-2, max_n_fold=6):
+    def __init__(self, atoms, coordinates, tol=1e-2, angle_tol=1e-4, max_n_fold=6):
         """
         Parameters
         ----------
@@ -316,7 +316,7 @@ class SymmetryAnalyzer:
         return c3_count >= 4 and c2_count >= 3
 
 
-def analyze_symmetry(atoms, coordinates, tol=1e-2, angle_tol=1e-2, max_n_fold=6):
+def analyze_symmetry(atoms, coordinates, tol=1e-2, angle_tol=1e-4, max_n_fold=6):
     """
     Analyze molecular symmetry and determine point group
     
