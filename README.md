@@ -44,6 +44,20 @@ pip install -r requirements.txt
 cp test/config_autots_run_xtb_test.json .
 python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 
+# Installation via environment.yml (Linux / conda-forge)
+
+## 1. Download and install MultiOptPy:
+git clone -b stable-v1.0 https://github.com/ss0832/MultiOptPy.git
+cd MultiOptPy
+
+## 2. Create and activate a conda environment:
+conda env create -f environment.yml
+conda activate test_mop
+
+## 3. Copy the test configuration file and run the AutoTS workflow:
+cp test/config_autots_run_xtb_test.json .
+python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
+
 ```
 
 ## Required Modules
