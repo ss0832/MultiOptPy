@@ -1,4 +1,7 @@
 # MultiOptPy
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing)
+
 Multifunctional geometry optimisation tools for quantum chemical calculations
 
 This program implements many geometry optimization methods in Python for learning purposes.
