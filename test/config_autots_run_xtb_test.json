@@ -13,13 +13,12 @@
   
   "step2_settings": {
     "usextb": "GFN2-xTB",
-    "NSTEP": 15,
-    "ANEB": [3, 5],
-    "QSM": true,
+    "NSTEP": 20,
     "use_model_hessian": "fischerd3",
     "save_pict": true,
-    "node_distance_bernstein": 0.80,
-    "align_distances": 9999,
+    "QSMv2": true,
+    "node_distance": 0.30,
+    "align_distances_energy_predicted": 1,
     "spin_multiplicity": 1,
     "electronic_charge": 0
   },
