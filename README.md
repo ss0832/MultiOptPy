@@ -16,7 +16,35 @@ Notice: This program has NOT been experimentally validated in laboratory setting
 - It is intended to be used in a linux environment.
 - It can be used not only with AFIR functions, but also with other bias potentials.
 
+## Quick Start (for Linux)
+```
+# Below is an example showing how to use GFN2-xTB to calculate a transition-state structure.
+# These commands are intended for users who want a straightforward, ready-to-run setup on Linux.
 
+## 1. Download and install Anaconda:
+cd ~
+wget https://repo.anaconda.com/archive/Anaconda3-2025.06-1-Linux-x86_64.sh
+bash Anaconda3-2025.06-1-Linux-x86_64.sh
+source .bashrc
+# if the conda command is not available, you need to manually add Anaconda to your PATH:
+# (example command) echo 'export PATH="$HOME/anaconda3/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+## 2. Create and activate a conda environment:
+conda create -n test_mop python=3.12.7
+conda activate test_mop
+
+## 3. Download and install MultiOptPy:
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.0.zip
+unzip v1.20.0.zip
+cd MultiOptPy-1.20.0
+pip install -r requirements.txt
+
+## 4. Copy the test configuration file and run the AutoTS workflow:
+cp test/config_autots_run_xtb_test.json .
+python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
+
+```
 
 ## Required Modules
 
