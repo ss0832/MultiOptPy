@@ -98,10 +98,10 @@ References are given in the source code.
 After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
 
 ```
-python optmain.py SN2.xyz -ma 150 1 6
+python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 ```
-python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
+python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 For SADDLE calculation 
 ```
@@ -111,7 +111,7 @@ python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc
 For NEB method
 
 ```
-python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 
+python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
 
 For iEIP method
@@ -156,8 +156,8 @@ Recommended optimization methods:
 
 - FIRE (Robust method)
 - TR_LBFGS (Limited-memory BFGS method with trust radius method, Faster convergence than FIRE without Hessian)
-- RFO_FSB 
-- RSIRFO_Bofill (for calculation of saddle point)
+- rsirfo_block_fsb 
+- rsirfo_block_bofill (for calculation of saddle point)
 
 `-ma`
 
