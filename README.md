@@ -382,3 +382,10 @@ This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
 ### references of UMA
 - arXiv preprint arXiv:2505.08762 (2025).
 - https://github.com/facebookresearch/fairchem
+
+## Create environment for Win11 / UMA(NNP) using conda
+
+```
+conda env create -f environment_win11uma.yml
+conda activate test_mop_win11_uma
+```
