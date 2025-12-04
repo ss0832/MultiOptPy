@@ -1,6 +1,14 @@
 # MultiOptPy
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing) (Test 1)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1lfvyd7lv6ChjRC7xfPdrBZtGME4gakhz?usp=sharing) (Test 2)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ss0832)
+
+If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
+Your support serves as a great encouragement for this personal project and fuels my next journey.
+I also welcome contributions, bug reports, and pull requests to improve this tool.
+
+Note on Contributions: While bug reports and pull requests are welcome, please note that this is a personal project maintained in my spare time. Responses to issues and PRs may be delayed or not guaranteed. I appreciate your patience and understanding.
 
 Multifunctional geometry optimization tools for quantum chemical calculations 
 
