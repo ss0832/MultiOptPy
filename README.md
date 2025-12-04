@@ -10,13 +10,13 @@ I also welcome contributions, bug reports, and pull requests to improve this too
 
 Note on Contributions: While bug reports and pull requests are welcome, please note that this is a personal project maintained in my spare time. Responses to issues and PRs may be delayed or not guaranteed. I appreciate your patience and understanding.
 
-Multifunctional geometry optimisation tools for quantum chemical calculations
+Multifunctional geometry optimization tools for quantum chemical calculations 
 
 This program implements many geometry optimization methods in Python for learning purposes.
 
 This program can also automatically calculate the transition-state structure from a single equilibrium geometry.
 
-Notice: This program has NOT been experimentally validated in laboratory settings. I release this code to enable community contributions and collaborative development. Use at your own discretion and validate results independently.
+**Notice:** This program has NOT been experimentally validated in laboratory settings. I release this code to enable community contributions and collaborative development. Use at your own discretion and validate results independently. 
 
 (Caution: Using Japanese to explain) Instructions on how to use: 
 - https://ss0832.github.io/
@@ -55,6 +55,7 @@ pip install -r requirements.txt
 cp test/config_autots_run_xtb_test.json .
 python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 
+
 # Installation via environment.yml (Linux / conda-forge)
 
 ## 1. Download and install MultiOptPy:
@@ -72,12 +73,10 @@ python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 ```
 
 ## Required Modules
-
 ```
 cd <directory of repository files>
 pip install -r requirements.txt
 ```
-
  - psi4 (Official page:https://psicode.org/) or PySCF 
  - numpy
  - matplotlib
@@ -89,7 +88,7 @@ Optional
  - tblite (If you use extended tight binding (xTB) method, this module is required.)
  - dxtb (same as above)
  - ASE 
-
+   
 ## References
 
 References are given in the source code.
@@ -99,20 +98,20 @@ References are given in the source code.
 After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
 
 ```
-python optmain.py SN2.xyz -ma 150 1 6
+python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 ```
-python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
+python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-For SADDLE calculation
+For SADDLE calculation 
 ```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_bofill -order 1 -fc 5
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
 
 For NEB method
 
 ```
-python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 
+python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
 
 For iEIP method
@@ -157,8 +156,8 @@ Recommended optimization methods:
 
 - FIRE (Robust method)
 - TR_LBFGS (Limited-memory BFGS method with trust radius method, Faster convergence than FIRE without Hessian)
-- RSIRFO_FSB (can use quasi-Newton method)
-- RSIRFO_Bofill (for calculation of saddle point)
+- rsirfo_block_fsb 
+- rsirfo_block_bofill (for calculation of saddle point)
 
 `-ma`
 
@@ -311,9 +310,15 @@ Author of this program is ss0832.
 
 GNU Affero General Public License v3.0
 
+
+## Contact
+
+highlighty876[at]gmail.com
+
 ## Citation
 
 ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.0). Zenodo. https://doi.org/10.5281/zenodo.17759573
+
 
 
 ## Setting Up an Environment for Using NNP(UMA) on Windows 11
@@ -378,7 +383,9 @@ This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
 - arXiv preprint arXiv:2505.08762 (2025).
 - https://github.com/facebookresearch/fairchem
 
-## Contact
+## Create environment for Win11 / UMA(NNP) using conda
 
-highlighty876[at]gmail.com
-
+```
+conda env create -f environment_win11uma.yml
+conda activate test_mop_win11_uma
+```
