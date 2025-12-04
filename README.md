@@ -1,7 +1,7 @@
 # MultiOptPy
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing) (Test 1)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1lfvyd7lv6ChjRC7xfPdrBZtGME4gakhz?usp=sharing) (Test 2)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing) (Test 1, only use GFN2-xTB)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1lfvyd7lv6ChjRC7xfPdrBZtGME4gakhz?usp=sharing) (Test 2, GFN2-xTB + PySCF(HF/STO-3G))
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ss0832)
 
 If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
