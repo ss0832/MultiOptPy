@@ -211,8 +211,9 @@ class FischerD3ApproxHessian:
                     H_mn_block = force_const * np.outer(b_vec[m_idx], b_vec[n_idx])
                     self.cart_hess[start_m:end_m, start_n:end_n] += H_mn_block
 
+
     def fischer_dihedral(self, coord, element_list, bond_mat):
-        """Calculate Hessian components for dihedral torsion (Optimized with slicing)"""
+        """Calculate Hessian components for dihedral torsion (Optimized with singularity damping)"""
         BC = BondConnectivity()
         b_c_mat = BC.bond_connect_matrix(element_list, coord)
         dihedral_indices = BC.dihedral_angle_connect_table(b_c_mat)
@@ -221,22 +222,71 @@ class FischerD3ApproxHessian:
         tors_atom_bonds = {}
         for idx in dihedral_indices:
             i, j, k, l = idx  # i-j-k-l dihedral
-            # bond_sum is count_bonds_for_dihedral(bond_mat, (j, k))
             bond_sum = bond_mat[j].sum() + bond_mat[k].sum() - 2
             tors_atom_bonds[(j, k)] = bond_sum
 
         for idx in dihedral_indices:
             i, j, k, l = idx
             
-            r_jk = np.linalg.norm(coord[j] - coord[k])
+            # Vector calculations
+            vec_ji = coord[i] - coord[j]
+            vec_jk = coord[k] - coord[j]
+            vec_kl = coord[l] - coord[k]
+            
+            r_jk = np.linalg.norm(vec_jk)
             r_jk_cov = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
             
             bond_sum = tors_atom_bonds.get((j, k), 0)
             
+            # Calculate base force constant
             force_const = self.calc_dihedral_force_const(r_jk, r_jk_cov, bond_sum)
             
+            # --- Singularity Handling (Damping for linear angles) ---
+            # Determine linearity of angles i-j-k and j-k-l
+            
+            # Angle 1: i-j-k 
+            n_ji = np.linalg.norm(vec_ji)
+            n_jk = r_jk # already calculated
+            
+            # Avoid division by zero if atoms overlap
+            if n_ji < 1e-8 or n_jk < 1e-8: continue
+            
+            cos_theta1 = np.dot(vec_ji, vec_jk) / (n_ji * n_jk)
+            
+            # Angle 2: j-k-l (Note: vec_kj is -vec_jk)
+            vec_kj = -vec_jk
+            n_kl = np.linalg.norm(vec_kl)
+            
+            if n_kl < 1e-8: continue
+            
+            cos_theta2 = np.dot(vec_kj, vec_kl) / (n_jk * n_kl)
+
+            # --- Damping Factor Calculation ---
+            # The Wilson B-matrix contains 1/sin(theta) terms which diverge at 180 deg.
+            # We scale the force constant by sin^2(theta) to cancel this divergence.
+            # sin^2(theta) = 1 - cos^2(theta)
+            
+            sin2_theta1 = 1.0 - min(cos_theta1**2, 1.0)
+            sin2_theta2 = 1.0 - min(cos_theta2**2, 1.0)
+            
+            # Hard cutoff: If geometry is extremely linear, skip to avoid NaN
+            if sin2_theta1 < 1e-4 or sin2_theta2 < 1e-4:
+                continue
+
+            # Apply scaling factor
+            # This ensures the force constant goes to 0 as the angle becomes linear
+            scaling_factor = sin2_theta1 * sin2_theta2
+            force_const *= scaling_factor
+            
+            # --------------------------------------------------------
+
             t_xyz = np.array([coord[i], coord[j], coord[k], coord[l]])
-            tau, b_vec = torsion2(t_xyz)
+            
+            try:
+                tau, b_vec = torsion2(t_xyz)
+            except (ValueError, ArithmeticError):
+                # Skip if numerical errors occur in torsion calculation
+                continue
             
             # Optimized: Use NumPy slicing and outer product
             atoms = [i, j, k, l]
