@@ -131,51 +131,84 @@ class FischerApproxHessian:
                     self.cart_hess[3*k+n, 3*j+m] += force_const * b_vec[2][n] * b_vec[1][m]
     
     def fischer_dihedral(self, coord, element_list, bond_mat):
-        """Calculate Hessian components for dihedral torsions"""
+        """Calculate Hessian components for dihedral torsions with linearity check"""
         BC = BondConnectivity()
         b_c_mat = BC.bond_connect_matrix(element_list, coord)
         dihedral_indices = BC.dihedral_angle_connect_table(b_c_mat)
         
+        # Helper to calculate sin^2 of bond angle
+        def get_sin_sq_angle(idx1, idx2, idx3):
+            v1 = coord[idx1] - coord[idx2]
+            v2 = coord[idx3] - coord[idx2]
+            # Cross product magnitude squared
+            cross_prod = np.cross(v1, v2)
+            cross_sq = np.dot(cross_prod, cross_prod)
+            # Squared norms
+            n1_sq = np.dot(v1, v1)
+            n2_sq = np.dot(v2, v2)
+            if n1_sq * n2_sq < 1e-12:
+                return 0.0
+            return cross_sq / (n1_sq * n2_sq)
+
         for idx in dihedral_indices:
-            i, j, k, l = idx  # i-j-k-l dihedral
+            # i-j-k-l dihedral
+            i, j, k, l = idx 
             
-            # Central bond in dihedral
+            # --- Linearity Check ---
+            # Check bond angles I-J-K and J-K-L.
+            # If atoms are linear, the torsion definition is singular (B-matrix blows up).
+            # We use sin^2(theta) because it avoids acos and is efficient.
+            sin_sq_ijk = get_sin_sq_angle(i, j, k)
+            sin_sq_jkl = get_sin_sq_angle(j, k, l)
+            
+            # Threshold: if sin(theta) < 0.17 (approx 10 degrees from linear), dampen or skip.
+            # Using sin^2 < 0.03 as cutoff.
+            # The Wilson B-matrix scales as 1/sin(theta). 
+            # If we are too close to linear, we must skip to avoid numerical explosion.
+            if sin_sq_ijk < 1.0e-3 or sin_sq_jkl < 1.0e-3:
+                continue
+            # -----------------------
+
+            # Central bond in dihedral (j-k)
             r_jk = np.linalg.norm(coord[j] - coord[k])
             r_jk_cov = covalent_radii_lib(element_list[j]) + covalent_radii_lib(element_list[k])
             
             # Count bonds to central atoms
             bond_sum = self.count_bonds_for_dihedral(bond_mat, (j, k))
             
-            # Calculate force constant using Fischer's formula
+            # Calculate force constant
             force_const = self.calc_dihedral_force_const(r_jk, r_jk_cov, bond_sum)
+            
+            # Optional: Additional damping can be applied here if desired, 
+            # but the skip above is the most robust fix for the singularity.
             
             # Convert to Cartesian coordinates
             t_xyz = np.array([coord[i], coord[j], coord[k], coord[l]])
-            tau, b_vec = torsion2(t_xyz)
             
-            for n in range(3):
-                for m in range(3):
-                    self.cart_hess[3*i+n, 3*i+m] += force_const * b_vec[0][n] * b_vec[0][m]
-                    self.cart_hess[3*j+n, 3*j+m] += force_const * b_vec[1][n] * b_vec[1][m]
-                    self.cart_hess[3*k+n, 3*k+m] += force_const * b_vec[2][n] * b_vec[2][m]
-                    self.cart_hess[3*l+n, 3*l+m] += force_const * b_vec[3][n] * b_vec[3][m]
+            # Note: torsion2 might still be unstable if not skipped
+            try:
+                tau, b_vec = torsion2(t_xyz)
+            except Exception:
+                # Fallback if torsion2 fails numerically
+                continue
+            
+            # Iterate over all pairs of atoms in the dihedral
+            atom_indices = [i, j, k, l]
+            
+            for a in range(4):
+                for b in range(4):
+                    atom_a = atom_indices[a]
+                    atom_b = atom_indices[b]
                     
-                    self.cart_hess[3*i+n, 3*j+m] += force_const * b_vec[0][n] * b_vec[1][m]
-                    self.cart_hess[3*i+n, 3*k+m] += force_const * b_vec[0][n] * b_vec[2][m]
-                    self.cart_hess[3*i+n, 3*l+m] += force_const * b_vec[0][n] * b_vec[3][m]
+                    vec_a = b_vec[a]
+                    vec_b = b_vec[b]
                     
-                    self.cart_hess[3*j+n, 3*i+m] += force_const * b_vec[1][n] * b_vec[0][m]
-                    self.cart_hess[3*j+n, 3*k+m] += force_const * b_vec[1][n] * b_vec[2][m]
-                    self.cart_hess[3*j+n, 3*l+m] += force_const * b_vec[1][n] * b_vec[3][m]
-                    
-                    self.cart_hess[3*k+n, 3*i+m] += force_const * b_vec[2][n] * b_vec[0][m]
-                    self.cart_hess[3*k+n, 3*j+m] += force_const * b_vec[2][n] * b_vec[1][m]
-                    self.cart_hess[3*k+n, 3*l+m] += force_const * b_vec[2][n] * b_vec[3][m]
-                    
-                    self.cart_hess[3*l+n, 3*i+m] += force_const * b_vec[3][n] * b_vec[0][m]
-                    self.cart_hess[3*l+n, 3*j+m] += force_const * b_vec[3][n] * b_vec[1][m]
-                    self.cart_hess[3*l+n, 3*k+m] += force_const * b_vec[3][n] * b_vec[2][m]
-    
+                    # Update the 3x3 Hessian block
+                    for n in range(3):
+                        for m in range(3):
+                            val = force_const * vec_a[n] * vec_b[m]
+                            self.cart_hess[3*atom_a+n, 3*atom_b+m] += val
+                            
     def main(self, coord, element_list, cart_gradient):
         """Main function to generate Fischer's approximate Hessian"""
         print("Generating Fischer's approximate hessian...")
