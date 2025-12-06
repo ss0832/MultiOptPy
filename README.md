@@ -126,8 +126,16 @@ After downloading the repository using git clone or similar commands, move to th
 ```
 python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
+CLI command
+```
+optmain SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
+```
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
+```
+CLI command
+```
+optmain aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 For SADDLE calculation 
 ```
@@ -139,6 +147,10 @@ For NEB method
 ```
 python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
+CLI command
+```
+nebmain aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
+```
 
 For iEIP method
 
@@ -149,6 +161,10 @@ For Molecular Dynamics (MD)
 
 ```
 python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
+```
+CLI command
+```
+mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
 (Default deterministic algorithm for MD is Nosé–Hoover thermostat.)
 
