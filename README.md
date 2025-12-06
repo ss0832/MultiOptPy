@@ -79,11 +79,6 @@ conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
 pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
 
-# Installation via pip (Linux)
-conda create -n <env-name> python=3.12 pip
-conda activate <env-name>
-pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
-
 ## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
 # The following eight core functionalities are available as direct executable commands in your terminal after installation:
 # optmain (Logic from optmain.py):
