@@ -126,7 +126,7 @@ python command
 ```
 python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 optmain SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
@@ -134,7 +134,7 @@ python command
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 optmain aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
@@ -145,7 +145,7 @@ python command
 ```
 python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
@@ -154,7 +154,7 @@ python command
 ```
 python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 nebmain aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
@@ -164,7 +164,7 @@ python command
 ```
 python ieipmain.py ieip_test -xtb GFN2-xTB 
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 ieipmain ieip_test -xtb GFN2-xTB 
 ```
@@ -173,7 +173,7 @@ python command
 ```
 python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
-CLI command (arbitary directory)
+CLI command (arbitrary directory)
 ```
 mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
