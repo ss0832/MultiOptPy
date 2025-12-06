@@ -122,52 +122,58 @@ References are given in the source code.
 ## Usage
 
 After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
-
+python command
 ```
 python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-CLI command
+CLI command (arbitary directory)
 ```
 optmain SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-
+python command
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
-CLI command
+CLI command (arbitary directory)
 ```
 optmain aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 
 For SADDLE calculation 
+
+python command
 ```
 python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
-CLI command
+CLI command (arbitary directory)
 ```
 optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
-For NEB method
-
+##### For NEB method
+python command
 ```
 python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
-CLI command
+CLI command (arbitary directory)
 ```
 nebmain aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
 
-For iEIP method
-
+##### For iEIP method
+python command
 ```
 python ieipmain.py ieip_test -xtb GFN2-xTB 
 ```
-For Molecular Dynamics (MD)
-
+CLI command (arbitary directory)
+```
+ieipmain ieip_test -xtb GFN2-xTB 
+```
+##### For Molecular Dynamics (MD)
+python command
 ```
 python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
-CLI command
+CLI command (arbitary directory)
 ```
 mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
