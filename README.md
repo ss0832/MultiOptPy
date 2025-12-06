@@ -345,7 +345,7 @@ highlighty876[at]gmail.com
 
 ## Citation
 
-ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.1). Zenodo. https://doi.org/10.5281/zenodo.17831065
+ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.2). Zenodo. https://doi.org/10.5281/zenodo.17839100
 
 
 ## Setting Up an Environment for Using NNP(UMA) on Windows 11
