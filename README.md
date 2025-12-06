@@ -74,6 +74,11 @@ conda activate test_mop
 cp test/config_autots_run_xtb_test.json .
 python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 
+# Installation via pip (Linux)
+conda create -n <env-name> python=3.12 pip
+conda activate <env-name>
+pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
+
 ```
 
 ## Required Modules
