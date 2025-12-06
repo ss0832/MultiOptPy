@@ -1,11 +1,18 @@
+# =====================================================================
+# WARNING: This package is only supported and tested on Linux environments
+# (or WSL2 on Windows). Due to PySCF dependency, native Windows installation 
+# is not recommended and may fail.
+# It is strongly recommended to first create an isolated environment using Conda and then perform the installation via pip.
+# $ conda create -n <env-name> python=3.12 pip
+# =====================================================================
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "MultiOptPy"
-version = "1.20.1"
-description = "Multifunctional geometry optimization tools for quantum chemical calculations. It is strongly recommended to first create an isolated environment using Conda and then perform the installation via pip."
+version = "1.20.2"
+description = "Multifunctional geometry optimization tools for quantum chemical calculations."
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "GPLv3"}
