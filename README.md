@@ -81,6 +81,24 @@ conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
 pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
 
+## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
+# The following eight core functionalities are available as direct executable commands in your terminal after installation:
+# optmain (Logic from optmain.py):
+# Function: Executes the Core Geometry Optimization functionality.
+# nebmain (Logic from nebmain.py):
+# Function: Executes the Nudged Elastic Band (NEB) path optimization tool for transition state searches.
+# confsearch (Logic from conformation_search.py):
+# Function: Utilizes the comprehensive Conformational Search routine.
+# run_autots (Logic from run_autots.py):
+# Function: Launches the Automated Transition State (AutoTS) workflow.
+# mdmain (Logic from mdmain.py):
+# Function: Initiates Molecular Dynamics (MD) simulation functionality.
+# relaxedscan (Logic from relaxed_scan.py):
+# Function: Executes the Relaxed Potential Energy Surface (PES) Scanning functionality.
+# ieipmain (Logic from ieipmain.py):
+# Function: Utilizes the Independent Electron Pair Interaction (iEIP) calculation functionality.
+# orientsearch (Logic from orientation_search.py):
+# Function: Executes the molecular Orientation Sampling and Search utility.
 
 ```
 
