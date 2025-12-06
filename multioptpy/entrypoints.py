@@ -10,7 +10,7 @@ import itertools
 
 # --- 1. Core Imports (Relying on pip installation) ---
 import multioptpy
-from multioptpy.parameter import UnitValueLib
+from multioptpy.Parameters.unit_values import UnitValueLib
 from multioptpy.Utils import calc_tools
 from multioptpy.Wrapper.autots import AutoTSWorkflow
 from multioptpy.Wrapper.autots import AutoTSWorkflow_v2
