@@ -130,6 +130,7 @@ CLI command
 ```
 optmain SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
+
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
@@ -137,11 +138,15 @@ CLI command
 ```
 optmain aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
+
 For SADDLE calculation 
 ```
 python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
 ```
-
+CLI command
+```
+optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
+```
 For NEB method
 
 ```
