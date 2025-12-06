@@ -95,8 +95,6 @@ pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
 # Function: Initiates Molecular Dynamics (MD) simulation functionality.
 # relaxedscan (Logic from relaxed_scan.py):
 # Function: Executes the Relaxed Potential Energy Surface (PES) Scanning functionality.
-# ieipmain (Logic from ieipmain.py):
-# Function: Utilizes the Independent Electron Pair Interaction (iEIP) calculation functionality.
 # orientsearch (Logic from orientation_search.py):
 # Function: Executes the molecular Orientation Sampling and Search utility.
 
