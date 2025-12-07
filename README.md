@@ -441,3 +441,38 @@ This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
 conda env create -f environment_win11uma.yml
 conda activate test_mop_win11_uma
 ```
+
+
+### 🚧 Future Roadmap (Vision)
+
+As the final vision for this project, **I propose** two distinct strategies to dramatically reduce computational costs for large-scale **transition metal complexes or enzymes** while maintaining accuracy in Transition State (TS) searches.
+
+**Target Integration:**
+These schemes are designed to be integrated into the core drivers: **`optmain`** (Geometry Optimization), **`nebmain`** (Path Relaxation/NEB), and **double-ended methods implemented in `ieipmain.py`**.
+
+#### 1. Comprehensive ONIOM Implementation
+**I plan** to implement a multilayer ONIOM scheme to evaluate **Energies, Gradients, and Hessians**.
+
+* **Scope:** Enables Geometry Optimization, Path Relaxation (NEB), and Frequency Analysis for very large systems.
+* **Strategy:** The system is divided into layers. The **High-Level Region** (e.g., reaction center) is treated with high-cost QM methods, while the environment is handled by low-cost methods.
+
+#### 2. Hybrid Partial Hessian for Full High-Level Optimization
+Distinct from ONIOM, this scheme is designed for **full high-level calculations (e.g., Full DFT)** where computing the exact Hessian for the entire system is prohibitively expensive.
+
+**Concept:**
+Perform optimization using **full high-cost-calc-method gradients** (ensuring the final structure is a true minimum on the high-level PES), but construct the guiding Hessian matrix by mixing exact and approximate curvatures.
+
+**Proposed Algorithm:**
+1.  **Region Definition:** Define a **Core Region** (including the reaction center) and cap it with Hydrogen atoms.
+2.  **Hybrid Construction:**
+    * **Core Region:** Compute the **exact analytical Hessian** using the high-cost (or high-accuracy) method (e.g., DFT, NNP).
+    * **Environment:** Compute the **approximate Hessian** using the low-cost (or low-accuracy) method (e.g., GFN2-xTB, MM Force Field).
+3.  **Matrix Assembly:**
+    Construct the final Hessian using an **ONIOM-like subtractive substitution**:
+    $$H_{approx} = H_{Low}^{Real} + \mathcal{P} \left( H_{High}^{Core} - H_{Low}^{Core} \right)$$
+    This replaces the approximate curvature of the reaction center with precise quantum mechanical data while maintaining the coupling with the environment.
+
+---
+
+> **Status: Maintenance Mode / Frozen**
+> *This project has reached its initial stability goals (v1.20.2) and is currently frozen. No new features are planned by the original author, but the codebase remains open for the community to fork and explore the roadmap above.*
