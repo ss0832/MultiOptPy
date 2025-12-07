@@ -443,7 +443,7 @@ conda activate test_mop_win11_uma
 ```
 
 
-### 🚧 Future Roadmap (Vision)
+## 🚧 Future Roadmap (Vision)
 
 As the final vision for this project, **I propose** two distinct strategies to dramatically reduce computational costs for large-scale **transition metal complexes or enzymes** while maintaining accuracy in Transition State (TS) searches.
 
