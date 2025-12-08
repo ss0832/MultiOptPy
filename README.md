@@ -429,7 +429,7 @@ Add the following line using the absolute path to the model file:
 uma-s-1p1::<absolute_path_to/uma-s-1p1.pt>
 ```
 
-This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
+This enables **MultiOptPy** to use the **uma-s-1p1 NNP model**.
 
 ### references of UMA
 - arXiv preprint arXiv:2505.08762 (2025).
