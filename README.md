@@ -421,7 +421,7 @@ Download **uma-s-1p1.pt** from the following page:
 
 ### 2. Add the Model Path to MultiOptPy
 
-Open the file `software_path.conf` inside the **MultiOptPy-v1.20.0-rc.4** directory.
+Open the file `software_path.conf` inside the **MultiOptPy** directory.
 
 Add the following line using the absolute path to the model file:
 
