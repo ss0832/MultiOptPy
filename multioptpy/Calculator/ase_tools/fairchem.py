@@ -5,7 +5,8 @@ class ASE_FAIRCHEM:
         self.atom_obj = kwargs.get('atom_obj', None)
         self.electric_charge_and_multiplicity = kwargs.get('electric_charge_and_multiplicity', None)
         self.software_path = kwargs.get('software_path', None)
-        self.task_name = "omol"
+        self.task_name = kwargs.get('task_name', "omol")
+        self.device_mode = kwargs.get('device_mode', "cpu")
         self.software_type = kwargs.get('software_type', None)
         print(f"ASE_FAIRCHEM: software_type = {self.software_type}")
         
@@ -17,8 +18,9 @@ class ASE_FAIRCHEM:
         except ImportError:
             raise ImportError("FAIRChem.core modules not found")
         # Load the prediction unit
-        predict_unit = load_predict_unit(path=self.software_path, device="cpu")
-
+        predict_unit = load_predict_unit(path=self.software_path, device=self.device_mode)
+        print(f"ASE_FAIRCHEM: device_mode = {self.device_mode}")
+        print(f"ASE_FAIRCHEM: task_name = {self.task_name}")
         # Set up the FAIRChem calculator
         fairchem_calc = FAIRChemCalculator(predict_unit=predict_unit, task_name=self.task_name)
         self.atom_obj.info = {"charge": int(self.electric_charge_and_multiplicity[0]),
