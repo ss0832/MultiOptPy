@@ -380,12 +380,25 @@ def setup_calculator(atom_obj, software_type, electric_charge_and_multiplicity, 
                                 software_path=software_path_dict.get("uma-s-1"),
                                 software_type=software_type)
         return calc_obj
+    
+    if software_type == "uma-s-1p1-cuda":
+        calc_obj = ASE_FAIRCHEM(atom_obj=atom_obj,
+                                electric_charge_and_multiplicity=electric_charge_and_multiplicity,
+                                software_path=software_path_dict.get("uma-s-1p1"),
+                                software_type=software_type,
+                                device_mode="cuda")
+        return calc_obj
+    
     if software_type == "uma-s-1p1":
         calc_obj = ASE_FAIRCHEM(atom_obj=atom_obj,
                                 electric_charge_and_multiplicity=electric_charge_and_multiplicity,
                                 software_path=software_path_dict.get("uma-s-1p1"),
                                 software_type=software_type)
         return calc_obj
+    
+
+    
+    
     if software_type == "uma-m-1p1":
         calc_obj = ASE_FAIRCHEM(atom_obj=atom_obj,
                                 electric_charge_and_multiplicity=electric_charge_and_multiplicity,
