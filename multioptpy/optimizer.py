@@ -32,6 +32,7 @@ from multioptpy.Optimizer.conjugate_gradient import ConjgateGradient
 #from multioptpy.Optimizer.ric_rfo import RedundantInternalRFO
 from multioptpy.Optimizer.rsprfo import EnhancedRSPRFO
 from multioptpy.Optimizer.rsirfo import RSIRFO
+from multioptpy.Optimizer.mf_rsirfo import MF_RSIRFO
 #from multioptpy.Optimizer.newton import Newton
 from multioptpy.Optimizer.lbfgs import LBFGS
 from multioptpy.Optimizer.tr_lbfgs import TRLBFGS
@@ -81,7 +82,113 @@ specific_cases = {
     "adamlookaheadlars": {"optimizer": Adam, "lookahead": LookAhead(), "lars": LARS()},
 }
 
-quasi_newton_mapping = {    
+quasi_newton_mapping = { 
+    "mwsmf_rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_cfd_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_cfd_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "mwsmf_rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+
+
+    "mwmf_rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_cfd_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_cfd_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "mwmf_rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+
+    "smf_rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_cfd_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_cfd_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "smf_rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+
+
+    "mf_rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_cfd_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_cfd_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "mf_rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+   
     "rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
@@ -107,7 +214,9 @@ quasi_newton_mapping = {
     "rsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
-    
+
+   
+  
     "rsprfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsprfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
@@ -158,6 +267,7 @@ class CalculateMoveVector:
                 exit()
                 
             self.CALC_TRUST_RADII.set_max_trust_radius(self.max_trust_radius)
+            
         if self.max_trust_radius is None:
             if saddle_order > 0:
                 self.max_trust_radius = 0.1
@@ -176,8 +286,7 @@ class CalculateMoveVector:
                 print("min_trust_radius must be greater than 0.0")
                 exit()
             if self.trust_radii < self.min_trust_radius:
-                print("min_trust_radius must be smaller than max_trust_radius")
-                exit()
+                self.trust_radius = self.min_trust_radius
                 
             self.CALC_TRUST_RADII.set_min_trust_radius(self.min_trust_radius)
 
@@ -315,6 +424,19 @@ class CalculateMoveVector:
                         print(key)
                         if "rsprfo" in key:
                             optimizer = EnhancedRSPRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
+                        
+                        elif "mwsmf_rsirfo" in key:
+                            optimizer = MF_RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius, adaptive_mode_following=False)
+                        
+                        elif "mwmf_rsirfo" in key:
+                            optimizer = MF_RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
+                        
+                        elif "smf_rsirfo" in key:
+                            optimizer = MF_RSIRFO(method=m, saddle_order=self.saddle_order, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius, adaptive_mode_following=False)
+                        
+                        elif "mf_rsirfo" in key:
+                            optimizer = MF_RSIRFO(method=m, saddle_order=self.saddle_order, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
+                        
                         elif "rsirfo" in key:
                             optimizer = RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
                         else:
