@@ -3,6 +3,7 @@ import sys
 import glob
 import copy
 import itertools
+import inspect
 import datetime
 import numpy as np
 
@@ -27,7 +28,13 @@ from multioptpy.Utils.oniom import (
 )
 from multioptpy.Utils.symmetry_analyzer import analyze_symmetry
 from multioptpy.Thermo.normal_mode_analyzer import MolecularVibrations
-
+from multioptpy.ModelFunction.opt_meci import OptMECI
+from multioptpy.ModelFunction.opt_mesx import OptMESX
+from multioptpy.ModelFunction.opt_mesx_2 import OptMESX2
+from multioptpy.ModelFunction.seam_model_function import SeamModelFunction
+from multioptpy.ModelFunction.conical_model_function import ConicalModelFunction
+from multioptpy.ModelFunction.avoiding_model_function import AvoidingModelFunction
+from multioptpy.ModelFunction.binary_image_ts_search_model_function import BITSSModelFunction
 # =====================================================================================
 # 1. Configuration (Immutable Settings)
 # =====================================================================================
@@ -91,6 +98,9 @@ class OptimizationConfig:
         self.excited_state = args.excited_state
         self.spin_multiplicity = args.spin_multiplicity
         self.electronic_charge = args.electronic_charge
+        self.model_function = args.model_function
+        
+        
 
     def _set_convergence_criteria(self, args):
         if args.tight_convergence_criteria and not args.loose_convergence_criteria:
@@ -283,8 +293,8 @@ class BasePotentialHandler:
         state.gradients["bias"] = bias_g
 
         # Effective
-        state.effective_energy = raw_energy + bias_e
-        state.effective_gradient = raw_gradient + bias_g
+        state.effective_energy = bias_e
+        state.effective_gradient = bias_g
         state.energies["effective"] = state.effective_energy
         state.gradients["effective"] = state.effective_gradient
 
@@ -330,6 +340,237 @@ class StandardHandler(BasePotentialHandler):
         return state
 
 
+
+class ModelFunctionHandler(BasePotentialHandler):
+    def __init__(self, calc1, calc2, mf_args, config, file_io, base_dir, force_data):
+        super().__init__(config, file_io, base_dir, force_data)
+        self.calc1 = calc1
+        self.calc2 = calc2
+        
+        self.method_name = mf_args[0].lower()
+        self.params = mf_args[1:]
+        
+        self.is_bitss = "bitss" in self.method_name
+        self.single_element_list = None 
+        
+        self.mf_instance = self._load_mf_class()
+        self._apply_config_params()
+
+        self.bitss_geom1_history = []
+        self.bitss_geom2_history = []
+        self.bitss_ref_geom = None
+        
+      
+        self.bitss_initialized = False 
+
+        if self.is_bitss:
+            self._setup_bitss_initialization()
+
+ 
+    def _load_mf_class(self):
+        if self.method_name == "opt_meci": 
+            return OptMECI()
+        if self.method_name == "opt_mesx": 
+            return OptMESX()
+        if self.method_name == "opt_mesx_2":
+            return OptMESX2()
+        if self.method_name == "seam":
+            return SeamModelFunction()
+        if self.method_name == "conical": 
+            return ConicalModelFunction()
+        if self.method_name == "avoiding": 
+            return AvoidingModelFunction()
+        if self.method_name == "bitss": 
+            return BITSSModelFunction(np.zeros(1), np.zeros(1))
+        raise ValueError(f"Unknown Model Function: {self.method_name}")
+
+    def _apply_config_params(self):
+        if hasattr(self.config.args, 'alpha') and self.config.args.alpha is not None:
+            if hasattr(self.mf_instance, 'alpha'):
+                self.mf_instance.alpha = float(self.config.args.alpha)
+        if hasattr(self.config.args, 'sigma') and self.config.args.sigma is not None:
+            if hasattr(self.mf_instance, 'sigma'):
+                self.mf_instance.sigma = float(self.config.args.sigma)
+
+    def _setup_bitss_initialization(self):
+        if len(self.params) < 1:
+            raise ValueError("BITSS requires a reference geometry file path.")
+        
+    
+        temp_io = FileIO(self.base_dir, self.params[0])
+        g_list, _, _ = temp_io.make_geometry_list(self.config.electric_charge_and_multiplicity)
+        
+        coords_ang = np.array([atom[1:4] for atom in g_list[0][2:]], dtype=float)
+        self.bitss_ref_geom = coords_ang / self.config.bohr2angstroms
+
+    def compute(self, state: OptimizationState):
+        iter_idx = state.iter
+        
+        if self.single_element_list is None:
+            self.single_element_list = state.element_list[:len(state.element_list)//2] if self.is_bitss else state.element_list
+
+        # --- 1. Prepare Geometries ---
+        if self.is_bitss:
+            n_atoms = len(self.single_element_list)
+            geom_1, geom_2 = state.geometry[:n_atoms], state.geometry[n_atoms:]
+            
+          
+            if not self.bitss_initialized:
+                self.mf_instance = BITSSModelFunction(geom_1, geom_2)
+                self._apply_config_params()
+                self.bitss_initialized = True
+        else:
+            geom_1 = geom_2 = state.geometry
+
+     
+        # State 1
+        e1, g1, ex1 = self._run_calc(self.calc1, geom_1, self.single_element_list, self.config.electric_charge_and_multiplicity, "State1", iter_idx)
+        # State 2
+        chg_mult_2 = self.config.electric_charge_and_multiplicity if self.is_bitss else [int(self.params[0]), int(self.params[1])]
+        e2, g2, ex2 = self._run_calc(self.calc2, geom_2, self.single_element_list, chg_mult_2, "State2", iter_idx)
+
+        if ex1 or ex2:
+            state.exit_flag = True
+            return state
+
+        h1 = self.calc1.Model_hess
+        h2 = self.calc2.Model_hess
+
+        # --- 3. Compute Model Function Energy, Gradient, Hessian ---
+        if self.is_bitss:
+            mf_E = self.mf_instance.calc_energy(e1, e2, geom_1, geom_2, g1, g2, iter_idx)
+            mf_G1, mf_G2 = self.mf_instance.calc_grad(e1, e2, geom_1, geom_2, g1, g2)
+            mf_G = np.vstack((np.array(mf_G1), np.array(mf_G2))).astype(np.float64)
+            
+            if hasattr(self.mf_instance, "calc_hess"):
+                 try:
+                     raw_H = self.mf_instance.calc_hess(e1, e2, g1, g2, h1, h2)
+                     if raw_H is not None:
+                         mf_H = raw_H
+                     else:
+                         mf_H = self._make_block_diag_hess(h1, h2)
+                 except:
+                     mf_H = self._make_block_diag_hess(h1, h2)
+            else:
+                 mf_H = self._make_block_diag_hess(h1, h2)
+
+            self.bitss_geom1_history.append(geom_1 * self.config.bohr2angstroms)
+            self.bitss_geom2_history.append(geom_2 * self.config.bohr2angstroms)
+
+        else:
+            # Standard Mode (3N)
+            mf_E = self.mf_instance.calc_energy(e1, e2)
+            
+            raw_output = self.mf_instance.calc_grad(e1, e2, g1, g2)
+            if isinstance(raw_output, (tuple, list)):
+                raw_G = np.array(raw_output[0]).astype(np.float64)
+            else:
+                raw_G = np.array(raw_output).astype(np.float64)
+
+            if raw_G.ndim != 2:
+                 if raw_G.size == len(self.single_element_list) * 3:
+                     mf_G = raw_G.reshape(len(self.single_element_list), 3)
+                 else:
+                     mf_G = raw_G
+            else:
+                 mf_G = raw_G
+
+            mf_H = None
+            if hasattr(self.mf_instance, "calc_hess"):
+                try:
+                    raw_H = self._call_calc_hess_safely(self.mf_instance, e1, e2, g1, g2, h1, h2)
+                    if raw_H is not None:
+                        if isinstance(raw_H, (tuple, list)):
+                            mf_H = raw_H[0]
+                        else:
+                            mf_H = raw_H
+                except Exception as e:
+                    print(f"Note: calc_hess failed or not applicable ({e}), falling back to average.")
+            
+            if mf_H is None:
+                mf_H = 0.5 * (h1 + h2)
+
+        # --- 4. Apply Bias Potential ---
+        if self.is_bitss:
+            _, be1, bg1, bh1 = self.bias_pot_calc.main(
+                0.0, g1 * 0.0, geom_1, self.single_element_list, self.force_data, 
+                state.pre_bias_gradient[:len(geom_1)] if state.pre_bias_gradient is not None else None,
+                iter_idx
+            )
+            _, be2, bg2, bh2 = self.bias_pot_calc.main(
+                0.0, g2 * 0.0, geom_2, self.single_element_list, self.force_data,
+                state.pre_bias_gradient[len(geom_1):] if state.pre_bias_gradient is not None else None,
+                iter_idx
+            )
+            
+            final_E = mf_E + be1 + be2
+            final_G = mf_G + np.vstack((bg1, bg2))
+            bias_H = self._make_block_diag_hess(bh1, bh2)
+            
+        else:
+            _, final_E, final_G, bias_H = self.bias_pot_calc.main(
+                mf_E, mf_G, state.geometry, self.single_element_list, self.force_data,
+                state.pre_bias_gradient, iter_idx
+            )
+
+        # --- 5. Update State ---
+        state.raw_energy = mf_E
+        state.raw_gradient = mf_G
+        state.bias_energy = final_E
+        state.bias_gradient = final_G
+        state.effective_gradient = final_G
+        
+        state.energies["raw"] = mf_E
+        state.energies["effective"] = final_E
+        state.gradients["raw"] = mf_G
+        state.gradients["effective"] = final_G
+        
+        state.Model_hess = mf_H 
+        state.bias_hessian = bias_H
+        
+        return state
+
+   
+    def _make_block_diag_hess(self, h1, h2):
+        d1 = h1.shape[0]
+        d2 = h2.shape[0]
+        full_H = np.zeros((d1 + d2, d1 + d2))
+        full_H[:d1, :d1] = h1
+        full_H[d1:, d1:] = h2
+        return full_H
+
+    def _call_calc_hess_safely(self, instance, e1, e2, g1, g2, h1, h2):
+        sig = inspect.signature(instance.calc_hess)
+        params = sig.parameters
+        if len(params) == 2:
+            return instance.calc_hess(h1, h2)
+        elif len(params) == 4:
+            return instance.calc_hess(g1, g2, h1, h2)
+        else:
+            return instance.calc_hess(e1, e2, g1, g2, h1, h2)
+
+    def _run_calc(self, calc_inst, geom, elems, chg_mult, label, iter_idx):
+        run_dir = os.path.join(self.base_dir, label, f"iter{iter_idx}")
+        os.makedirs(run_dir, exist_ok=True)
+        old_dir = calc_inst.BPA_FOLDER_DIRECTORY
+        calc_inst.BPA_FOLDER_DIRECTORY = run_dir
+        geom_str = self.file_io.print_geometry_list(geom * self.config.bohr2angstroms, elems, chg_mult, display_flag=True)
+        inp_path = self.file_io.make_psi4_input_file(geom_str, iter_idx, path=run_dir)
+        e, g, _, ex = calc_inst.single_point(inp_path, [element_number(el) for el in elems], iter_idx, chg_mult, method="")
+        calc_inst.BPA_FOLDER_DIRECTORY = old_dir
+        return e, g, ex
+
+    def finalize_bitss_trajectory(self):
+        if not self.is_bitss or not self.bitss_geom1_history: return
+        filename = os.path.join(self.base_dir, f"{self.file_io.NOEXT_START_FILE}_bitss_path.xyz")
+        full_seq = self.bitss_geom1_history + self.bitss_geom2_history[::-1]
+        with open(filename, 'w') as f:
+            for s, g in enumerate(full_seq):
+                f.write(f"{len(g)}\nStep {s}\n")
+                for i, atom in enumerate(g):
+                    f.write(f"{self.single_element_list[i]:2s} {atom[0]:12.8f} {atom[1]:12.8f} {atom[2]:12.8f}\n")
+                    
+                    
 class ONIOMHandler(BasePotentialHandler):
     """
     Handles ONIOM calculations with microiterations.
@@ -1364,7 +1605,68 @@ class Optimize:
                 self.BPA_FOLDER_DIRECTORY, 
                 force_data
             )
+        # --- Model Function Mode (NEW) ---
+        elif len(self.config.args.model_function) > 0:
+            print("Mode: Model Function Optimization")
+            Calculation, xtb_method = self._init_calculation_module()
+            
+            # Create independent base directories for State 1 and State 2
+            dir1 = os.path.join(self.BPA_FOLDER_DIRECTORY, "State1_base")
+            dir2 = os.path.join(self.BPA_FOLDER_DIRECTORY, "State2_base")
+            os.makedirs(dir1, exist_ok=True)
+            os.makedirs(dir2, exist_ok=True)
 
+            # Initialize two independent calculators to prevent state contamination
+            calc1 = self._create_calculation(Calculation, xtb_method, self.state.Model_hess, override_dir=dir1)
+            calc2 = self._create_calculation(Calculation, xtb_method, self.state.Model_hess, override_dir=dir2)
+
+            handler = ModelFunctionHandler(
+                calc1, calc2, 
+                self.config.args.model_function, 
+                self.config, 
+                self.file_io, 
+                self.BPA_FOLDER_DIRECTORY, 
+                force_data
+            )
+            
+            # --- BITSS Mode ---
+            if handler.is_bitss:
+                print("BITSS Mode detected: Expanding state to 2N atoms.")
+                geom1 = self.state.geometry
+                geom2 = handler.bitss_ref_geom
+                
+                if geom1.shape != geom2.shape:
+                    raise ValueError("BITSS: Input and Reference geometries must have the same dimensions.")
+                
+                # Expand geometry and gradients to 6N dimensions
+                self.state.geometry = np.vstack((geom1, geom2))
+                self.state.initial_geometry = copy.deepcopy(self.state.geometry)
+                self.state.pre_geometry = copy.deepcopy(self.state.geometry)
+                
+                n_atoms = len(element_list) # Original N
+                
+                # Current gradients
+                self.state.raw_gradient = np.zeros((2 * n_atoms, 3))
+                self.state.bias_gradient = np.zeros((2 * n_atoms, 3))
+                self.state.effective_gradient = np.zeros((2 * n_atoms, 3))
+                
+                
+                self.state.pre_raw_gradient = np.zeros((2 * n_atoms, 3))
+                self.state.pre_bias_gradient = np.zeros((2 * n_atoms, 3))
+                self.state.pre_effective_gradient = np.zeros((2 * n_atoms, 3))
+                self.state.pre_move_vector = np.zeros((2 * n_atoms, 3))
+               
+
+                self.state.Model_hess = np.eye(2 * n_atoms * 3)
+                
+                # Double the element lists
+                self.state.element_list = element_list + element_list
+                self.state.element_number_list = np.concatenate((self.state.element_number_list, self.state.element_number_list))
+            else:
+                print(f"Standard Model Function Mode ({handler.method_name}): Using {len(element_list)} atoms.")
+                
+            return handler
+        
         # --- ONIOM Mode ---
         elif len(self.config.args.oniom_flag) > 0:
             # ONIOM
@@ -1462,6 +1764,7 @@ class Optimize:
         self.element_list = element_list
 
         # Initialize state
+        # NOTE: element_list is passed here, but self.state.element_list might be modified later (e.g. for BITSS)
         self.state = OptimizationState(element_list)
         self.state.geometry = copy.deepcopy(geom)
         self.state.initial_geometry = copy.deepcopy(geom)
@@ -1474,6 +1777,8 @@ class Optimize:
         ]
 
         force_data = force_data_parser(self.config.args)
+        
+        # Initialize Handler (This may update self.state.element_list and self.state.geometry for BITSS)
         self.handler = self._initialize_handler(element_list, force_data)
 
         # Constraint setup
@@ -1485,11 +1790,11 @@ class Optimize:
         projection_constrain, allactive_flag = self.constraints.constrain_flag_check(force_data)
         n_fix = len(force_data["fix_atoms"])
 
-       
         # Move vector and optimizer
+        # FIX: Use self.state.element_list which handles the 2N size in BITSS mode
         CMV = CalculateMoveVector(
             self.config.DELTA,
-            element_list,
+            self.state.element_list,
             self.config.args.saddle_order,
             self.config.FC_COUNT,
             self.config.temperature,
@@ -1515,14 +1820,16 @@ class Optimize:
 
         # Koopman
         if self.config.koopman_analysis:
-            KA = KoopmanAnalyzer(len(element_list), file_directory=self.BPA_FOLDER_DIRECTORY)
+            # FIX: Use self.state.element_list
+            KA = KoopmanAnalyzer(len(self.state.element_list), file_directory=self.BPA_FOLDER_DIRECTORY)
         else:
             KA = None
 
         # Initial files
+        # FIX: Use self.state.element_list
         self.file_io.print_geometry_list(
             self.state.geometry * self.config.bohr2angstroms,
-            element_list,
+            self.state.element_list,
             chg_mult,
         )
 
@@ -1557,7 +1864,7 @@ class Optimize:
             ):
                 self.state.Model_hess = ApproxHessian().main(
                     self.state.geometry,
-                    self.element_list,
+                    self.state.element_list, # FIX: Use self.state.element_list
                     self.state.raw_gradient,
                     self.config.use_model_hessian,
                 )
@@ -1566,8 +1873,9 @@ class Optimize:
 
             # Initial geometry save
             if iter_idx == 0:
+                # FIX: Use self.state.element_list
                 initial_geom_num_list, pre_geom = self._save_init_geometry(
-                    self.state.geometry, element_list, allactive_flag
+                    self.state.geometry, self.state.element_list, allactive_flag
                 )
                 self.state.pre_geometry = pre_geom
 
@@ -1624,13 +1932,14 @@ class Optimize:
             self.state.NUM_LIST.append(iter_idx)
 
             # Geometry info extract
+            # FIX: Use self.state.element_list
             self.logger.geom_info_extract(
                 self.state,
                 force_data,
                 self.file_io.make_psi4_input_file(
                     self.file_io.print_geometry_list(
                         self.state.geometry * self.config.bohr2angstroms,
-                        element_list,
+                        self.state.element_list,
                         chg_mult, 
                         display_flag=False
                     ),
@@ -1654,7 +1963,8 @@ class Optimize:
             self.state.effective_gradient = g + (B_g - g)
 
             if self.config.koopman_analysis and KA is not None:
-                _ = KA.run(iter_idx, self.state.geometry, B_g, element_list)
+                # FIX: Use self.state.element_list
+                _ = KA.run(iter_idx, self.state.geometry, B_g, self.state.element_list)
 
             # Move vector
             new_geometry, move_vector, optimizer_instances = CMV.calc_move_vector(
@@ -1702,7 +2012,8 @@ class Optimize:
             )
 
             # dissociation
-            DC_exit_flag = self.dissociation_check(new_geometry, element_list)
+            # FIX: Use self.state.element_list
+            DC_exit_flag = self.dissociation_check(new_geometry, self.state.element_list)
 
             # print info
             self._print_info(
@@ -1740,8 +2051,9 @@ class Optimize:
             self.state.geometry = new_geometry / self.config.bohr2angstroms
 
             # write next input
+            # FIX: Use self.state.element_list
             self.file_io.print_geometry_list(
-                new_geometry, element_list, chg_mult, display_flag=False
+                new_geometry, self.state.element_list, chg_mult, display_flag=False
             )
 
         else:
@@ -1765,14 +2077,14 @@ class Optimize:
             self._perform_vibrational_analysis(
                 self.SP,
                 self.state.geometry,
-                element_list,
+                self.state.element_list, # FIX: Use self.state.element_list
                 self.state.initial_geometry,
                 force_data,
                 self._is_exact_hessian(iter_idx),
                 self.file_io.make_psi4_input_file(
                     self.file_io.print_geometry_list(
                         self.state.geometry * self.config.bohr2angstroms,
-                        element_list,
+                        self.state.element_list, # FIX: Use self.state.element_list
                         chg_mult,
                     ),
                     iter_idx,
@@ -1784,6 +2096,7 @@ class Optimize:
             )
 
         # Finalize
+        # FIX: Use self.state.element_list
         self._finalize_optimization(
             self.file_io,
             Graph(self.BPA_FOLDER_DIRECTORY),
@@ -1792,7 +2105,7 @@ class Optimize:
             self.file_io.make_psi4_input_file(
                 self.file_io.print_geometry_list(
                     self.state.geometry * self.config.bohr2angstroms,
-                    element_list,
+                    self.state.element_list,
                     chg_mult,
                 ),
                 iter_idx,
@@ -1831,12 +2144,14 @@ class Optimize:
                 hessian = self.state.Model_hess
             else:
                 hessian = None
+            
+            # NOTE: IRC logic for BITSS might need special handling, but keeping standard
             EXEC_IRC = IRC(
                 self.BPA_FOLDER_DIRECTORY,
                 self.state.final_file_directory,
                 self.config.irc,
                 self.SP,
-                element_list,
+                self.state.element_list, # FIX: Use self.state.element_list
                 self.config.electric_charge_and_multiplicity,
                 force_data_parser(self.config.args),
                 xtb_method,
@@ -1849,7 +2164,7 @@ class Optimize:
             self.irc_terminal_struct_paths = []
 
         print(f"Trial of geometry optimization ({file}) was completed.")
-
+        
     # ------------------------------------------------------------------
     # Secondary helpers reused from legacy
     # ------------------------------------------------------------------
@@ -1991,6 +2306,7 @@ class Optimize:
         SP,
         exit_flag,
     ):
+        
         G.double_plot(
             self.state.NUM_LIST,
             self.state.ENERGY_LIST_FOR_PLOTTING,
@@ -2037,6 +2353,18 @@ class Optimize:
             with open(self.BPA_FOLDER_DIRECTORY + "symmetry.txt", "w") as f:
                 f.write(f"Symmetry of final structure: {self.symmetry}")
             print(f"Symmetry: {self.symmetry}")
+
+        if isinstance(self.handler, ModelFunctionHandler) and self.handler.is_bitss:
+            # We need original single-N element list for writing single frames
+            # But state.element_list is doubled.
+            # Use cached or slice.
+            # The handler.finalize_bitss_trajectory needs access to single element list
+            single_elem_len = len(self.state.element_list) // 2
+            real_elems = self.state.element_list[:single_elem_len]
+            self.config.args.element_list_cache = real_elems # Ensure correct list is used
+            
+          
+            self.handler.finalize_bitss_trajectory()
 
     def _copy_final_results_from_state(self):
         if self.state:
