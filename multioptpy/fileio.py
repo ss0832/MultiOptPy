@@ -406,9 +406,12 @@ class FileIO:
         return geometry_list
         
     
-    def make_psi4_input_file(self, geometry_list, iter):#geometry_list: ang.
+    def make_psi4_input_file(self, geometry_list, iter, path=None):#geometry_list: ang.
         """structure updated geometry is saved."""
-        file_directory = self.work_directory+"samples_"+self.NOEXT_START_FILE+"_"+str(iter)
+        if path is not None:
+            file_directory = os.path.join(path, f"samples_{self.NOEXT_START_FILE}_{iter}")
+        else:
+            file_directory = self.work_directory+"samples_"+self.NOEXT_START_FILE+"_"+str(iter)
         tmp_cs = ["SAMPLE"+str(iter), ""]
 
 
