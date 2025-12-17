@@ -383,10 +383,10 @@ class FileIO:
         return [start_data], element_list, electric_charge_and_multiplicity
 
 
-    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity):
+    def print_geometry_list(self, new_geometry, element_list, electric_charge_and_multiplicity, display_flag=True):
         """load structure updated geometry for next QM calculation"""
         new_geometry = new_geometry.tolist()
-        print("\n")
+    
         
         # Process all geometries at once with list comprehension
         formatted_geometries = []
@@ -394,10 +394,14 @@ class FileIO:
             element = element_list[num]
             formatted_geometry = [element] + list(map(str, geometry))
             formatted_geometries.append(formatted_geometry)
-            print(f"{element:2}   {float(geometry[0]):>17.12f}   {float(geometry[1]):>17.12f}   {float(geometry[2]):>17.12f}")
+        
+        if display_flag:
+            for num, geometry in enumerate(new_geometry):    
+                element = element_list[num]
+                print(f"{element:2}   {float(geometry[0]):>17.12f}   {float(geometry[1]):>17.12f}   {float(geometry[2]):>17.12f}")
         
         geometry_list = [[electric_charge_and_multiplicity, *formatted_geometries]]
-        print("")
+        print("\n")
         
         return geometry_list
         
