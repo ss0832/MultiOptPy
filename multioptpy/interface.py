@@ -189,11 +189,12 @@ def call_optimizeparser(parser):
     parser.add_argument('-modelhess','--use_model_hessian', nargs='?', help="use model hessian. (Default: not using model hessian If you specify only option, Improved Lindh + Grimme's D3 dispersion model hessian is used.) (ex. lindh, gfnff, gfn0xtb, fischer, fischerd3, fischerd4, schlegel, swart, lindh2007, lindh2007d3, lindh2007d4)", action=ModelhessAction, default=None)
     parser.add_argument("-sc", "--shape_conditions", nargs="*", type=str, default=[], help="Exit optimization if these conditions are not satisfied. (e.g.) [[(ang.) gt(lt) 2,3 (bond)] [(deg.) gt(lt) 2,3,4 (bend)] ...] [[(deg.) gt(lt) 2,3,4,5 (torsion)] ...]")
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
-    parser.add_argument("-oniom", "--oniom_flag", nargs="*",  type=str, default=[], help='apply ONIOM method (low layer: GFN1-xTB) (ex.) [(atom_number of high layer (ex. 1,2))] (caution) -pc option is not available. If there are not link atoms, please input "none"')
+    parser.add_argument("-oniom", "--oniom_flag", nargs="*",  type=str, default=[], help='apply ONIOM method (Warning: This option is unavailable.)')
     parser.add_argument("-freq", "--frequency_analysis",  help="Perform normal vibrational analysis after converging geometry optimization. (Caution: Unable to use this analysis with oniom method)", action='store_true')
     parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperatrue to calculate thermochemistry (Unit: K) (default: 298.15K)')
     parser.add_argument("-press", "--pressure",  type=float, default='101325', help='pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa)')
-    parser.add_argument("-negeigval", "--detect_negative_eigenvalues", help="Detect negative eigenvalues in the Hessian matrix at ITR. 0 if you caluculate exact hessian (-fc >0). If negative eigenvalues are not detected and saddle_order > 0, the optimization is stopped.", action='store_true')
+    parser.add_argument("-negeigval", "--detect_negative_eigenvalues", help="Detect negative eigenvalues in the Hessian matrix at ITR. 0 if you calculate exact hessian (-fc >0). If negative eigenvalues are not detected and saddle_order > 0, the optimization is stopped.", action='store_true')
+    parser.add_argument("-mf", "--model_function", nargs="*",  type=str, default=[], help='minimize model function(ex.) [[model function type (seam, avoid, conical etc.)] [electronic charge] [spin multiplicity]] ')
     
     return parser
 
