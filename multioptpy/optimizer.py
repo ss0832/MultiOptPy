@@ -32,6 +32,7 @@ from multioptpy.Optimizer.conjugate_gradient import ConjgateGradient
 #from multioptpy.Optimizer.ric_rfo import RedundantInternalRFO
 from multioptpy.Optimizer.rsprfo import EnhancedRSPRFO
 from multioptpy.Optimizer.rsirfo import RSIRFO
+from multioptpy.Optimizer.crsirfo import CRSIRFO
 from multioptpy.Optimizer.mf_rsirfo import MF_RSIRFO
 #from multioptpy.Optimizer.newton import Newton
 from multioptpy.Optimizer.lbfgs import LBFGS
@@ -189,6 +190,33 @@ quasi_newton_mapping = {
     "mf_rsirfo_psb": {"delta": 0.50, "rfo_type": 1},
     "mf_rsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
    
+    "crsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_bfgs": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_fsb": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_fsb": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_cfd_fsb_weighted": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_cfd_fsb_dd": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_cfd_fsb": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_bofill": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_bofill": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_cfd_bofill_weighted": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_block_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_cfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_pcfd_bofill": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_msp": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_sr1": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_psb": {"delta": 0.50, "rfo_type": 1},
+    "crsirfo_flowchart": {"delta": 0.50, "rfo_type": 1},
+   
+   
     "rsirfo_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_bfgs": {"delta": 0.50, "rfo_type": 1},
     "rsirfo_block_bfgs_dd": {"delta": 0.50, "rfo_type": 1},
@@ -247,7 +275,7 @@ quasi_newton_mapping = {
 
 
 class CalculateMoveVector:
-    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None, max_trust_radius=None, min_trust_radius=None):
+    def __init__(self, DELTA, element_list, saddle_order=0,  FC_COUNT=-1, temperature=0.0, model_hess_flag=None, max_trust_radius=None, min_trust_radius=None, **kwargs):
         self.DELTA = DELTA
         self.temperature = temperature
         np.set_printoptions(precision=12, floatmode="fixed", suppress=True)
@@ -257,7 +285,7 @@ class CalculateMoveVector:
         self.MIN_MAX_FORCE_SWITCHING_THRESHOLD = 0.0010
         self.MAX_RMS_FORCE_SWITCHING_THRESHOLD = 0.05
         self.MIN_RMS_FORCE_SWITCHING_THRESHOLD = 0.005
-        
+        self.projection_constraint = kwargs.get("projection_constraint", None) 
         self.max_trust_radius = max_trust_radius        
         self.min_trust_radius = min_trust_radius
         self.CALC_TRUST_RADII = TrustRadius()
@@ -437,6 +465,8 @@ class CalculateMoveVector:
                         elif "mf_rsirfo" in key:
                             optimizer = MF_RSIRFO(method=m, saddle_order=self.saddle_order, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
                         
+                        elif "crsirfo" in key and self.projection_constraint:
+                            optimizer = CRSIRFO(method=m, constraints=self.projection_constraint, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)                        
                         elif "rsirfo" in key:
                             optimizer = RSIRFO(method=m, saddle_order=self.saddle_order, element_list=self.element_list, trust_radius_max=self.max_trust_radius, trust_radius_min=self.min_trust_radius)
                         else:
