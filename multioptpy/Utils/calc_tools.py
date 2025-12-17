@@ -599,6 +599,7 @@ def calc_dihedral_angle_from_vec(vector1, vector2, vector3):
     norm_v1 = np.linalg.norm(v1)
     if np.abs(norm_v1) < 1e-15:
         norm_v1 += 1e-15 
+    norm_v2 = np.linalg.norm(v2)
     if np.abs(norm_v2) < 1e-15:
         norm_v2 += 1e-15
     
