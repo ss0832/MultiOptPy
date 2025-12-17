@@ -1017,7 +1017,7 @@ class ConvergenceChecker:
             return True, max_displacement_threshold, rms_displacement_threshold
         
         for opt in optimizer_instances:
-            if getattr(opt, 'converged', False):
+            if getattr(opt, 'proj_grad_converged', False):
                 return True, max_displacement_threshold, rms_displacement_threshold
                 
         

@@ -53,7 +53,7 @@ class CRSIRFO(RSIRFO):
             self.prev_geometry = None
             self.prev_gradient = None
             self.prev_energy = None
-            self.converged = False
+            self.proj_grad_converged = False
             self.iteration = 0
             self.Initialization = False
         
@@ -109,7 +109,7 @@ class CRSIRFO(RSIRFO):
         # Don't try to calculate RFO step, it will be numerically unstable.
         if grad_sub_norm < self.gradient_norm_threshold:
             self.log(f"*** CONVERGED in Subspace (Grad: {grad_sub_norm:.6e}) ***", force=True)
-            self.converged = True
+            self.proj_grad_converged = True
             
             # Reset history to clean state
             self.prev_geometry = geom_num_list
