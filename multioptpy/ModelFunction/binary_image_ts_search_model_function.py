@@ -9,8 +9,8 @@ class BITSSModelFunction:
         self.alpha = 10.0
         # self.beta controls the strength of the distance constraint.
         # Smaller beta -> Larger kappa_d -> Stronger attractive force.
-        # Default: 0.1 -> Modified: 0.06 for stronger constraint.
-        self.beta = 0.06
+        # Default: 0.1 -> Modified: 0.02 for stronger constraint.
+        self.beta = 0.02
         
         # Initial distance
         diff = geom_num_list_1 - geom_num_list_2
