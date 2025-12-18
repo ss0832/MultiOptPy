@@ -9,7 +9,7 @@
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ss0832)
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/multioptpy?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/multioptpy)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17970774.svg)](https://doi.org/10.5281/zenodo.17970774)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17973395.svg)](https://doi.org/10.5281/zenodo.17973395)
 
 If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
 Your support serves as a great encouragement for this personal project and fuels my next journey.
@@ -60,9 +60,9 @@ conda create -n test_mop python=3.12.7
 conda activate test_mop
 
 ## 3. Download and install MultiOptPy:
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
-unzip v1.20.3.zip
-cd MultiOptPy-1.20.3
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.4.zip
+unzip v1.20.4.zip
+cd MultiOptPy-1.20.4
 pip install -r requirements.txt
 
 ## 4. Copy the test configuration file and run the AutoTS workflow:
@@ -87,10 +87,10 @@ python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 # Installation via pip (Linux)
 conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
-pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.3
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
-unzip v1.20.3.zip
-cd MultiOptPy-1.20.3
+pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.4
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.4.zip
+unzip v1.20.4.zip
+cd MultiOptPy-1.20.4
 
 ## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
 # The following eight core functionalities are available as direct executable commands in your terminal after installation:
@@ -392,13 +392,13 @@ If you use MultiOptPy in your research, please cite it as follows:
   month        = dec,
   year         = 2025,
   publisher    = {Zenodo},
-  version      = {v1.20.3},
-  doi          = {10.5281/zenodo.17970774},
-  url          = {https://doi.org/10.5281/zenodo.17970774}
+  version      = {v1.20.4},
+  doi          = {10.5281/zenodo.17973395},
+  url          = {https://doi.org/10.5281/zenodo.17973395}
 }
 ```
 ```
-ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.3). Zenodo. https://doi.org/10.5281/zenodo.17970774
+ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.4). Zenodo. https://doi.org/10.5281/zenodo.17973395
 ```
 
 ## Setting Up an Environment for Using NNP(UMA) on Windows 11
