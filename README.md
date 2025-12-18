@@ -9,7 +9,7 @@
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ss0832)
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/multioptpy?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/multioptpy)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17839100.svg)](https://doi.org/10.5281/zenodo.17839100)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17970774.svg)](https://doi.org/10.5281/zenodo.17970774)
 
 If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
 Your support serves as a great encouragement for this personal project and fuels my next journey.
