@@ -417,26 +417,15 @@ class ModelFunctionHandler(BasePotentialHandler):
             geom_1 = geom_2 = state.geometry
 
         # State 1
-        # Use config's global charge/mult as default, or parse specific params if implemented differently
-        # Here assuming config has default, but for different states usually params are needed.
-        # Assuming config.electric_charge_and_multiplicity is for state 1, 
-        # and params has info for state 2 if needed.
-        
-        # NOTE: For standard cases, State 1 uses global config.
         e1, g1, ex1 = self._run_calc(self.calc1, geom_1, self.single_element_list, self.config.electric_charge_and_multiplicity, "State1", iter_idx)
         
         # State 2
-        # Determine Charge/Multiplicity for State 2
         if self.is_bitss:
-            # BITSS usually keeps same spin/charge for both images (NEB-like) unless specified
             chg_mult_2 = self.config.electric_charge_and_multiplicity
         else:
-            # For MECI/Seam, params usually hold [charge2, mult2]
-            # Ensure params are integers
             if len(self.params) >= 2:
                 chg_mult_2 = [int(self.params[0]), int(self.params[1])]
             else:
-                # Fallback if not provided (though params usually required for these modes)
                 chg_mult_2 = self.config.electric_charge_and_multiplicity
 
         e2, g2, ex2 = self._run_calc(self.calc2, geom_2, self.single_element_list, chg_mult_2, "State2", iter_idx)
@@ -566,21 +555,24 @@ class ModelFunctionHandler(BasePotentialHandler):
         old_dir = calc_inst.BPA_FOLDER_DIRECTORY
         calc_inst.BPA_FOLDER_DIRECTORY = run_dir
         
-        
+        # Charge/Multiplicity update for PySCF compatibility
         calc_inst.electronic_charge = chg_mult[0]
         calc_inst.spin_multiplicity = chg_mult[1]
 
         geom_str = self.file_io.print_geometry_list(geom * self.config.bohr2angstroms, elems, chg_mult, display_flag=True)
         inp_path = self.file_io.make_psi4_input_file(geom_str, iter_idx, path=run_dir)
         
-   
+        # Method string for xTB
         method_str = getattr(calc_inst, "xtb_method", "")
         if method_str is None:
             method_str = ""
 
+        # [FIX] Convert list to numpy array (int) to avoid 'list has no attribute tolist' error in tblite tools
+        atom_nums = np.array([element_number(el) for el in elems], dtype=int)
+
         e, g, _, ex = calc_inst.single_point(
             inp_path, 
-            [element_number(el) for el in elems], 
+            atom_nums,  # Passing numpy array instead of list
             iter_idx, 
             chg_mult, 
             method=method_str
@@ -597,8 +589,8 @@ class ModelFunctionHandler(BasePotentialHandler):
             for s, g in enumerate(full_seq):
                 f.write(f"{len(g)}\nBITSS_Step {s}\n")
                 for i, atom in enumerate(g):
-                    f.write(f"{self.single_element_list[i]:2s} {atom[0]:12.8f} {atom[1]:12.8f} {atom[2]:12.8f}\n")              
-                    
+                    f.write(f"{self.single_element_list[i]:2s} {atom[0]:12.8f} {atom[1]:12.8f} {atom[2]:12.8f}\n")
+  
 class ONIOMHandler(BasePotentialHandler):
     """
     Handles ONIOM calculations with microiterations.
