@@ -194,7 +194,7 @@ mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 
 For orientation search 
 ```
-python orientation_search.py aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB 
+python orientation_search.py aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB -opt rsirfo_block_fsb -modelhess
 ```
 For conformation search
 ```
@@ -202,7 +202,7 @@ python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -
 ```
 For relaxed scan (Similar to functions implemented in Gaussian)
 ```
-python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -os GFN0-xTB -opt crsirfo_block_fsb -modelhess
+python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -xtb GFN2-xTB -opt crsirfo_block_fsb -modelhess
 ```
 ## Options
 (optmain.py)
