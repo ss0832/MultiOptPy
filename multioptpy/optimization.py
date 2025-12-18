@@ -562,11 +562,11 @@ class ModelFunctionHandler(BasePotentialHandler):
 
     def finalize_bitss_trajectory(self):
         if not self.is_bitss or not self.bitss_geom1_history: return
-        filename = os.path.join(self.base_dir, f"{self.file_io.NOEXT_START_FILE}_bitss_path.xyz")
+        filename = os.path.join(self.base_dir, f"{self.file_io.NOEXT_START_FILE}_traj.xyz")
         full_seq = self.bitss_geom1_history + self.bitss_geom2_history[::-1]
         with open(filename, 'w') as f:
             for s, g in enumerate(full_seq):
-                f.write(f"{len(g)}\nStep {s}\n")
+                f.write(f"{len(g)}\nBITSS_Step {s}\n")
                 for i, atom in enumerate(g):
                     f.write(f"{self.single_element_list[i]:2s} {atom[0]:12.8f} {atom[1]:12.8f} {atom[2]:12.8f}\n")
                     
