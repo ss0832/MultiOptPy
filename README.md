@@ -1,6 +1,5 @@
 # MultiOptPy
 
-
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing) (Test 1, only use GFN2-xTB)
 
 
@@ -11,7 +10,6 @@
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/multioptpy?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/multioptpy)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17839100.svg)](https://doi.org/10.5281/zenodo.17839100)
-
 
 If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
 Your support serves as a great encouragement for this personal project and fuels my next journey.
@@ -35,10 +33,13 @@ This program can also automatically calculate the transition-state structure fro
 
 [![MultiOptPy Demo](https://img.youtube.com/vi/AE61iY2HZ8Y/0.jpg)](https://www.youtube.com/watch?v=AE61iY2HZ8Y)
 
+
 ## Features
 
 - It is intended to be used in a linux environment.
 - It can be used not only with AFIR functions, but also with other bias potentials.
+
+
 
 ## Quick Start (for Linux)
 ```
@@ -59,9 +60,9 @@ conda create -n test_mop python=3.12.7
 conda activate test_mop
 
 ## 3. Download and install MultiOptPy:
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.0.zip
-unzip v1.20.0.zip
-cd MultiOptPy-1.20.0
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
+unzip v1.20.3.zip
+cd MultiOptPy-1.20.3
 pip install -r requirements.txt
 
 ## 4. Copy the test configuration file and run the AutoTS workflow:
@@ -86,7 +87,10 @@ python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 # Installation via pip (Linux)
 conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
-pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
+pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.3
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
+unzip v1.20.3.zip
+cd MultiOptPy-1.20.3
 
 ## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
 # The following eight core functionalities are available as direct executable commands in your terminal after installation:
@@ -131,33 +135,60 @@ References are given in the source code.
 ## Usage
 
 After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
-
+python command
 ```
 python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
+CLI command (arbitrary directory)
+```
+optmain SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
+```
+python command
 ```
 python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
+CLI command (arbitrary directory)
+```
+optmain aldol_rxn.xyz -ma 95 1 5 50 3 11 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
+```
+
 For SADDLE calculation 
-```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
-```
 
-For NEB method
-
+python command
+```
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_block_bofill -order 1 -fc 5
+```
+CLI command (arbitrary directory)
+```
+optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_block_bofill -order 1 -fc 5
+```
+##### For NEB method
+python command
 ```
 python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
 ```
+CLI command (arbitrary directory)
+```
+nebmain aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
+```
 
-For iEIP method
-
+##### For iEIP method
+python command
 ```
 python ieipmain.py ieip_test -xtb GFN2-xTB 
 ```
-For Molecular Dynamics (MD)
-
+CLI command (arbitrary directory)
+```
+ieipmain ieip_test -xtb GFN2-xTB 
+```
+##### For Molecular Dynamics (MD)
+python command
 ```
 python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
+```
+CLI command (arbitrary directory)
+```
+mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
 ```
 (Default deterministic algorithm for MD is Nosé–Hoover thermostat.)
 
@@ -171,7 +202,7 @@ python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -
 ```
 For relaxed scan (Similar to functions implemented in Gaussian)
 ```
-python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -pyscf
+python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -os GFN0-xTB -opt crsirfo_block_fsb -modelhess
 ```
 ## Options
 (optmain.py)
@@ -418,7 +449,7 @@ Download **uma-s-1p1.pt** from the following page:
 
 ### 2. Add the Model Path to MultiOptPy
 
-Open the file `software_path.conf` inside the **MultiOptPy-v1.20.0-rc.4** directory.
+Open the file `software_path.conf` inside the **MultiOptPy** directory.
 
 Add the following line using the absolute path to the model file:
 
@@ -426,7 +457,7 @@ Add the following line using the absolute path to the model file:
 uma-s-1p1::<absolute_path_to/uma-s-1p1.pt>
 ```
 
-This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
+This enables **MultiOptPy** to use the **uma-s-1p1 NNP model**.
 
 ### references of UMA
 - arXiv preprint arXiv:2505.08762 (2025).
@@ -438,3 +469,9 @@ This enables **MultiOptPy-v1.20.0-rc.4** to use the **uma-s-1p1 NNP model**.
 conda env create -f environment_win11uma.yml
 conda activate test_mop_win11_uma
 ```
+
+
+---
+
+> **Status: Maintenance Mode / Frozen**
+> *This project has reached its initial stability goals (v1.20.2) and is currently frozen. No new features are planned by the original author, but the codebase remains open for the community to fork and explore the roadmap above.*
