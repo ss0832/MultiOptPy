@@ -399,9 +399,9 @@ class FileIO:
             for num, geometry in enumerate(new_geometry):    
                 element = element_list[num]
                 print(f"{element:2}   {float(geometry[0]):>17.12f}   {float(geometry[1]):>17.12f}   {float(geometry[2]):>17.12f}")
-        
+            print("\n")
+            
         geometry_list = [[electric_charge_and_multiplicity, *formatted_geometries]]
-        print("\n")
         
         return geometry_list
         
