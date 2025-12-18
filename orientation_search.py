@@ -1,7 +1,7 @@
 import sys
 import os
 import random
-sys.path.append('./multioptpy')
+
 from multioptpy.Utils import calc_tools
 import numpy as np
 

@@ -2,9 +2,9 @@ import sys
 import os
 import shutil
 import datetime
-sys.path.append('./multioptpy')
-import multioptpy.calc_tools
-from multioptpy.parameter import UnitValueLib
+
+import multioptpy.Utils.calc_tools
+from multioptpy.Parameters.unit_values import UnitValueLib
 import numpy as np
 import multioptpy
 
