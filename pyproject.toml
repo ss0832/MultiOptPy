@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "MultiOptPy"
-version = "1.20.3"
+version = "1.20.4"
 description = "Multifunctional geometry optimization tools for quantum chemical calculations."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -45,4 +45,5 @@ orientsearch = "multioptpy.entrypoints:run_orientsearch"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
 include = ["multioptpy*"]
