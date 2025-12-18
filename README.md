@@ -392,13 +392,13 @@ If you use MultiOptPy in your research, please cite it as follows:
   month        = dec,
   year         = 2025,
   publisher    = {Zenodo},
-  version      = {v1.20.2},
-  doi          = {10.5281/zenodo.17839100},
-  url          = {[https://doi.org/10.5281/zenodo.17839100](https://doi.org/10.5281/zenodo.17839100)}
+  version      = {v1.20.3},
+  doi          = {10.5281/zenodo.17970774},
+  url          = {https://doi.org/10.5281/zenodo.17970774}
 }
 ```
 ```
-ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.2). Zenodo. https://doi.org/10.5281/zenodo.17839100
+ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.3). Zenodo. https://doi.org/10.5281/zenodo.17970774
 ```
 
 ## Setting Up an Environment for Using NNP(UMA) on Windows 11
