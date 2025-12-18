@@ -60,9 +60,9 @@ conda create -n test_mop python=3.12.7
 conda activate test_mop
 
 ## 3. Download and install MultiOptPy:
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.0.zip
-unzip v1.20.0.zip
-cd MultiOptPy-1.20.0
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
+unzip v1.20.3.zip
+cd MultiOptPy-1.20.3
 pip install -r requirements.txt
 
 ## 4. Copy the test configuration file and run the AutoTS workflow:
@@ -87,7 +87,10 @@ python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 # Installation via pip (Linux)
 conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
-pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.2
+pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.3
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.3.zip
+unzip v1.20.3.zip
+cd MultiOptPy-1.20.3
 
 ## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
 # The following eight core functionalities are available as direct executable commands in your terminal after installation:
@@ -153,11 +156,11 @@ For SADDLE calculation
 
 python command
 ```
-python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
+python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_block_bofill -order 1 -fc 5
 ```
 CLI command (arbitrary directory)
 ```
-optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt RSIRFO_bofill -order 1 -fc 5
+optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_block_bofill -order 1 -fc 5
 ```
 ##### For NEB method
 python command
@@ -199,7 +202,7 @@ python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -
 ```
 For relaxed scan (Similar to functions implemented in Gaussian)
 ```
-python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -pyscf
+python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -os GFN0-xTB -opt crsirfo_block_fsb -modelhess
 ```
 ## Options
 (optmain.py)
@@ -467,35 +470,6 @@ conda env create -f environment_win11uma.yml
 conda activate test_mop_win11_uma
 ```
 
-
-## 🚧 Future Roadmap (Vision)
-
-As the final vision for this project, **I propose** two distinct strategies to dramatically reduce computational costs for large-scale **transition metal complexes or enzymes** while maintaining accuracy in Transition State (TS) searches.
-
-**Target Integration:**
-These schemes are designed to be integrated into the core drivers: **`optmain`** (Geometry Optimization), **`nebmain`** (Path Relaxation/NEB), and **double-ended methods implemented in `ieipmain.py`**.
-
-#### 1. Comprehensive ONIOM Implementation
-**I plan** to implement a multilayer ONIOM scheme to evaluate **Energies, Gradients, and Hessians**.
-
-* **Scope:** Enables Geometry Optimization, Path Relaxation (NEB), and Frequency Analysis for very large systems.
-* **Strategy:** The system is divided into layers. The **High-Level Region** (e.g., reaction center) is treated with high-cost QM methods, while the environment is handled by low-cost methods.
-
-#### 2. Hybrid Partial Hessian for Full High-Level Optimization
-Distinct from ONIOM, this scheme is designed for **full high-level calculations (e.g., Full DFT)** where computing the exact Hessian for the entire system is prohibitively expensive.
-
-**Concept:**
-Perform optimization using **full high-cost-calc-method gradients** (ensuring the final structure is a true minimum on the high-level PES), but construct the guiding Hessian matrix by mixing exact and approximate curvatures.
-
-**Proposed Algorithm:**
-1.  **Region Definition:** Define a **Core Region** (including the reaction center) and cap it with Hydrogen atoms.
-2.  **Hybrid Construction:**
-    * **Core Region:** Compute the **exact analytical Hessian** using the high-cost (or high-accuracy) method (e.g., DFT, NNP).
-    * **Environment:** Compute the **approximate Hessian** using the low-cost (or low-accuracy) method (e.g., GFN2-xTB, MM Force Field).
-3.  **Matrix Assembly:**
-    Construct the final Hessian using an **ONIOM-like subtractive substitution**:
-    $$H_{approx} = H_{Low}^{Real} + \mathcal{P} \left( H_{High}^{Core} - H_{Low}^{Core} \right)$$
-    This replaces the approximate curvature of the reaction center with precise quantum mechanical data while maintaining the coupling with the environment.
 
 ---
 
