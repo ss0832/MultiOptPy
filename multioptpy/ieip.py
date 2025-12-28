@@ -15,6 +15,7 @@ from multioptpy.OtherMethod.addf import ADDFlikeMethod
 from multioptpy.OtherMethod.twopshs import twoPSHSlikeMethod
 from multioptpy.OtherMethod.elastic_image_pair import ElasticImagePair
 from multioptpy.OtherMethod.modelfunction import ModelFunctionOptimizer
+from multioptpy.OtherMethod.spring_pair_method import SpringPairMethod
 
 class IEIPConfig:
     """
@@ -174,6 +175,9 @@ class IEIPConfig:
         self.dimer_trial_angle = getattr(args, 'dimer_trial_angle', np.pi / 32.0)
         self.dimer_max_iterations = getattr(args, 'dimer_max_iterations', 1000)
 
+        # Add config flag check if needed
+        self.use_spm = getattr(args, 'use_spm', False)
+
         # Create output directory
         os.mkdir(self.iEIP_FOLDER_DIRECTORY)
     
@@ -205,7 +209,9 @@ class iEIP:
         self.addf_like_method = ADDFlikeMethod(self.config)
         self.twoPshs = twoPSHSlikeMethod(self.config)
         self.dimer_method = DimerMethod(self.config)
-
+        self.spring_pair_method = SpringPairMethod(self.config)
+        
+        
 
     def optimize(self):
         """Load calculation modules based on configuration and run optimization"""
@@ -322,7 +328,13 @@ class iEIP:
                 SP_list[0],
                 self.config.electric_charge_and_multiplicity_list[0], 
                 FIO_img_list[0])
-    
+        elif getattr(self.config, 'use_spm', False):
+            print("Using Spring Pair Method (SPM)")
+            self.spring_pair_method.iteration(
+                file_directory_list[0],
+                SP_list[0], element_list_list[0], 
+                self.config.electric_charge_and_multiplicity_list[0], 
+                FIO_img_list[0])
         else:
             self.elastic_image_pair.iteration(
                 file_directory_list[0], file_directory_list[1], 
