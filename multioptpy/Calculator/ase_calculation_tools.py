@@ -91,7 +91,9 @@ class Calculation:
         if self.software_type == "gaussian":
             print("Calculating exact Hessian using Gaussian...")
             exact_hess = calc_obj.calc_analytic_hessian()  # in hartree/Bohr^2
-        
+        elif self.software_type == "orca":
+            hess_path = calc_obj.run_frequency_analysis()
+            exact_hess = calc_obj.get_hessian_matrix(hess_path)
         else:
             vib = Vibrations(atoms=calc_obj.atom_obj, delta=0.001, name="z_hess_"+timestamp)
             vib.run()
@@ -126,7 +128,7 @@ class Calculation:
             file_list = glob.glob(file_directory+"/*_[0-9].xyz")
     
         for num, input_file in enumerate(file_list):
-            try:
+            if True:#try:
                 if geom_num_list is None:
                     positions, _, electric_charge_and_multiplicity = xyz2list(input_file, electric_charge_and_multiplicity)
                 else:
@@ -157,11 +159,11 @@ class Calculation:
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
                     # exact numerical hessian
                     _ = self.calc_exact_hess(calc_obj, positions, element_list)             
-            except Exception as error:
-                print(error)
-                print("This molecule could not be optimized.")
-                finish_frag = True
-                return np.array([0]), np.array([0]), np.array([0]), finish_frag 
+            #except Exception as error:
+            #    print(error)
+            #    print("This molecule could not be optimized.")
+            #    finish_frag = True
+            #    return np.array([0]), np.array([0]), np.array([0]), finish_frag 
 
         positions /= self.bohr2angstroms
         self.energy = e
@@ -288,7 +290,10 @@ class ASEEngine(CalculationEngine):
                     timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-2]
                     if software_type == "gaussian":
                         exact_hess = calc_obj.calc_analytic_hessian()  # in hartree/Bohr^2
-                        exact_hess = exact_hess 
+                   
+                    elif software_type == "orca":
+                        hess_path = calc_obj.run_frequency_analysis()
+                        exact_hess = calc_obj.get_hessian_matrix(hess_path)
                     else:
                         vib = Vibrations(atoms=calc_obj.atom_obj, delta=0.001, name="z_hess_"+timestamp)
                         vib.run()
