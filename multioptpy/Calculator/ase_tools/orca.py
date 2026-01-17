@@ -5,6 +5,11 @@ import numpy as np
 from ase.calculators.orca import ORCA, OrcaProfile
 from ase.data import atomic_numbers
 
+"""
+Please specify the absolute path to the ORCA executable in software_path.conf using the format orca::<path>. For Linux, provide the path to the binary (e.g., /absolute/path/to/orca), and for Windows, provide the path to the executable file (e.g., C:\absolute\path\to\orca.exe).
+"""
+
+
 class ASE_ORCA:
     TARGET_ORCA_VERSION = '6.1.0'
 
@@ -28,22 +33,41 @@ class ASE_ORCA:
         self.heavy_atom_basis = kwargs.get('heavy_atom_basis', 'def2-SVP')
 
     def _resolve_orca_exe(self, provided_path):
+        """
+        Resolve the absolute path to the ORCA executable.
+        Handles directories, stripping whitespace from config files, and WSL/Windows paths.
+        """
         if not provided_path:
             return None
-        clean_path = os.path.normpath(provided_path)
-        if os.path.isdir(clean_path):
-            candidate = os.path.join(clean_path, 'orca.exe') if os.name == 'nt' else os.path.join(clean_path, 'orca')
-        else:
-            candidate = clean_path
-
-        if os.path.exists(candidate) and os.path.isfile(candidate):
-            return os.path.abspath(candidate)
         
-        resolved = shutil.which(candidate)
-        if resolved and os.path.exists(resolved):
-            return os.path.abspath(resolved)
+        # CRITICAL FIX: Strip whitespace/newlines that might come from config parsing
+        clean_path = provided_path.strip()
+        # Expand ~ to home directory if present
+        clean_path = os.path.expanduser(clean_path)
+        clean_path = os.path.normpath(clean_path)
 
-        raise FileNotFoundError(f"Cannot locate ORCA executable at: {candidate}")
+        candidates = []
+        # If the path is a directory, look for the executable inside it
+        if os.path.isdir(clean_path):
+            candidates.append(os.path.join(clean_path, 'orca'))
+            candidates.append(os.path.join(clean_path, 'orca.exe'))
+        else:
+            # If it's a file path (or doesn't exist yet), use it as is
+            candidates.append(clean_path)
+
+        for candidate in candidates:
+            # Check if file exists
+            if os.path.exists(candidate) and os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+            
+            # Check system PATH
+            resolved = shutil.which(candidate)
+            if resolved and os.path.exists(resolved):
+                return os.path.abspath(resolved)
+
+        # Use repr() in error message to reveal hidden characters like \n
+        candidate_reprs = [repr(c) for c in candidates]
+        raise FileNotFoundError(f"Cannot locate ORCA executable. Checked: {', '.join(candidate_reprs)}")
 
     def _is_pople_basis(self, basis_name):
         if not basis_name: return False
@@ -101,7 +125,7 @@ class ASE_ORCA:
         label_path = os.path.join(cwd, 'orca').replace('\\', '/')
         self.input_file = label_path + '.inp'
         
-        print(f"DEBUG: ASE Label Path (Forced): {label_path}")
+        print(f"DEBUG: ASE Label Path : {label_path}")
 
         simple_input = f"{self.functional} {self.basis_set} {task_keyword}"
         
