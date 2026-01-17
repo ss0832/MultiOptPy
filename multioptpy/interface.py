@@ -5,7 +5,7 @@ import numpy as np
 
 """
     MultiOptPy
-    Copyright (C) 2023-2025 ss0832
+    Copyright (C) 2023-2026 ss0832
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
