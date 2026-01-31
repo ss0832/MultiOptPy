@@ -782,6 +782,16 @@ class EnhancedRSPRFO:
         # Compute eigendecomposition
         eigvals, eigvecs = np.linalg.eigh(H)
         
+        # === [CRITICAL FIX] Handle NaN/Inf in Hessian ===
+        
+        if not np.all(np.isfinite(eigvals)) or not np.all(np.isfinite(eigvecs)):
+            self.log("CRITICAL ERROR: Hessian eigendecomposition failed (NaNs detected).", force=True)
+            self.log("Resetting to Identity Hessian to force Steepest Descent fallback.", force=True)
+        
+            eigvals = np.ones_like(eigvals)
+            eigvecs = np.eye(len(eigvals))
+        # =================================================
+        
         # Apply eigenvalue shifting if needed
         H, eigvals, shifted = self._shift_hessian_eigenvalues(H, eigvals, eigvecs)
         if shifted:
@@ -811,6 +821,27 @@ class EnhancedRSPRFO:
         step_trans, step_norm, converged = self._solve_alpha_micro_cycles(
             eigvals, gradient_trans, max_indices, min_indices, gradient_norm
         )
+        # === [ADDED START] Safety check for NaN/Inf steps ===
+        if not np.isfinite(step_norm) or not np.all(np.isfinite(step_trans)):
+            self.log("CRITICAL WARNING: NaN detected in optimization step. Falling back to Steepest Descent.", force=True)
+            
+            # Fallback: Steepest Descent (SD) step within trust radius
+            # In eigenvector basis, SD direction is simply -gradient
+            sd_step = -gradient_trans
+            sd_norm = np.linalg.norm(sd_step)
+            
+            # Apply trust radius
+            target_norm = min(sd_norm, self.trust_radius)
+            
+            if sd_norm > 1e-12:
+                step_trans = sd_step * (target_norm / sd_norm)
+                step_norm = target_norm
+            else:
+                step_trans = np.zeros_like(gradient_trans)
+                step_norm = 0.0
+                
+            converged = False
+        # === [ADDED END] ===
         
         if not converged:
             self.log("Warning: Micro-cycles did not fully converge")
