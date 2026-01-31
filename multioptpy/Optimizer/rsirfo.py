@@ -125,7 +125,69 @@ class RSIRFO:
         self.alpha_init_values = [0.001 + (10.0 - 0.001) * i / 14 for i in range(15)]
         self.NEB_mode = False
         
+    def _project_grad_tr_rot(self, gradient, geometry):
+        """
+        [Quick Implementation] Project out translation and rotation components from the gradient.
+        Uses QR decomposition for basis orthonormalization.
+        """
+        # Data preparation
+        coords = geometry.reshape(-1, 3)
+        n_atoms = coords.shape[0]
         
+        # 1. Center coordinates (Critical for rotation)
+        center = np.mean(coords, axis=0)
+        coords_centered = coords - center
+        
+        # 2. Construct basis vectors for TR/ROT (Total 6 vectors)
+        # Flattened vectors of size 3*N
+        basis = []
+        
+        # Translation (x, y, z)
+        basis.append(np.tile([1, 0, 0], n_atoms))
+        basis.append(np.tile([0, 1, 0], n_atoms))
+        basis.append(np.tile([0, 0, 1], n_atoms))
+        
+        # Rotation (Rx, Ry, Rz via cross product)
+        # Rx: (1,0,0) x r -> (0, -z, y)
+        rx = np.zeros_like(coords)
+        rx[:, 1] = -coords_centered[:, 2]
+        rx[:, 2] =  coords_centered[:, 1]
+        basis.append(rx.flatten())
+        
+        # Ry: (0,1,0) x r -> (z, 0, -x)
+        ry = np.zeros_like(coords)
+        ry[:, 0] =  coords_centered[:, 2]
+        ry[:, 2] = -coords_centered[:, 0]
+        basis.append(ry.flatten())
+        
+        # Rz: (0,0,1) x r -> (-y, x, 0)
+        rz = np.zeros_like(coords)
+        rz[:, 0] = -coords_centered[:, 1]
+        rz[:, 1] =  coords_centered[:, 0]
+        basis.append(rz.flatten())
+        
+        # 3. Orthonormalize basis (QR decomposition)
+        # A: Matrix of shape (3N, 6)
+        A = np.array(basis).T
+        
+        # 'reduced' returns Q of shape (3N, K) where K <= 6
+        # This handles linear molecules automatically (rank deficient)
+        Q, _ = np.linalg.qr(A, mode='reduced')
+        
+        # 4. Project out components
+        # P = I - Q * Q.T
+        # g_proj = g - Q * (Q.T * g)
+        
+        # Calculate overlap (scalar components along TR/ROT modes)
+        overlaps = np.dot(Q.T, gradient)
+        
+        # Reconstruct the TR/ROT part of the gradient
+        tr_rot_part = np.dot(Q, overlaps)
+        
+        # Subtract from original gradient
+        projected_gradient = gradient - tr_rot_part
+        
+        return projected_gradient
 
     def _build_hessian_updater_list(self):
         """
@@ -266,6 +328,22 @@ class RSIRFO:
         
         # Ensure gradient is properly shaped as a 1D array (reuse existing array without copy)
         gradient = np.asarray(B_g).ravel()
+        
+        # === [ADDED] Project out TR/ROT from Gradient ===
+        # Calculate norm before projection
+        raw_norm = np.linalg.norm(gradient)
+        
+        # Apply projection
+        gradient = self._project_grad_tr_rot(gradient, geom_num_list)
+        
+        # Calculate norm after projection
+        proj_norm = np.linalg.norm(gradient)
+        diff_norm = raw_norm - proj_norm
+        
+        # Log the effect (Even small changes matter for RFO stability)
+        if abs(diff_norm) > 1e-12:
+            self.log(f"Gradient TR/ROT Projection: Norm {raw_norm:.6e} -> {proj_norm:.6e} (Diff: {diff_norm:.6e})", force=True)
+        # ================================================
         
         # Use effective Hessian
         tmp_hess = self.hessian
