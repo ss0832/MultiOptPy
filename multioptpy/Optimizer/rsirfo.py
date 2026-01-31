@@ -358,11 +358,24 @@ class RSIRFO:
         H = 0.5 * (H + H.T)  # Ensure symmetry
         # Use new method that applies/removes shift for numerical stability
         eigvals, eigvecs = self.compute_eigendecomposition_with_shift(H)
-
+        
+        # === [CRITICAL FIX] Handle NaN/Inf in Hessian ===
+        # If Hessian is broken (common in linear molecules or initial guesses),
+        # force fallback to identity matrix to act as Steepest Descent.
+        if not np.all(np.isfinite(eigvals)) or not np.all(np.isfinite(eigvecs)):
+            self.log("CRITICAL ERROR: Hessian eigendecomposition failed (NaNs detected).", force=True)
+            self.log("Resetting to Identity Hessian to force Steepest Descent fallback.", force=True)
+            eigvals = np.ones_like(eigvals)
+            eigvecs = np.eye(len(eigvals))
+        # =================================================
         # Always check conditioning (provides useful diagnostic information)
         condition_number, is_ill_conditioned = self.check_hessian_conditioning(eigvals)
-        print(f"Condition number of Hessian: {condition_number:.2f}, Ill-conditioned: {is_ill_conditioned}")
-        
+        # === [MODIFIED START] Handle None value for condition_number ===
+        if condition_number is not None:
+            print(f"Condition number of Hessian: {condition_number:.2f}, Ill-conditioned: {is_ill_conditioned}")
+        else:
+            print(f"Condition number of Hessian: N/A, Ill-conditioned: {is_ill_conditioned}")
+        # === [MODIFIED END] ===
         
         # Trust Radius Adjustment (Moved here to use eigenvalues)
         if not self.Initialization:
@@ -413,6 +426,13 @@ class RSIRFO:
         
         eigvals_star, eigvecs_star = self.compute_eigendecomposition_with_shift(H_star)
         
+        # === [CRITICAL FIX] Handle NaN/Inf in Projected Hessian ===
+        if not np.all(np.isfinite(eigvals_star)) or not np.all(np.isfinite(eigvecs_star)):
+            self.log("CRITICAL ERROR: Projected Hessian is broken. Falling back to identity.", force=True)
+            eigvals_star = np.ones_like(eigvals_star)
+            eigvecs_star = np.eye(len(eigvals_star))
+        # ==========================================================
+        
         # === Apply existing small eigenvalue filter ===
         # This is INDEPENDENT of level-shifting.
         # Level-shifting affects numerical stability during computation.
@@ -431,6 +451,16 @@ class RSIRFO:
             
         # Get the RS step using the image Hessian and gradient
         move_vector = self.get_rs_step(eigvals_star, eigvecs_star, grad_star)
+        
+        # === [CRITICAL FIX] Final NaN Check on Step ===
+        if not np.all(np.isfinite(move_vector)):
+            self.log("CRITICAL ERROR: Calculated RS-I-RFO step is NaN. Forcing steepest descent.", force=True)
+            # Steepest descent fallback
+            move_vector = -gradient 
+            norm = np.linalg.norm(move_vector)
+            if norm > self.trust_radius:
+                move_vector *= (self.trust_radius / norm)
+        # ==============================================
         
         # Update prev_eigvec_size for next iteration
         self.prev_eigvec_size = current_eigvec_size
