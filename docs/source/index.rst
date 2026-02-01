@@ -1,497 +1,372 @@
 MultiOptPy Documentation
-=======================
+========================
 
-    **Version**: v1.15.4  
+    **Version**: v1.20.5  
     **Repository**: `https://github.com/ss0832/MultiOptPy <https://github.com/ss0832/MultiOptPy>`_  
-    *An optimizer for quantum chemical calculation including artificial force induced reaction method*
+    **Status**: Maintenance Mode / Frozen  
+    *Multifunctional geometry optimization tools for quantum chemical calculations (AFIR, NEB, MD, TS search, NNP/UMA support).*
 
-MultiOptPy is a Python program that supports various types of calculations (e.g., geometry optimization, NEB, MD), allowing the application of bias potentials and external forces to facilitate advanced modeling in computational chemistry.
+.. note::
+   The project is frozen after reaching stability goals (v1.20.2). No new features are planned by the original author, but community contributions are welcome.
+
+.. warning::
+   This program has **not** been experimentally validated in laboratory settings. Use at your own discretion.
 
 Table of Contents
+-----------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents
+
+   overview
+   installation
+   quickstart
+   cli
+   autots_workflow
+   configuration
+   bias_potentials
+   examples
+   references
+   license_contact
+
 ----------------
-1. `Installation`_
-2. `Examples`_
-3. `Main Commands`_
-   - `Optimize`_
-   - `NEB`_
-   - `MD`_
-   - `IEIP`_
-4. `Bias Potentials and Forces`_
-5. `Extended Tight Binding Options`_
-6. `References`_
-7. `License`_
-
-------------
-
-Installation
------------
-
-.. code-block:: bash
-
-    git clone https://github.com/ss0832/MultiOptPy.git
-
-or download the latest version of this program (v1.15.4).
-
-
-Requirements
-~~~~~~~~~~~
-- psi4 or PySCF (for quantum mechanics calculation)
-- numpy 
-- matplotlib (for visualization)
-- scipy 
-- pytorch (for calculating differentials)
-
-Optional
-
- - tblite (If you use extended tight binding (xTB) method, this module is required.)
- - dxtb (same as above)
- - ASE 
-
-------------
-
-Examples 
+Overview
 --------
 
-Below are some examples of MultiOptPy usage.
+MultiOptPy is a Python toolkit providing:
 
-After ``git clone``,
+* Geometry optimization (minima and saddle points) with numerous optimizers (FIRE, TR\_LBFGS, rsirfo\_block\_fsb, rsirfo\_block\_bofill, etc.).
+* Reaction path exploration (AFIR, NEB, QSM, IEIP), automated TS discovery (AutoTS), and IRC validation.
+* Molecular dynamics (AIMD) with thermostats (e.g., Nosé–Hoover).
+* Bias potentials and constraints (AFIR, harmonic/Morse restraints, dihedral/angle restraints, mechanochemical forces, metadynamics, nano-reactor potentials, etc.).
+* Extended Tight Binding (xTB) and PySCF/Psi4 support; optional NNP via UMA (fairchem-core).
+* Command-line interface (CLI) commands installable as console scripts after ``pip install``.
+* Cross-platform guidance: Linux (primary), Windows 11 instructions for UMA (NNP).
 
-.. code-block:: bash
-
-    # Basic geometry optimization
-    python optmain.py SN2.xyz
-
-    # Transition state optimization (1st-order saddle)
-    python optmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_fsb -order 1 -fc 5
-
-    # NEB calculation
-    python nebmain.py aldol_rxn -xtb GFN2-xTB -ns 50 
-
-    # MD simulation
-    python mdmain.py aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
-
-    # Reaction path with AFIR
-    python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11
-    python optmain.py SN2.xyz -ma 150 1 6
-
-    python optmain.py aldol_rxn.xyz -ma 95 1 5 50 3 11 -modelhess
-    python optmain.py SN2.xyz -ma 150 1 6 -modelhess
-
-    # You can practice AFIR method to analyze other reactions by using .xyz files in "test" directory.
-
-    # Orientation search 
-    python orientation_search.py aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB 
-
-    # Conformation search
-    python conformation_search.py s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
-
-    # Relaxed scan (Similar to functions implemented in Gaussian)
-    python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -pyscf
-
-    # Constraint optimization (fix the distance between 1st-atom and 5th atom)
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc bond 1,5 -ma 95 1 5 50 3 11
-
-    # Constraint optimization (fix ∠1st_atom-5th_atom-6th_atom)
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc angle 1,5,6 -ma 95 1 5 50 3 11
-
-    # Constraint optimization (fix dihedral angle of φ(8-6-5-7))
-    python optmain.py aldol_rxn.xyz -xtb GFN2-xTB -pc dihedral 8,6,5,7 -ma 95 1 5 50 3 11
-
-
-Main Commands
+----------------
+Installation
 ------------
 
-Optimize Command
-~~~~~~~~~~~~~~~
-
-Run structure optimization with various methods and bias potentials.
-
-.. code-block:: bash
-
-    python optmain.py input.xyz [options]
-
-Basic Options
-^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 25 60 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-bs``, ``--basisset``
-     - Basis set for QM calculation
-     - ``6-31G(d)``
-   * - ``-func``, ``--functional``
-     - Functional for QM calculation
-     - ``b3lyp``
-   * - ``-sub_bs``, ``--sub_basisset``
-     - Sub basis set for specific atoms
-     - None
-   * - ``-es``, ``--excited_state``
-     - Calculate excited state (e.g., S1 => ``1``)
-     - ``0``
-   * - ``-ns``, ``--NSTEP``
-     - Maximum number of optimization iterations
-     - ``1000``
-   * - ``-core``, ``--N_THREAD``
-     - Number of CPU threads to use
-     - ``8``
-   * - ``-mem``, ``--SET_MEMORY``
-     - Memory allocation for calculation
-     - ``2GB``
-   * - ``-d``, ``--DELTA``
-     - Move step
-     - ``x``
-   * - ``-u``, ``--unrestrict``
-     - Use unrestricted method (radical reactions)
-     - False
-   * - ``-fix``, ``--fix_atoms``
-     - Fix atoms during optimization (e.g., ``1,2,3-6``)
-     - None
-   * - ``-elec``, ``--electronic_charge``
-     - Formal electronic charge
-     - ``0``
-   * - ``-spin``, ``--spin_multiplicity``
-     - Spin multiplicity
-     - ``1``
-
-Advanced Options
-^^^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 25 60 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-opt``, ``--opt_method``
-     - Optimization method (e.g. ``FIRELARS``, ``rsirfo_fsb``)
-     - ``FIRELARS``
-   * - ``-fc``, ``--calc_exact_hess``
-     - Calculate exact Hessian every N steps
-     - ``-1``
-   * - ``-mfc``, ``--calc_model_hess``
-     - Calculate model Hessian every N steps (this option is available by using this with ``-modelhess``)
-     - ``50``
-   * - ``-saddle``, ``--saddle_order``
-     - Optimize to nth-order saddle point
-     - ``0``
-   * - ``-pyscf``, ``--pyscf``
-     - Use PySCF instead of Psi4
-     - False
-   * - ``-tcc``, ``--tight_convergence_criteria``
-     - Use tight optimization criteria
-     - False
-   * - ``-lcc``, ``--loose_convergence_criteria``
-     - Use loose optimization criteria
-     - False
-   * - ``-modelhess``, ``--use_model_hessian``
-     - Use model Hessian instead of exact
-     - False
-   * - ``-pc``, ``--projection_constrain``
-     - Constrain gradient/Hessian via projection
-     - None
-
-------------
-
-NEB Command
-~~~~~~~~~~
-
-Perform Nudged Elastic Band calculations for reaction path.
-
-.. code-block:: bash
-
-    python nebmain.py input_folder [options]
-
-Basic Options
-^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 25 60 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-bs``, ``--basisset``
-     - Basis set for QM calculation
-     - ``6-31G(d)``
-   * - ``-func``, ``--functional``
-     - Functional for QM calculation
-     - ``b3lyp``
-   * - ``-sub_bs``, ``--sub_basisset``
-     - Sub basis set for specific atoms
-     - None
-   * - ``-u``, ``--unrestrict``
-     - Use unrestricted method
-     - False
-   * - ``-es``, ``--excited_state``
-     - Calculate excited state
-     - ``0``
-   * - ``-ns``, ``--NSTEP``
-     - Number of iterations
-     - ``10``
-   * - ``-p``, ``--partition``
-     - Number of nodes
-     - ``0``
-   * - ``-core``, ``--N_THREAD``
-     - Number of CPU threads
-     - ``8``
-   * - ``-mem``, ``--SET_MEMORY``
-     - Memory allocation for calculation
-     - ``1GB``
-   * - ``-elec``, ``--electronic_charge``
-     - Formal electronic charge
-     - ``0``
-   * - ``-spin``, ``--spin_multiplicity``
-     - Spin multiplicity
-     - ``1``
-
-NEB Method Options
-^^^^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 35 50 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-om``, ``--OM``
-     - Use Onsager-Machlup NEB method
-     - False
-   * - ``-lup``, ``--LUP``
-     - Use locally updated planes method
-     - False
-   * - ``-dneb``, ``--DNEB``
-     - Use doubly NEB method
-     - False
-   * - ``-idpp``, ``--use_image_dependent_pair_potential``
-     - Use IDPP method to generate better initial path than LST (linear synchronous transit) method
-     - False
-
-------------
-
-MD Command
-~~~~~~~~~
-
-Run *Ab initio* molecular dynamics (AIMD) simulations.
-
-.. code-block:: bash
-
-    python mdmain.py input.xyz [options]
-
-Basic Options
-^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 25 60 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-bs``, ``--basisset``
-     - Basis set for QM calculation
-     - ``6-31G(d)``
-   * - ``-func``, ``--functional``
-     - Functional for QM calculation
-     - ``b3lyp``
-   * - ``-sub_bs``, ``--sub_basisset``
-     - Sub basis set for specific atoms
-     - None
-   * - ``-es``, ``--excited_state``
-     - Calculate excited state (PySCF)
-     - ``0``
-   * - ``-time``, ``--NSTEP``
-     - Total simulation time steps
-     - ``100000``
-   * - ``-traj``, ``--TRAJECTORY``
-     - Number of trajectories to generate
-     - ``1``
-   * - ``-temp``, ``--temperature``
-     - Temperature in Kelvin
-     - ``298.15``
-   * - ``-ts``, ``--timestep``
-     - Time step in atomic units
-     - ``0.1``
-   * - ``-mt``, ``--mdtype``
-     - MD thermostat type (``nosehoover`` or ``nvt``, ``nve``, etc.)
-     - ``nosehoover``
-
-------------
-
-IEIP Command
-~~~~~~~~~~~
-
-Perform Initial-End point Interpolation Path calculations.
-
-.. code-block:: bash
-
-    python ieipmain.py input_folder [options]
-
-Basic Options
-^^^^^^^^^^^^
-
-.. list-table::
-   :widths: 25 60 15
-   :header-rows: 1
-
-   * - Option
-     - Description
-     - Default
-   * - ``-bs``, ``--basisset``
-     - Basis set for QM calculation
-     - ``6-31G(d)``
-   * - ``-func``, ``--functional``
-     - Functional for QM calculation
-     - ``b3lyp``
-   * - ``-ns``, ``--NSTEP``
-     - Number of iterations
-     - ``999``
-   * - ``-sub_bs``, ``--sub_basisset``
-     - Sub basis set for specific atoms
-     - None
-   * - ``-mi``, ``--microiter``
-     - Microiteration for relaxing reaction pathways
-     - ``0``
-   * - ``-beta``, ``--BETA``
-     - Force for optimization
-     - ``1.0``
-
-------------
-
-Bias Potentials and Forces (optmain.py, nebmain.py, mdmain.py, ieipmain.py)
--------------------------
-
-MultiOptPy supports a variety of bias potentials and forces.
-
-Artificial Force-Induced Reaction (AFIR)
+Recommended (Linux, conda, release zip)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    -ma GAMMA FRAGM1 FRAGM2
+    # 1. Install Anaconda (example)
+    cd ~
+    wget https://repo.anaconda.com/archive/Anaconda3-2025.06-1-Linux-x86_64.sh
+    bash Anaconda3-2025.06-1-Linux-x86_64.sh
+    source ~/.bashrc
 
-- Example 1:
+    # 2. Create env
+    conda create -n test_mop python=3.12.7
+    conda activate test_mop
 
-  .. code-block:: bash
+    # 3. Get MultiOptPy v1.20.5 release
+    wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.5.zip
+    unzip v1.20.5.zip
+    cd MultiOptPy-1.20.5
+    pip install -r requirements.txt
 
-      -ma 195 1 5
-
-  Apply a potential of 195 kJ/mol (pushing force) to the first atom and the fifth atom as a pair.
-
-- Example 2:
-
-  .. code-block:: bash
-
-      -ma 195 1 5 195 3 11
-
-  Add the potential of 195 kJ/mol (pushing force) by the pair of the first atom and the fifth atom. Then add the potential of 195 kJ/mol (pushing force) by the pair of the third atom and the eleventh atom.
-
-- Example 3:
-
-  .. code-block:: bash
-
-      -ma -195 1-3 5,6
-
-  Add the potential of -195 kJ/mol (pulling force) by the fragment consisting of the 1st-3rd atoms paired with the fragments consisting of the 5th and 6th atoms.
-
-
-Keep Potential (Harmonic Restraint)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-V(r) = 0.5k(r - r_0)^2
-
-``spring const. k (a.u.) keep distance [$ r_0] (ang.) atom1,atom2 ...``
+Alternative: git + environment.yml (Linux / conda-forge)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    -kp SPRING_CONST DISTANCE ATOMS
+    git clone -b stable-v1.0 https://github.com/ss0832/MultiOptPy.git
+    cd MultiOptPy
+    conda env create -f environment.yml
+    conda activate test_mop
+    cp test/config_autots_run_xtb_test.json .
+    python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 
-- Example:
+Alternative: pip (Linux, latest tag)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  .. code-block:: bash
+.. code-block:: bash
 
-      -kp 0.1 2.5 1,2
+    conda create -n <env-name> python=3.12 pip
+    conda activate <env-name>
+    pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.5
+    wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.5.zip
+    unzip v1.20.5.zip
+    cd MultiOptPy-1.20.5
 
-Keep Angle Potential
+Windows 11 + UMA (NNP) environment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the provided conda environment file for UMA/NNP.
+
+.. code-block:: bash
+
+    # 1. Install Anaconda3-2025.06-1-Windows-x86_64.exe
+    # 2. Open "Anaconda PowerShell Prompt"
+    git clone https://github.com/ss0832/MultiOptPy.git
+    cd MultiOptPy
+    conda env create -f environment_win11uma.yml
+    conda activate test_mop_win11_uma
+
+UMA model setup
+^^^^^^^^^^^^^^^
+
+1. Download **uma-s-1p1.pt** from https://huggingface.co/facebook/UMA  
+2. Edit ``software_path.conf`` (in the MultiOptPy root) and add:
+
+   .. code-block:: text
+
+       uma-s-1p1::<absolute_path_to/uma-s-1p1.pt>
+
+Requirements (core)
+~~~~~~~~~~~~~~~~~~~
+* psi4 **or** PySCF
+* numpy, matplotlib, scipy, pytorch
+* Optional: tblite / dxtb (xTB), ASE, fairchem-core (NNP)
+
+----------------
+Quick Start (Linux, GFN2-xTB TS search)
+---------------------------------------
+
+.. code-block:: bash
+
+    conda create -n test_mop python=3.12.7
+    conda activate test_mop
+    wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.5.zip
+    unzip v1.20.5.zip
+    cd MultiOptPy-1.20.5
+    pip install -r requirements.txt
+
+    # Copy sample config and run AutoTS
+    cp test/config_autots_run_xtb_test.json .
+    python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
+
+----------------
+Command Line Interface (CLI)
+----------------------------
+
+After installation, these console scripts are available:
+
+* ``optmain`` — Core geometry optimization (minima / saddle)
+* ``nebmain`` — NEB path optimization
+* ``run_autots`` — Automated TS workflow (Generate path using Bias Potential → NEB → TS refine → optional IRC)
+* ``mdmain`` — Molecular dynamics
+* ``confsearch`` — Conformational search
+* ``relaxedscan`` — Relaxed PES scan
+* ``orientsearch`` — Orientation sampling
+* ``ieipmain`` — Initial–End point Interpolation Path
+
+Essential options (common)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Basis / functional: ``-bs``, ``-func`` (defaults: 6-31G(d), b3lyp)
+* Charge / spin: ``-elec``, ``-spin``
+* xTB: ``-xtb GFN2-xTB`` (requires tblite/dxtb)
+* PySCF: ``-pyscf`` (use PySCF instead of psi4)
+* Model Hessian: ``-modelhess`` (e.g., ``fischerd3``)
+* Iterations: ``-ns`` / ``--NSTEP``
+* Optimizer: ``-opt`` (e.g., FIRE, TR_LBFGS, rsirfo_block_fsb, rsirfo_block_bofill for saddle)
+* AFIR/bias: ``-ma <Energy> <Frag1> <Frag2>`` (bias potential)
+
+----------------
+AutoTS Workflow (run_autots.py)
+-------------------------------
+
+Purpose
+~~~~~~~
+Automated TS search from a single equilibrium geometry: **Generate path using Bias Potential** → NEB → TS refinement → optional IRC/endpoints.
+
+Steps
+~~~~~
+1. **Generate path using Bias Potential (Step 1)** — Apply ``-ma`` (or other bias) to generate a trajectory.
+2. **NEB (Step 2)** — Use the trajectory; locate TS candidates.
+3. **TS Refinement (Step 3)** — Saddle optimization (``saddle_order=1``) on top-N candidates.
+4. **IRC & Validation (Step 4, optional)** — IRC, endpoint optimizations, reaction profile.
+
+Usage
+~~~~~
+
+.. code-block:: bash
+
+    # Standard (Steps 1–3)
+    python run_autots.py input.xyz -ma 150 1 5
+
+    # Full (Steps 1–4)
+    python run_autots.py input.xyz -ma 150 1 5 --run_step4
+
+    # Skip Bias path (start from trajectory)
+    python run_autots.py path/to/trajectory.xyz --skip_step1 --run_step4
+
+    # Skip to validation (IRC only, TS file input)
+    python run_autots.py path/to/ts_final.xyz --skip_to_step4
+
+Configuration (config.json, precedence)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Priority: **CLI args > config.json > interface.py defaults**.
+
+Example skeleton:
+
+.. code-block:: json
+
+    {
+      "work_dir": "autots_run",
+      "top_n_candidates": 3,
+      "step1_settings": {
+        "opt_method": ["rsirfo_block_fsb"],
+        "manual_AFIR": ["150", "1", "5"],
+        "use_model_hessian": "fischerd3"
+      },
+      "step2_settings": {
+        "NSTEP": 15,
+        "ANEB": [3, 5],
+        "QSM": true,
+        "use_model_hessian": "fischerd3",
+        "save_pict": true
+      },
+      "step3_settings": {
+        "opt_method": ["rsirfo_block_bofill"],
+        "calc_exact_hess": 5,
+        "tight_convergence_criteria": true,
+        "frequency_analysis": true
+      },
+      "step4_settings": {
+        "opt_method": ["rsirfo_block_bofill"],
+        "calc_exact_hess": 10,
+        "tight_convergence_criteria": true,
+        "frequency_analysis": true,
+        "intrinsic_reaction_coordinates": ["0.5", "200", "lqa"],
+        "step4b_opt_method": ["rsirfo_block_fsb"]
+      }
+    }
+
+Key AutoTS flags
+~~~~~~~~~~~~~~~~
+* ``--run_step4`` — enable IRC/validation.
+* ``--skip_step1`` — start from NEB with an existing trajectory.
+* ``--skip_to_step4`` — run only validation starting from a TS file.
+* ``-n / --top_n`` — refine top-N candidates from NEB.
+* ``-cfg`` — path to config.json.
+* ``-osp`` — path to software_path.conf.
+
+----------------
+Configuration Reference (highlights)
+------------------------------------
+
+Optimization (optmain)
+~~~~~~~~~~~~~~~~~~~~~~
+* ``-opt`` / ``--opt_method``: FIRE, TR_LBFGS, rsirfo_block_fsb, rsirfo_block_bofill (saddle), RFO, etc.
+* ``-fc`` / ``--calc_exact_hess``: Exact Hessian every N steps.
+* ``-mfc`` / ``--calc_model_hess``: Model Hessian every N steps (with ``-modelhess``).
+* ``-order`` / ``--saddle_order``: Saddle order (0 = minimum, 1 = TS).
+* ``-elec``, ``-spin``: Charge and multiplicity.
+* ``-xtb`` / ``-dxtb``: xTB backend (GFN1/2-xTB); dxtb uses autograd Hessian.
+* ``-pyscf``: Use PySCF QM engine.
+* ``-tcc`` / ``-lcc``: Tight/loose convergence criteria.
+* ``-pc``: Projection constraints.
+* ``-fix``: Fix atoms; ``-gi``: geometry info every step.
+* ``-oniom``: ONIOM (low layer GFN1-xTB).
+
+NEB (nebmain)
+~~~~~~~~~~~~~
+* Methods: ``-om`` (Onsager–Machlup), ``-qsm`` (QSM), ``-dneb``, ``-bneb``, ``-bneb2``, ``-idpp`` (better initial path), ``-ci`` (climbing image).
+* Path spacing: ``-ad``, ``-ads``, ``-adg``, ``-adb``, ``-nd`` (distance), spline/bernstein/savgol variants.
+* Nodes: ``-p`` (partition), ``-fixedges``.
+* Convergence: ``-aconv``, ``-apply_CI_NEB``; ``-calc_exact_hess`` for NEB.
+
+IEIP (ieipmain)
+~~~~~~~~~~~~~~~
+* ``-opt`` methods, ``-mi`` micro-iteration, ``-beta`` force, excited-state pairs, model_function_mode (seam, conical, etc.), GNT / ADDF / 2PSHS / dimer options.
+
+MD (mdmain)
+~~~~~~~~~~~
+* ``-mt`` thermostat (nosehoover default), ``-ts`` timestep, ``-time`` steps, ``-traj`` trajectories.
+* ``-constraint_condition`` for bonds/angles/dihedrals; PBC support (``-pbc``).
+* Temperature schedule: ``-ct``; PCA / CMDs options.
+
+----------------
+Bias Potentials & Constraints (common)
+--------------------------------------
+
+Core examples (all parsers share these, values as strings in JSON):
+* **AFIR / Bias potential**: ``-ma GAMMA FRAG1 FRAG2`` (e.g., ``-ma 195 1 5``; fragments can be ranges/comma lists).
+* **Harmonic distance (keep)**: ``-kp k r0 atoms`` (e.g., ``-kp 2.0 1.0 1,2``).
+* **Anharmonic (Morse)**: ``-akp De k r0 atoms``.
+* **Angle**: ``-ka k theta0 atoms``; **Dihedral**: ``-kda k phi0 atoms``; cosine form: ``-kdac``.
+* **Repulsive potentials**: ``-rp``, ``-rpv2``, Gaussian variants.
+* **Mechanochemical forces**: ``-lmefp`` (between fragments), ``-lmefpv2`` (directional).
+* **Metadynamics**: ``-metad`` on bonds/angles/dihedrals.
+* **Nano-reactor / walls / wells**: ``-nrp``, ``-wp``, ``-wwp``, ``-vpwp``, ``-awp``.
+* **Void/point restraints**: ``-vpp``, ``-flux_potential``; distance/angle-dependent variants.
+
+----------------
+Examples
+--------
+
+Geometry optimization (minimum)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    optmain SN2.xyz -ma 150 1 6 -pyscf -elec -1 -spin 0 -opt rsirfo_block_fsb -modelhess
+
+Saddle point (TS) search
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    optmain aldol_rxn_PT.xyz -xtb GFN2-xTB -opt rsirfo_block_bofill -order 1 -fc 5
+
+NEB path search
+~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    nebmain aldol_rxn -xtb GFN2-xTB -ns 50 -adpred 1 -nd 0.5
+
+Molecular dynamics
 ~~~~~~~~~~~~~~~~~~
 
-V(θ) = 0.5k(θ - θ_0)^2
+.. code-block:: bash
 
-``spring const.(a.u.) keep angle (degrees) atom1,atom2,atom3``
+    mdmain aldol_rxn_PT.xyz -xtb GFN2-xTB -temp 298 -traj 1 -time 100000
+
+Relaxed scan
+~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    -ka SPRING_CONST ANGLE ATOMS
+    relaxedscan SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -xtb GFN2-xTB -opt crsirfo_block_fsb -modelhess
 
-- Example:
-
-  .. code-block:: bash
-
-      -ka 2.0 60 1,2,3
-
-Keep Dihedral Angle Potential
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-V(φ) = 0.5k(φ - φ_0)^2
-
-``spring const.(a.u.) keep dihedral angle (degrees) atom1,atom2,atom3,atom4 ...``
+Orientation search
+~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    -kda SPRING_CONST ANGLE ATOMS
+    orientsearch aldol_rxn.xyz -part 1-4 -ma 95 1 5 50 3 11 -nsample 5 -xtb GFN2-xTB -opt rsirfo_block_fsb -modelhess
 
-- Example:
+Conformation search
+~~~~~~~~~~~~~~~~~~~
 
-  .. code-block:: bash
+.. code-block:: bash
 
-      -kda 2.0 60 1,2,3,4
+    confsearch s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
 
-------------
+----------------
+References & Citation
+---------------------
 
-Extended Tight Binding Options (optmain.py, nebmain.py, mdmain.py, ieipmain.py)
------------------------------
+If you use MultiOptPy, please cite:
 
-.. list-table::
-   :widths: 35 50 15
-   :header-rows: 1
+.. code-block:: text
 
-   * - Option
-     - Description
-     - Default
-   * - ``-xtb``, ``--usextb``
-     - Use extended tight binding method
-     - ``None``
-   * - ``-dxtb``, ``--usedxtb``
-     - Use dxtb implementation of xTB
-     - ``None``
-   * - ``-cpcm``, ``--cpcm_solv_model``
-     - Use CPCM solvent model for xTB
-     - None
-   * - ``-alpb``, ``--alpb_solv_model``
-     - Use ALPB solvent model for xTB
-     - None
+    ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.4).
+    Zenodo. https://doi.org/10.5281/zenodo.17973395
 
-------------
+References are embedded in source code comments.
 
-References
----------
+----------------
+License & Contact
+-----------------
 
-The references for this program are embedded within the source code. Please refer to the comments and documentation within the code files for detailed citations and attributions.
-
-
-License
-------
-
-MultiOptPy is licensed under the **GNU General Public License v3.0**.
-
-(C) 2023-2025 ss0832
-
-Contact
-~~~~~~~
-highlighty876 [at] gmail.com
+* License: **GNU Affero General Public License v3.0**
+* Author: ss0832
+* Contact: highlighty876[at]gmail.com
