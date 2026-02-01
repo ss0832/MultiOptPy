@@ -119,35 +119,45 @@ class MD:
 
 
     def exec_md(self, TM, geom_num_list, prev_geom_num_list, B_g, B_e, pre_B_g, iter):
+        # Initialize SHAKE constraint if applicable
         if iter == 0 and len(self.constraint_condition_list) > 0:
             self.class_SHAKE = SHAKE(TM.delta_timescale, self.constraint_condition_list)
-        if self.mdtype == "nosehoover" or self.mdtype == "nvt": 
+        
+        # Execute Thermostat / Integrator
+        if self.mdtype in ["nosehoover", "nvt"]: 
             new_geometry = TM.Nose_Hoover_thermostat(geom_num_list, B_g)
         elif self.mdtype == "nosehooverchain": 
             new_geometry = TM.Nose_Hoover_chain_thermostat(geom_num_list, B_g)
-        elif self.mdtype == "velocityverlet" or self.mdtype == "nve":
+        
+        elif self.mdtype in ["langevin", "baoab"]:
+            new_geometry = TM.Langevin_thermostat(geom_num_list, B_g)
+        
+        elif self.mdtype in ["velocityverlet", "nve"]:
             new_geometry = TM.Velocity_Verlet(geom_num_list, B_g, pre_B_g, iter)
         else:
             print("Unexpected method.", self.mdtype)
-            raise
+            raise ValueError(f"Unknown MD type: {self.mdtype}")
         
+        # Apply SHAKE constraints
         if iter > 0 and len(self.constraint_condition_list) > 0:
-            
             new_geometry, tmp_momentum_list = self.class_SHAKE.run(new_geometry, prev_geom_num_list, TM.momentum_list, TM.element_list)
             TM.momentum_list = copy.copy(tmp_momentum_list)
 
-        kinetic_ene = 0.0
-        
-        for i in range(len(geom_num_list)):
-            kinetic_ene += np.sum(TM.momentum_list[i] ** 2) / (2 * atomic_mass(TM.element_list[i]))
+        # [Optimization] Calculate kinetic energy using vectorized method in Thermostat
+        kinetic_ene = TM.calc_tot_kinetic_energy()
         
         tot_energy = B_e + kinetic_ene
         print("hamiltonian :", tot_energy, "hartree")
         
         self.tot_energy_list.append(tot_energy)
         
+        # Apply Periodic Boundary Condition
         if len(self.pbc_box) > 0:
             new_geometry = apply_periodic_boundary_condition(new_geometry, TM.element_list, self.pbc_box)
+            # Ensure new_geometry remains a numpy array after PBC application
+            if not isinstance(new_geometry, np.ndarray):
+                new_geometry = np.array(new_geometry, dtype=np.float64)
+
         return new_geometry
 
 
@@ -221,11 +231,9 @@ class MD:
         #-----------------------------------
         with open(self.BPA_FOLDER_DIRECTORY+"input.txt", "w") as f:
             f.write(str(vars(self.args)))
-        pre_B_g = []
-
-        for i in range(len(element_list)):
-            pre_B_g.append(np.array([0,0,0], dtype="float64"))
-        pre_B_g = np.array(pre_B_g, dtype="float64")
+        
+        # [Optimization] Efficient initialization of pre_B_g
+        pre_B_g = np.zeros((len(element_list), 3), dtype=np.float64)
 
         #-------------------------------------
         finish_frag = False
