@@ -930,7 +930,8 @@ def run_confsearch():
     tabu_alpha = args.tabu_alpha
     init_geom_num_list, init_element_list = read_xyz(args.INPUT)
     sampling_temperature = args.sampling_temperature
-    folder_name = os.path.splitext(args.INPUT)[0]+"_"+str(int(args.base_force))+"KJ_CS_REPORT"
+    date_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder_name = os.path.splitext(args.INPUT)[0]+"_"+str(int(args.base_force))+"KJ_CS_"+date_str
     
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
