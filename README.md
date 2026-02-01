@@ -60,9 +60,9 @@ conda create -n test_mop python=3.12.7
 conda activate test_mop
 
 ## 3. Download and install MultiOptPy:
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.4.zip
-unzip v1.20.4.zip
-cd MultiOptPy-1.20.4
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.5.zip
+unzip v1.20.5.zip
+cd MultiOptPy-1.20.5
 pip install -r requirements.txt
 
 ## 4. Copy the test configuration file and run the AutoTS workflow:
@@ -87,10 +87,10 @@ python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
 # Installation via pip (Linux)
 conda create -n <env-name> python=3.12 pip
 conda activate <env-name>
-pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.4
-wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.4.zip
-unzip v1.20.4.zip
-cd MultiOptPy-1.20.4
+pip install git+https://github.com/ss0832/MultiOptPy.git@v1.20.5
+wget https://github.com/ss0832/MultiOptPy/archive/refs/tags/v1.20.5.zip
+unzip v1.20.5.zip
+cd MultiOptPy-1.20.5
 
 ## 💻 Command Line Interface (CLI) Functionality (v1.20.2)
 # The following eight core functionalities are available as direct executable commands in your terminal after installation:
@@ -137,7 +137,7 @@ References are given in the source code.
 After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
 python command
 ```
-python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
+python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec -1 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
 CLI command (arbitrary directory)
 ```
