@@ -7,22 +7,34 @@ import math
 
 class StructKeepAnglePotential:
     """
-    Class for calculating angle restraint potential energy between atoms.
-    
-    This class calculates the angle formed by the geometric centers (centroids) of three 
-    specified atoms. It ensures numerical stability and gradient 
-    accuracy at singularities (theta -> 0, theta -> pi).
-    
-    Energy Function: E = 0.5 * k * (theta - theta_0)^2
-    
-    Processing Cases:
-    1. theta -> 0, theta_0 != 0 : Quadratic Extrapolation - Maintains positive curvature (Hessian) to prevent optimizer explosion (step size divergence).
-    2. theta -> 0, theta_0 ~= 0 : Taylor Expansion - Maintains physical accuracy for near-linear equilibrium.
-    3. theta -> pi, theta_0 != pi : Quadratic Extrapolation - Maintains positive curvature (Hessian) to prevent optimizer explosion.
-    4. theta -> pi, theta_0 ~= pi : Taylor Expansion - Maintains physical accuracy for near-linear equilibrium.
-    5. Normal Region: Standard acos calculation.
+    Class for calculating angle restraint potential energy between atoms with full numerical robustness.
+
+    This class implements a harmonic potential $E = 0.5 * k * (\theta - \theta_0)^2$ applied to 
+    the angle formed by three atoms (or centroids). It addresses the numerical singularity of the 
+    chain rule ($\partial \theta / \partial \cos\theta \to \infty$) at $\theta=0$ and $\theta=\pi$.
+
+    Singularity Handling Strategies:
+    --------------------------------
+    1. Taylor Expansion (Physical Accuracy):
+       - Applied when equilibrium angle $\theta_0$ is EXACTLY $0$ or $\pi$ (within `EPSILON_PARAM`).
+       - Uses a 4th-order Taylor expansion of $\arccos$ to compute energy without gradients exploding.
+       - Essential for linear molecules (e.g., CO2) or planar transition states.
+
+    2. Quadratic Extrapolation (Numerical Stability):
+       - Applied when a normally bent molecule ($\theta_0 \neq 0, \pi$) is forced into linearity during optimization.
+       - Replaces the analytical potential with a quadratic polynomial near the singularity (`THETA_CUT`).
+       - Uses **Gauss-Newton Approximation** for the Hessian (curvature):
+         $d^2E/du^2 \approx k * (d\theta/du)^2$ (dropping the divergence term $d^2\theta/du^2$).
+       - This guarantees a positive-definite Hessian, preventing optimizer step-size explosion while maintaining C1 continuity (force consistency).
+
+    Parameters:
+    -----------
+    THETA_CUT : float (default 1e-3 rad)
+        The angle threshold below which the method switches from analytical acos to extrapolation.
+    EPSILON_PARAM : float (default 1e-9 rad)
+        The threshold to distinguish "exactly linear equilibrium" from "slightly bent equilibrium".
     """
-    
+
     def __init__(self, **kwarg):
         self.config = kwarg
         UVL = UnitValueLib()
@@ -31,26 +43,27 @@ class StructKeepAnglePotential:
         self.hartree2kjmol = UVL.hartree2kjmol 
         
         # Threshold: Below this angle (rad), switch to extrapolation.
-        # 1e-3 rad is conservative enough to ensure stability.
         self.THETA_CUT = 1e-3
         
-        # Threshold for Equilibrium check
-        self.EPSILON_PARAM = 1e-3
+        # Threshold for Equilibrium check.
+        # Set to 1e-9 to strictly distinguish between theta_0=0 (Taylor) and theta_0=0.001 (General).
+        self.EPSILON_PARAM = 1e-9
         
         return
-    
+
     def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
+        Calculates angle potential energy.
+
         Args:
             geom_num_list: Tensor of atomic coordinates (N_atoms, 3)
-            bias_pot_params: Optional bias potential parameters
-                bias_pot_params[0] : keep_angle_spring_const
-                bias_pot_params[1] : keep_angle_angle
-        
-        Returns:
-            energy: Angle potential energy (Scalar Tensor)
+            bias_pot_params: Optional list containing [k, theta_0]
+                k: Spring constant (Hartree/rad^2)
+                theta_0: Equilibrium angle (Degrees)
         """
+        # ========================================
         # 1. Parameter Retrieval
+        # ========================================
         if len(bias_pot_params) == 0:
             k = self.config["keep_angle_spring_const"]
             theta_0_deg = torch.tensor(self.config["keep_angle_angle"])
@@ -63,6 +76,7 @@ class StructKeepAnglePotential:
             else:
                 theta_0 = torch.deg2rad(torch.tensor(theta_0_deg))
 
+        # Device/Dtype handling
         device = geom_num_list.device if isinstance(geom_num_list, torch.Tensor) else torch.device("cpu")
         dtype = geom_num_list.dtype
         
@@ -72,7 +86,10 @@ class StructKeepAnglePotential:
         theta_cut_val = torch.tensor(self.THETA_CUT, device=device, dtype=dtype)
         epsilon_param = torch.tensor(self.EPSILON_PARAM, device=device, dtype=dtype)
 
+        # ========================================
         # 2. Vector & Cosine Calculation
+        # ========================================
+        # Indices are 1-based in config
         idx1 = self.config["keep_angle_atom_pairs"][0] - 1
         idx2 = self.config["keep_angle_atom_pairs"][1] - 1
         idx3 = self.config["keep_angle_atom_pairs"][2] - 1
@@ -84,24 +101,38 @@ class StructKeepAnglePotential:
         norm2 = torch.linalg.norm(vec2)
         
         # u = cos(theta)
-        u = torch.dot(vec1, vec2) / (norm1 * norm2 + 1e-12)
+        # Add epsilon to denominator to prevent NaN if atoms overlap exactly
+        norm1_2 = norm1 * norm2
+        if norm1_2 < 1e-12:
+            norm1_2 = norm1_2 + 1e-12
+        
+        u = torch.dot(vec1, vec2) / (norm1_2)
         u = torch.clamp(u, -1.0, 1.0)
 
-        # 3. Case Branching
+        # ========================================
+        # 3. Singularity Handling Logic
+        # ========================================
+
+        # --- BRANCH A: EXACTLY Linear/Planar Equilibrium (theta_0 ~ 0 or pi) ---
+        # Used only when theta_0 is effectively zero (e.g. < 1e-9 rad).
+        # We use Taylor expansion for physical accuracy near the equilibrium.
         
-        # --- Case 2 & 4: Equilibrium at singularity (Linear Molecules) ---
-        # Taylor expansion (Physical accuracy)
         if torch.abs(theta_0) < epsilon_param:
+            # Expansion around theta=0: theta^2 approx 2(1-u) + ...
             delta = 1.0 - u
             theta_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
             return 0.5 * k * theta_sq
 
         elif torch.abs(theta_0 - PI) < epsilon_param:
+            # Expansion around theta=pi: (theta-pi)^2 approx 2(1+u) + ...
             delta = 1.0 + u
             diff_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
             return 0.5 * k * diff_sq
 
-        # --- Case 1, 3, 5: General Angle ---
+        # --- BRANCH B: General Angle (including small non-zero theta_0) ---
+        # Used for bent molecules (e.g. water, theta_0=104.5) or slightly bent linear analogs.
+        # We use Quadratic Extrapolation near singularities to prevent gradient explosion.
+        
         else:
             u_cut_pos = torch.cos(theta_cut_val)
             u_cut_neg = torch.cos(PI - theta_cut_val)
@@ -110,47 +141,47 @@ class StructKeepAnglePotential:
             is_singular_pi = (u < u_cut_neg)   # theta -> pi
             is_safe = ~(is_singular_0 | is_singular_pi)
             
-            # A. Normal Region (Safe acos)
+            # 1. Normal Region (Safe acos)
             theta_safe = torch.acos(u)
             E_safe = 0.5 * k * (theta_safe - theta_0) ** 2
             
-            # Helper for Quadratic Extrapolation
-            # E(u) approx E_cut + E'_cut * (u - u_cut) + 0.5 * E''_cut * (u - u_cut)^2
+            # Helper for Quadratic Extrapolation with Gauss-Newton Hessian
             def get_quad_params(th_cut, u_bnd):
-                # Analytical derivatives at the boundary
-                # E = 0.5*k*(th - th0)^2
-                # dE/du = k(th - th0) * dth/du
-                # d2E/du2 = k * (dth/du)^2 + k(th - th0) * d2th/du2
-                
                 # th_cut is scalar tensor
                 sin_cut = torch.sin(th_cut)
-                cos_cut = torch.cos(th_cut)
                 
                 # Derivatives of theta w.r.t u = cos(theta)
-                # dth/du = -1/sin(th)
                 dth_du = -1.0 / sin_cut
-                # d2th/du2 = -cos(th) / sin^3(th)
-                d2th_du2 = -cos_cut / (sin_cut**3)
                 
-                # Energy and derivatives
+                # --- Gauss-Newton Approximation ---
+                # We purposefully drop the d2th/du2 term in the Hessian calculation.
+                # The true d2E/du2 becomes negative near singularities (concave),
+                # which causes Newton-Raphson optimizers (like RFO) to diverge.
+                # d2 = k * (dth/du)^2 guarantees a positive definite Hessian (convex).
+                
+                # Value (Continuity C0)
                 val = 0.5 * k * (th_cut - theta_0)**2
+                
+                # Slope (Continuity C1)
                 d1 = k * (th_cut - theta_0) * dth_du
-                d2 = k * (dth_du**2) + k * (th_cut - theta_0) * d2th_du2
+                
+                # Curvature (Stability)
+                d2 = k * (dth_du**2)
                 
                 return val.detach(), d1.detach(), d2.detach()
 
-            # B. Quadratic Extrapolation: theta -> 0
+            # 2. Extrapolation: theta -> 0
             val_0, d1_0, d2_0 = get_quad_params(theta_cut_val, u_cut_pos)
             diff_0 = u - u_cut_pos
             E_quad_0 = val_0 + d1_0 * diff_0 + 0.5 * d2_0 * (diff_0**2)
             
-            # C. Quadratic Extrapolation: theta -> pi
+            # 3. Extrapolation: theta -> pi
             theta_cut_pi = PI - theta_cut_val
             val_pi, d1_pi, d2_pi = get_quad_params(theta_cut_pi, u_cut_neg)
             diff_pi = u - u_cut_neg
             E_quad_pi = val_pi + d1_pi * diff_pi + 0.5 * d2_pi * (diff_pi**2)
 
-            # Integration
+            # Integration using masks
             energy = torch.where(
                 is_singular_0,
                 E_quad_0,
@@ -161,20 +192,30 @@ class StructKeepAnglePotential:
 
 class StructKeepAnglePotentialv2:
     """
-    Class for calculating angle restraint potential energy between fragment centers.
+    Class for calculating angle restraint potential energy between fragment centers
+    with full numerical robustness.
     
-    This class calculates the angle formed by the geometric centers (centroids) of three 
-    specified atom groups (fragments). It ensures numerical stability and gradient 
-    accuracy at singularities (theta -> 0, theta -> pi).
+    This class calculates the angle formed by the centroids of three specified 
+    atom fragments (F1 - F2 - F3).
     
-    Energy Function: E = 0.5 * k * (theta - theta_0)^2
-    
-    Processing Cases:
-    1. theta -> 0, theta_0 != 0 : Quadratic Extrapolation - Maintains positive curvature (Hessian) to prevent optimizer explosion (step size divergence).
-    2. theta -> 0, theta_0 ~= 0 : Taylor Expansion - Maintains physical accuracy for near-linear equilibrium.
-    3. theta -> pi, theta_0 != pi : Quadratic Extrapolation - Maintains positive curvature (Hessian) to prevent optimizer explosion.
-    4. theta -> pi, theta_0 ~= pi : Taylor Expansion - Maintains physical accuracy for near-linear equilibrium.
-    5. Normal Region: Standard acos calculation.
+    Singularity Handling Strategies (Same as StructKeepAnglePotential):
+    --------------------------------
+    1. Taylor Expansion (Physical Accuracy):
+       - Applied when equilibrium angle theta_0 is EXACTLY 0 or pi (within EPSILON_PARAM).
+       - Essential for linear/planar equilibrium geometries.
+
+    2. Quadratic Extrapolation with Gauss-Newton Hessian (Numerical Stability):
+       - Applied when a general bent angle (theta_0 != 0, pi) is forced into linearity.
+       - Replaces analytical acos with a quadratic polynomial near singularities (theta -> 0, pi).
+       - Drops the divergence term (d2theta/du2) from the Hessian to ensure positive curvature,
+         preventing optimizer explosion.
+
+    Parameters:
+    -----------
+    THETA_CUT : float (default 1e-3 rad)
+        Threshold for switching to extrapolation.
+    EPSILON_PARAM : float (default 1e-9 rad)
+        Strict threshold to distinguish "exactly linear" from "slightly bent".
     """
 
     def __init__(self, **kwarg):
@@ -185,25 +226,23 @@ class StructKeepAnglePotentialv2:
         self.hartree2kjmol = UVL.hartree2kjmol 
         
         # Threshold: Below this angle (rad), switch to extrapolation.
-        # 1e-3 rad is conservative enough to ensure stability for optimizers.
         self.THETA_CUT = 1e-3
         
-        # Threshold to determine if the equilibrium angle is near a singularity (rad)
-        self.EPSILON_PARAM = 1e-3
+        # Threshold for Equilibrium check.
+        # Set to 1e-9 to strictly distinguish between theta_0=0 and theta_0=0.001.
+        self.EPSILON_PARAM = 1e-9
         
         return
 
     def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
+        Calculates angle potential energy between fragment centroids.
+        
         Args:
             geom_num_list: Tensor of atomic coordinates (N_atoms, 3)
-            bias_pot_params: Optional bias potential parameters
-                bias_pot_params[0] : keep_angle_spring_const_v2
-                bias_pot_params[1] : keep_angle_angle_v2
-        
-        Returns:
-            energy: Angle potential energy (Scalar Tensor)
+            bias_pot_params: Optional list containing [k, theta_0]
         """
+        
         # ========================================
         # 1. Parameter Retrieval
         # ========================================
@@ -219,273 +258,101 @@ class StructKeepAnglePotentialv2:
             else:
                 theta_0 = torch.deg2rad(torch.tensor(theta_0_deg))
 
-        # Device and dtype handling
+        # Device/Dtype handling
         device = geom_num_list.device if isinstance(geom_num_list, torch.Tensor) else torch.device("cpu")
         dtype = geom_num_list.dtype
         
-        # Pre-calculation of constants
+        # Constants
         PI = torch.tensor(math.pi, device=device, dtype=dtype)
         theta_0 = theta_0.to(device=device, dtype=dtype)
         theta_cut_val = torch.tensor(self.THETA_CUT, device=device, dtype=dtype)
         epsilon_param = torch.tensor(self.EPSILON_PARAM, device=device, dtype=dtype)
 
         # ========================================
-        # 2. Vector and Cosine (u) Calculation (Fragment Centers)
+        # 2. Vector & Cosine Calculation (Fragment Centroids)
         # ========================================
         
-        # Calculate centroids for each fragment
-        fragm_1_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm1"], device=device) - 1], dim=0)
-        fragm_2_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm2"], device=device) - 1], dim=0)
-        fragm_3_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm3"], device=device) - 1], dim=0)
+        # Helper to get centroid
+        def get_centroid(key):
+            indices = torch.tensor(self.config[key], device=device, dtype=torch.long) - 1
+            return torch.mean(geom_num_list[indices], dim=0)
+
+        # Calculate centroids: F1 - F2(Center) - F3
+        fragm_1_center = get_centroid("keep_angle_v2_fragm1")
+        fragm_2_center = get_centroid("keep_angle_v2_fragm2") # Vertex
+        fragm_3_center = get_centroid("keep_angle_v2_fragm3")
             
-        vector1 = fragm_1_center - fragm_2_center
-        vector2 = fragm_3_center - fragm_2_center
+        vec1 = fragm_1_center - fragm_2_center
+        vec2 = fragm_3_center - fragm_2_center
         
-        # Norm calculation
-        norm1 = torch.linalg.norm(vector1)
-        norm2 = torch.linalg.norm(vector2)
+        norm1 = torch.linalg.norm(vec1)
+        norm2 = torch.linalg.norm(vec2)
         
-        # u = cos(theta) calculation with safety clamp
-        # Adding 1e-12 to denominator to prevent NaN if fragment centers overlap exactly
-        u = torch.dot(vector1, vector2) / (norm1 * norm2 + 1e-12)
+        # u = cos(theta)
+        # Add epsilon to denominator to prevent NaN if fragment centers overlap exactly
+        u = torch.dot(vec1, vec2) / (norm1 * norm2 + 1e-12)
         u = torch.clamp(u, -1.0, 1.0)
 
         # ========================================
-        # 3. Case Branching Processing
+        # 3. Singularity Handling Logic
         # ========================================
-        
-        # --- Case 2 & 4: Equilibrium angle is near a singularity ---
-        # Taylor expansion (Physical accuracy) - No change needed here
-        
-        # Case 2: theta_0 approx 0
+
+        # --- BRANCH A: EXACTLY Linear/Planar Equilibrium (theta_0 ~ 0 or pi) ---
         if torch.abs(theta_0) < epsilon_param:
             delta = 1.0 - u
             theta_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
-            energy = 0.5 * k * theta_sq
-            return energy
+            return 0.5 * k * theta_sq
 
-        # Case 4: theta_0 approx PI
         elif torch.abs(theta_0 - PI) < epsilon_param:
             delta = 1.0 + u
             diff_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
-            energy = 0.5 * k * diff_sq
-            return energy
+            return 0.5 * k * diff_sq
 
-        # --- Case 1, 3, 5: General Angle ---
-        # Replaced Linear Extrapolation with Quadratic Extrapolation
+        # --- BRANCH B: General Angle (including small non-zero theta_0) ---
         else:
-            # Threshold calculation
             u_cut_pos = torch.cos(theta_cut_val)
             u_cut_neg = torch.cos(PI - theta_cut_val)
             
-            # Mask creation
             is_singular_0 = (u > u_cut_pos)    # theta -> 0
             is_singular_pi = (u < u_cut_neg)   # theta -> pi
             is_safe = ~(is_singular_0 | is_singular_pi)
             
-            # A. Normal Region (Case 5)
+            # 1. Normal Region (Safe acos)
             theta_safe = torch.acos(u)
             E_safe = 0.5 * k * (theta_safe - theta_0) ** 2
             
-            # ---------------------------------------------------------
-            # Helper for Quadratic Extrapolation Parameters
-            # E(u) approx E_cut + E'_cut * (u - u_cut) + 0.5 * E''_cut * (u - u_cut)^2
-            # ---------------------------------------------------------
+            # Helper for Quadratic Extrapolation with Gauss-Newton Hessian
             def get_quad_params(th_cut, u_bnd):
-                # Analytical derivatives w.r.t u = cos(theta)
-                
                 sin_cut = torch.sin(th_cut)
-                cos_cut = torch.cos(th_cut)
                 
-                # Derivatives of theta w.r.t u
-                # dth/du = -1/sin(th)
+                # Derivatives of theta w.r.t u = cos(theta)
                 dth_du = -1.0 / sin_cut
-                # d2th/du2 = -cos(th) / sin^3(th)
-                d2th_du2 = -cos_cut / (sin_cut**3)
                 
-                # Energy derivatives w.r.t u
-                # E = 0.5 * k * (th - th0)^2
-                # dE/du = k(th - th0) * dth/du
-                # d2E/du2 = k * (dth/du)^2 + k(th - th0) * d2th/du2
+                # --- Gauss-Newton Approximation ---
+                # Drop d2th/du2 term to ensure positive curvature (convexity)
                 
-                val = 0.5 * k * (th_cut - theta_0)**2
-                d1 = k * (th_cut - theta_0) * dth_du
-                d2 = k * (dth_du**2) + k * (th_cut - theta_0) * d2th_du2
+                val = 0.5 * k * (th_cut - theta_0)**2       # Value (C0)
+                d1 = k * (th_cut - theta_0) * dth_du        # Slope (C1)
+                d2 = k * (dth_du**2)                        # Curvature (Stable)
                 
                 return val.detach(), d1.detach(), d2.detach()
 
-            # B. Quadratic Extrapolation: theta -> 0 (Case 1)
+            # 2. Extrapolation: theta -> 0
             val_0, d1_0, d2_0 = get_quad_params(theta_cut_val, u_cut_pos)
             diff_0 = u - u_cut_pos
             E_quad_0 = val_0 + d1_0 * diff_0 + 0.5 * d2_0 * (diff_0**2)
             
-            # C. Quadratic Extrapolation: theta -> pi (Case 3)
+            # 3. Extrapolation: theta -> pi
             theta_cut_pi = PI - theta_cut_val
             val_pi, d1_pi, d2_pi = get_quad_params(theta_cut_pi, u_cut_neg)
             diff_pi = u - u_cut_neg
             E_quad_pi = val_pi + d1_pi * diff_pi + 0.5 * d2_pi * (diff_pi**2)
 
-            # D. Integration
+            # Integration
             energy = torch.where(
                 is_singular_0,
                 E_quad_0,
                 torch.where(is_singular_pi, E_quad_pi, E_safe)
-            )
-            
-            return energy
-
-class StructKeepAnglePotentialv2:
-    """
-    Class for calculating angle restraint potential energy between fragment centers.
-    
-    This class calculates the angle formed by the geometric centers (centroids) of three 
-    specified atom groups (fragments). It ensures numerical stability and gradient 
-    accuracy at singularities (theta -> 0, theta -> pi).
-    
-    Energy Function: E = 0.5 * k * (theta - theta_0)^2
-    
-    Processing Cases:
-    1. theta -> 0, theta_0 != 0 : Linear Extrapolation (Clamping) - Ensures gradient stability.
-    2. theta -> 0, theta_0 ~= 0 : Taylor Expansion - Maintains physical accuracy.
-    3. theta -> pi, theta_0 != pi : Linear Extrapolation (Clamping) - Ensures gradient stability.
-    4. theta -> pi, theta_0 ~= pi : Taylor Expansion - Maintains physical accuracy.
-    5. Normal Region: Standard acos calculation.
-    """
-
-    def __init__(self, **kwarg):
-        self.config = kwarg
-        UVL = UnitValueLib()
-        self.hartree2kcalmol = UVL.hartree2kcalmol 
-        self.bohr2angstroms = UVL.bohr2angstroms 
-        self.hartree2kjmol = UVL.hartree2kjmol 
-        
-        # Threshold setting (Recommended for double precision: 1e-4 rad)
-        self.THETA_CUT = 1e-4
-        
-        # Threshold to determine if the equilibrium angle is near a singularity (rad)
-        self.EPSILON_PARAM = 1e-4
-        
-        return
-
-    def calc_energy(self, geom_num_list, bias_pot_params=[]):
-        """
-        Calculates angle potential energy between fragment centers with singularity handling.
-        
-        Args:
-            geom_num_list: Tensor of atomic coordinates (N_atoms, 3)
-            bias_pot_params: Optional bias potential parameters
-                bias_pot_params[0] : keep_angle_v2_spring_const
-                bias_pot_params[1] : keep_angle_v2_angle
-        """
-        
-        # ========================================
-        # 1. Parameter Retrieval
-        # ========================================
-        if len(bias_pot_params) == 0:
-            k = self.config["keep_angle_v2_spring_const"]
-            theta_0_deg = torch.tensor(self.config["keep_angle_v2_angle"])
-            theta_0 = torch.deg2rad(theta_0_deg)
-        else:
-            k = bias_pot_params[0]
-            theta_0_deg = bias_pot_params[1]
-            if isinstance(theta_0_deg, torch.Tensor):
-                theta_0 = torch.deg2rad(theta_0_deg)
-            else:
-                theta_0 = torch.deg2rad(torch.tensor(theta_0_deg))
-
-        # Device and dtype handling
-        device = geom_num_list.device if isinstance(geom_num_list, torch.Tensor) else torch.device("cpu")
-        dtype = geom_num_list.dtype
-        
-        # Pre-calculation of constants
-        PI = torch.tensor(math.pi, device=device, dtype=dtype)
-        theta_0 = theta_0.to(device=device, dtype=dtype)
-        theta_cut_val = torch.tensor(self.THETA_CUT, device=device, dtype=dtype)
-        epsilon_param = torch.tensor(self.EPSILON_PARAM, device=device, dtype=dtype)
-
-        # ========================================
-        # 2. Vector and Cosine (u) Calculation (Fragment Centers)
-        # ========================================
-        
-        # Calculate centroids for each fragment
-        # Note: indices are 1-based in config, so we subtract 1
-        fragm_1_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm1"], device=device) - 1], dim=0)
-        fragm_2_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm2"], device=device) - 1], dim=0)
-        fragm_3_center = torch.mean(geom_num_list[torch.tensor(self.config["keep_angle_v2_fragm3"], device=device) - 1], dim=0)
-           
-        vector1 = fragm_1_center - fragm_2_center
-        vector2 = fragm_3_center - fragm_2_center
-        
-        # Norm calculation
-        norm1 = torch.linalg.norm(vector1)
-        norm2 = torch.linalg.norm(vector2)
-        
-        # u = cos(theta) calculation with safety clamp
-        # Adding 1e-12 to denominator to prevent NaN if fragment centers overlap exactly
-        u = torch.dot(vector1, vector2) / (norm1 * norm2 + 1e-12)
-        u = torch.clamp(u, -1.0, 1.0)
-
-        # ========================================
-        # 3. Case Branching Processing
-        # ========================================
-        
-        # --- Case 2 & 4: Equilibrium angle is near a singularity ---
-        
-        # Case 2: theta_0 approx 0
-        if torch.abs(theta_0) < epsilon_param:
-            delta = 1.0 - u
-            theta_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
-            energy = 0.5 * k * theta_sq
-            return energy
-
-        # Case 4: theta_0 approx PI
-        elif torch.abs(theta_0 - PI) < epsilon_param:
-            delta = 1.0 + u
-            diff_sq = delta * (2.0 + delta * (1.0/3.0 + delta * 4.0/45.0))
-            energy = 0.5 * k * diff_sq
-            return energy
-
-        # --- Case 1, 3, 5: General Angle ---
-        else:
-            # Threshold calculation
-            u_cut_pos = torch.cos(theta_cut_val)
-            u_cut_neg = torch.cos(PI - theta_cut_val)
-            
-            # Mask creation
-            is_singular_0 = (u > u_cut_pos)    # theta -> 0
-            is_singular_pi = (u < u_cut_neg)   # theta -> pi
-            is_safe = ~(is_singular_0 | is_singular_pi)
-            
-            # A. Normal Region (Case 5)
-            theta_safe = torch.acos(u)
-            E_safe = 0.5 * k * (theta_safe - theta_0) ** 2
-            
-            # B. Linear Extrapolation: theta -> 0 (Case 1)
-            V_cut_0 = 0.5 * k * (theta_cut_val - theta_0) ** 2
-            sin_cut_0 = torch.sin(theta_cut_val)
-            Slope_0 = k * (theta_cut_val - theta_0) * (-1.0 / sin_cut_0)
-            
-            V_cut_0 = V_cut_0.detach()
-            Slope_0 = Slope_0.detach()
-            
-            E_linear_0 = V_cut_0 + Slope_0 * (u - u_cut_pos)
-            
-            # C. Linear Extrapolation: theta -> pi (Case 3)
-            theta_cut_pi = PI - theta_cut_val
-            V_cut_pi = 0.5 * k * (theta_cut_pi - theta_0) ** 2
-            sin_cut_pi = torch.sin(theta_cut_pi)
-            Slope_pi = k * (theta_cut_pi - theta_0) * (-1.0 / sin_cut_pi)
-            
-            V_cut_pi = V_cut_pi.detach()
-            Slope_pi = Slope_pi.detach()
-            
-            E_linear_pi = V_cut_pi + Slope_pi * (u - u_cut_neg)
-
-            # D. Integration
-            energy = torch.where(
-                is_singular_0,
-                E_linear_0,
-                torch.where(is_singular_pi, E_linear_pi, E_safe)
             )
             
             return energy
