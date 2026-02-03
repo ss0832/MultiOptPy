@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "MultiOptPy"
-version = "1.20.7"
+version = "1.20.8"
 description = "Multifunctional geometry optimization tools for quantum chemical calculations."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,15 +22,15 @@ authors = [
 
 
 dependencies = [
-    "numpy>=2.2.0",             
-    "scipy>=1.13.0",           
-    "matplotlib>=3.10.0",      
+    "numpy~=2.2.0",             
+    "scipy~=1.13.0",           
+    "matplotlib~=3.10.0",      
     "torch~=2.6.0",            
-    "pyscf>=2.9.0",            
-    "tblite==0.4.0",           
+    "pyscf~=2.9.0",            
+    "tblite~=0.4.0",           
     "ase~=3.26.0",             
     "fairchem-core~=2.7.0",    
-    "sympy>=1.13.0"
+    "sympy~=1.13.0"
 ]
 
 [project.scripts]
@@ -47,4 +47,5 @@ orientsearch = "multioptpy.entrypoints:run_orientsearch"
 where = ["."]
 
 include = ["multioptpy*"]
+
 
