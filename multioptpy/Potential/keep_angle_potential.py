@@ -46,6 +46,14 @@ class StructKeepAnglePotential:
         # while being small enough for the Taylor approximation to remain highly accurate.
         self.THETA_CUT = 1e-3
         self.EPSILON_PARAM = 1e-8
+        
+        self.COEFFS = [
+            128.0/1575.0,
+            4.0/35.0,
+            8.0/45.0,
+            1.0/3.0,
+            2.0
+        ]
 
     def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
@@ -115,11 +123,11 @@ class StructKeepAnglePotential:
             """
             delta = 1.0 - u_val
             # Horner's method for efficiency and precision
-            term = 128.0/1575.0
-            term = 4.0/35.0 + delta * term
-            term = 8.0/45.0 + delta * term
-            term = 1.0/3.0 + delta * term
-            term = 2.0 + delta * term
+            term = self.COEFFS[0]
+            term = self.COEFFS[1] + delta * term
+            term = self.COEFFS[2] + delta * term
+            term = self.COEFFS[3] + delta * term
+            term = self.COEFFS[4] + delta * term
             return delta * term
 
         def theta_sq_taylor_at_pi(u_val):
@@ -129,11 +137,11 @@ class StructKeepAnglePotential:
             """
             delta = 1.0 + u_val
             # Horner's method
-            term = 128.0/1575.0
-            term = 4.0/35.0 + delta * term
-            term = 8.0/45.0 + delta * term
-            term = 1.0/3.0 + delta * term
-            term = 2.0 + delta * term
+            term = self.COEFFS[0]
+            term = self.COEFFS[1] + delta * term
+            term = self.COEFFS[2] + delta * term
+            term = self.COEFFS[3] + delta * term
+            term = self.COEFFS[4] + delta * term
             return delta * term
 
         # ==============================================
@@ -273,6 +281,14 @@ class StructKeepAnglePotentialv2:
         # Thresholds
         self.THETA_CUT = 1e-3
         self.EPSILON_PARAM = 1e-8
+        
+        self.COEFFS = [
+            128.0/1575.0,
+            4.0/35.0,
+            8.0/45.0,
+            1.0/3.0,
+            2.0
+        ]
 
     def calc_energy(self, geom_num_list, bias_pot_params=[]):
         """
@@ -340,22 +356,22 @@ class StructKeepAnglePotentialv2:
             """5th-order Taylor expansion of theta^2 near 0 (u=1)."""
             delta = 1.0 - u_val
             # Horner's method
-            term = 128.0/1575.0
-            term = 4.0/35.0 + delta * term
-            term = 8.0/45.0 + delta * term
-            term = 1.0/3.0 + delta * term
-            term = 2.0 + delta * term
+            term = self.COEFFS[0]
+            term = self.COEFFS[1] + delta * term
+            term = self.COEFFS[2] + delta * term
+            term = self.COEFFS[3] + delta * term
+            term = self.COEFFS[4] + delta * term
             return delta * term
 
         def theta_sq_taylor_at_pi(u_val):
             """5th-order Taylor expansion of (pi-theta)^2 near 180 (u=-1)."""
             delta = 1.0 + u_val
             # Horner's method
-            term = 128.0/1575.0
-            term = 4.0/35.0 + delta * term
-            term = 8.0/45.0 + delta * term
-            term = 1.0/3.0 + delta * term
-            term = 2.0 + delta * term
+            term = self.COEFFS[0]
+            term = self.COEFFS[1] + delta * term
+            term = self.COEFFS[2] + delta * term
+            term = self.COEFFS[3] + delta * term
+            term = self.COEFFS[4] + delta * term
             return delta * term
 
         def get_quad_params(th_cut):
