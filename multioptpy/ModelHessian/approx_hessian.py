@@ -2,6 +2,7 @@ import numpy as np
 
 from multioptpy.ModelHessian.fischer import FischerApproxHessian
 from multioptpy.ModelHessian.fischerd3 import FischerD3ApproxHessian
+from multioptpy.ModelHessian.fischerd3old import FischerD3ApproxHessianOld
 from multioptpy.ModelHessian.fischerd4 import FischerD4ApproxHessian
 from multioptpy.ModelHessian.gfnff import GFNFFApproxHessian
 from multioptpy.ModelHessian.gfn0xtb import GFN0XTBApproxHessian
@@ -35,6 +36,9 @@ class ApproxHessian:
         elif "gfn0xtb" in approx_hess_type.lower():
             GFN0AH = GFN0XTBApproxHessian()
             hess_proj = GFN0AH.main(coord, element_list, cart_gradient)
+        elif "fischerd3old" in approx_hess_type.lower():
+            FAHD3O = FischerD3ApproxHessianOld()        
+            hess_proj = FAHD3O.main(coord, element_list, cart_gradient)
         elif "fischerd3" in approx_hess_type.lower():
             FAHD3 = FischerD3ApproxHessian()
             hess_proj = FAHD3.main(coord, element_list, cart_gradient)
