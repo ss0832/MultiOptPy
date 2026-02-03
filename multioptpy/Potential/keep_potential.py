@@ -50,11 +50,8 @@ class StructKeepPotential:
         vec = geom_num_list[idx1] - geom_num_list[idx2]
         
         # 3. Robust Distance Calculation
-        # Standard torch.linalg.norm gradient is undefined at 0.
-        # Use sqrt(sum(x^2) + epsilon) for safety.
-        dist = torch.sqrt(torch.sum(vec**2))
-        if dist < 1e-12:
-            dist = dist + 1e-12
+     
+        dist = torch.clamp(torch.sqrt(torch.sum(vec**2)), min=1e-12)
         
         # 4. Energy Calculation
         # E = 0.5 * k * (r - r0)^2
@@ -111,9 +108,7 @@ class StructKeepPotentialv2:
         
         # 3. Robust Distance Calculation
         vec = fragm_1_center - fragm_2_center
-        distance = torch.sqrt(torch.sum(vec**2))
-        if distance < 1e-12:
-            distance = distance + 1e-12
+        distance = torch.clamp(torch.sqrt(torch.sum(vec**2)), min=1e-12)
         
         # 4. Energy
         energy = 0.5 * k * (distance - r0) ** 2
