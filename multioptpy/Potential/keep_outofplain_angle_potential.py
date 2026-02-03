@@ -100,7 +100,8 @@ class StructKeepOutofPlainAnglePotential:
         
         # Safe normalization
         n_norm = torch.sqrt(n_sq_norm)
-        n_hat = n / (n_norm.unsqueeze(-1) + 1e-12)
+        n_hat_demon = torch.clamp(n_norm.unsqueeze(-1), min=1e-12)
+        n_hat = n / n_hat_demon
         
         # ========================================
         # 4. Angle Calculation (Robust atan2)
@@ -237,7 +238,8 @@ class StructKeepOutofPlainAnglePotentialv2:
         
         # Safe normalization
         n_norm = torch.sqrt(n_sq_norm)
-        n_hat = n / (n_norm.unsqueeze(-1) + 1e-12)
+        n_hat_demon = torch.clamp(n_norm.unsqueeze(-1), min=1e-12)
+        n_hat = n / n_hat_demon
         
         # ========================================
         # 4. Angle Calculation (Robust atan2)

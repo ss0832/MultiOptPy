@@ -114,15 +114,16 @@ class StructKeepDihedralAnglePotential:
         # Normalize vectors safely
         # We add a small epsilon to denominator to avoid NaN in the "linear" branch,
         # even though we will overwrite the result with 0 later.
-        n1_norm = torch.sqrt(n1_sq_norm)
-        n2_norm = torch.sqrt(n2_sq_norm)
+        n1_norm = torch.clamp(torch.sqrt(n1_sq_norm), min=1e-12)
+        n2_norm = torch.clamp(torch.sqrt(n2_sq_norm), min=1e-12)
         
-        n1_hat = n1 / (n1_norm.unsqueeze(-1) + 1e-12)
-        n2_hat = n2 / (n2_norm.unsqueeze(-1) + 1e-12)
+       
+        n1_hat = n1 / (n1_norm.unsqueeze(-1))
+        n2_hat = n2 / (n2_norm.unsqueeze(-1))
         
         # Normalize b2 to define the reference frame for sign
-        b2_norm = torch.linalg.norm(b2)
-        b2_hat = b2 / (b2_norm.unsqueeze(-1) + 1e-12)
+        b2_norm = torch.clamp(torch.linalg.norm(b2), min=1e-12)
+        b2_hat = b2 / (b2_norm.unsqueeze(-1))
         
         # ========================================
         # 4. Angle Calculation (atan2)
@@ -259,14 +260,14 @@ class StructKeepDihedralAnglePotentialv2:
         is_linear = (n1_sq_norm < self.COLLINEAR_CUT_SQ) | (n2_sq_norm < self.COLLINEAR_CUT_SQ)
         
         # Safe normalization
-        n1_norm = torch.sqrt(n1_sq_norm)
-        n2_norm = torch.sqrt(n2_sq_norm)
+        n1_norm = torch.clamp(torch.sqrt(n1_sq_norm), min=1e-12)
+        n2_norm = torch.clamp(torch.sqrt(n2_sq_norm), min=1e-12)
         
-        n1_hat = n1 / (n1_norm.unsqueeze(-1) + 1e-12)
-        n2_hat = n2 / (n2_norm.unsqueeze(-1) + 1e-12)
+        n1_hat = n1 / (n1_norm.unsqueeze(-1))
+        n2_hat = n2 / (n2_norm.unsqueeze(-1))
         
-        b2_norm = torch.linalg.norm(b2)
-        b2_hat = b2 / (b2_norm.unsqueeze(-1) + 1e-12)
+        b2_norm = torch.clamp(torch.linalg.norm(b2), min=1e-12)
+        b2_hat = b2 / (b2_norm.unsqueeze(-1))
 
         # ========================================
         # 4. Angle Calculation (atan2)
