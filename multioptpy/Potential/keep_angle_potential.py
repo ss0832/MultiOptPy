@@ -103,10 +103,7 @@ class StructKeepAnglePotential:
         norm2 = torch.linalg.norm(vec2)
         
         # u = cos(theta)
-        # Add epsilon to denominator to prevent NaN if atoms overlap exactly
-        norm1_2 = norm1 * norm2
-        if norm1_2 < 1e-12:
-            norm1_2 = norm1_2 + 1e-12
+        norm1_2 = torch.clamp(norm1 * norm2, min=1e-12)
         
         u = torch.dot(vec1, vec2) / (norm1_2)
         u = torch.clamp(u, -1.0, 1.0)
@@ -137,7 +134,7 @@ class StructKeepAnglePotential:
             # We ignore the d2th/du2 term to ensure positive curvature (convexity)
             d2 = k * (dth_du**2) 
             
-            return val.detach(), d1.detach(), d2.detach()
+            return val, d1, d2
 
 
         # --- BRANCH A: EXACTLY Linear Equilibrium (theta_0 ~ 0) ---
@@ -311,9 +308,7 @@ class StructKeepAnglePotentialv2:
         norm1 = torch.linalg.norm(vec1)
         norm2 = torch.linalg.norm(vec2)
         
-        norm1_2 = norm1 * norm2
-        if norm1_2 < 1e-12:
-            norm1_2 = norm1_2 + 1e-12
+        norm1_2 = torch.clamp(norm1 * norm2, min=1e-12)
             
         u = torch.dot(vec1, vec2) / (norm1_2)
         u = torch.clamp(u, -1.0, 1.0)
@@ -339,7 +334,7 @@ class StructKeepAnglePotentialv2:
             # Gauss-Newton Approximation
             d2 = k * (dth_du**2)
             
-            return val.detach(), d1.detach(), d2.detach()
+            return val, d1, d2
 
         # --- BRANCH A: EXACTLY Linear Equilibrium (theta_0 ~ 0) ---
         if torch.abs(theta_0) < epsilon_param:
