@@ -12,11 +12,7 @@ from multioptpy.Parameters.parameter import UnitValueLib
 class O1NumHessCalculator:
     """
     O1NumHess: Semi-numerical Hessian generation using Optimal 1-sided differentiation.
-    Ref: https://doi.org/10.1021/acs.jctc.5c01354, https://doi.org/10.48550/arXiv.2508.07544
-    
-    Notice:
-    This implementation is experimental and lacks formal validation against the performance benchmarks established in the original paper. 
-    It is intended for reference only and does not serve as a basis for contesting the validity of the referenced methodology, regardless of the performance outcomes.
+    Ref: https://doi.org/10.1021/acs.jctc.5c01354
     
     CORRECTED VERSION - Fixes:
     1. Added initial 7 displacement directions (translations, rotations, breathing)
@@ -171,6 +167,7 @@ class O1NumHessCalculator:
         for i in range(ndispl_final):
             # Displacement: x_new = x0 + delta * d
             d_vec = displdir[:, i]
+            d_vec_norm = np.linalg.norm(d_vec)
             
             # Skip translations (indices 0-2): gradient is always zero
             if i < 3:
@@ -183,11 +180,11 @@ class O1NumHessCalculator:
             
             # FIXED: Double-sided differentiation for breathing mode (index 6)
             if i == 6:
-                x_fwd_bohr = x0_bohr + self.delta * d_vec
+                x_fwd_bohr = x0_bohr + self.delta * d_vec / d_vec_norm
                 x_fwd_ang = x_fwd_bohr.reshape(-1, 3) * self.bohr2ang
                 g_fwd = self._get_gradient(x_fwd_ang).flatten()
                 
-                x_bwd_bohr = x0_bohr - self.delta * d_vec
+                x_bwd_bohr = x0_bohr - self.delta * d_vec / d_vec_norm
                 x_bwd_ang = x_bwd_bohr.reshape(-1, 3) * self.bohr2ang
                 g_bwd = self._get_gradient(x_bwd_ang).flatten()
                 
@@ -195,7 +192,7 @@ class O1NumHessCalculator:
                 g_displ[:, i] = (g_fwd - g_bwd) / (2.0 * self.delta)
             else:
                 # Single-sided differentiation for other directions
-                x_new_bohr = x0_bohr + self.delta * d_vec
+                x_new_bohr = x0_bohr + self.delta * d_vec / d_vec_norm
                 x_new_ang = x_new_bohr.reshape(-1, 3) * self.bohr2ang
                 g_new = self._get_gradient(x_new_ang).flatten()
                 
