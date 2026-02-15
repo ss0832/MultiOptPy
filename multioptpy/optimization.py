@@ -13,6 +13,7 @@ from multioptpy.fileio import FileIO
 from multioptpy.Parameters.parameter import UnitValueLib, element_number
 from multioptpy.interface import force_data_parser
 from multioptpy.ModelHessian.approx_hessian import ApproxHessian
+from multioptpy.ModelHessian.o1numhess import O1NumHessCalculator
 from multioptpy.PESAnalyzer.cmds_analysis import CMDSPathAnalysis
 from multioptpy.PESAnalyzer.pca_analysis import PCAPathAnalysis
 from multioptpy.PESAnalyzer.koopman_analysis import KoopmanAnalyzer
@@ -1602,6 +1603,7 @@ class Optimize:
         # --- EDEEL Mode ---
         # Assuming the parser sets an 'edeel' flag in args or force_data
         if hasattr(self.config.args, 'edeel') and self.config.args.edeel:
+            # This is under development.
             print("Mode: EDEEL (Energy Decomposition and Extrapolation-based Electron Localization)")
             
             # Note: The user handles the parser. 
@@ -1689,6 +1691,7 @@ class Optimize:
         
         # --- ONIOM Mode ---
         elif len(self.config.args.oniom_flag) > 0:
+            # This is under development.
             # ONIOM
             high_atoms = force_data["oniom_flag"][0]
             link_atoms = force_data["oniom_flag"][1]
@@ -1882,7 +1885,17 @@ class Optimize:
                 and self.config.use_model_hessian is not None
                 and self.config.FC_COUNT < 1
             ):
-                self.state.Model_hess = ApproxHessian().main(
+                if self.config.use_model_hessian.lower() == "o1numhess":
+                    method = (
+                    self.config.args.usedxtb
+                    if self.config.args.usedxtb != "None"
+                    else self.config.args.usextb
+                    )
+                    self.state.Model_hess = O1NumHessCalculator(self.SP, self.state.element_list, self.config.electric_charge_and_multiplicity, method=method).compute_hessian(self.state.geometry * self.config.bohr2angstroms)
+                
+                
+                else:
+                    self.state.Model_hess = ApproxHessian().main(
                     self.state.geometry,
                     self.state.element_list, # FIX: Use self.state.element_list
                     self.state.raw_gradient,
