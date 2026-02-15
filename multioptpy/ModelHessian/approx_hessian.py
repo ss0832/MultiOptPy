@@ -14,6 +14,7 @@ from multioptpy.ModelHessian.morse import MorseApproxHessian
 from multioptpy.ModelHessian.schlegel import SchlegelApproxHessian
 from multioptpy.ModelHessian.schlegeld3 import SchlegelD3ApproxHessian
 from multioptpy.ModelHessian.schlegeld4 import SchlegelD4ApproxHessian
+from multioptpy.ModelHessian.swart import SwartApproxHessian
 from multioptpy.ModelHessian.swartd2 import SwartD2ApproxHessian
 from multioptpy.ModelHessian.swartd3 import SwartD3ApproxHessian
 from multioptpy.ModelHessian.swartd4 import SwartD4ApproxHessian
@@ -62,9 +63,12 @@ class ApproxHessian:
         elif "swartd4" in approx_hess_type.lower():
             SWHD4 = SwartD4ApproxHessian()
             hess_proj = SWHD4.main(coord, element_list, cart_gradient)
-        elif "swart" in approx_hess_type.lower():
+        elif "swartd2" in approx_hess_type.lower():
             SWH = SwartD2ApproxHessian()
             hess_proj = SWH.main(coord, element_list, cart_gradient)
+        elif "swart" in approx_hess_type.lower():
+            SW = SwartApproxHessian()
+            hess_proj = SW.main(coord, element_list, cart_gradient)
         elif "lindh2007d3" in approx_hess_type.lower():
             LH2007D3 = Lindh2007D3ApproxHessian()
             hess_proj = LH2007D3.main(coord, element_list, cart_gradient)
