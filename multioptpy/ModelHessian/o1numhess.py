@@ -5,7 +5,7 @@ from scipy.sparse.linalg import LinearOperator, cg as scipy_cg
 from scipy.spatial.distance import cdist
 
 
-from multioptpy.ModelHessian.swartd3 import SwartD3ApproxHessian
+from multioptpy.ModelHessian.swart import SwartApproxHessian
 from multioptpy.Parameters.parameter import UnitValueLib
 
 
@@ -57,7 +57,7 @@ class O1NumHessCalculator:
         self.bohr2ang = self.uvl.bohr2angstroms
         
         # Fischer Hessian Calculator (for initial guess)
-        self.fischer_calc = SwartD3ApproxHessian()
+        self.fischer_calc = SwartApproxHessian()
         
         # Paper parameters
         self.lam = 1.0e-2    # Regularization parameter λ (Eq. 28)
