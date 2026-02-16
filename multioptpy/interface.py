@@ -184,7 +184,7 @@ def call_optimizeparser(parser):
     class ModelhessAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
             if values is None:
-                setattr(namespace, self.dest, 'fischerd3')
+                setattr(namespace, self.dest, 'fischerd3old')
             else:
                 setattr(namespace, self.dest, values)
     
@@ -324,7 +324,7 @@ def call_nebparser(parser):
     class ModelhessAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
             if values is None:
-                setattr(namespace, self.dest, 'fischerd3')
+                setattr(namespace, self.dest, 'fischerd3old')
             else:
                 setattr(namespace, self.dest, values)
                 
