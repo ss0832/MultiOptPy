@@ -472,8 +472,3 @@ conda env create -f environment_win11uma.yml
 conda activate test_mop_win11_uma
 ```
 
-
----
-
-> **Status: Maintenance Mode / Frozen**
-> *This project has reached its initial stability goals (v1.20.2) and is currently frozen. No new features are planned by the original author, but the codebase remains open for the community to fork and explore the roadmap above.*
