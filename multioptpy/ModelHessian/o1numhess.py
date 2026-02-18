@@ -92,6 +92,36 @@ class O1NumHessCalculator:
             
         return np.array(gradient)
 
+    def _guess_topology_protection(self, distmat_bohr):
+        """
+        Guess 1-2 (bond) and 1-3 (angle) connectivity based on distances.
+        Returns a boolean mask of pairs that should be protected.
+        """
+        N = distmat_bohr.shape[0]
+        
+        # 1. Define bonding threshold (e.g., 1.3 * sum of covalent radii)
+        # Using broadcasting for radii sums
+        radii_sum = self.atom_radii[:, np.newaxis] + self.atom_radii[np.newaxis, :]
+        bond_thresh = 1.3 * radii_sum
+        
+        # 2. Identify 1-2 bonds (exclude self-loop)
+        # distmat < threshold AND distmat > 1e-3 (avoid self)
+        bond_adj = (distmat_bohr < bond_thresh) & (distmat_bohr > 1e-3)
+        
+        # 3. Identify 1-3 angles using matrix multiplication
+        # If A-B is bonded and B-C is bonded, (bond_adj @ bond_adj)[A, C] > 0
+        # converting to float for matmul, then back to bool
+        bond_float = bond_adj.astype(float)
+        angle_adj = (np.dot(bond_float, bond_float)) > 0.1
+        
+        # Remove self-loops (A-B-A) introduced by matmul
+        np.fill_diagonal(angle_adj, False)
+        
+        # 4. Combine masks (Protects both Bonds and Angles)
+        protected_mask = bond_adj | angle_adj
+        
+        return protected_mask
+
     def compute_hessian(self, current_coords_ang):
         """
         Execute the O1NumHess algorithm.
@@ -112,7 +142,7 @@ class O1NumHessCalculator:
 
         if self.verbosity > 0:
             print(f"\n=== Starting O1NumHess Calculation ===")
-            print(f"  Adaptive Cutoff Strategy: {self.rcov_scale} * (R_i + R_j) + 1.0")
+            print(f"  Adaptive Cutoff Strategy: {self.rcov_scale} * (R_i + R_j) + 1.0 Bohr")
             print(f"  Min Cutoff: {np.min(cutoff_mat):.2f} Bohr, Max Cutoff: {np.max(cutoff_mat):.2f} Bohr")
             print(f"  Step size (eta): {self.delta} Bohr")
 
@@ -132,6 +162,18 @@ class O1NumHessCalculator:
             print("  [3/6] Building connectivity graph...")
         distmat_bohr = cdist(coords_bohr, coords_bohr)
         
+        if self.verbosity > 0:
+            print("        -> Applying topology-based protection (1-2 & 1-3 pairs)...")
+            
+        protected_mask = self._guess_topology_protection(distmat_bohr)
+        
+        safe_margin = 2.0  # Bohr
+        
+        # update only where protection is needed AND current cutoff is too small
+        cutoff_mat[protected_mask] = np.maximum(
+            cutoff_mat[protected_mask], 
+            distmat_bohr[protected_mask] + safe_margin
+        )
         # FIXED: Pass cutoff_mat instead of scalar dmax
         nblist, nbcounts = self._build_neighbor_list(N_atom, distmat_bohr, cutoff_mat)
         
