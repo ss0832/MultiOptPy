@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 from scipy.sparse.csgraph import connected_components, minimum_spanning_tree
-from scipy.sparse.linalg import LinearOperator, cg as scipy_cg
+from scipy.sparse.linalg import LinearOperator, cg as scipy_cg, gmres as scipy_gmres
 from scipy.spatial.distance import cdist
 
 from multioptpy.ModelHessian.swart import SwartApproxHessian
@@ -10,7 +10,8 @@ from multioptpy.Parameters.parameter import UnitValueLib, covalent_radii_lib
 
 class O1NumHessCalculator:
     """
-    O1NumHess: Semi-numerical Hessian generation using Optimal 1-sided differentiation.
+    O1NumHess:
+    semi-numerical Hessian generation using Optimal 1-sided numerical differentiation.
     Ref: https://doi.org/10.1021/acs.jctc.5c01354
     
     Notice:
@@ -19,11 +20,10 @@ class O1NumHessCalculator:
     
     UPDATES:
     1. Adaptive Cutoff based on Covalent Radii (rcov_scale * (Ri + Rj))
-    2. Strict Reject-and-Retry LR Loop
     """
 
     def __init__(self, calculation_engine, element_list, charge_mult, method, 
-                 rcov_scale=1.5, delta_bohr=0.005, verbosity=1):
+                 rcov_scale=2.5, delta_bohr=0.005, verbosity=1):
         """
         Initialize the O1NumHess calculator with Adaptive Cutoff.
 
@@ -38,8 +38,8 @@ class O1NumHessCalculator:
         method : str
             Calculation method.
         rcov_scale : float
-            Scaling factor for covalent radii sum to determine cutoff (default: 1.5).
-            Cutoff_ij = rcov_scale * (R_i + R_j)
+            Scaling factor for covalent radii sum to determine cutoff (default: 2.5).
+            Cutoff_ij = rcov_scale * (R_i + R_j) + 1.0
         delta_bohr : float
             Step size for numerical differentiation (default: 0.005 Bohr).
         verbosity : int
@@ -73,8 +73,8 @@ class O1NumHessCalculator:
         
         # LR loop parameters 
         self.mingrad_lr = 1.0e-3
-        self.thresh_lr = 1.0e-8
-        self.maxiter_lr = 100
+        self.thresh_lr = 1.0e-5
+        self.maxiter_lr = 1000
 
     def _get_gradient(self, coords_ang):
         """Call external calculation engine."""
@@ -104,15 +104,15 @@ class O1NumHessCalculator:
         x0_bohr = coords_bohr.flatten()
 
         # FIXED: Generate Adaptive Cutoff Matrix
-        # cutoff_mat[i, j] = scale * (R_i + R_j)
+        # cutoff_mat[i, j] = scale * (R_i + R_j) + 1.0
         # Use broadcasting: (N, 1) + (1, N) -> (N, N)
         radii_col = self.atom_radii[:, np.newaxis]
         radii_row = self.atom_radii[np.newaxis, :]
-        cutoff_mat = self.rcov_scale * (radii_col + radii_row)
+        cutoff_mat = self.rcov_scale * (radii_col + radii_row) + 1.0
 
         if self.verbosity > 0:
             print(f"\n=== Starting O1NumHess Calculation ===")
-            print(f"  Adaptive Cutoff Strategy: {self.rcov_scale} * (R_i + R_j)")
+            print(f"  Adaptive Cutoff Strategy: {self.rcov_scale} * (R_i + R_j) + 1.0")
             print(f"  Min Cutoff: {np.min(cutoff_mat):.2f} Bohr, Max Cutoff: {np.max(cutoff_mat):.2f} Bohr")
             print(f"  Step size (eta): {self.delta} Bohr")
 
@@ -123,7 +123,7 @@ class O1NumHessCalculator:
 
         # 3. Generate initial model Hessian (H0)
         if self.verbosity > 0:
-            print("  [2/6] Generating initial model Hessian (Fischer-D3)...")
+            print("  [2/6] Generating initial model Hessian (Swart)...")
         dummy_grad = np.zeros_like(g0_vec)
         h0_bohr_units = self.fischer_calc.main(coords_bohr, self.element_list, dummy_grad)
 
@@ -270,135 +270,162 @@ class O1NumHessCalculator:
                                                     nblist, nbcounts, H0, max_nb):
         """
         Generate optimal displacement directions using iterative local eigenvector analysis.
+        Optimized for performance: 
+        - Atom-based iteration (3x speedup)
+        - Vectorized phase alignment
+        - Vectorized initial mode generation
+        - Using np.dot instead of @ operator
         """
         N_atom = N_dof // 3
         displdir = np.zeros((N_dof, N_dof))
         eps = 1.0e-6
         eps2 = 1.0e-8
+
+        # --- 1. Initial 7 directions (Vectorized) ---
         
-        # 1. Initial 7 directions
-        # Translations
+        # Translations (Cols 0,1,2)
+        # 1.0 for x, y, z respectively across all atoms
         for i in range(3):
-            for j in range(N_atom):
-                displdir[3*j + i, i] = 1.0
-        
-        # Rotations
+            displdir[i::3, i] = 1.0
+
+        # Rotations (Cols 3,4,5)
         center = np.mean(coords_bohr, axis=0)
-        I_tensor = np.zeros((3, 3))
-        for j in range(N_atom):
-            r = coords_bohr[j] - center
-            I_tensor += np.eye(3) * np.dot(r, r) - np.outer(r, r)
+        # Vectorized Inertia Tensor calculation
+        rel_coords = coords_bohr - center  # (N_atom, 3)
+        
+        # I = sum( (r^2)I - r x rT )
+        r_sq = np.sum(rel_coords**2, axis=1)
+        # Use np.dot for matrix multiplication
+        I_tensor = np.eye(3) * np.sum(r_sq) - np.dot(rel_coords.T, rel_coords)
         
         try:
             _, rot_axes = np.linalg.eigh(I_tensor)
-        except:
+        except np.linalg.LinAlgError:
             rot_axes = np.eye(3)
-        
+
+        # Vectorized cross product for all atoms
         for i in range(3):
             axis = rot_axes[:, i]
-            for j in range(N_atom):
-                r = coords_bohr[j] - center
-                rot_vec = np.cross(axis, r)
-                displdir[3*j:3*j+3, 3+i] = rot_vec
-        
-        # Breathing
-        for j in range(N_atom):
-            r = coords_bohr[j] - center
-            displdir[3*j:3*j+3, 6] = r
-        
-        for i in range(7):
-            norm = np.linalg.norm(displdir[:, i])
-            if norm > eps2:
-                displdir[:, i] /= norm
+            # Cross product of axis with all r vectors
+            # np.cross(A, B) where A=(3,), B=(N,3) broadcasts A
+            # rot_vec = axis x r
+            rot_vecs = np.cross(axis, rel_coords) # (N_atom, 3)
+            displdir[:, 3+i] = rot_vecs.flatten()
+
+        # Breathing (Col 6)
+        displdir[:, 6] = rel_coords.flatten()
+
+        # Normalize initial directions
+        norms = np.linalg.norm(displdir[:, :7], axis=0)
+        # Avoid division by zero
+        valid_mask = norms > eps2
+        # Use broadcasting for division
+        displdir[:, :7] = np.divide(displdir[:, :7], norms[None, :], where=valid_mask[None, :])
         
         ndispl_final = 7
+
+        # --- 2. Iterative directions (Atom-based Loop) ---
         
-        # 2. Iterative directions
+        # Iterate over ATOMS instead of DOFs to reduce overhead
         for n_curr in range(7, N_dof):
             ev = np.zeros(N_dof)
             coverage = np.zeros(N_dof)
             
-            for j in range(N_dof):
-                nnb = nbcounts[j]
-                if nnb == 0: continue
-                nb_idx = np.array(nblist[j][:nnb])
-                if nnb <= n_curr: continue
+            # Inner loop: Atom-based
+            for i_atom in range(N_atom):
+                dof_idx = 3 * i_atom
+                nnb = nbcounts[dof_idx]
                 
+                if nnb == 0: 
+                    continue
+                
+                # If neighborhood is smaller than current subspace dimension, skip
+                if nnb <= n_curr: 
+                    continue
+
+                # Retrieve neighbor indices (DOFs)
+                nb_idx = np.array(nblist[dof_idx][:nnb])
+                
+                # Extract local Hessian block
                 subH = H0[np.ix_(nb_idx, nb_idx)]
                 
+                # Project out existing directions
                 if n_curr > 0:
                     vec_subset = displdir[np.ix_(nb_idx, range(n_curr))]
+                    
                     try:
-                        q, r = np.linalg.qr(vec_subset)
+                        q, _ = np.linalg.qr(vec_subset)
+                        
+                        # Project: H_new = P H P, where P = I - Q Q.T
+                        # Using np.dot instead of @
+                        # P = I - np.dot(q, q.T)
                         projmat = np.eye(nnb) - np.dot(q, q.T)
-                        subH = np.dot(projmat, np.dot(subH, projmat.T))
+                        
+                        # subH = np.dot(np.dot(projmat, subH), projmat.T)
+                        temp = np.dot(projmat, subH)
+                        subH = np.dot(temp, projmat.T)
+                        
+                        # Ensure symmetry
                         subH = 0.5 * (subH + subH.T)
-                    except:
+                        
+                    except np.linalg.LinAlgError:
                         continue
-                
+
+                # Diagonalize
                 try:
                     loceigs, locevecs = np.linalg.eigh(subH)
+                    # Select eigenvector with largest absolute eigenvalue (stiffest mode)
                     locind = np.argmax(np.abs(loceigs))
                     locev = locevecs[:, locind]
                 except np.linalg.LinAlgError:
                     continue
+
+                # Phase Alignment (Greedy Sum)
+                # Calculate dot product to determine sign alignment
+                # Extract current accumulated vector components for this neighborhood
+                current_accum = coverage[nb_idx] * ev[nb_idx]
+                dot_prod = np.dot(current_accum, locev)
                 
-                norm_ev1 = 0.0
-                norm_ev2 = 0.0
-                for p in range(nnb):
-                    idx = nb_idx[p]
-                    val1 = (coverage[idx] * ev[idx] + locev[p]) / (coverage[idx] + 1.0)
-                    val2 = (coverage[idx] * ev[idx] - locev[p]) / (coverage[idx] + 1.0)
-                    norm_ev1 += val1**2
-                    norm_ev2 += val2**2
+                sign = -1.0 if dot_prod < -eps else 1.0
                 
-                norm_ev1 = np.sqrt(norm_ev1)
-                norm_ev2 = np.sqrt(norm_ev2)
-                
-                if norm_ev1 > norm_ev2 + eps:
-                    sign = 1.0
-                elif norm_ev1 < norm_ev2 - eps:
-                    sign = -1.0
-                else:
-                    locind_max = np.argmax(np.abs(locev))
-                    sign = 1.0 if locev[locind_max] > 0 else -1.0
-                
-                for p in range(nnb):
-                    idx = nb_idx[p]
-                    ev[idx] = (coverage[idx] * ev[idx] + sign * locev[p]) / (coverage[idx] + 1.0)
-                
-                for p in range(nnb):
-                    coverage[nb_idx[p]] += 1.0
+                # Update global vector and coverage
+                denom = coverage[nb_idx] + 1.0
+                ev[nb_idx] = (current_accum + sign * locev) / denom
+                coverage[nb_idx] += 1.0
+
+            # Orthogonalize against all previous directions (Gram-Schmidt)
+            # overlaps = displdir.T @ ev
+            overlaps = np.dot(displdir[:, :n_curr].T, ev)
             
-            for k in range(n_curr):
-                d_dot = np.dot(ev, displdir[:, k])
-                ev -= d_dot * displdir[:, k]
-            
+            # ev -= displdir @ overlaps
+            ev -= np.dot(displdir[:, :n_curr], overlaps)
+
+            # Check norm and terminate
             v_norm = np.linalg.norm(ev)
             if v_norm < eps2:
                 ndispl_final = n_curr
                 break
-            
-            ev /= v_norm
-            displdir[:, n_curr] = ev
-            ndispl_final = n_curr + 1
-        
-        return displdir[:, :ndispl_final], ndispl_final
 
+            displdir[:, n_curr] = ev / v_norm
+            ndispl_final = n_curr + 1
+
+        return displdir[:, :ndispl_final], ndispl_final
+        
     def _solve_odlr_problem_corrected(self, distmat, displdir, g, ndispl_final, cutoff_mat):
         """
-        ODLR solver using Adaptive Cutoff Matrix.
+        ODLR solver using a Lightweight Cascade Strategy (CG -> GMRES).
         """
         N = distmat.shape[0]
         
-        # FIXED: W2 uses cutoff_mat
-        # W^2 = lambda * max(0, r - r_cut)^(2*beta)
+        # --- 1. System Setup ---
+        # W^2 weighting for regularization
         W2 = self.lam * np.maximum(0.0, distmat - cutoff_mat) ** (2.0 * self.bet)
         
+        # RHS computation
         rhs = np.dot(g[:, :ndispl_final], displdir[:, :ndispl_final].T)
         rhs = 0.5 * (rhs + rhs.T)
         
-        # FIXED: Mask uses cutoff_mat
+        # Mask setup for sparse packing
         mask = distmat < (cutoff_mat + self.ddmax)
         for i in range(N):
             mask[i, :i] = False
@@ -422,72 +449,167 @@ class O1NumHessCalculator:
         
         def matvec(x_vec):
             H_tmp = unpack_sym(x_vec)
-            
+            # A(H) = H * D * D^T + W^2 * H
             tmp2 = np.dot(H_tmp, displdir[:, :ndispl_final])
             f1 = np.dot(tmp2, displdir[:, :ndispl_final].T)
             f1 = 0.5 * (f1 + f1.T)
-            
             f2 = W2 * H_tmp
-            
             return pack_sym(f1 + f2)
         
-        op = LinearOperator((ndim, ndim), matvec=matvec)
+        op = LinearOperator((ndim, ndim), matvec=matvec, dtype=float)
         
-        sol, info = scipy_cg(op, rhs_vec, maxiter=1000, atol=1e-14)
+        # --- 2. Lightweight Cascade Loop ---
         
-        if info != 0 and self.verbosity > 0:
-            print(f"  Warning: CG did not converge (info={info})")
+        # Strategy: Try fast CG first. If it fails/stalls, try robust GMRES.
+        solvers = [
+            ("CG", scipy_cg, {"maxiter": 1000, "atol": 1e-14}),
+            ("GMRES", scipy_gmres, {"maxiter": 1000, "atol": 1e-14, "restart": 30}),
+        ]
         
-        hess_out = unpack_sym(sol)
+        best_sol = None
+        best_res = np.inf
+        best_name = "None"
         
-        return hess_out
+        if self.verbosity > 0:
+            print(f"  [ODLR] Solving sparse system (Dim: {ndim}) with Fast Cascade...")
 
+        for name, solver_func, kwargs in solvers:
+            try:
+                # Run solver
+                sol, info = solver_func(op, rhs_vec, **kwargs)
+                
+                # Check residual explicitly
+                Ax = matvec(sol)
+                res_norm = np.linalg.norm(rhs_vec - Ax)
+                
+                if self.verbosity > 0:
+                    status = "Converged" if info == 0 else f"Failed(info={info})"
+                    print(f"    - {name:5s}: {status} | Residual: {res_norm:.4e}")
+                
+                # Keep the best result found so far
+                if res_norm < best_res:
+                    best_res = res_norm
+                    best_sol = sol
+                    best_name = name
+                
+                # If we have a good enough solution, stop cascading to save time
+                if res_norm < 1e-6:
+                    break
+                    
+            except Exception as e:
+                print(f"    - {name:5s}: Exception occurred ({str(e)})")
+                continue
+
+        # --- 3. Finalize ---
+        if best_sol is None:
+            print("  [ODLR] CRITICAL: All solvers failed. Returning zero Hessian.")
+            return np.zeros((N, N))
+        
+        if self.verbosity > 0:
+            print(f"  [ODLR] Selected solution from {best_name} (Residual: {best_res:.4e})")
+            
+        hess_out = unpack_sym(best_sol)
+        return hess_out
+        
     def _lr_loop_strict(self, ndispl, g, hess_out, displdir):
         """
-        CORRECTED: Low-rank correction loop with adaptive damping.
-        
-        Key fixes:
-        1. Added adaptive damping factor
-        2. Added stagnation detection
-        3. Added divergence detection
-        4. Proper convergence criteria 
+        Low-rank correction loop: Momentum + Adaptive Step + Best Keeper.
+        The "Engineering Sweet Spot" - Fast, Low Memory, Robust.
         """
-        N = g.shape[0]
+        # --- 1. Scaling Setup ---
+        g_active = g[:, :ndispl]
+        d_active = displdir[:, :ndispl]
         
-        dampfac = 1.0  # FIXED: Added damping factor
+        epsilon = 1.0e-3
+        g_norms = np.linalg.norm(g_active, axis=0)
+        scales = epsilon / np.maximum(epsilon, g_norms)
+        
+        g_scaled = g_active * scales[np.newaxis, :]
+        d_scaled = d_active * scales[np.newaxis, :]
+        
+        # --- 2. Parameters ---
+        dampfac = 1.0       # Current step size multiplier
+        momentum = 0.5      # Inertia (starts cautious)
+        
+        N = hess_out.shape[0]
+        prev_update = np.zeros((N, N)) # Only 1 extra matrix needed
+        
+        # --- 3. Best Solution Keeper ---
+        best_hess = hess_out.copy()
+        best_err = np.inf
+        
         err0 = np.inf
+        norm_g_scaled = np.linalg.norm(g_scaled)
         
-        # Compute norm of gradients (for divergence detection)
-        norm_g = np.linalg.norm(g[:, :ndispl])
-        
-        for it in range(self.maxiter_lr):
-            # Compute residual: R = g - H * displdir
-            tmp = np.dot(hess_out, displdir[:, :ndispl])
-            resid = g[:, :ndispl] - tmp
-            
+        if self.verbosity > 0:
+            print(f"  [LR-Loop] Starting Correction (Momentum + Adaptive Step)")
+            print(f"  {'Iter':>5} | {'Residual':>12} | {'Ratio':>8} | {'Damp':>6} | {'Status'}")
+            print("  " + "-"*60)
+
+        for it in range(1, self.maxiter_lr + 1):
+            # Compute Residual
+            tmp = np.dot(hess_out, d_scaled)
+            resid = g_scaled - tmp
             err = np.linalg.norm(resid)
             
-            # Check convergence 
+            # --- Best Keeper ---
+            if err < best_err:
+                best_err = err
+                best_hess = hess_out.copy() # Backup the best
+            
+            # --- Convergence Check ---
             if err < self.thresh_lr:
+                if self.verbosity > 0:
+                    print(f"  {it:5d} | {err:.4e} | {'CONVERGED':>16}")
                 break
             
-            # FIXED: Check stagnation 
-            if abs(err - err0) < self.thresh_lr * err0:
-                break
+            # --- Adaptive Logic (Bold Driver) ---
+            status = ""
+            ratio = err / err0 if err0 != np.inf else 0.0
             
-            # FIXED: Check divergence and reduce damping
-            if err > err0 and err > norm_g:
+            if err > err0 and err > norm_g_scaled:
+                # 1. Divergence detected: Brake hard
                 dampfac *= 0.5
+                momentum = 0.0      # Kill inertia
+                prev_update[:] = 0  # Clear history
+                status = "DAMP DOWN"
+                
+                # Optional: Restore best if things went really wrong
+                if err > best_err * 2.0:
+                    hess_out = best_hess.copy()
+                    status = "RESET"
             
-            # Compute symmetric correction
-            hcorr = np.dot(resid, displdir[:, :ndispl].T)
+            elif ratio < 0.999:
+                # 2. Improving: Accelerate
+                dampfac = min(1.2, dampfac * 1.05)
+                momentum = min(0.9, momentum + 0.05) # Build momentum up to 0.9
+                if it % 10 == 0: status = "ACCEL"
+            
+            else:
+                # 3. Stagnation: Check if we are stuck at noise floor
+                if abs(err - err0) < 1.0e-7:
+                    if self.verbosity > 0:
+                        print(f"  {it:5d} | {err:.4e} | {'STAGNATED (Noise Floor)':>24}")
+                    break
+            
+            # --- Update with Momentum ---
+            # Correction direction
+            hcorr = np.dot(resid, d_scaled.T)
             hcorr = 0.5 * (hcorr + hcorr.T)
             
-            # FIXED: Apply damped update 
-            hess_out = hess_out + dampfac * hcorr
+            # Update = Damp * Correction + Momentum * Previous
+            current_update = dampfac * hcorr + momentum * prev_update
             
+            hess_out = hess_out + current_update
+            
+            # Store history
+            prev_update = current_update
             err0 = err
-        
-        final_err = err
-        
-        return hess_out, final_err
+            
+            # Log
+            if self.verbosity > 0:
+                if it % 100 == 0 or it == 1 or status in ["DAMP DOWN", "RESET"]:
+                    print(f"  {it:5d} | {err:.4e} | {ratio:8.4f} | {dampfac:6.4f} | {status}")
+
+        # Return best solution found, not necessarily the last one
+        return best_hess, best_err

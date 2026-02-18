@@ -1441,7 +1441,7 @@ class RSIRFO:
 
         self.log(f"  Safeguard Solver: Starting search in [{a:.6e}, {b:.6e}]")
 
-        max_iterations = 50
+        max_iterations = 250
         # Use a tolerance relative to the pole
         tolerance = (1e-10 * abs(lambda_min_asymptote)) + 1e-12 
 
