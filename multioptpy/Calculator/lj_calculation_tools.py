@@ -8,6 +8,7 @@ from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.Parameters.parameter import UnitValueLib, number_element
 from multioptpy.fileio import xyz2list
 from multioptpy.Visualization.visualization import NEBVisualizer
+from multioptpy.ModelHessian.o1numhess import O1NumHessCalculator
 
 class LennardJonesCore:
     """
@@ -41,7 +42,6 @@ class LennardJonesCore:
         epsilons = np.zeros(len(atom_symbols))
 
         for i, symbol in enumerate(atom_symbols):
-            
             
             if symbol not in self._param_cache:
                 if symbol not in self.UFF_PARAMETERS:
@@ -122,23 +122,18 @@ class LennardJonesCore:
         sub_hessians = term1 + term2
 
         # **Vectorized Hessian Assembly**
-        # Create meshgrid of indices for all 3x3 sub-blocks
         p, q = np.meshgrid(np.arange(3), np.arange(3), indexing='ij')
         
-        # Indices for off-diagonal blocks (a, b) and (b, a)
         row_indices_ab = (a[:, None, None] * 3 + p).flatten()
         col_indices_ab = (b[:, None, None] * 3 + q).flatten()
         
-        # Indices for diagonal blocks (a, a) and (b, b)
         row_indices_aa = (a[:, None, None] * 3 + p).flatten()
         col_indices_aa = (a[:, None, None] * 3 + q).flatten()
         row_indices_bb = (b[:, None, None] * 3 + p).flatten()
         col_indices_bb = (b[:, None, None] * 3 + q).flatten()
 
-        # Flatten the sub-hessian blocks to match the indices
         flat_sub_hessians = sub_hessians.flatten()
         
-        # Atomically add/subtract the blocks into the Hessian matrix
         np.subtract.at(hessian, (row_indices_ab, col_indices_ab), flat_sub_hessians)
         np.subtract.at(hessian, (col_indices_ab, row_indices_ab), flat_sub_hessians)
         np.add.at(hessian, (row_indices_aa, col_indices_aa), flat_sub_hessians)
@@ -149,6 +144,7 @@ class LennardJonesCore:
 class Calculation:
     """
     High-level wrapper for Lennard-Jones calculations.
+    Supports both legacy directory-based execution and direct in-memory execution.
     """
     def __init__(self, **kwarg):
         UVL = UnitValueLib()
@@ -162,30 +158,68 @@ class Calculation:
         self.gradient = None
         self.coordinate = None
 
-    def exact_hessian(self, element_list, positions_bohr):
-        """Calculates and projects the Hessian."""
+    def _ensure_atom_symbol(self, element_list):
+        """Internal helper to set atom symbols from element list"""
+        if self.atom_symbol is None:
+            if element_list is None or len(element_list) == 0:
+                raise ValueError("Element list is empty.")
+            
+            symbols = []
+            for e in element_list:
+                if isinstance(e, str):
+                    symbols.append(e)
+                else:
+                    symbols.append(number_element(e))
+            self.atom_symbol = symbols
+
+    def run_calculation(self, positions_ang, element_list, charge_mult=None):
+        """
+        Execute Lennard-Jones calculation for a single geometry.
+        
+        Args:
+            positions_ang (np.ndarray): Coordinates in Angstrom.
+            element_list (list): List of element symbols or numbers.
+            charge_mult: Unused, kept for interface consistency.
+            
+        Returns:
+            tuple: (energy, gradient)
+        """
+        self._ensure_atom_symbol(element_list)
+        
+        positions_bohr = positions_ang / self.bohr2angstroms
+        results = self.calculator.calculate_energy_and_gradient(positions_bohr, self.atom_symbol)
+        
+        return results['energy'], results['gradient']
+
+    def calc_exact_hess(self, positions_ang, element_list):
+        """
+        Calculates and projects the Hessian.
+        """
+        self._ensure_atom_symbol(element_list)
+        positions_bohr = positions_ang / self.bohr2angstroms
+        
         results = self.calculator.calculate_hessian(positions_bohr, self.atom_symbol)
         exact_hess = results['hessian']
 
         self.Model_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(
             exact_hess, element_list, positions_bohr, display_eigval=False
         )
+        return self.Model_hess
 
     def single_point(self, file_directory, element_list, iter, electric_charge_and_multiplicity, method="", geom_num_list=None):
         """
-        Executes a Lennard-Jones single point calculation, reading from a file
-        or using a provided geometry.
+        Legacy method for directory-based execution.
         """
         finish_frag = False
         e, g, positions_bohr = None, None, None
 
         try:
             os.makedirs(file_directory, exist_ok=True)
-        except (OSError, TypeError): # TypeError if file_directory is None
+        except (OSError, TypeError): 
             pass
 
         if file_directory is None:
-            file_list = ["dummy"] # To run the loop once for geom_num_list
+            file_list = ["dummy"]
         else:
             file_list = sorted(glob.glob(os.path.join(file_directory, "*_[0-9].xyz")))
             if not file_list and geom_num_list is None:
@@ -196,35 +230,27 @@ class Calculation:
                 positions_angstrom = None
                 if geom_num_list is None:
                     positions_angstrom, read_elements, _ = xyz2list(input_file, electric_charge_and_multiplicity)
-                  
-                    element_list = read_elements
+                    if element_list is None:
+                         element_list = read_elements
                 else:
                     positions_angstrom = geom_num_list
-           
-                if self.atom_symbol is None:
-                    if element_list is None or len(element_list) == 0:
-                        raise ValueError("Element list is empty. Cannot determine atom symbol.")
-                    first_element = element_list
-                    if type(element_list[0]) is not str:
-                        first_element = []
-                        for i in range(len(element_list)):
-                            first_element.append(number_element(element_list[i]))
-                   
-                    self.atom_symbol = first_element
-                    print(f"Atom symbol set to '{self.atom_symbol}' based on the first structure.")
-            
-                positions_bohr = np.array(positions_angstrom, dtype="float64") / self.bohr2angstroms
-             
-                results = self.calculator.calculate_energy_and_gradient(positions_bohr, self.atom_symbol)
-                e = results['energy']
-                g = results['gradient']
+                
+                # Ensure numpy array
+                positions_angstrom = np.array(positions_angstrom, dtype="float64").reshape(-1, 3)
+
+                # Execute
+                e, g = self.run_calculation(positions_angstrom, element_list)
+                
+                positions_bohr = positions_angstrom / self.bohr2angstroms
 
                 if self.FC_COUNT == -1 or isinstance(iter, str):
                     if self.hessian_flag:
-                        self.exact_hessian(element_list, positions_bohr)
+                        self.calc_exact_hess(positions_angstrom, element_list)
                 elif iter % self.FC_COUNT == 0 or self.hessian_flag:
-                    self.exact_hessian(element_list, positions_bohr)
+                    self.calc_exact_hess(positions_angstrom, element_list)
                 
+                # Single point calculation is geometry-independent in loop if geom_num_list is provided
+                # If reading files, we process only one file here effectively due to return structure
                 break
 
             except Exception as error:
@@ -260,8 +286,6 @@ class LJEngine(CalculationEngine):
     def __init__(self, atom_symbol=None):
         super().__init__()
         self.atom_symbol = atom_symbol
-        self.calculator = LennardJonesCore()
-        self.bohr2angstroms = UnitValueLib().bohr2angstroms
 
     def calculate(self, file_directory, optimize_num, pre_total_velocity, config):
         gradient_list, energy_list, geometry_num_list, num_list = [], [], [], []
@@ -273,33 +297,60 @@ class LJEngine(CalculationEngine):
             print(f"No XYZ files found in directory: {file_directory}")
             return np.array([]), np.array([]), np.array([]), pre_total_velocity
 
+        # Initialize Calculation Instance
+        calc_instance = Calculation(
+            atom_symbol=self.atom_symbol,
+            FC_COUNT=config.FC_COUNT,
+            Model_hess=config.model_hessian
+        )
+        
+        # Parse Elements from first file
+        # Used to set atom_symbol once
+        _, element_list_first, _ = xyz2list(file_list[0], None)
+        
+        hess_count = 0
+
         for num, input_file in enumerate(file_list):
             try:
-        
                 print(f"Processing file: {input_file}")
+                
+                # Parse Geometry
                 positions_angstrom, element_list, _ = xyz2list(input_file, None)
-               
-                if self.atom_symbol is None:
-                    if element_list is None or len(element_list) == 0:
-                         raise ValueError("Element list from file is empty.")
-                    first_element = element_list
-                    if type(element_list[0]) is not str:
-                        first_element = []
-                        for i in range(len(element_list)):
-                            first_element.append(number_element(element_list[i]))
-
-                    self.atom_symbol = first_element
-                    print(f"Engine atom symbol set to '{self.atom_symbol}' based on the first file.")
-         
                 positions_angstrom = np.array(positions_angstrom, dtype='float64').reshape(-1, 3)
-                positions_bohr = positions_angstrom / self.bohr2angstroms
                 
-                results = self.calculator.calculate_energy_and_gradient(positions_bohr, self.atom_symbol)
+                # --- Execute Calculation ---
+                e, g = calc_instance.run_calculation(positions_angstrom, element_list)
+                # ---------------------------
                 
-                energy_list.append(results['energy'])
-                gradient_list.append(results['gradient'])
+                energy_list.append(e)
+                gradient_list.append(g)
+                
+                # Store in Bohr
+                positions_bohr = positions_angstrom / calc_instance.bohr2angstroms
                 geometry_num_list.append(positions_bohr)
                 num_list.append(num)
+                
+                # Hessian Calculation
+                if config.MFC_COUNT != -1 and optimize_num % config.MFC_COUNT == 0 and config.model_hessian.lower() == "o1numhess":
+                    print(f" Calculating O1NumHess for image {num} using {config.model_hessian}...")
+                    o1numhess = O1NumHessCalculator(calc_instance, 
+                        element_list, 
+                        [0, 1], # Placeholder for charge and multiplicity
+                        method="")
+                    seminumericalhessian = o1numhess.compute_hessian(positions_angstrom)
+                    np.save(os.path.join(config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{hess_count}.npy"), seminumericalhessian)
+                    hess_count += 1
+                
+                elif config.FC_COUNT == -1 or isinstance(optimize_num, str):
+                    pass
+                elif optimize_num % config.FC_COUNT == 0:
+                    print(f"  Calculating Exact Hessian (LJ) for image {num}...")
+                    
+                    exact_hess = calc_instance.calc_exact_hess(positions_angstrom, element_list)
+                    
+                    np.save(os.path.join(config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{hess_count}.npy"), exact_hess)
+                    hess_count += 1
+                    
             except Exception as error:
                 print(f"Error processing {input_file}: {error}")
                 if optimize_num != 0:
@@ -308,6 +359,7 @@ class LJEngine(CalculationEngine):
         self._process_visualization(energy_list, gradient_list, num_list, optimize_num, config)
         if optimize_num != 0 and len(pre_total_velocity) > 0 and delete_pre_total_velocity:
             pre_total_velocity = np.delete(np.array(pre_total_velocity), delete_pre_total_velocity, axis=0)
+        
         return (np.array(energy_list, dtype='float64'),
                 np.array(gradient_list, dtype='float64'),
                 np.array(geometry_num_list, dtype='float64'),

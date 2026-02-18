@@ -513,10 +513,13 @@ class NEB:
             # Calculate model hessian if needed
             if (self.config.FC_COUNT == -1 and self.config.model_hessian and
                 adaptive_neb_count % self.config.MFC_COUNT == 0):
-                for i in range(len(geometry_num_list)):
-                    hessian = ApproxHessian().main(geometry_num_list[i], element_list, 
+                if self.config.model_hessian.lower() == "o1numhess":
+                    pass
+                else:
+                    for i in range(len(geometry_num_list)):
+                        hessian = ApproxHessian().main(geometry_num_list[i], element_list, 
                                                  gradient_list[i], approx_hess_type=self.config.model_hessian)
-                    np.save(self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(i) + ".npy", hessian)
+                        np.save(self.config.NEB_FOLDER_DIRECTORY + "tmp_hessian_" + str(i) + ".npy", hessian)
             
             # Initialize projection constraints
             if projection_constraint_flag and adaptive_neb_count == 0:
