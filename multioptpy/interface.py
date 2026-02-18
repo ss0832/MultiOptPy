@@ -267,6 +267,7 @@ def call_nebparser(parser):
     parser.add_argument("-ad", "--align_distances", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate')
     parser.add_argument("-adene", "--align_distances_energy", type=int, default=0, help='distribute images at energy-weighted intervals on the reaction coordinate')
     parser.add_argument("-adpred", "--align_distances_energy_predicted", type=int, default=0, help='distribute images at intervals on the reaction coordinate using cubic predicted interpolation')
+    parser.add_argument("-adrpred", "--align_distances_ritz_energy_predicted", type=int, default=0, help='distribute images at intervals on the reaction coordinate using Ritz method')
     parser.add_argument("-ads", "--align_distances_spline", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation')
     parser.add_argument("-ads2", "--align_distances_spline_ver2", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using spline interpolation ver.2')
     parser.add_argument("-adg", "--align_distances_geodesic", type=int, default=0, help='distribute images at equal intervals on the reaction coordinate using geodesic interpolation')
