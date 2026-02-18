@@ -68,6 +68,7 @@ from multioptpy.Interpolation.spline_interpolation import spline_interpolation, 
 from multioptpy.Interpolation.linear_interpolation import distribute_geometry, distribute_geometry_by_length, distribute_geometry_by_energy, distribute_geometry_by_predicted_energy
 from multioptpy.Interpolation.savitzky_golay_interpolation import savitzky_golay_interpolation, distribute_geometry_by_length_savgol
 from multioptpy.Interpolation.adaptive_interpolation import adaptive_geometry_energy_interpolation
+from multioptpy.Interpolation.ritz_interpolation import distribute_geometry_bspline_ritz
 
 
 
@@ -149,6 +150,7 @@ class NEBConfig:
         self.align_distances = args.align_distances
         self.align_distances_energy = args.align_distances_energy
         self.align_distances_energy_predicted = args.align_distances_energy_predicted
+        self.align_distances_ritz_energy_predicted = args.align_distances_ritz_energy_predicted
         self.align_distances_spline = args.align_distances_spline
         self.align_distances_spline_ver2 = args.align_distances_spline_ver2
         self.align_distances_geodesic = args.align_distances_geodesic
@@ -495,8 +497,7 @@ class NEB:
             self.make_traj_file(file_directory)
             
             # Calculate energy and gradients
-            energy_list, gradient_list, geometry_num_list, pre_total_velocity = \
-                self.calculation_engine.calculate(file_directory, adaptive_neb_count, 
+            energy_list, gradient_list, geometry_num_list, pre_total_velocity = self.calculation_engine.calculate(file_directory, adaptive_neb_count, 
                                                 pre_total_velocity, self.config)
             
             if adaptive_neb_count == 0:
@@ -542,8 +543,7 @@ class NEB:
                 geometry_num_list, biased_energy_list, biased_gradient_list, adaptive_neb_count, element_list) 
 
             # Calculate analysis metrics
-            cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list, path_length_list = \
-                self._calculate_analysis_metrics(total_force, biased_gradient_list, geometry_num_list)
+            cos_list, tot_force_rms_list, tot_force_max_list, bias_force_rms_list, path_length_list = self._calculate_analysis_metrics(total_force, biased_gradient_list, geometry_num_list)
             
             # Save analysis data and create plots
             self._save_analysis_data(cos_list, tot_force_rms_list, tot_force_max_list, 
@@ -739,6 +739,12 @@ class NEB:
                 "Aligning geometries using energy-weighted predicted interpolation...", 
                 lambda: {'energy_list': energy_list, 'gradient_list': gradient_list}
             ), 
+           (
+                'align_distances_ritz_energy_predicted', 
+                distribute_geometry_bspline_ritz,
+                "Aligning geometries using energy-weighted predicted interpolation and Ritz method ...", 
+                lambda: {'energy_list': energy_list, 'gradient_list': gradient_list}
+            ),   
       
         ]
 
