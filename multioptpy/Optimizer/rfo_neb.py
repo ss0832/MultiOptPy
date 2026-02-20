@@ -30,12 +30,12 @@ class OptimizationAlgorithm(ABC):
         
         if is_endpoint:
             # Endpoints: Minimize (order 0), larger trust radius
-            OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.5)
+            OPT = rsirfo.RSIRFO(method="rsirfo_block_fsb", saddle_order=0, trust_radius=0.5)
         else:
             # Intermediate
             # QSM usually targets saddle order 0 (path finding), NEB might target saddle order 1
             saddle_order = 0 if is_qsm else 1
-            OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=saddle_order, trust_radius=0.1)
+            OPT = rsirfo.RSIRFO(method="rsirfo_block_bofill", saddle_order=saddle_order, trust_radius=0.2)
         
         OPT.iteration = optimize_num
         return OPT
@@ -96,6 +96,7 @@ class RFOOptimizer(OptimizationAlgorithm):
         )
         self.apply_ts_opt = True
         self.ratio_of_rfo_step = getattr(config, "ratio_of_rfo_step", 0.5)
+        self.optimizer_instance_list = []
     
     def set_apply_ts_opt(self, apply_ts_opt):
         self.apply_ts_opt = apply_ts_opt
@@ -105,14 +106,32 @@ class RFOOptimizer(OptimizationAlgorithm):
                 pre_biased_energy_list, pre_total_velocity, total_velocity, 
                 cos_list, pre_geom, STRING_FORCE_CALC):
         
+        
         natoms = len(geometry_num_list[0])
         total_nodes = len(geometry_num_list)
+        maxima_indices = argrelextrema(biased_energy_list, np.greater)[0]
+        
+        # 0. initialize optimizer instances list on first call
+        if optimize_num == 0:
+            self.optimizer_instance_list = []
+            for num in range(total_nodes):
+                if num == 0 or num == total_nodes - 1:
+                    OPT = rsirfo.RSIRFO(method="rsirfo_block_fsb", saddle_order=0, trust_radius=0.5)
+                else:
+                    OPT = rsirfo.RSIRFO(method="rsirfo_block_bofill", saddle_order=0, trust_radius=0.2)
+                    if num in maxima_indices and self.apply_ts_opt:
+                        pass
+                    else:
+                        OPT.switch_NEB_mode()
+             
+                self.optimizer_instance_list.append(OPT)
+        
         
         # 1. Calc Force
         proj_total_force_list = STRING_FORCE_CALC.calc_force(
             geometry_num_list, biased_energy_list, total_force_list, optimize_num, self.config.element_list)
         
-        maxima_indices = argrelextrema(biased_energy_list, np.greater)[0]
+        
         rfo_delta_list = []
         
         for num, total_force in enumerate(total_force_list):
@@ -122,34 +141,21 @@ class RFOOptimizer(OptimizationAlgorithm):
             # B. Setup Optimizer
             # Note: Standard RFOOptimizer logic for 'intermediate' nodes differs slightly (saddle_order=1)
             # We preserve the original logic here manually or via the helper with is_qsm=False
-            if num == 0 or num == total_nodes - 1:
-                OPT = rsirfo.RSIRFO(method="rsirfo_fsb", saddle_order=0, trust_radius=0.2)
-            else:
-                OPT = rsirfo.RSIRFO(method="rsirfo_bofill", saddle_order=0, trust_radius=0.1)
-                if num in maxima_indices and self.apply_ts_opt:
-                    pass
-                else:
-                    OPT.switch_NEB_mode()
+            OPT = self.optimizer_instance_list[num]
 
-            OPT.iteration = optimize_num
-            OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
             
             # C. Hessian Processing
-           
-            # [ADDED] Apply Ayala Curvature Correction if available
             hessian = self._apply_ayala_hessian_update(
                 hessian, num, total_nodes, geometry_num_list, 
                 biased_energy_list, total_force_list, STRING_FORCE_CALC
             )
 
             OPT.set_hessian(hessian)
+            OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
            
-            # D. Prepare Steps
             if optimize_num == 0:
-                OPT.Initialization = True
                 pre_B_g, pre_geom_node = None, None
             else:
-                OPT.Initialization = False
                 pre_B_g = prev_total_force_list[num].reshape(-1, 1)
                 pre_geom_node = prev_geometry_num_list[num].reshape(-1, 1)        
                 
@@ -167,6 +173,9 @@ class RFOOptimizer(OptimizationAlgorithm):
             # G. Save
             new_hessian = OPT.get_hessian()
             np.save(os.path.join(self.config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{num}.npy"), new_hessian)
+            OPT.set_hessian(None)
+            OPT.set_bias_hessian(None)
+            self.optimizer_instance_list[num] = OPT
             
         # 3. TR Calc
         rfo_move_vector_list = self.NEB_TR.TR_calc(
@@ -221,6 +230,13 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
         natoms = len(geometry_num_list[0])
         total_nodes = len(geometry_num_list)
         
+        # 0. initialize optimizer instances list on first call
+        if optimize_num == 0:
+            self.optimizer_instance_list = []
+            for num in range(total_nodes):
+                OPT = self._setup_rfo_optimizer(num, total_nodes, optimize_num, is_qsm=True)     
+                self.optimizer_instance_list.append(OPT)        
+        
         # 1. Calc Force
         proj_total_force_list = STRING_FORCE_CALC.calc_force(
             geometry_num_list, biased_energy_list, total_force_list, optimize_num, self.config.element_list)
@@ -232,8 +248,7 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
             hessian = self._load_or_init_hessian(num, natoms, self.config)
             
             # B. Setup Optimizer (QSM mode uses saddle_order=0 for intermediates usually)
-            OPT = self._setup_rfo_optimizer(num, total_nodes, optimize_num, is_qsm=True)
-            OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
+            OPT = self.optimizer_instance_list[num]
             
             # C. Hessian Processing
             hessian = STRING_FORCE_CALC.calc_proj_hess(hessian, num, geometry_num_list)
@@ -246,7 +261,8 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
                 )
             
             OPT.set_hessian(hessian)
-           
+            OPT.set_bias_hessian(np.zeros((3*natoms, 3*natoms)))
+            
             # D. Prepare Steps
             if optimize_num == 0:
                 OPT.Initialization = True
@@ -270,6 +286,11 @@ class RFOQSMOptimizer(OptimizationAlgorithm):
             # G. Save
             new_hessian = OPT.get_hessian()
             np.save(os.path.join(self.config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{num}.npy"), new_hessian)
+            
+            OPT.set_hessian(None)
+            OPT.set_bias_hessian(None)
+            
+            self.optimizer_instance_list[num] = OPT    
             
         # 3. TR Calc
         rfo_move_vector_list = self.NEB_TR.TR_calc(
