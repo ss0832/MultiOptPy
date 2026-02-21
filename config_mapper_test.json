@@ -23,10 +23,10 @@
   
   "step2_settings": {
     "usextb": "GFN2-xTB",
-    "NSTEP": 20,
+    "NSTEP": 30,
     "use_model_hessian": "fischerd3old",
-    "node_distance": 0.40,
-	"align_distances_energy_predicted": 1,
+    "node_distance": 0.30,
+	"align_distances_energy_predicted": 2,
     "spin_multiplicity": 1,
     "electronic_charge": 0
   },
@@ -42,7 +42,7 @@
     "spin_multiplicity": 1,
     "electronic_charge": 0,
 	"detect_negative_eigenvalues": true,
-	"NSTEP": 400
+	"NSTEP": 200
   },
 
   "step4_settings": {
