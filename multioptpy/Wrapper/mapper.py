@@ -481,11 +481,10 @@ class TSEdge:
     barrier_fwd: float | None = None
     barrier_rev: float | None = None
     source_run_dir: str = ""
-    duplicate_of: int | None = None
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        data = {
+        return {
             "edge_id":           self.edge_id,
             "node_id_1":         self.node_id_1,
             "node_id_2":         self.node_id_2,
@@ -496,9 +495,6 @@ class TSEdge:
             "source_run_dir":    self.source_run_dir,
             **self.extra,
         }
-        if self.duplicate_of is not None:
-            data["duplicate_of"] = self.duplicate_of
-        return data
 
 class NetworkGraph:
     def __init__(self) -> None:
@@ -582,7 +578,6 @@ class NetworkGraph:
                 barrier_fwd=ed.get("barrier_fwd_kcal"),
                 barrier_rev=ed.get("barrier_rev_kcal"),
                 source_run_dir=ed.get("source_run_dir", ""),
-                duplicate_of=ed.get("duplicate_of")
             )
             self.add_edge(edge)
 
@@ -608,9 +603,8 @@ class NetworkGraph:
         for edge in self._edges.values():
             fwd = f"{edge.barrier_fwd:.2f}" if edge.barrier_fwd is not None else "N/A"
             rev = f"{edge.barrier_rev:.2f}" if edge.barrier_rev is not None else "N/A"
-            dup_info = f" (Dup of TS{edge.duplicate_of:06d})" if edge.duplicate_of is not None else ""
             lines.append(
-                f"  TS{edge.edge_id:06d}{dup_info}: "
+                f"  TS{edge.edge_id:06d}: "
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
                 f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol"
             )
@@ -974,27 +968,23 @@ class ReactionNetworkMapper:
         if node_id_1 is None or node_id_2 is None or node_id_1 == node_id_2:
             return
 
-        edge_id = self.graph.next_edge_id()
-        
-        # TS Identity Check
-        ts_duplicate_of = None
+        # TS 重複判定：既存の TS と構造・エネルギーが一致する場合は登録しない
         try:
             ts_sym, ts_coords = parse_xyz(result["ts_xyz_file"])
             for existing_edge in self.graph.all_edges():
                 if existing_edge.ts_xyz_file and os.path.isfile(existing_edge.ts_xyz_file):
                     ex_sym, ex_coords = parse_xyz(existing_edge.ts_xyz_file)
-                    # Energy filter pre-check
                     if abs(ts_energy - existing_edge.ts_energy) < self.energy_tolerance:
                         if self.checker.are_similar(ts_sym, ts_coords, ex_sym, ex_coords):
-                            ts_duplicate_of = existing_edge.edge_id
-                            break
+                            logger.debug(
+                                f"TS duplicate detected (matches TS{existing_edge.edge_id:06d}), skipping."
+                            )
+                            return
         except Exception:
             pass
-        
-        if ts_duplicate_of is not None:
-            saved_ts_xyz = None
-        else:
-            saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
+
+        edge_id = self.graph.next_edge_id()
+        saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
 
         edge = TSEdge(
             edge_id=edge_id,
@@ -1005,7 +995,6 @@ class ReactionNetworkMapper:
             barrier_fwd=result["barrier_fwd"],
             barrier_rev=result["barrier_rev"],
             source_run_dir=run_dir,
-            duplicate_of=ts_duplicate_of
         )
         self.graph.add_edge(edge)
 
