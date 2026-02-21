@@ -39,7 +39,11 @@ An optional "mapper_settings" block controls the mapper itself:
         "dist_lower_ang"   : 1.5,      // distance window lower bound [A]
         "dist_upper_ang"   : 5.0,      // distance window upper bound [A]
         "output_dir"       : "mapper_output",
-        "rng_seed"         : 42
+        "rng_seed"         : 42        // RNG seed for reproducibility
+        "active_atoms"     : [1,2,5,6] // 1-based atom labels to restrict pair search
+                                       // (null or omit = all atoms)
+        "include_negative_gamma": false // also explore repulsive (negative gamma)
+                                        // direction for each selected pair
     }
 
 CLI arguments take precedence over mapper_settings, which in turn
@@ -201,6 +205,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Random seed for reproducibility. Default: 42.",
     )
     parser.add_argument(
+        "--active_atoms",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="ATOM_NUM",
+        help=(
+            "1-based atom label numbers to restrict AFIR pair search. "
+            "Only pairs formed between these atoms will be generated. "
+            "Example: --active_atoms 1 2 5 6  "
+            "Default: all atoms are considered."
+        ),
+    )
+    parser.add_argument(
+        "--negative_gamma",
+        action="store_true",
+        default=False,
+        help=(
+            "Also generate repulsive (negative gamma) AFIR perturbations "
+            "for every selected atom pair, in addition to the default "
+            "attractive (positive gamma) direction."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from an existing reaction_network.json.",
@@ -271,16 +298,20 @@ def merge_config(args: argparse.Namespace, config: dict) -> dict:
         return ms.get(json_key, default)
 
     config["_mapper"] = {
-        "temperature_K":    resolve(args.temperature,    "temperature_K",    300.0),
-        "rmsd_threshold":   resolve(args.rmsd_threshold, "rmsd_threshold",   0.30),
-        "max_iterations":   resolve(args.max_iter,       "max_iterations",   50),
-        "afir_gamma_kJmol": resolve(args.afir_gamma,     "afir_gamma_kJmol", 100.0),
-        "max_pairs":        resolve(args.max_pairs,       "max_pairs",        5),
-        "dist_lower_ang":   resolve(args.dist_lower,     "dist_lower_ang",   1.5),
-        "dist_upper_ang":   resolve(args.dist_upper,     "dist_upper_ang",   5.0),
-        "output_dir":       resolve(args.output_dir,     "output_dir",       "mapper_output"),
-        "rng_seed":         resolve(args.rng_seed,       "rng_seed",         42),
-        "resume":           args.resume,
+        "temperature_K":          resolve(args.temperature,    "temperature_K",          300.0),
+        "rmsd_threshold":         resolve(args.rmsd_threshold, "rmsd_threshold",         0.30),
+        "max_iterations":         resolve(args.max_iter,       "max_iterations",         50),
+        "afir_gamma_kJmol":       resolve(args.afir_gamma,     "afir_gamma_kJmol",       100.0),
+        "max_pairs":              resolve(args.max_pairs,       "max_pairs",              5),
+        "dist_lower_ang":         resolve(args.dist_lower,     "dist_lower_ang",         1.5),
+        "dist_upper_ang":         resolve(args.dist_upper,     "dist_upper_ang",         5.0),
+        "output_dir":             resolve(args.output_dir,     "output_dir",             "mapper_output"),
+        "rng_seed":               resolve(args.rng_seed,       "rng_seed",               42),
+        "resume":                 args.resume,
+        # New options
+        "active_atoms":           args.active_atoms if args.active_atoms is not None
+                                      else ms.get("active_atoms", None),
+        "include_negative_gamma": args.negative_gamma or ms.get("include_negative_gamma", False),
     }
 
     return config
@@ -307,6 +338,9 @@ def print_config_summary(config: dict) -> None:
     print(f"  Distance window : {m['dist_lower_ang']} - {m['dist_upper_ang']} A")
     print(f"  RNG seed        : {m['rng_seed']}")
     print(f"  Resume mode     : {'yes' if m['resume'] else 'no'}")
+    active_str = ", ".join(str(a) for a in m["active_atoms"]) if m["active_atoms"] else "all"
+    print(f"  Active atoms    : {active_str}")
+    print(f"  Negative gamma  : {'yes' if m['include_negative_gamma'] else 'no'}")
     print(sep)
 
 
@@ -355,6 +389,8 @@ def launch_mapper(config: dict) -> None:
         dist_lower_ang=m["dist_lower_ang"],
         dist_upper_ang=m["dist_upper_ang"],
         rng_seed=m["rng_seed"],
+        active_atoms=m["active_atoms"],
+        include_negative_gamma=m["include_negative_gamma"],
     )
 
     mapper = ReactionNetworkMapper(
