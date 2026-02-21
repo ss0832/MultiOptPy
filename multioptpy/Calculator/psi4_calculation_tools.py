@@ -6,7 +6,8 @@ from abc import ABC, abstractmethod
 try:
     import psi4
 except ImportError:
-    pass
+    print("Psi4 is not available.")
+    psi4 = None  # Set to None to handle gracefully in code
 
 from multioptpy.Utils.calc_tools import Calculationtools
 from multioptpy.fileio import xyz2list
