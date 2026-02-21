@@ -723,6 +723,7 @@ class ReactionNetworkMapper:
             source_run_dir="initial_optimization",
         )
         self.graph.add_node(node)
+        self.graph.save(self.graph_json_path)   # EQ0 登録直後に即保存
         self._enqueue_perturbations(node, force_add=True)
 
     def _run_initial_optimization(
