@@ -88,31 +88,6 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
 
     return symbols, np.array(coords_raw, dtype=float)
 
-def energy_from_xyz_comment(filepath: str) -> float | None:
-    """Try to extract a float energy from the XYZ comment line (line 2).
-
-    Many QC packages write the SCF energy there, e.g.:
-        ``energy = -18.775467565136`` or just ``-18.775467565136``.
-    Returns ``None`` if no parseable value is found.
-    """
-    try:
-        with open(filepath, "r") as fh:
-            lines = fh.readlines()
-        # XYZ comment line is the 2nd non-blank line
-        non_blank = [ln.strip() for ln in lines if ln.strip()]
-        if len(non_blank) < 2:
-            return None
-        comment = non_blank[1]
-        # Try "key = value" pattern first
-        if "=" in comment:
-            value_str = comment.split("=", 1)[1].strip().split()[0]
-        else:
-            value_str = comment.strip().split()[0]
-        return float(value_str)
-    except Exception:
-        return None
-
-
 def distance_matrix(coords: np.ndarray) -> np.ndarray:
     diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
     return np.sqrt((diff ** 2).sum(axis=-1))
@@ -791,33 +766,37 @@ class ReactionNetworkMapper:
             if potential_opt_files:
                 optimized_xyz_path = os.path.abspath(potential_opt_files[0])
 
-            # --- Extract energy from opt_job (primary path) ---
-            # Try common attribute names used by OptimizationJob implementations.
+            # --- Extract energy via get_results() -> Optimize instance ---
+            # OptimizationJob itself holds no energy; it lives on the internal
+            # multioptpy.optimization.Optimize object returned by get_results().
             energy: float | None = None
-            for attr in ("energy", "final_energy", "scf_energy", "result_energy"):
-                raw = getattr(opt_job, attr, None)
-                if raw is not None:
-                    try:
-                        energy = float(raw)
-                        logger.info(
-                            f"Initial optimization energy ({attr}): {energy:.10f} Ha"
-                        )
-                        break
-                    except (TypeError, ValueError):
-                        pass
+            optimizer = opt_job.get_results()
+            if optimizer is not None:
+                for attr in ("energy", "final_energy", "scf_energy", "result_energy",
+                             "optimized_energy", "last_energy", "minimum_energy"):
+                    raw = getattr(optimizer, attr, None)
+                    if raw is not None:
+                        try:
+                            energy = float(raw)
+                            logger.info(
+                                f"Initial optimization energy (optimizer.{attr}): {energy:.10f} Ha"
+                            )
+                            break
+                        except (TypeError, ValueError):
+                            pass
 
-            # --- Fallback: parse energy from XYZ comment line ---
             if energy is None:
-                energy = energy_from_xyz_comment(optimized_xyz_path)
-                if energy is not None:
-                    logger.info(
-                        f"Initial optimization energy (XYZ comment): {energy:.10f} Ha"
-                    )
-                else:
-                    logger.warning(
-                        "Could not retrieve energy from OptimizationJob or XYZ comment. "
-                        "Node 0 will have energy=None."
-                    )
+                logger.warning(
+                    "Could not retrieve energy from optimizer instance. "
+                    "Node 0 will have energy=None. "
+                    "Check multioptpy.optimization.Optimize for the correct energy attribute name."
+                )
+                # Log all float attributes on the optimizer to assist diagnosis.
+                if optimizer is not None:
+                    float_attrs = {k: v for k, v in vars(optimizer).items()
+                                   if isinstance(v, float)}
+                    if float_attrs:
+                        logger.warning(f"Float attributes on optimizer: {float_attrs}")
 
             return optimized_xyz_path, energy
 
