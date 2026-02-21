@@ -2,15 +2,15 @@
   "work_dir": "autots_run",
   "top_n_candidates": 3,
   "mapper_settings": {
-        "temperature_K"    : 300.0,   
-        "rmsd_threshold"   : 0.40,    
-        "max_iterations"   : 75,    
+        "temperature_K"    : 500.0,   
+        "rmsd_threshold"   : 0.50,    
+        "max_iterations"   : 50,    
         "afir_gamma_kJmol" : 250.0,   
         "max_pairs"        : 5,       
-        "dist_lower_ang"   : 3.0,    
-        "dist_upper_ang"   : 8.0,    
+        "dist_lower_ang"   : 2.5,    
+        "dist_upper_ang"   : 7.0,    
         "output_dir"       : "mapper_output",
-        "rng_seed"         : 36
+        "rng_seed"         : 42
     },
 	
   "step1_settings": {
