@@ -2,8 +2,8 @@
 mapper.py - Chemical Reaction Network Mapper
 ============================================
 
-Autonomously maps a chemical reaction network by running
-AutoTSWorkflow (autots.py) as the search engine iteratively.
+Autonomously maps a chemical reaction network using AutoTSWorkflow
+and external optimization utilities.
 """
 
 from __future__ import annotations
@@ -20,15 +20,21 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import numpy as np
-import networkx as nx
-from scipy.optimize import linear_sum_assignment
+from scipy.spatial.distance import cdist
 
+# Internal imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from multioptpy.Wrapper.autots import AutoTSWorkflow
 except ImportError as _autots_import_err:
     print(f"[mapper] Warning: could not import AutoTSWorkflow: {_autots_import_err}")
     AutoTSWorkflow = None  # type: ignore[assignment,misc]
+
+try:
+    from optimize_wrapper import OptimizationJob
+except ImportError as _opt_import_err:
+    print(f"[mapper] Warning: could not import OptimizationJob: {_opt_import_err}")
+    OptimizationJob = None # type: ignore[assignment,misc]
 
 try:
     from multioptpy.Parameters.covalent_radii import covalent_radii_lib
@@ -41,15 +47,13 @@ except ImportError as _covalent_import_err:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Module-level physical constants
-# ---------------------------------------------------------------------------
 HARTREE_TO_KCALMOL: float = 627.509474
 K_B_HARTREE: float = 3.166811563e-6
 
 
 # ===========================================================================
-# Section 1 : XYZ utilities
+# Section 1 : XYZ Utilities
 # ===========================================================================
 
 def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
@@ -90,19 +94,21 @@ def distance_matrix(coords: np.ndarray) -> np.ndarray:
 
 
 # ===========================================================================
-# Section 2 : StructureChecker
+# Section 2 : Fast StructureChecker
 # ===========================================================================
 
 class StructureChecker:
     def __init__(self, rmsd_threshold: float = 0.30) -> None:
         self.rmsd_threshold = rmsd_threshold
 
-    def are_same(
+    def are_similar(
         self,
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> bool:
-        return self.compute_rmsd(sym_a, coords_a, sym_b, coords_b) < self.rmsd_threshold
+        """Evaluates structural similarity based on PCA alignment and greedy matching."""
+        rmsd_val = self.compute_rmsd(sym_a, coords_a, sym_b, coords_b)
+        return rmsd_val < self.rmsd_threshold
 
     def compute_rmsd(
         self,
@@ -114,43 +120,72 @@ class StructureChecker:
 
         ca = coords_a - coords_a.mean(axis=0)
         cb = coords_b - coords_b.mean(axis=0)
-        cb = self._principal_axis_align(cb)
 
-        perm = self._hungarian_mapping(sym_a, ca, sym_b, cb)
-        if perm is None:
-            return float("inf")
+        ca_aligned = self._principal_axis_align(ca)
+        cb_aligned = self._principal_axis_align(cb)
 
-        return self._kabsch_rmsd(ca, cb[perm])
+        min_rmsd = float("inf")
+        
+        # Test 8 octant reflections for principal axes signs
+        reflections = [
+            np.array([1, 1, 1]), np.array([-1, 1, 1]), np.array([1, -1, 1]), np.array([1, 1, -1]),
+            np.array([-1, -1, 1]), np.array([-1, 1, -1]), np.array([1, -1, -1]), np.array([-1, -1, -1])
+        ]
+
+        for ref in reflections:
+            cb_ref = cb_aligned * ref
+            perm = self._greedy_mapping(sym_a, ca_aligned, sym_b, cb_ref)
+            if perm is not None:
+                rmsd_current = self._kabsch_rmsd(ca_aligned, cb_ref[perm])
+                if rmsd_current < min_rmsd:
+                    min_rmsd = rmsd_current
+
+        return min_rmsd
 
     @staticmethod
     def _principal_axis_align(coords: np.ndarray) -> np.ndarray:
         if len(coords) < 2:
             return coords
-        _, eigvecs = np.linalg.eigh(np.cov(coords.T))
+        cov_matrix = np.cov(coords.T)
+        _, eigvecs = np.linalg.eigh(cov_matrix)
+        # Sort eigenvectors by descending eigenvalues for consistent orientation
+        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
+        idx = eigvals.argsort()[::-1]
+        eigvecs = eigvecs[:, idx]
         return coords @ eigvecs
 
     @staticmethod
-    def _hungarian_mapping(
+    def _greedy_mapping(
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> list[int] | None:
+        """Heuristic greedy matching per element. Faster than Hungarian algorithm."""
         perm: list[int | None] = [None] * len(sym_a)
-
-        for elem in set(sym_a):
+        
+        unique_elements = set(sym_a)
+        for elem in unique_elements:
             idx_a = [i for i, s in enumerate(sym_a) if s == elem]
             idx_b = [i for i, s in enumerate(sym_b) if s == elem]
+            
             if len(idx_a) != len(idx_b):
                 return None
 
             sub_a = coords_a[idx_a]
             sub_b = coords_b[idx_b]
-            diff = sub_a[:, np.newaxis, :] - sub_b[np.newaxis, :, :]
-            cost = (diff ** 2).sum(axis=-1)
+            
+            dists = cdist(sub_a, sub_b, metric='sqeuclidean')
+            
+            assigned_b = set()
+            for r in range(len(idx_a)):
+                sorted_c_indices = np.argsort(dists[r])
+                for c in sorted_c_indices:
+                    if c not in assigned_b:
+                        assigned_b.add(c)
+                        perm[idx_a[r]] = idx_b[c]
+                        break
 
-            row_ind, col_ind = linear_sum_assignment(cost)
-            for r, c in zip(row_ind, col_ind):
-                perm[idx_a[r]] = idx_b[c]
-
+        if None in perm:
+            return None
         return perm  # type: ignore
 
     @staticmethod
@@ -175,7 +210,6 @@ class ExplorationTask:
     afir_params: list[str]
     priority: float = 0.0
     metadata: dict = field(default_factory=dict)
-
 
 class ExplorationQueue(ABC):
     def __init__(self) -> None:
@@ -216,7 +250,6 @@ class ExplorationQueue(ABC):
     def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
         pass
 
-
 class BoltzmannQueue(ExplorationQueue):
     def __init__(self, temperature_K: float = 300.0, rng_seed: int = 42) -> None:
         super().__init__()
@@ -249,13 +282,40 @@ class PerturbationGenerator:
         dist_lower_ang: float = 1.5,
         dist_upper_ang: float = 5.0,
         rng_seed: int = 0,
-        covalent_margin: float = 1.2
+        covalent_margin: float = 1.2,
+        active_atoms: list[int] | None = None,
+        include_negative_gamma: bool = False,
     ) -> None:
+        """
+        Parameters
+        ----------
+        afir_gamma_kJmol : float
+            AFIR push/pull strength [kJ/mol].  Positive values attract the
+            selected atom pair (the usual SC-AFIR usage).
+        max_pairs : int
+            Maximum number of atom pairs sampled per call.
+        dist_lower_ang / dist_upper_ang : float
+            Distance window [Å] for candidate pair selection.
+        rng_seed : int
+            NumPy RNG seed for reproducibility.
+        covalent_margin : float
+            Pairs closer than ``covalent_margin * (r_i + r_j)`` are skipped
+            (already bonded).
+        active_atoms : list[int] | None
+            1-based atom label numbers to restrict pair search.
+            ``None`` (default) means all atoms are considered.
+        include_negative_gamma : bool
+            If ``True``, each selected pair also generates a repulsive
+            perturbation with ``-afir_gamma_kJmol`` (negative gamma).
+            Default is ``False`` (attractive direction only).
+        """
         self.afir_gamma_kJmol = afir_gamma_kJmol
         self.max_pairs = max_pairs
         self.dist_lower_ang = dist_lower_ang
         self.dist_upper_ang = dist_upper_ang
         self.covalent_margin = covalent_margin
+        self.active_atoms = set(active_atoms) if active_atoms is not None else None
+        self.include_negative_gamma = include_negative_gamma
         self._rng = np.random.default_rng(rng_seed)
 
     def generate_afir_perturbations(
@@ -263,6 +323,15 @@ class PerturbationGenerator:
         symbols: list[str],
         coords: np.ndarray,
     ) -> list[list[str]]:
+        """Return a list of AFIR parameter lists ready for AutoTSWorkflow step1.
+
+        Each entry has the form ``[gamma_str, atom_i_1based, atom_j_1based]``.
+
+        When ``include_negative_gamma`` is ``True``, every chosen pair is
+        duplicated with a negated gamma value, so both attractive and repulsive
+        directions are explored.  The total number of entries can therefore be
+        up to ``2 * max_pairs``.
+        """
         n = len(symbols)
         if n < 2:
             return []
@@ -270,8 +339,15 @@ class PerturbationGenerator:
         dmat = distance_matrix(coords)
         candidates: list[tuple[int, int]] = []
 
-        for i in range(n):
-            for j in range(i + 1, n):
+        # Build the pool of atom indices subject to active_atoms restriction.
+        # active_atoms stores 1-based labels; convert to 0-based for indexing.
+        if self.active_atoms is not None:
+            atom_indices = [i for i in range(n) if (i + 1) in self.active_atoms]
+        else:
+            atom_indices = list(range(n))
+
+        for idx, i in enumerate(atom_indices):
+            for j in atom_indices[idx + 1:]:
                 dist = dmat[i, j]
                 if self.dist_lower_ang <= dist <= self.dist_upper_ang:
                     if covalent_radii_lib is not None:
@@ -279,9 +355,9 @@ class PerturbationGenerator:
                             r_i = covalent_radii_lib(symbols[i]) * _BOHR2ANG
                             r_j = covalent_radii_lib(symbols[j]) * _BOHR2ANG
                             if dist <= self.covalent_margin * (r_i + r_j):
-                                continue 
+                                continue
                         except KeyError:
-                            pass 
+                            pass
                     candidates.append((i, j))
 
         if not candidates:
@@ -290,17 +366,24 @@ class PerturbationGenerator:
         n_sel = min(self.max_pairs, len(candidates))
         chosen = self._rng.choice(len(candidates), size=n_sel, replace=False)
 
-        gamma_str = f"{self.afir_gamma_kJmol:.6g}"
+        pos_gamma_str = f"{self.afir_gamma_kJmol:.6g}"
+        neg_gamma_str = f"{-self.afir_gamma_kJmol:.6g}"
+
         result: list[list[str]] = []
         for idx in chosen:
             i, j = candidates[int(idx)]
-            result.append([gamma_str, str(i + 1), str(j + 1)]) 
+            i1, j1 = str(i + 1), str(j + 1)
+            # Attractive direction (positive gamma) — always included
+            result.append([pos_gamma_str, i1, j1])
+            # Repulsive direction (negative gamma) — only when requested
+            if self.include_negative_gamma:
+                result.append([neg_gamma_str, i1, j1])
 
         return result
 
 
 # ===========================================================================
-# Section 5 : Graph data model
+# Section 5 : Graph data model (NetworkX Removed)
 # ===========================================================================
 
 @dataclass
@@ -315,7 +398,7 @@ class EQNode:
 
     @property
     def has_real_energy(self) -> bool:
-        return self.energy is not None and self.source_run_dir != "initial"
+        return self.energy is not None
 
     def to_dict(self) -> dict:
         return {
@@ -331,15 +414,16 @@ class TSEdge:
     edge_id: int
     node_id_1: int
     node_id_2: int
-    ts_xyz_file: str
+    ts_xyz_file: str | None
     ts_energy: float
     barrier_fwd: float | None = None
     barrier_rev: float | None = None
     source_run_dir: str = ""
+    duplicate_of: int | None = None
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "edge_id":           self.edge_id,
             "node_id_1":         self.node_id_1,
             "node_id_2":         self.node_id_2,
@@ -350,10 +434,12 @@ class TSEdge:
             "source_run_dir":    self.source_run_dir,
             **self.extra,
         }
+        if self.duplicate_of is not None:
+            data["duplicate_of"] = self.duplicate_of
+        return data
 
 class NetworkGraph:
     def __init__(self) -> None:
-        self._nx: nx.MultiGraph = nx.MultiGraph()
         self._nodes: dict[int, EQNode] = {}
         self._edges: dict[int, TSEdge] = {}
         self._node_counter: int = 0
@@ -361,7 +447,6 @@ class NetworkGraph:
 
     def add_node(self, node: EQNode) -> None:
         self._nodes[node.node_id] = node
-        self._nx.add_node(node.node_id, **node.to_dict())
 
     def get_node(self, node_id: int) -> EQNode | None:
         return self._nodes.get(node_id)
@@ -376,10 +461,6 @@ class NetworkGraph:
 
     def add_edge(self, edge: TSEdge) -> None:
         self._edges[edge.edge_id] = edge
-        self._nx.add_edge(
-            edge.node_id_1, edge.node_id_2,
-            key=edge.edge_id, **edge.to_dict(),
-        )
 
     def all_edges(self) -> list[TSEdge]:
         return list(self._edges.values())
@@ -406,7 +487,6 @@ class NetworkGraph:
             json.dump(data, fh, indent=2, ensure_ascii=False)
 
     def load(self, filepath: str) -> None:
-        self._nx = nx.MultiGraph()
         self._nodes.clear()
         self._edges.clear()
         self._node_counter = 0
@@ -435,11 +515,12 @@ class NetworkGraph:
                 edge_id=ed["edge_id"],
                 node_id_1=ed["node_id_1"],
                 node_id_2=ed["node_id_2"],
-                ts_xyz_file=ed["ts_xyz_file"],
+                ts_xyz_file=ed.get("ts_xyz_file"),
                 ts_energy=ed["ts_energy_hartree"],
                 barrier_fwd=ed.get("barrier_fwd_kcal"),
                 barrier_rev=ed.get("barrier_rev_kcal"),
                 source_run_dir=ed.get("source_run_dir", ""),
+                duplicate_of=ed.get("duplicate_of")
             )
             self.add_edge(edge)
 
@@ -465,8 +546,9 @@ class NetworkGraph:
         for edge in self._edges.values():
             fwd = f"{edge.barrier_fwd:.2f}" if edge.barrier_fwd is not None else "N/A"
             rev = f"{edge.barrier_rev:.2f}" if edge.barrier_rev is not None else "N/A"
+            dup_info = f" (Dup of TS{edge.duplicate_of:06d})" if edge.duplicate_of is not None else ""
             lines.append(
-                f"  TS{edge.edge_id:06d}: "
+                f"  TS{edge.edge_id:06d}{dup_info}: "
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
                 f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol"
             )
@@ -553,8 +635,8 @@ class ReactionNetworkMapper:
         resume: bool = False,
     ) -> None:
         self.base_config = base_config
-        self.queue    = queue               if queue               is not None else BoltzmannQueue()
-        self.checker  = structure_checker  if structure_checker  is not None else StructureChecker()
+        self.queue    = queue if queue is not None else BoltzmannQueue()
+        self.checker  = structure_checker if structure_checker is not None else StructureChecker()
         self.perturber = perturbation_generator if perturbation_generator is not None else PerturbationGenerator()
         self.output_dir = os.path.abspath(output_dir)
         self.graph_json_path = os.path.join(self.output_dir, graph_json)
@@ -594,11 +676,9 @@ class ReactionNetworkMapper:
 
             self._iteration += 1
             
-            # Write exploration history
             with open(history_log, "a", encoding="utf-8") as fh:
                 fh.write(f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} | Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n")
             
-            # Write current queue priority (overwrite mode)
             with open(priority_log, "w", encoding="utf-8") as fh:
                 for item in self.queue.export_queue_status():
                     fh.write(f"Node: EQ{item['node_id']:06d} | Priority: {item['priority']:.6f} | AFIR: {item['afir_params']}\n")
@@ -606,7 +686,8 @@ class ReactionNetworkMapper:
             run_dir = self._make_run_dir(task)
             try:
                 profile_dirs = self._run_autots(task, run_dir)
-            except Exception:
+            except Exception as e:
+                logger.error(f"AutoTS failed for run {run_dir}: {e}")
                 self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
                 self.graph.save(self.graph_json_path)
                 continue
@@ -621,14 +702,61 @@ class ReactionNetworkMapper:
 
     def _register_seed_structure(self) -> None:
         seed_xyz = os.path.abspath(self.base_config["initial_mol_file"])
-        symbols, coords = parse_xyz(seed_xyz)
+        node_id = self.graph.next_node_id()
+        
+        energy = None
+        optimized_xyz_path = seed_xyz
+
+        if OptimizationJob is not None:
+            try:
+                logger.info("Running initial structure optimization via OptimizationJob...")
+                
+                # Extract step1_settings from base_config
+                step1_config = self.base_config.get("step1_settings", {})
+                
+                # Filter out AFIR-related parameters for a standard geometry optimization
+                opt_kwargs = {
+                    k: v for k, v in step1_config.items()
+                    if k not in ["manual_AFIR", "afir_gamma_kJmol", "max_pairs"]
+                }
+                
+                # Ensure the absolute path to software_path_file is provided
+                if "software_path_file_source" in self.base_config:
+                    opt_kwargs["software_path_file"] = self.base_config["software_path_file_source"]
+                
+                # Ensure the run_type is set to standard optimization
+                opt_kwargs["run_type"] = "opt"
+                
+                # Initialize OptimizationJob and apply the filtered settings
+                opt_job = OptimizationJob(seed_xyz)
+                if opt_kwargs:
+                    opt_job.set_options(**opt_kwargs)
+                
+                opt_job.run()
+                
+                # Retrieve the optimized structure file
+                potential_opt_files = glob.glob("*_opt.xyz")
+                if potential_opt_files:
+                    optimized_xyz_path = os.path.abspath(potential_opt_files[0])
+                    
+            except Exception as e:
+                logger.error(f"Initial optimization failed: {e}. Falling back to unoptimized geometry.")
+        
+        saved_xyz = self._persist_node_xyz(optimized_xyz_path, node_id)
+        
+        try:
+            symbols, coords = parse_xyz(saved_xyz)
+        except Exception as e:
+            logger.error(f"Failed to parse initial structure: {e}")
+            sys.exit(1)
+
         node = EQNode(
-            node_id=self.graph.next_node_id(),
-            xyz_file=seed_xyz,
-            energy=None,
+            node_id=node_id,
+            xyz_file=saved_xyz,
+            energy=energy,
             symbols=symbols,
             coords=coords,
-            source_run_dir="initial",
+            source_run_dir="initial_optimization",
         )
         self.graph.add_node(node)
         self._enqueue_perturbations(node, force_add=True)
@@ -714,7 +842,26 @@ class ReactionNetworkMapper:
             return
 
         edge_id = self.graph.next_edge_id()
-        saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
+        
+        # TS Identity Check
+        ts_duplicate_of = None
+        try:
+            ts_sym, ts_coords = parse_xyz(result["ts_xyz_file"])
+            for existing_edge in self.graph.all_edges():
+                if existing_edge.ts_xyz_file and os.path.isfile(existing_edge.ts_xyz_file):
+                    ex_sym, ex_coords = parse_xyz(existing_edge.ts_xyz_file)
+                    # Energy filter pre-check
+                    if abs(ts_energy - existing_edge.ts_energy) < self.energy_tolerance:
+                        if self.checker.are_similar(ts_sym, ts_coords, ex_sym, ex_coords):
+                            ts_duplicate_of = existing_edge.edge_id
+                            break
+        except Exception:
+            pass
+        
+        if ts_duplicate_of is not None:
+            saved_ts_xyz = None
+        else:
+            saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
 
         edge = TSEdge(
             edge_id=edge_id,
@@ -725,6 +872,7 @@ class ReactionNetworkMapper:
             barrier_fwd=result["barrier_fwd"],
             barrier_rev=result["barrier_rev"],
             source_run_dir=run_dir,
+            duplicate_of=ts_duplicate_of
         )
         self.graph.add_edge(edge)
 
@@ -743,12 +891,11 @@ class ReactionNetworkMapper:
             if existing.coords.size == 0:
                 continue
                 
-            # Pre-filter by energy difference
             if energy is not None and existing.energy is not None:
                 if abs(energy - existing.energy) > self.energy_tolerance:
                     continue
 
-            if self.checker.are_same(symbols, coords, existing.symbols, existing.coords):
+            if self.checker.are_similar(symbols, coords, existing.symbols, existing.coords):
                 return existing.node_id
 
         node_id   = self.graph.next_node_id()
@@ -805,7 +952,8 @@ class ReactionNetworkMapper:
     def _persist_node_xyz(self, src_xyz: str, node_id: int) -> str:
         dst = os.path.join(self.output_dir, "nodes", f"EQ{node_id:06d}.xyz")
         try:
-            shutil.copy(src_xyz, dst)
+            if os.path.abspath(src_xyz) != os.path.abspath(dst):
+                shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
         except Exception:
             return os.path.abspath(src_xyz)
@@ -813,7 +961,8 @@ class ReactionNetworkMapper:
     def _persist_ts_xyz(self, src_xyz: str, edge_id: int) -> str:
         dst = os.path.join(self.output_dir, "nodes", f"TS{edge_id:06d}.xyz")
         try:
-            shutil.copy(src_xyz, dst)
+            if os.path.abspath(src_xyz) != os.path.abspath(dst):
+                shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
         except Exception:
             return os.path.abspath(src_xyz)
