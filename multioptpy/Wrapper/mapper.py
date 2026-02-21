@@ -8,11 +8,12 @@ and external optimization utilities.
 
 from __future__ import annotations
 
-import copy
+import bisect
 import glob
 import json
 import logging
 import os
+import copy
 import shutil
 import sys
 import traceback
@@ -212,9 +213,33 @@ class ExplorationTask:
     metadata: dict = field(default_factory=dict)
 
 class ExplorationQueue(ABC):
-    def __init__(self) -> None:
+    """優先度付き探索キューの基底クラス。
+
+    新しい探索戦略を追加する場合は :meth:`compute_priority` のみを
+    オーバーライドすれば足りる。:meth:`should_add` はデフォルトで
+    ``compute_priority`` の返値を確率として確率的サンプリングを行う
+    汎用実装を持つが、必要に応じてオーバーライドも可能。
+
+    Examples
+    --------
+    エネルギー差に線形比例する優先度::
+
+        class LinearQueue(ExplorationQueue):
+            def compute_priority(self, task):
+                delta_e = task.metadata.get("delta_E_hartree", 0.0)
+                return max(0.0, 1.0 - delta_e * 100)
+
+    ランダム探索（優先度を無視）::
+
+        class RandomQueue(ExplorationQueue):
+            def compute_priority(self, task):
+                return float(np.random.random())
+    """
+
+    def __init__(self, rng_seed: int = 42) -> None:
         self._tasks: list[ExplorationTask] = []
         self._submitted: set[tuple] = set()
+        self._rng = np.random.default_rng(rng_seed)
 
     def push(self, task: ExplorationTask) -> bool:
         key = (task.node_id, tuple(task.afir_params))
@@ -222,52 +247,89 @@ class ExplorationQueue(ABC):
             return False
 
         task.priority = self.compute_priority(task)
-        self._tasks.append(task)
-        self._tasks.sort(key=lambda t: t.priority, reverse=True)
+        # _tasks は priority 降順を維持する。bisect は昇順前提のため
+        # 負値キーで挿入位置を求め、O(log n) で正しい位置に挿入する。
+        keys = [-t.priority for t in self._tasks]
+        idx = bisect.bisect_right(keys, -task.priority)
+        self._tasks.insert(idx, task)
         self._submitted.add(key)
         return True
 
     def pop(self) -> ExplorationTask | None:
         return self._tasks.pop(0) if self._tasks else None
-    
+
+    def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
+        """ノードをキューに追加するか確率的に判定する。
+
+        ``compute_priority`` の返値（0〜1）をそのまま受理確率として使う。
+        決定論的に全ノードを追加したい場合は ``return True`` でオーバーライド、
+        独自の確率モデルを使いたい場合も同様にオーバーライドする。
+        """
+        dummy_task = ExplorationTask(
+            node_id=node.node_id,
+            xyz_file=node.xyz_file,
+            afir_params=[],
+            metadata={
+                "delta_E_hartree": (
+                    node.energy - reference_energy
+                    if node.energy is not None else 0.0
+                ),
+                "source_node_energy": node.energy,
+            },
+        )
+        p = self.compute_priority(dummy_task)
+        return bool(self._rng.random() < p)
+
     def export_queue_status(self) -> list[dict]:
         return [
             {
                 "node_id": t.node_id,
                 "priority": t.priority,
-                "afir_params": t.afir_params
-            } for t in self._tasks
+                "afir_params": t.afir_params,
+            }
+            for t in self._tasks
         ]
-    
+
     def __len__(self) -> int:
         return len(self._tasks)
 
     @abstractmethod
     def compute_priority(self, task: ExplorationTask) -> float:
-        pass
+        """タスクの優先度を 0〜1 の float で返す。
 
-    @abstractmethod
-    def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
-        pass
+        この値はキューの並び順と :meth:`should_add` の受理確率の両方に使われる。
+        サブクラスはこのメソッドだけを実装すれば新しい探索戦略になる。
+
+        Parameters
+        ----------
+        task : ExplorationTask
+            ``task.metadata["delta_E_hartree"]`` に参照エネルギーからの
+            エネルギー差（Hartree）が格納されている。
+
+        Returns
+        -------
+        float
+            0.0（最低優先度）〜 1.0（最高優先度）。
+        """
+
 
 class BoltzmannQueue(ExplorationQueue):
+    """ボルツマン分布に基づく確率的探索キュー（デフォルト）。
+
+    低エネルギーノードを高優先度で探索しつつ、温度パラメータ ``temperature_K``
+    に応じて高エネルギーノードも確率的に受理する。
+    """
+
     def __init__(self, temperature_K: float = 300.0, rng_seed: int = 42) -> None:
-        super().__init__()
+        super().__init__(rng_seed=rng_seed)
         self.temperature_K = temperature_K
-        self._rng = np.random.default_rng(rng_seed)
 
     def compute_priority(self, task: ExplorationTask) -> float:
+        """exp(-ΔE / k_B T) をそのまま優先度として返す。"""
         delta_e: float = task.metadata.get("delta_E_hartree", 0.0)
         if delta_e <= 0.0:
             return 1.0
         return min(1.0, float(np.exp(-delta_e / (K_B_HARTREE * self.temperature_K))))
-
-    def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
-        delta_e = node.energy - reference_energy
-        if delta_e <= 0.0:
-            return True
-        p = float(np.exp(-delta_e / (K_B_HARTREE * self.temperature_K)))
-        return bool(self._rng.random() < p)
 
 
 # ===========================================================================
