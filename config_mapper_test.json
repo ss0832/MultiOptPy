@@ -10,7 +10,7 @@
         "dist_lower_ang"   : 2.5,    
         "dist_upper_ang"   : 7.0,    
         "output_dir"       : "mapper_output",
-        "rng_seed"         : 42
+        "rng_seed"         : 30
     },
 	
   "step1_settings": {
@@ -23,9 +23,9 @@
   
   "step2_settings": {
     "usextb": "GFN2-xTB",
-    "NSTEP": 30,
+    "NSTEP": 25,
     "use_model_hessian": "fischerd3old",
-    "node_distance": 0.30,
+    "node_distance": 0.50,
 	"align_distances_energy_predicted": 2,
     "spin_multiplicity": 1,
     "electronic_charge": 0
@@ -42,7 +42,7 @@
     "spin_multiplicity": 1,
     "electronic_charge": 0,
 	"detect_negative_eigenvalues": true,
-	"NSTEP": 200
+	"NSTEP": 150
   },
 
   "step4_settings": {
