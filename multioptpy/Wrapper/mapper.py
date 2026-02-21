@@ -737,14 +737,13 @@ class ReactionNetworkMapper:
                 break
 
             self._iteration += 1
-            
+
             with open(history_log, "a", encoding="utf-8") as fh:
-                fh.write(f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} | Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n")
-            
-            with open(priority_log, "w", encoding="utf-8") as fh:
-                for item in self.queue.export_queue_status():
-                    fh.write(f"Node: EQ{item['node_id']:06d} | Priority: {item['priority']:.6f} | AFIR: {item['afir_params']}\n")
-            
+                fh.write(
+                    f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
+                    f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n"
+                )
+
             run_dir = self._make_run_dir(task)
             try:
                 profile_dirs = self._run_autots(task, run_dir)
@@ -752,6 +751,7 @@ class ReactionNetworkMapper:
                 logger.error(f"AutoTS failed for run {run_dir}: {e}")
                 self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
                 self.graph.save(self.graph_json_path)
+                self._write_priority_log(priority_log)
                 continue
 
             for pdir in profile_dirs:
@@ -759,6 +759,8 @@ class ReactionNetworkMapper:
 
             self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
             self.graph.save(self.graph_json_path)
+            # 新ノード登録・タスク追加が完了した後に書くことで最新状態を反映する
+            self._write_priority_log(priority_log)
 
         self.graph.save(self.graph_json_path)
 
@@ -869,6 +871,28 @@ class ReactionNetworkMapper:
             )
             traceback.print_exc()
             return seed_xyz, None
+
+    def _write_priority_log(self, priority_log: str) -> None:
+        """現在のキュー状態を priority_log に上書き保存する。
+
+        イテレーション末尾（新ノード登録・タスク追加の完了後）に呼ぶことで、
+        そのイテレーションで発見されたノードのタスクと優先度が正しく反映される。
+        """
+        ref_e = self.graph.reference_energy()
+        with open(priority_log, "w", encoding="utf-8") as fh:
+            fh.write(
+                f"# Iter {self._iteration:06d} | "
+                f"queued={len(self.queue)} | "
+                f"ref_energy={ref_e:.10f} Ha\n"
+                if ref_e is not None else
+                f"# Iter {self._iteration:06d} | queued={len(self.queue)} | ref_energy=N/A\n"
+            )
+            for item in self.queue.export_queue_status():
+                fh.write(
+                    f"Node: EQ{item['node_id']:06d} | "
+                    f"Priority: {item['priority']:.6f} | "
+                    f"AFIR: {item['afir_params']}\n"
+                )
 
     def _requeue_all_nodes(self) -> None:
         for node in self.graph.all_nodes():
