@@ -195,7 +195,16 @@ class ExplorationQueue(ABC):
 
     def pop(self) -> ExplorationTask | None:
         return self._tasks.pop(0) if self._tasks else None
-
+    
+    def export_queue_status(self) -> list[dict]:
+        return [
+            {
+                "node_id": t.node_id,
+                "priority": t.priority,
+                "afir_params": t.afir_params
+            } for t in self._tasks
+        ]
+    
     def __len__(self) -> int:
         return len(self._tasks)
 
@@ -451,13 +460,13 @@ class NetworkGraph:
                 e_str = f"{node.energy:+.8f} Ha"
             else:
                 e_str = "energy unknown"
-            lines.append(f"  EQ{node.node_id:04d}: {e_str}  [{node.xyz_file}]")
+            lines.append(f"  EQ{node.node_id:06d}: {e_str}  [{node.xyz_file}]")
 
         for edge in self._edges.values():
             fwd = f"{edge.barrier_fwd:.2f}" if edge.barrier_fwd is not None else "N/A"
             rev = f"{edge.barrier_rev:.2f}" if edge.barrier_rev is not None else "N/A"
             lines.append(
-                f"  TS{edge.edge_id:04d}: "
+                f"  TS{edge.edge_id:06d}: "
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
                 f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol"
             )
@@ -558,6 +567,8 @@ class ReactionNetworkMapper:
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "runs"), exist_ok=True)
+        
+        self.energy_tolerance = 1.0 / HARTREE_TO_KCALMOL
 
     def run(self) -> None:
         if self.resume and os.path.isfile(self.graph_json_path):
@@ -565,6 +576,9 @@ class ReactionNetworkMapper:
             self._requeue_all_nodes()
         else:
             self._register_seed_structure()
+
+        history_log = os.path.join(self.output_dir, "exploration_history.log")
+        priority_log = os.path.join(self.output_dir, "queue_priority.log")
 
         while True:
             if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
@@ -579,7 +593,16 @@ class ReactionNetworkMapper:
                 break
 
             self._iteration += 1
-
+            
+            # Write exploration history
+            with open(history_log, "a", encoding="utf-8") as fh:
+                fh.write(f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} | Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n")
+            
+            # Write current queue priority (overwrite mode)
+            with open(priority_log, "w", encoding="utf-8") as fh:
+                for item in self.queue.export_queue_status():
+                    fh.write(f"Node: EQ{item['node_id']:06d} | Priority: {item['priority']:.6f} | AFIR: {item['afir_params']}\n")
+            
             run_dir = self._make_run_dir(task)
             try:
                 profile_dirs = self._run_autots(task, run_dir)
@@ -615,7 +638,7 @@ class ReactionNetworkMapper:
             self._enqueue_perturbations(node, force_add=True)
 
     def _make_run_dir(self, task: ExplorationTask) -> str:
-        name = f"run_{self._iteration:04d}_node{task.node_id}"
+        name = f"run_{self._iteration:06d}_node{task.node_id}"
         run_dir = os.path.join(self.output_dir, "runs", name)
         os.makedirs(run_dir, exist_ok=True)
         os.makedirs(os.path.join(run_dir, "autots_workspace"), exist_ok=True)
@@ -719,6 +742,12 @@ class ReactionNetworkMapper:
         for existing in self.graph.all_nodes():
             if existing.coords.size == 0:
                 continue
+                
+            # Pre-filter by energy difference
+            if energy is not None and existing.energy is not None:
+                if abs(energy - existing.energy) > self.energy_tolerance:
+                    continue
+
             if self.checker.are_same(symbols, coords, existing.symbols, existing.coords):
                 return existing.node_id
 
@@ -774,7 +803,7 @@ class ReactionNetworkMapper:
             self.queue.push(task)
 
     def _persist_node_xyz(self, src_xyz: str, node_id: int) -> str:
-        dst = os.path.join(self.output_dir, "nodes", f"EQ{node_id:04d}.xyz")
+        dst = os.path.join(self.output_dir, "nodes", f"EQ{node_id:06d}.xyz")
         try:
             shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
@@ -782,7 +811,7 @@ class ReactionNetworkMapper:
             return os.path.abspath(src_xyz)
 
     def _persist_ts_xyz(self, src_xyz: str, edge_id: int) -> str:
-        dst = os.path.join(self.output_dir, "nodes", f"TS{edge_id:04d}.xyz")
+        dst = os.path.join(self.output_dir, "nodes", f"TS{edge_id:06d}.xyz")
         try:
             shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
