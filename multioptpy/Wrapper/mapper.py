@@ -213,23 +213,24 @@ class ExplorationTask:
     metadata: dict = field(default_factory=dict)
 
 class ExplorationQueue(ABC):
-    """優先度付き探索キューの基底クラス。
+    """Abstract base class for priority-ordered exploration queues.
 
-    新しい探索戦略を追加する場合は :meth:`compute_priority` のみを
-    オーバーライドすれば足りる。:meth:`should_add` はデフォルトで
-    ``compute_priority`` の返値を確率として確率的サンプリングを行う
-    汎用実装を持つが、必要に応じてオーバーライドも可能。
+    To add a new exploration strategy, only :meth:`compute_priority` needs
+    to be overridden.  :meth:`should_add` has a default implementation that
+    uses the return value of ``compute_priority`` directly as an acceptance
+    probability, but it can also be overridden when a different probabilistic
+    model is desired.
 
     Examples
     --------
-    エネルギー差に線形比例する優先度::
+    Priority linearly proportional to energy difference::
 
         class LinearQueue(ExplorationQueue):
             def compute_priority(self, task):
                 delta_e = task.metadata.get("delta_E_hartree", 0.0)
                 return max(0.0, 1.0 - delta_e * 100)
 
-    ランダム探索（優先度を無視）::
+    Random exploration (priority ignored)::
 
         class RandomQueue(ExplorationQueue):
             def compute_priority(self, task):
@@ -247,8 +248,9 @@ class ExplorationQueue(ABC):
             return False
 
         task.priority = self.compute_priority(task)
-        # _tasks は priority 降順を維持する。bisect は昇順前提のため
-        # 負値キーで挿入位置を求め、O(log n) で正しい位置に挿入する。
+        # _tasks is maintained in descending priority order. Since bisect
+        # assumes ascending order, negate the key to find the correct
+        # insertion index in O(log n).
         keys = [-t.priority for t in self._tasks]
         idx = bisect.bisect_right(keys, -task.priority)
         self._tasks.insert(idx, task)
@@ -259,11 +261,12 @@ class ExplorationQueue(ABC):
         return self._tasks.pop(0) if self._tasks else None
 
     def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
-        """ノードをキューに追加するか確率的に判定する。
+        """Decide probabilistically whether to enqueue a node.
 
-        ``compute_priority`` の返値（0〜1）をそのまま受理確率として使う。
-        決定論的に全ノードを追加したい場合は ``return True`` でオーバーライド、
-        独自の確率モデルを使いたい場合も同様にオーバーライドする。
+        The return value of ``compute_priority`` (in the range 0–1) is used
+        directly as the acceptance probability.  Override with ``return True``
+        for deterministic acceptance of all nodes, or override with a custom
+        probabilistic model as needed.
         """
         dummy_task = ExplorationTask(
             node_id=node.node_id,
@@ -295,29 +298,31 @@ class ExplorationQueue(ABC):
 
     @abstractmethod
     def compute_priority(self, task: ExplorationTask) -> float:
-        """タスクの優先度を 0〜1 の float で返す。
+        """Return the priority of a task as a float in the range 0–1.
 
-        この値はキューの並び順と :meth:`should_add` の受理確率の両方に使われる。
-        サブクラスはこのメソッドだけを実装すれば新しい探索戦略になる。
+        This value is used both for ordering tasks in the queue and as the
+        acceptance probability in :meth:`should_add`.  Subclasses only need
+        to implement this method to define a new exploration strategy.
 
         Parameters
         ----------
         task : ExplorationTask
-            ``task.metadata["delta_E_hartree"]`` に参照エネルギーからの
-            エネルギー差（Hartree）が格納されている。
+            ``task.metadata["delta_E_hartree"]`` holds the energy difference
+            from the reference energy in Hartree.
 
         Returns
         -------
         float
-            0.0（最低優先度）〜 1.0（最高優先度）。
+            0.0 (lowest priority) – 1.0 (highest priority).
         """
 
 
 class BoltzmannQueue(ExplorationQueue):
-    """ボルツマン分布に基づく確率的探索キュー（デフォルト）。
+    """Probabilistic exploration queue based on the Boltzmann distribution (default).
 
-    低エネルギーノードを高優先度で探索しつつ、温度パラメータ ``temperature_K``
-    に応じて高エネルギーノードも確率的に受理する。
+    Low-energy nodes are explored with high priority, while higher-energy
+    nodes are accepted probabilistically according to the temperature
+    parameter ``temperature_K``.
     """
 
     def __init__(self, temperature_K: float = 300.0, rng_seed: int = 42) -> None:
@@ -325,7 +330,7 @@ class BoltzmannQueue(ExplorationQueue):
         self.temperature_K = temperature_K
 
     def compute_priority(self, task: ExplorationTask) -> float:
-        """exp(-ΔE / k_B T) をそのまま優先度として返す。"""
+        """Return exp(-ΔE / k_B T) directly as the priority."""
         delta_e: float = task.metadata.get("delta_E_hartree", 0.0)
         if delta_e <= 0.0:
             return 1.0
@@ -481,10 +486,11 @@ class TSEdge:
     barrier_fwd: float | None = None
     barrier_rev: float | None = None
     source_run_dir: str = ""
+    duplicate_of: int | None = None
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "edge_id":           self.edge_id,
             "node_id_1":         self.node_id_1,
             "node_id_2":         self.node_id_2,
@@ -495,6 +501,9 @@ class TSEdge:
             "source_run_dir":    self.source_run_dir,
             **self.extra,
         }
+        if self.duplicate_of is not None:
+            data["duplicate_of"] = self.duplicate_of
+        return data
 
 class NetworkGraph:
     def __init__(self) -> None:
@@ -578,6 +587,7 @@ class NetworkGraph:
                 barrier_fwd=ed.get("barrier_fwd_kcal"),
                 barrier_rev=ed.get("barrier_rev_kcal"),
                 source_run_dir=ed.get("source_run_dir", ""),
+                duplicate_of=ed.get("duplicate_of")
             )
             self.add_edge(edge)
 
@@ -603,8 +613,9 @@ class NetworkGraph:
         for edge in self._edges.values():
             fwd = f"{edge.barrier_fwd:.2f}" if edge.barrier_fwd is not None else "N/A"
             rev = f"{edge.barrier_rev:.2f}" if edge.barrier_rev is not None else "N/A"
+            dup_info = f" (Dup of TS{edge.duplicate_of:06d})" if edge.duplicate_of is not None else ""
             lines.append(
-                f"  TS{edge.edge_id:06d}: "
+                f"  TS{edge.edge_id:06d}{dup_info}: "
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
                 f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol"
             )
@@ -753,7 +764,8 @@ class ReactionNetworkMapper:
 
             self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
             self.graph.save(self.graph_json_path)
-            # 新ノード登録・タスク追加が完了した後に書くことで最新状態を反映する
+            # Write after new nodes and tasks have been registered so the log
+            # reflects the state produced by this iteration.
             self._write_priority_log(priority_log)
 
         self.graph.save(self.graph_json_path)
@@ -781,7 +793,7 @@ class ReactionNetworkMapper:
             source_run_dir="initial_optimization",
         )
         self.graph.add_node(node)
-        self.graph.save(self.graph_json_path)   # EQ0 登録直後に即保存
+        self.graph.save(self.graph_json_path)   # Persist immediately after EQ0 is registered
         self._enqueue_perturbations(node, force_add=True)
 
     def _run_initial_optimization(
@@ -867,10 +879,11 @@ class ReactionNetworkMapper:
             return seed_xyz, None
 
     def _write_priority_log(self, priority_log: str) -> None:
-        """現在のキュー状態を priority_log に上書き保存する。
+        """Overwrite the priority log with the current queue state.
 
-        イテレーション末尾（新ノード登録・タスク追加の完了後）に呼ぶことで、
-        そのイテレーションで発見されたノードのタスクと優先度が正しく反映される。
+        Called at the end of each iteration, after new nodes and tasks have
+        been registered, so that tasks discovered in that iteration are
+        correctly reflected with their computed priorities.
         """
         ref_e = self.graph.reference_energy()
         with open(priority_log, "w", encoding="utf-8") as fh:
@@ -968,23 +981,27 @@ class ReactionNetworkMapper:
         if node_id_1 is None or node_id_2 is None or node_id_1 == node_id_2:
             return
 
-        # TS 重複判定：既存の TS と構造・エネルギーが一致する場合は登録しない
+        edge_id = self.graph.next_edge_id()
+        
+        # TS Identity Check
+        ts_duplicate_of = None
         try:
             ts_sym, ts_coords = parse_xyz(result["ts_xyz_file"])
             for existing_edge in self.graph.all_edges():
                 if existing_edge.ts_xyz_file and os.path.isfile(existing_edge.ts_xyz_file):
                     ex_sym, ex_coords = parse_xyz(existing_edge.ts_xyz_file)
+                    # Energy filter pre-check
                     if abs(ts_energy - existing_edge.ts_energy) < self.energy_tolerance:
                         if self.checker.are_similar(ts_sym, ts_coords, ex_sym, ex_coords):
-                            logger.debug(
-                                f"TS duplicate detected (matches TS{existing_edge.edge_id:06d}), skipping."
-                            )
-                            return
+                            ts_duplicate_of = existing_edge.edge_id
+                            break
         except Exception:
             pass
-
-        edge_id = self.graph.next_edge_id()
-        saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
+        
+        if ts_duplicate_of is not None:
+            saved_ts_xyz = None
+        else:
+            saved_ts_xyz = self._persist_ts_xyz(result["ts_xyz_file"], edge_id)
 
         edge = TSEdge(
             edge_id=edge_id,
@@ -995,6 +1012,7 @@ class ReactionNetworkMapper:
             barrier_fwd=result["barrier_fwd"],
             barrier_rev=result["barrier_rev"],
             source_run_dir=run_dir,
+            duplicate_of=ts_duplicate_of
         )
         self.graph.add_edge(edge)
 
