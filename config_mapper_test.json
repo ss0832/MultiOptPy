@@ -37,6 +37,7 @@
     "calc_exact_hess": 5,
     "tight_convergence_criteria": true,
     "max_trust_radius": 0.2,
+	"min_trust_radius": 0.1,
     "frequency_analysis": true,
     "spin_multiplicity": 1,
     "electronic_charge": 0,
