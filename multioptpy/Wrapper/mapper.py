@@ -88,6 +88,31 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
 
     return symbols, np.array(coords_raw, dtype=float)
 
+def energy_from_xyz_comment(filepath: str) -> float | None:
+    """Try to extract a float energy from the XYZ comment line (line 2).
+
+    Many QC packages write the SCF energy there, e.g.:
+        ``energy = -18.775467565136`` or just ``-18.775467565136``.
+    Returns ``None`` if no parseable value is found.
+    """
+    try:
+        with open(filepath, "r") as fh:
+            lines = fh.readlines()
+        # XYZ comment line is the 2nd non-blank line
+        non_blank = [ln.strip() for ln in lines if ln.strip()]
+        if len(non_blank) < 2:
+            return None
+        comment = non_blank[1]
+        # Try "key = value" pattern first
+        if "=" in comment:
+            value_str = comment.split("=", 1)[1].strip().split()[0]
+        else:
+            value_str = comment.strip().split()[0]
+        return float(value_str)
+    except Exception:
+        return None
+
+
 def distance_matrix(coords: np.ndarray) -> np.ndarray:
     diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
     return np.sqrt((diff ** 2).sum(axis=-1))
@@ -703,47 +728,11 @@ class ReactionNetworkMapper:
     def _register_seed_structure(self) -> None:
         seed_xyz = os.path.abspath(self.base_config["initial_mol_file"])
         node_id = self.graph.next_node_id()
-        
-        energy = None
-        optimized_xyz_path = seed_xyz
 
-        if OptimizationJob is not None:
-            try:
-                logger.info("Running initial structure optimization via OptimizationJob...")
-                
-                # Extract step1_settings from base_config
-                step1_config = self.base_config.get("step1_settings", {})
-                
-                # Filter out AFIR-related parameters for a standard geometry optimization
-                opt_kwargs = {
-                    k: v for k, v in step1_config.items()
-                    if k not in ["manual_AFIR", "afir_gamma_kJmol", "max_pairs"]
-                }
-                
-                # Ensure the absolute path to software_path_file is provided
-                if "software_path_file_source" in self.base_config:
-                    opt_kwargs["software_path_file"] = self.base_config["software_path_file_source"]
-                
-                # Ensure the run_type is set to standard optimization
-                opt_kwargs["run_type"] = "opt"
-                
-                # Initialize OptimizationJob and apply the filtered settings
-                opt_job = OptimizationJob(seed_xyz)
-                if opt_kwargs:
-                    opt_job.set_options(**opt_kwargs)
-                
-                opt_job.run()
-                
-                # Retrieve the optimized structure file
-                potential_opt_files = glob.glob("*_opt.xyz")
-                if potential_opt_files:
-                    optimized_xyz_path = os.path.abspath(potential_opt_files[0])
-                    
-            except Exception as e:
-                logger.error(f"Initial optimization failed: {e}. Falling back to unoptimized geometry.")
-        
+        optimized_xyz_path, energy = self._run_initial_optimization(seed_xyz)
+
         saved_xyz = self._persist_node_xyz(optimized_xyz_path, node_id)
-        
+
         try:
             symbols, coords = parse_xyz(saved_xyz)
         except Exception as e:
@@ -760,6 +749,84 @@ class ReactionNetworkMapper:
         )
         self.graph.add_node(node)
         self._enqueue_perturbations(node, force_add=True)
+
+    def _run_initial_optimization(
+        self, seed_xyz: str
+    ) -> tuple[str, float | None]:
+        """Run geometry optimisation on the seed structure.
+
+        Returns
+        -------
+        optimized_xyz_path : str
+            Path to the optimised XYZ file (falls back to ``seed_xyz`` on failure).
+        energy : float | None
+            SCF energy in Hartree, or ``None`` if unavailable.
+        """
+        if OptimizationJob is None:
+            logger.warning("OptimizationJob not available; skipping initial optimization.")
+            return seed_xyz, None
+
+        try:
+            logger.info("Running initial structure optimization via OptimizationJob...")
+
+            # Build keyword arguments, stripping AFIR-specific keys.
+            _AFIR_KEYS = {"manual_AFIR", "afir_gamma_kJmol", "max_pairs"}
+            step1_config = self.base_config.get("step1_settings", {})
+            opt_kwargs = {k: v for k, v in step1_config.items() if k not in _AFIR_KEYS}
+
+            if "software_path_file_source" in self.base_config:
+                opt_kwargs["software_path_file"] = self.base_config["software_path_file_source"]
+
+            opt_kwargs["run_type"] = "opt"
+
+            opt_job = OptimizationJob(seed_xyz)
+            if opt_kwargs:
+                opt_job.set_options(**opt_kwargs)
+
+            opt_job.run()
+
+            # --- Locate optimised geometry file ---
+            optimized_xyz_path = seed_xyz
+            potential_opt_files = glob.glob("*_opt.xyz")
+            if potential_opt_files:
+                optimized_xyz_path = os.path.abspath(potential_opt_files[0])
+
+            # --- Extract energy from opt_job (primary path) ---
+            # Try common attribute names used by OptimizationJob implementations.
+            energy: float | None = None
+            for attr in ("energy", "final_energy", "scf_energy", "result_energy"):
+                raw = getattr(opt_job, attr, None)
+                if raw is not None:
+                    try:
+                        energy = float(raw)
+                        logger.info(
+                            f"Initial optimization energy ({attr}): {energy:.10f} Ha"
+                        )
+                        break
+                    except (TypeError, ValueError):
+                        pass
+
+            # --- Fallback: parse energy from XYZ comment line ---
+            if energy is None:
+                energy = energy_from_xyz_comment(optimized_xyz_path)
+                if energy is not None:
+                    logger.info(
+                        f"Initial optimization energy (XYZ comment): {energy:.10f} Ha"
+                    )
+                else:
+                    logger.warning(
+                        "Could not retrieve energy from OptimizationJob or XYZ comment. "
+                        "Node 0 will have energy=None."
+                    )
+
+            return optimized_xyz_path, energy
+
+        except Exception as e:
+            logger.error(
+                f"Initial optimization failed: {e}. Falling back to unoptimized geometry."
+            )
+            traceback.print_exc()
+            return seed_xyz, None
 
     def _requeue_all_nodes(self) -> None:
         for node in self.graph.all_nodes():
