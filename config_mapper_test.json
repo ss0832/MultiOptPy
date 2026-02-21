@@ -25,9 +25,8 @@
     "usextb": "GFN2-xTB",
     "NSTEP": 20,
     "use_model_hessian": "fischerd3old",
-    "save_pict": true,
-    "node_distance": 0.50,
-	"align_distances_energy_predicted": 2,
+    "node_distance": 0.40,
+	"align_distances_energy_predicted": 1,
     "spin_multiplicity": 1,
     "electronic_charge": 0
   },
