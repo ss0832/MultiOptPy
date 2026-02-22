@@ -1083,7 +1083,10 @@ class ReactionNetworkMapper:
 
             opt_kwargs["run_type"] = "opt"
 
-            opt_job = OptimizationJob(seed_xyz)
+            # OptimizationJob expects a path relative to the current working
+            # directory, so convert the absolute seed path accordingly.
+            seed_xyz_rel = os.path.relpath(seed_xyz)
+            opt_job = OptimizationJob(seed_xyz_rel)
             if opt_kwargs:
                 opt_job.set_options(**opt_kwargs)
 
