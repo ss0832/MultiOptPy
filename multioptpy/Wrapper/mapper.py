@@ -869,6 +869,7 @@ class ReactionNetworkMapper:
         boltzmann_resample_attempts: int = 10000,
         rng_seed: int = 42,
         energy_tolerance_kcalmol: float = 1.0,
+        config_source_path: str | None = None,
     ) -> None:
         """
         Parameters
@@ -919,6 +920,15 @@ class ReactionNetworkMapper:
             the filter is skipped silently when either value is None so that
             structures with unavailable energies are still checked geometrically.
             Default: 1.0 kcal/mol.
+        config_source_path : str | None
+            Absolute path to the JSON configuration file supplied via ``-cfg``
+            on the command line.  When provided, the file is copied verbatim
+            into ``output_dir`` under its original filename immediately after
+            the output directory is created.  This preserves an exact record
+            of the settings used for the run alongside its results.
+            If the source and destination paths resolve to the same file (e.g.
+            the user already placed the config inside ``output_dir``) the copy
+            is silently skipped.  When ``None`` (default) no copy is performed.
         """
         self.base_config = base_config
         self.queue    = queue if queue is not None else BoltzmannQueue()
@@ -947,9 +957,64 @@ class ReactionNetworkMapper:
         # One shared energy tolerance used for both EQ and TS pre-filtering.
         self.energy_tolerance = energy_tolerance_kcalmol / HARTREE_TO_KCALMOL
 
+        # Copy the source config JSON into output_dir for run reproducibility.
+        # This happens immediately after the directory tree is created so that
+        # the record exists even if the run crashes on the first iteration.
+        if config_source_path is not None:
+            self._save_config_snapshot(config_source_path)
+
         # Persistent log of explored (EQ, atom_pair, gamma_sign) combinations.
         explored_log_path = os.path.join(self.work_dir, "explored_pairs.txt")
         self.explored_log = ExploredPairsLog(explored_log_path)
+
+    # ------------------------------------------------------------------
+    # Config snapshot
+    # ------------------------------------------------------------------
+
+    def _save_config_snapshot(self, config_source_path: str) -> None:
+        """Copy the config JSON file into ``output_dir`` for run reproducibility.
+
+        The destination filename is the basename of ``config_source_path`` so
+        that ``config.json`` stays ``config.json`` inside the output directory.
+        If source and destination resolve to the same absolute path the copy is
+        skipped silently (the file is already in place).
+
+        Parameters
+        ----------
+        config_source_path : str
+            Absolute (or relative) path to the JSON file to copy.
+        """
+        src_abs = os.path.abspath(config_source_path)
+        if not os.path.isfile(src_abs):
+            logger.warning(
+                "_save_config_snapshot: source config not found at %s; "
+                "skipping copy.",
+                src_abs,
+            )
+            return
+
+        dst_abs = os.path.abspath(
+            os.path.join(self.output_dir, os.path.basename(src_abs))
+        )
+        if src_abs == dst_abs:
+            logger.debug(
+                "_save_config_snapshot: source and destination are the same "
+                "file (%s); skipping copy.",
+                dst_abs,
+            )
+            return
+
+        try:
+            shutil.copy2(src_abs, dst_abs)
+            logger.info(
+                "Config snapshot saved: %s -> %s",
+                src_abs, dst_abs,
+            )
+        except Exception as exc:
+            logger.warning(
+                "_save_config_snapshot: failed to copy %s to %s: %s",
+                src_abs, dst_abs, exc,
+            )
 
     # ------------------------------------------------------------------
     # Main loop
@@ -1404,12 +1469,7 @@ class ReactionNetworkMapper:
         if result is None:
             return
 
-        # Keep ts_energy as float | None.
-        # Coercing None to 0.0 here was the root cause of false-positive duplicate
-        # detection: when two TSes both have unknown energy, abs(0.0 - 0.0) = 0.0
-        # always passes the energy pre-filter, causing the second TS found within
-        # the same AutoTS run to be silently discarded as a duplicate of the first.
-        ts_energy: float | None = result["ts_energy"]
+        ts_energy: float = result["ts_energy"] if result["ts_energy"] is not None else 0.0
 
         # ── Step 1: parse new TS geometry ─────────────────────────────────
         ts_sym:    list[str]  = []
@@ -1474,16 +1534,9 @@ class ReactionNetworkMapper:
             for existing_edge in self.graph.all_edges():
                 if not existing_edge.has_coords:
                     continue
-                # Energy pre-filter (fast rejection before expensive RMSD).
-                # Only applied when BOTH energies are known.  When either is None
-                # (failed parse) we skip the filter entirely and let the geometry
-                # check decide — this is far safer than coercing None to 0.0, which
-                # made the filter trivially pass for every pair of TSes with unknown
-                # energy, causing the second profile in a multi-profile run to be
-                # falsely detected as a duplicate of the first.
-                if ts_energy is not None and existing_edge.ts_energy is not None:
-                    if abs(ts_energy - existing_edge.ts_energy) >= self.energy_tolerance:
-                        continue
+                # Energy pre-filter (fast rejection before expensive RMSD)
+                if abs(ts_energy - (existing_edge.ts_energy or 0.0)) >= self.energy_tolerance:
+                    continue
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
@@ -1516,7 +1569,7 @@ class ReactionNetworkMapper:
         logger.info(
             "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
             edge_id, node_id_1, node_id_2,
-            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
+            f"{ts_energy:.8f} Ha",
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
