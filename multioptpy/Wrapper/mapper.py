@@ -608,8 +608,7 @@ class TSEdge:
     barrier_fwd: float | None = None
     barrier_rev: float | None = None
     source_run_dir: str = ""
-    # Geometry is cached in memory so that duplicate detection does not depend
-    # on the TS XYZ file being accessible on disk after the initial registration.
+    # Geometry cached in memory for TS-vs-TS comparisons without disk access.
     symbols: list[str] = field(default_factory=list)
     coords: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=float))
     extra: dict = field(default_factory=dict)
@@ -620,17 +619,24 @@ class TSEdge:
         return self.coords.size > 0
 
     def to_dict(self) -> dict:
-        return {
+        data: dict = {
             "edge_id":           self.edge_id,
             "node_id_1":         self.node_id_1,
             "node_id_2":         self.node_id_2,
             "ts_xyz_file":       self.ts_xyz_file,
-            "ts_energy_hartree": self.ts_energy,   # may be null in JSON
+            "ts_energy_hartree": self.ts_energy,
             "barrier_fwd_kcal":  self.barrier_fwd,
             "barrier_rev_kcal":  self.barrier_rev,
             "source_run_dir":    self.source_run_dir,
-            **self.extra,
         }
+        # Merge extra, skipping non-JSON-serialisable values
+        for k, v in self.extra.items():
+            try:
+                import json; json.dumps(v)
+                data[k] = v
+            except (TypeError, ValueError):
+                data[k] = str(v)
+        return data
 
 class NetworkGraph:
     def __init__(self) -> None:
@@ -710,13 +716,12 @@ class NetworkGraph:
                 node_id_1=ed["node_id_1"],
                 node_id_2=ed["node_id_2"],
                 ts_xyz_file=ed.get("ts_xyz_file"),
-                ts_energy=ed.get("ts_energy_hartree"),  # None-safe load
+                ts_energy=ed.get("ts_energy_hartree"),
                 barrier_fwd=ed.get("barrier_fwd_kcal"),
                 barrier_rev=ed.get("barrier_rev_kcal"),
                 source_run_dir=ed.get("source_run_dir", ""),
             )
-            # Populate the in-memory geometry cache so that TS duplicate
-            # detection does not require disk access after this point.
+            # Populate in-memory geometry cache for TS-vs-TS comparisons.
             if edge.ts_xyz_file and os.path.isfile(edge.ts_xyz_file):
                 try:
                     edge.symbols, edge.coords = parse_xyz(edge.ts_xyz_file)
@@ -725,7 +730,7 @@ class NetworkGraph:
                         "NetworkGraph.load: could not parse TS geometry from %s: %s",
                         edge.ts_xyz_file, exc,
                     )
-            else:
+            elif edge.ts_xyz_file:
                 logger.warning(
                     "NetworkGraph.load: TS XYZ file not found on disk for TS%06d "
                     "(path=%s). Duplicate detection for this edge will be skipped.",
@@ -752,7 +757,7 @@ class NetworkGraph:
                 e_str = "energy unknown"
             lines.append(f"  EQ{node.node_id:06d}: {e_str}  [{node.xyz_file}]")
 
-        for edge in self._edges.values():
+        for edge in sorted(self._edges.values(), key=lambda e: e.edge_id):
             fwd  = f"{edge.barrier_fwd:.2f}"  if edge.barrier_fwd  is not None else "N/A"
             rev  = f"{edge.barrier_rev:.2f}"  if edge.barrier_rev  is not None else "N/A"
             ts_e = f"{edge.ts_energy:.8f} Ha" if edge.ts_energy    is not None else "N/A"
@@ -1359,58 +1364,48 @@ class ReactionNetworkMapper:
         return profiles
 
     def _process_profile(self, profile_dir: str, run_dir: str) -> None:
-        """Parse an IRC profile directory and register a new TSEdge if unique.
+        """Parse an IRC profile directory and register a unique TSEdge.
 
         Identity rules
         --------------
-        * EQ endpoints are deduplicated by :meth:`_find_or_register_node`,
-          which compares the new structure **only against existing EQNode
-          objects** in ``self.graph``.
-        * The TS saddle-point is deduplicated here by comparing **only against
-          existing TSEdge objects** in ``self.graph`` using geometry that is
-          cached in memory (``TSEdge.symbols`` / ``TSEdge.coords``).
-
-        The same :attr:`checker` and :attr:`energy_tolerance` are used for
-        both EQ and TS comparisons; the strict type separation is enforced by
-        which graph pool each method queries, not by different thresholds.
+        * EQ endpoints: deduplicated by :meth:`_find_or_register_node`
+          (EQ-vs-EQ comparison only).
+        * TS saddle-point: compared only against existing TSEdge objects whose
+          geometry is cached in memory (TSEdge.symbols / TSEdge.coords).
+          - Duplicate → silently skipped; nothing added to graph or nodes/.
+          - Unique    → XYZ copied to nodes/TS{edge_id:06d}.xyz, geometry
+            cached in the new TSEdge for future comparisons.
         """
         parser = ProfileParser()
         result = parser.parse(profile_dir)
         if result is None:
             return
 
-        ts_energy: float | None = result["ts_energy"]
+        ts_energy: float = result["ts_energy"] if result["ts_energy"] is not None else 0.0
 
-        # ── Step 1: parse new TS geometry upfront ─────────────────────────
-        # Performed outside the duplicate-check loop so that any parse error
-        # is reported clearly and independently.  When the file is genuinely
-        # unreadable we still register the edge (fail-open) rather than
-        # silently discarding a potentially valid reaction path.
+        # ── Step 1: parse new TS geometry ─────────────────────────────────
         ts_sym:    list[str]  = []
         ts_coords: np.ndarray = np.empty((0, 3), dtype=float)
-        ts_xyz_path = result.get("ts_xyz_file", "")
+        ts_xyz_path: str = result.get("ts_xyz_file", "") or ""
         if ts_xyz_path and os.path.isfile(ts_xyz_path):
             try:
                 ts_sym, ts_coords = parse_xyz(ts_xyz_path)
-                logger.debug(
-                    "Parsed new TS geometry: %d atoms from %s",
-                    len(ts_sym), ts_xyz_path,
-                )
+                logger.debug("Parsed TS geometry: %d atoms from %s",
+                             len(ts_sym), ts_xyz_path)
             except Exception as exc:
                 logger.warning(
-                    "_process_profile: failed to parse TS XYZ at %s: %s. "
-                    "Skipping geometry-based duplicate check; edge will be registered.",
+                    "_process_profile: failed to parse TS XYZ %s: %s. "
+                    "Duplicate check skipped; edge will be registered.",
                     ts_xyz_path, exc,
                 )
         else:
             logger.warning(
-                "_process_profile: TS XYZ file not found or not set "
-                "(profile_dir=%s, ts_xyz_file=%r). "
-                "Skipping geometry-based duplicate check; edge will be registered.",
+                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r). "
+                "Duplicate check skipped; edge will be registered.",
                 profile_dir, ts_xyz_path,
             )
 
-        # ── Step 2: register EQ endpoint nodes (EQ-vs-EQ comparison only) ─
+        # ── Step 2: register EQ endpoint nodes ────────────────────────────
         node_id_1 = self._find_or_register_node(
             xyz_file=result["endpoint_1_xyz"],
             energy=result["endpoint_1_energy"],
@@ -1425,55 +1420,28 @@ class ReactionNetworkMapper:
         if node_id_1 is None or node_id_2 is None or node_id_1 == node_id_2:
             return
 
-        # ── Step 3: TS duplicate check (TS-vs-TS comparison only) ─────────
-        # Performed BEFORE allocating an edge_id so the counter is not
-        # advanced for discarded duplicates.
-        #
-        # Comparison pool: self.graph.all_edges() — TSEdge objects only.
-        # No EQNode is ever involved in this check.
-        #
-        # Geometry source: TSEdge.coords — cached in memory when the edge was
-        # first created and re-populated from disk when loading a saved graph.
-        # This eliminates any dependency on ts_xyz_file being accessible at
-        # runtime.
-        #
-        # Energy pre-filter: applied only when BOTH energies are known.  When
-        # either is None (parse failure) the filter is skipped and the geometry
-        # check alone decides uniqueness.
+        # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
+        # edge_id is NOT allocated yet; a duplicate does not consume a counter.
         if ts_coords.size > 0:
             for existing_edge in self.graph.all_edges():
                 if not existing_edge.has_coords:
-                    # No cached geometry for this edge; cannot compare.
-                    logger.debug(
-                        "TS%06d has no cached coords; skipped in duplicate check.",
-                        existing_edge.edge_id,
-                    )
                     continue
-
-                # Energy pre-filter (fast path to skip expensive RMSD).
-                if ts_energy is not None and existing_edge.ts_energy is not None:
-                    if abs(ts_energy - existing_edge.ts_energy) >= self.energy_tolerance:
-                        continue  # energies differ enough — not the same TS
-
+                # Energy pre-filter (fast rejection before expensive RMSD)
+                if abs(ts_energy - (existing_edge.ts_energy or 0.0)) >= self.energy_tolerance:
+                    continue
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
                 ):
-                    logger.debug(
-                        "Duplicate TS detected (matches TS%06d, "
-                        "RMSD < %.3f A, energy_tol=%.4f Ha). "
-                        "Skipping edge registration for EQ%d--EQ%d.",
-                        existing_edge.edge_id,
-                        self.checker.rmsd_threshold,
-                        self.energy_tolerance,
-                        node_id_1,
-                        node_id_2,
+                    logger.info(
+                        "Duplicate TS skipped (matches TS%06d, RMSD < %.3f A)  "
+                        "EQ%d -- EQ%d",
+                        existing_edge.edge_id, self.checker.rmsd_threshold,
+                        node_id_1, node_id_2,
                     )
-                    return  # Discard duplicate — do not add to graph
+                    return  # Not registered anywhere
 
-        # ── Step 4: register new TSEdge ────────────────────────────────────
-        # Not a duplicate: allocate an edge_id, persist the geometry file,
-        # and store the parsed coords in the edge for future comparisons.
+        # ── Step 4: unique TS — persist XYZ and register edge ─────────────
         edge_id = self.graph.next_edge_id()
         saved_ts_xyz = self._persist_ts_xyz(ts_xyz_path, edge_id) if ts_xyz_path else None
 
@@ -1482,19 +1450,18 @@ class ReactionNetworkMapper:
             node_id_1=node_id_1,
             node_id_2=node_id_2,
             ts_xyz_file=saved_ts_xyz,
-            ts_energy=ts_energy,       # None when unavailable
+            ts_energy=ts_energy,
             barrier_fwd=result["barrier_fwd"],
             barrier_rev=result["barrier_rev"],
             source_run_dir=run_dir,
-            symbols=ts_sym,            # cached for future TS-vs-TS comparisons
-            coords=ts_coords,          # cached for future TS-vs-TS comparisons
+            symbols=ts_sym,    # cached for future TS-vs-TS comparisons
+            coords=ts_coords,  # cached for future TS-vs-TS comparisons
         )
         self.graph.add_edge(edge)
         logger.info(
-            "New edge registered: TS%06d  EQ%d -- EQ%d  "
-            "E(TS)=%s  Ea(fwd)=%s kcal/mol",
+            "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
             edge_id, node_id_1, node_id_2,
-            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
+            f"{ts_energy:.8f} Ha",
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
