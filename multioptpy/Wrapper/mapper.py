@@ -1459,10 +1459,9 @@ class ReactionNetworkMapper:
         if node_id_1 == node_id_2:
             logger.info(
                 "_process_profile: node_id_1 == node_id_2 == %d "
-                "(both IRC endpoints matched the same EQ node) -> skip.",
+                "(both IRC endpoints matched the same EQ node). Registering as a degenerate reaction (self-loop).",
                 node_id_1,
             )
-            return
 
         # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
         # edge_id is NOT allocated yet; a duplicate does not consume a counter.
