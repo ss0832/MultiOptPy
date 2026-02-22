@@ -1091,14 +1091,15 @@ class ReactionNetworkMapper:
                 opt_job.set_options(**opt_kwargs)
 
             opt_job.run()
-
+            optimizer = opt_job.get_results()
+            
             # --- Locate optimised geometry file ---
             # OptimizationJob writes the result as "*_optimized.xyz" inside a
             # nested workspace directory (e.g. EQ000000_ts_guess_1_optimized.xyz).
             # Search recursively from the current working directory so the file
             # is found regardless of how deeply it is nested.
-            optimized_xyz_path = seed_xyz
-            opt_files = glob.glob("**/*_optimized.xyz", recursive=True)
+            init_opt_workdir = optimizer.BPA_FOLDER_DIRECTORY
+            opt_files = glob.glob(init_opt_workdir+"*_optimized.xyz")
             if opt_files:
                 # Prefer the most recently modified file in case multiple matches exist.
                 opt_files.sort(key=os.path.getmtime, reverse=True)
@@ -1112,7 +1113,7 @@ class ReactionNetworkMapper:
             # OptimizationJob itself holds no energy; it lives on the internal
             # multioptpy.optimization.Optimize object returned by get_results().
             energy: float | None = None
-            optimizer = opt_job.get_results()
+            
             if optimizer is not None:
                 for attr in ("energy", "final_energy", "scf_energy", "result_energy",
                              "optimized_energy", "last_energy", "minimum_energy"):
