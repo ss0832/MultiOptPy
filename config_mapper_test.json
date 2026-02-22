@@ -4,10 +4,10 @@
   "mapper_settings": {
         "temperature_K"    : 500.0,   
         "rmsd_threshold"   : 0.50,    
-        "max_iterations"   : 50,    
-        "afir_gamma_kJmol" : 250.0,   
+        "max_iterations"   : 150,    
+        "afir_gamma_kJmol" : 300.0,   
         "max_pairs"        : 5,       
-        "dist_lower_ang"   : 2.5,    
+        "dist_lower_ang"   : 2.0,    
         "dist_upper_ang"   : 7.0,    
         "output_dir"       : "mapper_output",
         "rng_seed"         : 30
@@ -42,7 +42,7 @@
     "spin_multiplicity": 1,
     "electronic_charge": 0,
 	"detect_negative_eigenvalues": true,
-	"NSTEP": 150
+	"NSTEP": 200
   },
 
   "step4_settings": {
@@ -54,7 +54,7 @@
     "tight_convergence_criteria": true,
     "frequency_analysis": true,
     
-    "intrinsic_reaction_coordinates": ["0.5", "200", "lqa"],
+    "intrinsic_reaction_coordinates": ["0.4", "300", "lqa"],
 
     "step4b_opt_method": ["rsirfo_block_fsb"]
   }
