@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.spatial.distance import cdist
+from scipy.optimize import linear_sum_assignment
 
 # Internal imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -127,15 +128,17 @@ class StructureChecker:
 
         min_rmsd = float("inf")
 
-        # Test 8 octant reflections for principal axes signs
-        reflections = [
-            np.array([1, 1, 1]), np.array([-1, 1, 1]), np.array([1, -1, 1]), np.array([1, 1, -1]),
-            np.array([-1, -1, 1]), np.array([-1, 1, -1]), np.array([1, -1, -1]), np.array([-1, -1, -1])
+        # Test only proper rotations (determinant +1) to distinguish enantiomers.
+        proper_rotations = [
+            np.array([1, 1, 1]),
+            np.array([-1, -1, 1]),
+            np.array([-1, 1, -1]),
+            np.array([1, -1, -1])
         ]
 
-        for ref in reflections:
+        for ref in proper_rotations:
             cb_ref = cb_aligned * ref
-            perm = self._greedy_mapping(sym_a, ca_aligned, sym_b, cb_ref)
+            perm = self._optimal_mapping(sym_a, ca_aligned, sym_b, cb_ref)
             if perm is not None:
                 rmsd_current = self._kabsch_rmsd(ca_aligned, cb_ref[perm])
                 if rmsd_current < min_rmsd:
@@ -143,6 +146,38 @@ class StructureChecker:
 
         return min_rmsd
 
+    @staticmethod
+    def _optimal_mapping(
+        sym_a: list[str], coords_a: np.ndarray,
+        sym_b: list[str], coords_b: np.ndarray,
+    ) -> list[int] | None:
+        """Assigns atoms using the Hungarian algorithm to minimize squared distances."""
+        perm: list[int | None] = [None] * len(sym_a)
+        unique_elements = set(sym_a)
+
+        for elem in unique_elements:
+            idx_a = [i for i, s in enumerate(sym_a) if s == elem]
+            idx_b = [i for i, s in enumerate(sym_b) if s == elem]
+
+            if len(idx_a) != len(idx_b):
+                return None
+
+            sub_a = coords_a[idx_a]
+            sub_b = coords_b[idx_b]
+            
+            # Calculate distance matrix for the subset of atoms
+            dists = cdist(sub_a, sub_b, metric='sqeuclidean')
+
+            # Solve the linear sum assignment problem to find the global minimum mapping
+            row_ind, col_ind = linear_sum_assignment(dists)
+
+            for r, c in zip(row_ind, col_ind):
+                perm[idx_a[r]] = idx_b[c]
+
+        if None in perm:
+            return None
+        return perm  # type: ignore
+        
     @staticmethod
     def _principal_axis_align(coords: np.ndarray) -> np.ndarray:
         if len(coords) < 2:
