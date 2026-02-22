@@ -1586,6 +1586,9 @@ def run_mapper():
             "active_atoms":           args.active_atoms if args.active_atoms is not None
                                           else ms.get("active_atoms", None),
             "include_negative_gamma": args.negative_gamma or ms.get("include_negative_gamma", False),
+            # Absolute path to the loaded JSON file; forwarded to ReactionNetworkMapper
+            # so a snapshot copy is saved inside output_dir at startup.
+            "config_file_path":       os.path.abspath(args.config_file),
         }
 
         return config
@@ -1612,7 +1615,7 @@ def run_mapper():
         print(f"  Negative gamma  : {'yes' if m['include_negative_gamma'] else 'no'}")
         print(sep)
 
-    def launch_mapper(config, config_file_path=None):
+    def launch_mapper(config):
         """Assemble and run the ReactionNetworkMapper from config["_mapper"].
 
         HOW TO SWAP IN A CUSTOM STRATEGY
@@ -1625,14 +1628,9 @@ def run_mapper():
             2. Instantiate your subclass here instead of BoltzmannQueue.
             3. Pass it as queue=<your_instance> to ReactionNetworkMapper.
 
-        Parameters
-        ----------
-        config : dict
-            Merged configuration dict produced by merge_config().
-        config_file_path : str | None
-            Absolute path to the JSON file originally loaded via -cfg.
-            When provided, it is forwarded to ReactionNetworkMapper so that a
-            snapshot copy is saved inside output_dir at startup.
+        The config_file_path required for the snapshot feature is read
+        directly from config["_mapper"]["config_file_path"], which is
+        populated by merge_config() from args.config_file.
         """
         m = config["_mapper"]
 
@@ -1662,8 +1660,10 @@ def run_mapper():
             graph_json="reaction_network.json",
             max_iterations=m["max_iterations"],
             resume=m["resume"],
-            # Pass the source config path so a snapshot is saved in output_dir.
-            config_source_path=config_file_path,
+            # config_file_path is stored in _mapper by merge_config; forwarding it
+            # here causes ReactionNetworkMapper to copy the JSON to output_dir as
+            # config_snapshot.json so the run is fully self-contained.
+            config_file_path=m.get("config_file_path"),
         )
         mapper.run()
 
@@ -1687,6 +1687,6 @@ def run_mapper():
         print_config_summary(config)
 
         log.info("Configuration merged. Starting mapper.")
-        launch_mapper(config, config_file_path=os.path.abspath(args.config_file))
+        launch_mapper(config)
 
     main()
