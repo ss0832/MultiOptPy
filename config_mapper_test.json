@@ -18,7 +18,8 @@
     "opt_method": ["rsirfo_block_fsb"],
     "use_model_hessian": "fischerd3old",
     "spin_multiplicity": 1,
-    "electronic_charge": 0
+    "electronic_charge": 0,
+	"dissociate_check": "10.0"
   },
   
   "step2_settings": {
