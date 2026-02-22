@@ -1305,6 +1305,7 @@ def run_confsearch():
     if use_tabu_search:
         print(f"Tabu Search - Final visit counts: {visit_counts}")
         
+
 def run_mapper():
     """Entry point for the Reaction Network Mapper (mapper.py).
 
@@ -1611,7 +1612,7 @@ def run_mapper():
         print(f"  Negative gamma  : {'yes' if m['include_negative_gamma'] else 'no'}")
         print(sep)
 
-    def launch_mapper(config):
+    def launch_mapper(config, config_file_path=None):
         """Assemble and run the ReactionNetworkMapper from config["_mapper"].
 
         HOW TO SWAP IN A CUSTOM STRATEGY
@@ -1623,6 +1624,15 @@ def run_mapper():
             1. Subclass ExplorationQueue in mapper.py (or a separate file).
             2. Instantiate your subclass here instead of BoltzmannQueue.
             3. Pass it as queue=<your_instance> to ReactionNetworkMapper.
+
+        Parameters
+        ----------
+        config : dict
+            Merged configuration dict produced by merge_config().
+        config_file_path : str | None
+            Absolute path to the JSON file originally loaded via -cfg.
+            When provided, it is forwarded to ReactionNetworkMapper so that a
+            snapshot copy is saved inside output_dir at startup.
         """
         m = config["_mapper"]
 
@@ -1652,6 +1662,8 @@ def run_mapper():
             graph_json="reaction_network.json",
             max_iterations=m["max_iterations"],
             resume=m["resume"],
+            # Pass the source config path so a snapshot is saved in output_dir.
+            config_source_path=config_file_path,
         )
         mapper.run()
 
@@ -1675,6 +1687,6 @@ def run_mapper():
         print_config_summary(config)
 
         log.info("Configuration merged. Starting mapper.")
-        launch_mapper(config)
+        launch_mapper(config, config_file_path=os.path.abspath(args.config_file))
 
     main()
