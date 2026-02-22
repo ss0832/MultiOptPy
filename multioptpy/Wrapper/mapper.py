@@ -126,7 +126,7 @@ class StructureChecker:
         cb_aligned = self._principal_axis_align(cb)
 
         min_rmsd = float("inf")
-        
+
         # Test 8 octant reflections for principal axes signs
         reflections = [
             np.array([1, 1, 1]), np.array([-1, 1, 1]), np.array([1, -1, 1]), np.array([1, 1, -1]),
@@ -162,20 +162,20 @@ class StructureChecker:
     ) -> list[int] | None:
         """Heuristic greedy matching per element. Faster than Hungarian algorithm."""
         perm: list[int | None] = [None] * len(sym_a)
-        
+
         unique_elements = set(sym_a)
         for elem in unique_elements:
             idx_a = [i for i, s in enumerate(sym_a) if s == elem]
             idx_b = [i for i, s in enumerate(sym_b) if s == elem]
-            
+
             if len(idx_a) != len(idx_b):
                 return None
 
             sub_a = coords_a[idx_a]
             sub_b = coords_b[idx_b]
-            
+
             dists = cdist(sub_a, sub_b, metric='sqeuclidean')
-            
+
             assigned_b = set()
             for r in range(len(idx_a)):
                 sorted_c_indices = np.argsort(dists[r])
@@ -260,7 +260,7 @@ class ExplorationQueue(ABC):
     def pop(self) -> ExplorationTask | None:
         return self._tasks.pop(0) if self._tasks else None
 
-    def should_add(self, node: EQNode, reference_energy: float, **kwargs) -> bool:
+    def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
 
         The return value of ``compute_priority`` (in the range 0–1) is used
@@ -338,6 +338,88 @@ class BoltzmannQueue(ExplorationQueue):
 
 
 # ===========================================================================
+# Section 3b : ExploredPairsLog
+# ===========================================================================
+
+class ExploredPairsLog:
+    """Persistent log of explored (EQ node, atom pair, gamma sign) combinations.
+
+    Records are stored one per line in a plain-text file located in ``work_dir``
+    so that duplicate exploration is avoided across separate mapper runs.
+
+    File format (one record per line)::
+
+        EQ{node_id:06d} {atom_i_1based} {atom_j_1based} {gamma_sign}
+
+    where ``gamma_sign`` is ``'+'`` for a positive (attractive) AFIR gamma and
+    ``'-'`` for a negative (repulsive) AFIR gamma.
+
+    Parameters
+    ----------
+    filepath : str
+        Absolute path to the text file used for persistence.
+    """
+
+    def __init__(self, filepath: str) -> None:
+        self._filepath = filepath
+        # In-memory set for O(1) look-up: (node_id, atom_i, atom_j, gamma_sign)
+        self._explored: set[tuple[int, int, int, str]] = set()
+        self._load()
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _load(self) -> None:
+        """Load existing records from the text file (if present)."""
+        if not os.path.isfile(self._filepath):
+            return
+        with open(self._filepath, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                try:
+                    # Strip the leading "EQ" prefix before converting to int
+                    node_id   = int(parts[0][2:])
+                    atom_i    = int(parts[1])
+                    atom_j    = int(parts[2])
+                    gamma_sign = parts[3]
+                    if gamma_sign not in ("+", "-"):
+                        continue
+                    self._explored.add((node_id, atom_i, atom_j, gamma_sign))
+                except (ValueError, IndexError):
+                    continue
+        logger.info(
+            "ExploredPairsLog: loaded %d records from %s",
+            len(self._explored), self._filepath,
+        )
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def has(self, node_id: int, atom_i: int, atom_j: int, gamma_sign: str) -> bool:
+        """Return ``True`` if this (node, pair, sign) has already been explored."""
+        return (node_id, atom_i, atom_j, gamma_sign) in self._explored
+
+    def record(self, node_id: int, atom_i: int, atom_j: int, gamma_sign: str) -> None:
+        """Mark the combination as explored and append it to the text file."""
+        key = (node_id, atom_i, atom_j, gamma_sign)
+        if key in self._explored:
+            return
+        self._explored.add(key)
+        with open(self._filepath, "a", encoding="utf-8") as fh:
+            fh.write(f"EQ{node_id:06d} {atom_i} {atom_j} {gamma_sign}\n")
+
+    def __len__(self) -> int:
+        return len(self._explored)
+
+
+# ===========================================================================
 # Section 4 : PerturbationGenerator
 # ===========================================================================
 
@@ -385,19 +467,18 @@ class PerturbationGenerator:
         self.include_negative_gamma = include_negative_gamma
         self._rng = np.random.default_rng(rng_seed)
 
-    def generate_afir_perturbations(
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_candidates(
         self,
         symbols: list[str],
         coords: np.ndarray,
-    ) -> list[list[str]]:
-        """Return a list of AFIR parameter lists ready for AutoTSWorkflow step1.
+    ) -> list[tuple[int, int]]:
+        """Return all atom pairs that satisfy the distance and covalency filters.
 
-        Each entry has the form ``[gamma_str, atom_i_1based, atom_j_1based]``.
-
-        When ``include_negative_gamma`` is ``True``, every chosen pair is
-        duplicated with a negated gamma value, so both attractive and repulsive
-        directions are explored.  The total number of entries can therefore be
-        up to ``2 * max_pairs``.
+        Pairs are expressed as 0-based index tuples ``(i, j)`` with ``i < j``.
         """
         n = len(symbols)
         if n < 2:
@@ -426,6 +507,47 @@ class PerturbationGenerator:
                         except KeyError:
                             pass
                     candidates.append((i, j))
+
+        return candidates
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def get_candidate_pairs(
+        self,
+        symbols: list[str],
+        coords: np.ndarray,
+    ) -> list[tuple[int, int]]:
+        """Return all valid non-covalent atom pairs without sampling.
+
+        Unlike :meth:`generate_afir_perturbations`, this method returns the
+        *complete* candidate pool (0-based index tuples) so that the caller can
+        implement its own sampling strategy (e.g. Boltzmann-weighted node
+        selection followed by uniform pair sampling).
+
+        Returns
+        -------
+        list[tuple[int, int]]
+            0-based ``(i, j)`` pairs with ``i < j``.
+        """
+        return self._build_candidates(symbols, coords)
+
+    def generate_afir_perturbations(
+        self,
+        symbols: list[str],
+        coords: np.ndarray,
+    ) -> list[list[str]]:
+        """Return a list of AFIR parameter lists ready for AutoTSWorkflow step1.
+
+        Each entry has the form ``[gamma_str, atom_i_1based, atom_j_1based]``.
+
+        When ``include_negative_gamma`` is ``True``, every chosen pair is
+        duplicated with a negated gamma value, so both attractive and repulsive
+        directions are explored.  The total number of entries can therefore be
+        up to ``2 * max_pairs``.
+        """
+        candidates = self._build_candidates(symbols, coords)
 
         if not candidates:
             return []
@@ -697,29 +819,99 @@ class ReactionNetworkMapper:
         structure_checker: StructureChecker | None = None,
         perturbation_generator: PerturbationGenerator | None = None,
         output_dir: str = "mapper_output",
+        work_dir: str | None = None,
         graph_json: str = "reaction_network.json",
         max_iterations: int = 50,
         resume: bool = False,
+        boltzmann_resample_attempts: int = 10000,
+        rng_seed: int = 42,
     ) -> None:
+        """
+        Parameters
+        ----------
+        base_config : dict
+            Configuration dictionary forwarded to AutoTSWorkflow.
+        queue : ExplorationQueue | None
+            Priority queue used for initial exploration tasks generated by
+            :meth:`_enqueue_perturbations`.  Defaults to :class:`BoltzmannQueue`.
+        structure_checker : StructureChecker | None
+            RMSD-based duplicate detector.
+        perturbation_generator : PerturbationGenerator | None
+            Generator for AFIR atom-pair perturbations.
+        output_dir : str
+            Root directory for all mapper outputs (nodes, runs, logs).
+        work_dir : str | None
+            Directory used for persistent exploration state files such as
+            ``explored_pairs.txt``.  Defaults to ``output_dir`` when ``None``.
+        graph_json : str
+            Filename (relative to ``output_dir``) for the reaction network JSON.
+        max_iterations : int
+            Maximum number of AutoTS workflow executions.  The mapper loops
+            indefinitely over (EQ, atom-pair) combinations sampled via the
+            Boltzmann distribution and stops only when this limit is reached
+            (or when a ``stop.txt`` sentinel file is detected).
+        resume : bool
+            If ``True`` and a previous graph JSON exists, resume from it.
+        boltzmann_resample_attempts : int
+            Maximum number of consecutive Boltzmann resampling trials before
+            the mapper gives up because all pairs appear to be exhausted.
+        rng_seed : int
+            Seed for the internal NumPy RNG used during Boltzmann sampling.
+        """
         self.base_config = base_config
         self.queue    = queue if queue is not None else BoltzmannQueue()
         self.checker  = structure_checker if structure_checker is not None else StructureChecker()
         self.perturber = perturbation_generator if perturbation_generator is not None else PerturbationGenerator()
         self.output_dir = os.path.abspath(output_dir)
+        self.work_dir   = os.path.abspath(work_dir if work_dir is not None else output_dir)
         self.graph_json_path = os.path.join(self.output_dir, graph_json)
         self.max_iterations = max_iterations
         self.resume = resume
+        self.boltzmann_resample_attempts = boltzmann_resample_attempts
+        self._rng = np.random.default_rng(rng_seed)
 
         self.graph = NetworkGraph()
         self._iteration: int = 0
 
         os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
-        os.makedirs(os.path.join(self.output_dir, "runs"), exist_ok=True)
-        
+        os.makedirs(os.path.join(self.output_dir, "runs"),  exist_ok=True)
+
         self.energy_tolerance = 1.0 / HARTREE_TO_KCALMOL
 
+        # Persistent log of explored (EQ, atom_pair, gamma_sign) combinations.
+        explored_log_path = os.path.join(self.work_dir, "explored_pairs.txt")
+        self.explored_log = ExploredPairsLog(explored_log_path)
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
     def run(self) -> None:
+        """Run the reaction network mapping loop.
+
+        The mapper iterates up to ``max_iterations`` times.  Each iteration
+        selects the next (EQ node, atom pair) to explore using the following
+        strategy:
+
+        1. **Queue drain** – Tasks previously enqueued by
+           :meth:`_enqueue_perturbations` are consumed first (highest-priority
+           first, according to the queue's Boltzmann weights).
+        2. **Boltzmann resample** – Once the queue is empty the mapper samples
+           a new (EQ, pair) by drawing an EQ node proportionally to its
+           Boltzmann weight and then selecting a pair uniformly from all valid
+           candidates for that node.
+        3. **Duplicate rejection** – Before executing, the mapper checks
+           ``explored_pairs.txt`` (located in ``work_dir``).  If the selected
+           combination has already been run it is rejected and a new sample is
+           drawn.  This loop repeats up to ``boltzmann_resample_attempts``
+           times.
+
+        The loop runs indefinitely (no limit on the number of unique EQ/pair
+        combinations) and stops only when ``max_iterations`` executions have
+        been completed or a ``stop.txt`` file is detected in ``output_dir``.
+        """
         if self.resume and os.path.isfile(self.graph_json_path):
             self.graph.load(self.graph_json_path)
             self._requeue_all_nodes()
@@ -730,17 +922,63 @@ class ReactionNetworkMapper:
         priority_log = os.path.join(self.output_dir, "queue_priority.log")
 
         while True:
+            # ── Stop-file sentinel ──────────────────────────────────────────
             if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
                 logger.info("stop.txt detected in output_dir. Stopping.")
                 break
 
+            # ── Iteration limit ─────────────────────────────────────────────
             if self.max_iterations > 0 and self._iteration >= self.max_iterations:
+                logger.info(
+                    "Reached max_iterations (%d). Stopping.", self.max_iterations
+                )
                 break
 
+            # ── Task selection ──────────────────────────────────────────────
+            # Phase 1: drain the pre-built queue (respects Boltzmann priority).
             task = self.queue.pop()
-            if task is None:
-                break
 
+            if task is not None:
+                # Verify that this queue task has not already been executed
+                # (relevant after a resume where the queue is rebuilt from
+                # scratch but the explored_pairs log retains prior history).
+                gamma_sign = (
+                    "-" if len(task.afir_params) >= 1
+                           and task.afir_params[0].startswith("-")
+                    else "+"
+                )
+                atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
+                atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+
+                if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                    logger.debug(
+                        "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
+                        task.node_id, atom_i, atom_j, gamma_sign,
+                    )
+                    # Do NOT count against max_iterations; try again next cycle.
+                    continue
+            else:
+                # Phase 2: queue exhausted – resample via Boltzmann distribution.
+                task = self._boltzmann_sample_task()
+                if task is None:
+                    logger.info(
+                        "All candidate (EQ, pair) combinations appear exhausted "
+                        "after %d resampling attempts. Stopping.",
+                        self.boltzmann_resample_attempts,
+                    )
+                    break
+
+            # ── Record the pair as explored before execution ────────────────
+            gamma_sign = (
+                "-" if len(task.afir_params) >= 1
+                       and task.afir_params[0].startswith("-")
+                else "+"
+            )
+            atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
+            atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+
+            # ── Execute the task ────────────────────────────────────────────
             self._iteration += 1
 
             with open(history_log, "a", encoding="utf-8") as fh:
@@ -769,6 +1007,116 @@ class ReactionNetworkMapper:
             self._write_priority_log(priority_log)
 
         self.graph.save(self.graph_json_path)
+
+    # ------------------------------------------------------------------
+    # Boltzmann resampling
+    # ------------------------------------------------------------------
+
+    def _boltzmann_sample_task(self) -> ExplorationTask | None:
+        """Sample a new, unexplored (EQ node, atom pair) via Boltzmann weighting.
+
+        The probability of selecting a node is proportional to
+        ``exp(-ΔE / k_B T)`` where ΔE is the node's energy relative to the
+        current reference (minimum) energy.  After a node is selected, one
+        atom pair is drawn uniformly from that node's valid candidate pool.
+        The combination is then checked against ``explored_pairs.txt``.  If
+        it has already been explored the trial is discarded and a new sample
+        is drawn, repeating up to ``boltzmann_resample_attempts`` times.
+
+        Returns ``None`` when no unexplored combination can be found within
+        the allowed number of attempts.
+        """
+        nodes = [n for n in self.graph.all_nodes() if n.coords.size > 0]
+        if not nodes:
+            return None
+
+        ref_e = self.graph.reference_energy()
+
+        # Derive temperature from the queue when possible.
+        temperature_K: float = (
+            self.queue.temperature_K
+            if isinstance(self.queue, BoltzmannQueue)
+            else 300.0
+        )
+
+        # Compute per-node Boltzmann weights.
+        raw_weights: list[float] = []
+        for node in nodes:
+            if node.energy is not None and ref_e is not None:
+                delta_e = node.energy - ref_e
+                w = float(np.exp(-delta_e / (K_B_HARTREE * temperature_K)))
+            else:
+                w = 1.0
+            raw_weights.append(max(w, 1e-300))
+
+        weight_arr = np.array(raw_weights, dtype=float)
+        weight_arr /= weight_arr.sum()
+
+        pos_gamma_str = f"{self.perturber.afir_gamma_kJmol:.6g}"
+        neg_gamma_str = f"{-self.perturber.afir_gamma_kJmol:.6g}"
+
+        for attempt in range(self.boltzmann_resample_attempts):
+            # Draw a node proportional to its Boltzmann weight.
+            node_idx = int(self._rng.choice(len(nodes), p=weight_arr))
+            node = nodes[node_idx]
+
+            # Draw a candidate pair uniformly.
+            candidates = self.perturber.get_candidate_pairs(node.symbols, node.coords)
+            if not candidates:
+                continue
+
+            pair_idx = int(self._rng.integers(len(candidates)))
+            i0, j0 = candidates[pair_idx]
+            atom_i, atom_j = i0 + 1, j0 + 1  # convert to 1-based
+
+            # Decide gamma sign: always try positive first; try negative only
+            # when include_negative_gamma is enabled.
+            gamma_signs: list[str] = ["+"]
+            if self.perturber.include_negative_gamma:
+                gamma_signs.append("-")
+
+            # Shuffle sign order to avoid systematic bias over resample rounds.
+            self._rng.shuffle(gamma_signs)  # type: ignore[arg-type]
+
+            for gamma_sign in gamma_signs:
+                if self.explored_log.has(node.node_id, atom_i, atom_j, gamma_sign):
+                    continue  # already explored – try next sign or resample
+
+                # Found an unexplored combination.
+                afir_params = (
+                    [neg_gamma_str, str(atom_i), str(atom_j)]
+                    if gamma_sign == "-"
+                    else [pos_gamma_str, str(atom_i), str(atom_j)]
+                )
+                delta_e = (
+                    (node.energy - ref_e)
+                    if (node.energy is not None and ref_e is not None)
+                    else 0.0
+                )
+                task = ExplorationTask(
+                    node_id=node.node_id,
+                    xyz_file=node.xyz_file,
+                    afir_params=afir_params,
+                    priority=weight_arr[node_idx],
+                    metadata={
+                        "delta_E_hartree":    delta_e,
+                        "source_node_energy": node.energy,
+                        "boltzmann_resample_attempt": attempt + 1,
+                    },
+                )
+                logger.debug(
+                    "Boltzmann resample: selected EQ%06d pair (%d, %d) sign=%s "
+                    "after %d attempt(s).",
+                    node.node_id, atom_i, atom_j, gamma_sign, attempt + 1,
+                )
+                return task
+
+        # All attempts exhausted without finding an unexplored pair.
+        return None
+
+    # ------------------------------------------------------------------
+    # Node registration helpers
+    # ------------------------------------------------------------------
 
     def _register_seed_structure(self) -> None:
         seed_xyz = os.path.abspath(self.base_config["initial_mol_file"])
@@ -878,6 +1226,10 @@ class ReactionNetworkMapper:
             traceback.print_exc()
             return seed_xyz, None
 
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+
     def _write_priority_log(self, priority_log: str) -> None:
         """Overwrite the priority log with the current queue state.
 
@@ -890,9 +1242,11 @@ class ReactionNetworkMapper:
             fh.write(
                 f"# Iter {self._iteration:06d} | "
                 f"queued={len(self.queue)} | "
+                f"explored_pairs={len(self.explored_log)} | "
                 f"ref_energy={ref_e:.10f} Ha\n"
                 if ref_e is not None else
-                f"# Iter {self._iteration:06d} | queued={len(self.queue)} | ref_energy=N/A\n"
+                f"# Iter {self._iteration:06d} | queued={len(self.queue)} | "
+                f"explored_pairs={len(self.explored_log)} | ref_energy=N/A\n"
             )
             for item in self.queue.export_queue_status():
                 fh.write(
@@ -982,7 +1336,7 @@ class ReactionNetworkMapper:
             return
 
         edge_id = self.graph.next_edge_id()
-        
+
         # TS Identity Check
         ts_duplicate_of = None
         try:
@@ -997,7 +1351,7 @@ class ReactionNetworkMapper:
                             break
         except Exception:
             pass
-        
+
         if ts_duplicate_of is not None:
             saved_ts_xyz = None
         else:
@@ -1030,7 +1384,7 @@ class ReactionNetworkMapper:
         for existing in self.graph.all_nodes():
             if existing.coords.size == 0:
                 continue
-                
+
             if energy is not None and existing.energy is not None:
                 if abs(energy - existing.energy) > self.energy_tolerance:
                     continue
