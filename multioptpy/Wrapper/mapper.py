@@ -1535,14 +1535,18 @@ class ReactionNetworkMapper:
             )
 
         # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
-        # edge_id is NOT allocated yet; a duplicate does not consume a counter.
         if ts_coords.size > 0:
             for existing_edge in self.graph.all_edges():
                 if not existing_edge.has_coords:
                     continue
-                # Energy pre-filter (fast rejection before expensive RMSD)
-                if abs(ts_energy - (existing_edge.ts_energy or 0.0)) >= self.energy_tolerance:
+                
+                # Energy pre-filter
+                energy_diff = abs(ts_energy - (existing_edge.ts_energy or 0.0))
+                if energy_diff >= self.energy_tolerance:
                     continue
+
+                
+                # Geometric check via RMSD (evaluated only if topological check fails)
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
@@ -1553,7 +1557,18 @@ class ReactionNetworkMapper:
                         existing_edge.edge_id, self.checker.rmsd_threshold,
                         node_id_1, node_id_2,
                     )
+                    return
+                
+                # Topological check (order-independent node matching)
+                nodes_match = {node_id_1, node_id_2} == {existing_edge.node_id_1, existing_edge.node_id_2}
+                if nodes_match:
+                    logger.info(
+                        "Duplicate TS skipped (matches topological connection of TS%06d, "
+                        "energy diff=%.6f Ha) EQ%d -- EQ%d",
+                        existing_edge.edge_id, energy_diff, node_id_1, node_id_2
+                    )
                     return  # Not registered anywhere
+
 
         # ── Step 4: unique TS — persist XYZ and register edge ─────────────
         edge_id = self.graph.next_edge_id()
