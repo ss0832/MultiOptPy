@@ -5,7 +5,7 @@ import numpy as np
 from ase.calculators.orca import ORCA, OrcaProfile
 from ase.data import atomic_numbers
 
-"""
+r"""
 Please specify the absolute path to the ORCA executable in software_path.conf using the format orca::<path>. For Linux, provide the path to the binary (e.g., /absolute/path/to/orca), and for Windows, provide the path to the executable file (e.g., C:\absolute\path\to\orca.exe).
 """
 
