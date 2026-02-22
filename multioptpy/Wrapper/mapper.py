@@ -1404,7 +1404,12 @@ class ReactionNetworkMapper:
         if result is None:
             return
 
-        ts_energy: float = result["ts_energy"] if result["ts_energy"] is not None else 0.0
+        # Keep ts_energy as float | None.
+        # Coercing None to 0.0 here was the root cause of false-positive duplicate
+        # detection: when two TSes both have unknown energy, abs(0.0 - 0.0) = 0.0
+        # always passes the energy pre-filter, causing the second TS found within
+        # the same AutoTS run to be silently discarded as a duplicate of the first.
+        ts_energy: float | None = result["ts_energy"]
 
         # ── Step 1: parse new TS geometry ─────────────────────────────────
         ts_sym:    list[str]  = []
@@ -1469,9 +1474,16 @@ class ReactionNetworkMapper:
             for existing_edge in self.graph.all_edges():
                 if not existing_edge.has_coords:
                     continue
-                # Energy pre-filter (fast rejection before expensive RMSD)
-                if abs(ts_energy - (existing_edge.ts_energy or 0.0)) >= self.energy_tolerance:
-                    continue
+                # Energy pre-filter (fast rejection before expensive RMSD).
+                # Only applied when BOTH energies are known.  When either is None
+                # (failed parse) we skip the filter entirely and let the geometry
+                # check decide — this is far safer than coercing None to 0.0, which
+                # made the filter trivially pass for every pair of TSes with unknown
+                # energy, causing the second profile in a multi-profile run to be
+                # falsely detected as a duplicate of the first.
+                if ts_energy is not None and existing_edge.ts_energy is not None:
+                    if abs(ts_energy - existing_edge.ts_energy) >= self.energy_tolerance:
+                        continue
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
@@ -1504,7 +1516,7 @@ class ReactionNetworkMapper:
         logger.info(
             "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
             edge_id, node_id_1, node_id_2,
-            f"{ts_energy:.8f} Ha",
+            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
