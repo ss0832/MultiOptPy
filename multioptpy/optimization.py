@@ -88,6 +88,7 @@ class OptimizationConfig:
         self.sqm1 = args.sqm1
         self.sqm2 = args.sqm2
         self.freq_analysis = args.frequency_analysis
+        self.force_freq_analysis = args.force_frequency_analysis 
         self.thermo_temperature = float(args.temperature)
         self.thermo_pressure = float(args.pressure)
         self.dft_grid = int(args.dft_grid)
@@ -2106,7 +2107,7 @@ class Optimize:
                 f.write("Dissociation is detected. Optimization stopped.")
 
         # Vibrational analysis
-        if self.config.freq_analysis and not self.state.exit_flag and not self.state.DC_check_flag:
+        if (self.config.freq_analysis and not self.state.exit_flag and not self.state.DC_check_flag and self.state.optimized_flag) or self.config.force_freq_analysis:
             self._perform_vibrational_analysis(
                 self.SP,
                 self.state.geometry,
