@@ -312,6 +312,9 @@ def merge_config(args: argparse.Namespace, config: dict) -> dict:
         "active_atoms":           args.active_atoms if args.active_atoms is not None
                                       else ms.get("active_atoms", None),
         "include_negative_gamma": args.negative_gamma or ms.get("include_negative_gamma", False),
+        # Absolute path to the loaded JSON file; forwarded to ReactionNetworkMapper
+        # so a snapshot copy is saved inside output_dir at startup.
+        "config_file_path":       os.path.abspath(args.config_file),
     }
 
     return config
@@ -402,6 +405,10 @@ def launch_mapper(config: dict) -> None:
         graph_json="reaction_network.json",
         max_iterations=m["max_iterations"],
         resume=m["resume"],
+        # config_file_path is stored in _mapper by merge_config; forwarding it
+        # here causes ReactionNetworkMapper to copy the JSON to output_dir as
+        # config_snapshot.json so the run is fully self-contained.
+        config_file_path=m.get("config_file_path"),
     )
     mapper.run()
 

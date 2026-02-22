@@ -869,7 +869,7 @@ class ReactionNetworkMapper:
         boltzmann_resample_attempts: int = 10000,
         rng_seed: int = 42,
         energy_tolerance_kcalmol: float = 1.0,
-        config_source_path: str | None = None,
+        config_file_path: str | None = None,
     ) -> None:
         """
         Parameters
@@ -920,15 +920,12 @@ class ReactionNetworkMapper:
             the filter is skipped silently when either value is None so that
             structures with unavailable energies are still checked geometrically.
             Default: 1.0 kcal/mol.
-        config_source_path : str | None
-            Absolute path to the JSON configuration file supplied via ``-cfg``
-            on the command line.  When provided, the file is copied verbatim
-            into ``output_dir`` under its original filename immediately after
-            the output directory is created.  This preserves an exact record
-            of the settings used for the run alongside its results.
-            If the source and destination paths resolve to the same file (e.g.
-            the user already placed the config inside ``output_dir``) the copy
-            is silently skipped.  When ``None`` (default) no copy is performed.
+        config_file_path : str | None
+            Absolute path to the JSON configuration file used for this run.
+            When provided, the file is copied to ``work_dir`` at the start of
+            :meth:`run` under the name ``config_snapshot.json``.  This makes
+            every mapper output directory self-contained and reproducible.
+            ``None`` disables the copy (default).
         """
         self.base_config = base_config
         self.queue    = queue if queue is not None else BoltzmannQueue()
@@ -957,64 +954,14 @@ class ReactionNetworkMapper:
         # One shared energy tolerance used for both EQ and TS pre-filtering.
         self.energy_tolerance = energy_tolerance_kcalmol / HARTREE_TO_KCALMOL
 
-        # Copy the source config JSON into output_dir for run reproducibility.
-        # This happens immediately after the directory tree is created so that
-        # the record exists even if the run crashes on the first iteration.
-        if config_source_path is not None:
-            self._save_config_snapshot(config_source_path)
-
         # Persistent log of explored (EQ, atom_pair, gamma_sign) combinations.
         explored_log_path = os.path.join(self.work_dir, "explored_pairs.txt")
         self.explored_log = ExploredPairsLog(explored_log_path)
 
-    # ------------------------------------------------------------------
-    # Config snapshot
-    # ------------------------------------------------------------------
-
-    def _save_config_snapshot(self, config_source_path: str) -> None:
-        """Copy the config JSON file into ``output_dir`` for run reproducibility.
-
-        The destination filename is the basename of ``config_source_path`` so
-        that ``config.json`` stays ``config.json`` inside the output directory.
-        If source and destination resolve to the same absolute path the copy is
-        skipped silently (the file is already in place).
-
-        Parameters
-        ----------
-        config_source_path : str
-            Absolute (or relative) path to the JSON file to copy.
-        """
-        src_abs = os.path.abspath(config_source_path)
-        if not os.path.isfile(src_abs):
-            logger.warning(
-                "_save_config_snapshot: source config not found at %s; "
-                "skipping copy.",
-                src_abs,
-            )
-            return
-
-        dst_abs = os.path.abspath(
-            os.path.join(self.output_dir, os.path.basename(src_abs))
+        # Path to the JSON config file; copied to work_dir at run() start when set.
+        self.config_file_path: str | None = (
+            os.path.abspath(config_file_path) if config_file_path else None
         )
-        if src_abs == dst_abs:
-            logger.debug(
-                "_save_config_snapshot: source and destination are the same "
-                "file (%s); skipping copy.",
-                dst_abs,
-            )
-            return
-
-        try:
-            shutil.copy2(src_abs, dst_abs)
-            logger.info(
-                "Config snapshot saved: %s -> %s",
-                src_abs, dst_abs,
-            )
-        except Exception as exc:
-            logger.warning(
-                "_save_config_snapshot: failed to copy %s to %s: %s",
-                src_abs, dst_abs, exc,
-            )
 
     # ------------------------------------------------------------------
     # Main loop
@@ -1049,6 +996,11 @@ class ReactionNetworkMapper:
             self._requeue_all_nodes()
         else:
             self._register_seed_structure()
+
+        # Copy the JSON config to work_dir so the output directory is
+        # self-contained.  Done after directory creation (handled in __init__)
+        # and after the resume branch so work_dir is guaranteed to exist.
+        self._save_config_snapshot()
 
         history_log = os.path.join(self.output_dir, "exploration_history.log")
         priority_log = os.path.join(self.output_dir, "queue_priority.log")
@@ -1250,6 +1202,60 @@ class ReactionNetworkMapper:
 
         # All attempts exhausted without finding an unexplored pair.
         return None
+
+    # ------------------------------------------------------------------
+    # Config snapshot
+    # ------------------------------------------------------------------
+
+    def _save_config_snapshot(self) -> None:
+        """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
+
+        The destination filename is always ``config_snapshot.json`` regardless
+        of the original filename, so that every mapper output directory is
+        self-contained.  When resuming an interrupted run the snapshot is
+        overwritten with the current config so the file always reflects the
+        settings of the most-recent invocation.
+
+        The copy is skipped silently when:
+
+        * ``config_file_path`` was not provided (``None``).
+        * The source file does not exist or is not readable.
+        * Source and destination are the same path (no-op copy).
+        """
+        if not self.config_file_path:
+            return
+
+        src_path = self.config_file_path
+        if not os.path.isfile(src_path):
+            logger.warning(
+                "_save_config_snapshot: source config file not found at %s; "
+                "snapshot will not be saved.",
+                src_path,
+            )
+            return
+
+        dst_path = os.path.join(self.work_dir, "config_snapshot.json")
+
+        # Skip when source and destination are already the same file.
+        if os.path.abspath(src_path) == os.path.abspath(dst_path):
+            logger.debug(
+                "_save_config_snapshot: source and destination are the same "
+                "file (%s); skipping copy.",
+                dst_path,
+            )
+            return
+
+        try:
+            shutil.copy2(src_path, dst_path)
+            logger.info(
+                "Config snapshot saved: %s -> %s",
+                src_path, dst_path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "_save_config_snapshot: failed to copy config to %s: %s",
+                dst_path, exc,
+            )
 
     # ------------------------------------------------------------------
     # Node registration helpers
