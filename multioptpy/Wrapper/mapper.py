@@ -108,7 +108,7 @@ class StructureChecker:
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> bool:
-        """Evaluates structural similarity based on PCA alignment and greedy matching."""
+        """Evaluates structural similarity based on PCA alignment and optimal matching."""
         rmsd_val = self.compute_rmsd(sym_a, coords_a, sym_b, coords_b)
         return rmsd_val < self.rmsd_threshold
 
@@ -128,7 +128,7 @@ class StructureChecker:
 
         min_rmsd = float("inf")
 
-        # Test only proper rotations (determinant +1) to distinguish enantiomers.
+     
         proper_rotations = [
             np.array([1, 1, 1]),
             np.array([-1, -1, 1]),
@@ -145,6 +145,18 @@ class StructureChecker:
                     min_rmsd = rmsd_current
 
         return min_rmsd
+
+    @staticmethod
+    def _principal_axis_align(coords: np.ndarray) -> np.ndarray:
+        if len(coords) < 2:
+            return coords
+        cov_matrix = np.cov(coords.T)
+        # eigh returns eigenvalues in ascending order; reverse to descending
+        # for a consistent, reproducible orientation of the principal axes.
+        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
+        idx = eigvals.argsort()[::-1]
+        eigvecs = eigvecs[:, idx]
+        return coords @ eigvecs
 
     @staticmethod
     def _optimal_mapping(
@@ -164,7 +176,7 @@ class StructureChecker:
 
             sub_a = coords_a[idx_a]
             sub_b = coords_b[idx_b]
-            
+
             # Calculate distance matrix for the subset of atoms
             dists = cdist(sub_a, sub_b, metric='sqeuclidean')
 
@@ -173,52 +185,6 @@ class StructureChecker:
 
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
-
-        if None in perm:
-            return None
-        return perm  # type: ignore
-        
-    @staticmethod
-    def _principal_axis_align(coords: np.ndarray) -> np.ndarray:
-        if len(coords) < 2:
-            return coords
-        cov_matrix = np.cov(coords.T)
-        # eigh returns eigenvalues in ascending order; reverse to descending
-        # for a consistent, reproducible orientation of the principal axes.
-        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
-        idx = eigvals.argsort()[::-1]
-        eigvecs = eigvecs[:, idx]
-        return coords @ eigvecs
-
-    @staticmethod
-    def _greedy_mapping(
-        sym_a: list[str], coords_a: np.ndarray,
-        sym_b: list[str], coords_b: np.ndarray,
-    ) -> list[int] | None:
-        """Heuristic greedy matching per element. Faster than Hungarian algorithm."""
-        perm: list[int | None] = [None] * len(sym_a)
-
-        unique_elements = set(sym_a)
-        for elem in unique_elements:
-            idx_a = [i for i, s in enumerate(sym_a) if s == elem]
-            idx_b = [i for i, s in enumerate(sym_b) if s == elem]
-
-            if len(idx_a) != len(idx_b):
-                return None
-
-            sub_a = coords_a[idx_a]
-            sub_b = coords_b[idx_b]
-
-            dists = cdist(sub_a, sub_b, metric='sqeuclidean')
-
-            assigned_b = set()
-            for r in range(len(idx_a)):
-                sorted_c_indices = np.argsort(dists[r])
-                for c in sorted_c_indices:
-                    if c not in assigned_b:
-                        assigned_b.add(c)
-                        perm[idx_a[r]] = idx_b[c]
-                        break
 
         if None in perm:
             return None
@@ -233,7 +199,6 @@ class StructureChecker:
         R = Vt.T @ D @ U.T
         diff = pa - pb @ R.T
         return float(np.sqrt((diff ** 2).sum() / len(pa)))
-
 
 # ===========================================================================
 # Section 3 : ExplorationQueue
