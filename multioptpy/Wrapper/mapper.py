@@ -781,8 +781,18 @@ class ProfileParser:
         txt_path   = os.path.join(profile_dir, "energy_profile.txt")
 
         if not os.path.isfile(ep1) or not os.path.isfile(ep2):
+            logger.info(
+                "ProfileParser: endpoint file(s) missing in %s "
+                "(ep1_exists=%s  ep2_exists=%s) -> parse() returns None.",
+                profile_dir,
+                os.path.isfile(ep1), os.path.isfile(ep2),
+            )
             return None
         if not ts_matches:
+            logger.info(
+                "ProfileParser: no *_ts_final.xyz found in %s -> parse() returns None.",
+                profile_dir,
+            )
             return None
 
         ts_file = ts_matches[0]
@@ -791,6 +801,14 @@ class ProfileParser:
         ts_e   = energies.get("TS")
         ep1_e  = energies.get("Endpoint_1")
         ep2_e  = energies.get("Endpoint_2")
+
+        logger.info(
+            "ProfileParser: parsed  ts=%s  ep1=%s  ep2=%s  [%s]",
+            f"{ts_e:.8f} Ha" if ts_e is not None else "None",
+            f"{ep1_e:.8f} Ha" if ep1_e is not None else "None",
+            f"{ep2_e:.8f} Ha" if ep2_e is not None else "None",
+            profile_dir,
+        )
 
         def _barrier(e_eq: float | None, e_ts: float | None) -> float | None:
             if e_eq is None or e_ts is None:
@@ -1046,6 +1064,11 @@ class ReactionNetworkMapper:
                 self._write_priority_log(priority_log)
                 continue
 
+            logger.info(
+                "Iter %06d: _run_autots returned %d profile director%s.",
+                self._iteration, len(profile_dirs),
+                "y" if len(profile_dirs) == 1 else "ies",
+            )
             for pdir in profile_dirs:
                 self._process_profile(pdir, run_dir)
 
@@ -1417,7 +1440,28 @@ class ReactionNetworkMapper:
             run_dir=run_dir,
         )
 
-        if node_id_1 is None or node_id_2 is None or node_id_1 == node_id_2:
+        logger.info(
+            "_process_profile: node_id_1=%s  node_id_2=%s  "
+            "ep1_E=%s  ep2_E=%s",
+            node_id_1, node_id_2,
+            f"{result['endpoint_1_energy']:.8f} Ha"
+            if result["endpoint_1_energy"] is not None else "None",
+            f"{result['endpoint_2_energy']:.8f} Ha"
+            if result["endpoint_2_energy"] is not None else "None",
+        )
+
+        if node_id_1 is None:
+            logger.info("_process_profile: node_id_1 is None (endpoint_1 XYZ unreadable) -> skip.")
+            return
+        if node_id_2 is None:
+            logger.info("_process_profile: node_id_2 is None (endpoint_2 XYZ unreadable) -> skip.")
+            return
+        if node_id_1 == node_id_2:
+            logger.info(
+                "_process_profile: node_id_1 == node_id_2 == %d "
+                "(both IRC endpoints matched the same EQ node) -> skip.",
+                node_id_1,
+            )
             return
 
         # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
@@ -1492,15 +1536,45 @@ class ReactionNetworkMapper:
         # Search only EQNode objects (graph.all_nodes) — never TSEdge objects.
         for existing in self.graph.all_nodes():
             if existing.coords.size == 0:
+                logger.debug(
+                    "_find_or_register_node: EQ%d has empty coords, skipped.", existing.node_id
+                )
                 continue
 
             # Energy pre-filter (fast path).  Skipped when either energy is None.
             if energy is not None and existing.energy is not None:
-                if abs(energy - existing.energy) > self.energy_tolerance:
+                delta_ha = abs(energy - existing.energy)
+                if delta_ha > self.energy_tolerance:
+                    logger.info(
+                        "_find_or_register_node: EQ%d rejected by energy pre-filter "
+                        "(|ΔE|=%.6f Ha = %.3f kcal/mol > tol=%.6f Ha = %.3f kcal/mol).",
+                        existing.node_id,
+                        delta_ha, delta_ha * HARTREE_TO_KCALMOL,
+                        self.energy_tolerance,
+                        self.energy_tolerance * HARTREE_TO_KCALMOL,
+                    )
                     continue
+            elif energy is None or existing.energy is None:
+                logger.debug(
+                    "_find_or_register_node: energy pre-filter skipped for EQ%d "
+                    "(new_E=%s  existing_E=%s).",
+                    existing.node_id,
+                    f"{energy:.8f} Ha" if energy is not None else "None",
+                    f"{existing.energy:.8f} Ha" if existing.energy is not None else "None",
+                )
 
-            if self.checker.are_similar(symbols, coords, existing.symbols, existing.coords):
+            rmsd = self.checker.compute_rmsd(symbols, coords, existing.symbols, existing.coords)
+            if rmsd < self.checker.rmsd_threshold:
+                logger.info(
+                    "_find_or_register_node: MATCH EQ%d  RMSD=%.4f A < threshold=%.3f A.",
+                    existing.node_id, rmsd, self.checker.rmsd_threshold,
+                )
                 return existing.node_id
+            else:
+                logger.info(
+                    "_find_or_register_node: no match EQ%d  RMSD=%.4f A >= threshold=%.3f A.",
+                    existing.node_id, rmsd, self.checker.rmsd_threshold,
+                )
 
         node_id   = self.graph.next_node_id()
         saved_xyz = self._persist_node_xyz(xyz_file, node_id)
