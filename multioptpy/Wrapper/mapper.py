@@ -1093,10 +1093,20 @@ class ReactionNetworkMapper:
             opt_job.run()
 
             # --- Locate optimised geometry file ---
+            # OptimizationJob writes the result as "*_optimized.xyz" inside a
+            # nested workspace directory (e.g. EQ000000_ts_guess_1_optimized.xyz).
+            # Search recursively from the current working directory so the file
+            # is found regardless of how deeply it is nested.
             optimized_xyz_path = seed_xyz
-            potential_opt_files = glob.glob("*_opt.xyz")
-            if potential_opt_files:
-                optimized_xyz_path = os.path.abspath(potential_opt_files[0])
+            opt_files = glob.glob("**/*_optimized.xyz", recursive=True)
+            if opt_files:
+                # Prefer the most recently modified file in case multiple matches exist.
+                opt_files.sort(key=os.path.getmtime, reverse=True)
+                optimized_xyz_path = os.path.abspath(opt_files[0])
+                logger.info(
+                    "Initial optimization: located optimised structure at %s",
+                    optimized_xyz_path,
+                )
 
             # --- Extract energy via get_results() -> Optimize instance ---
             # OptimizationJob itself holds no energy; it lives on the internal
