@@ -212,6 +212,7 @@ class Calculation:
             except Exception as error:
                 print(error)
                 print("This molecule could not be optimized.")
+                print("Instruction: When using UMA(NNP), please confirm that the absolute path of the .pt file is defined within software_path.conf.")
                 finish_frag = True
                 
                 if positions is None:
