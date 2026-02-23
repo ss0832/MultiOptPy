@@ -117,7 +117,7 @@ class Calculation:
         # Extract Results
         g = -1 * calc_obj.atom_obj.get_forces(apply_constraint=False) * self.bohr2angstroms / self.hartree2eV 
         e = calc_obj.atom_obj.get_potential_energy(apply_constraint=False) / self.hartree2eV 
-        
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g)
         return e, g, calc_obj
 
     def calc_exact_hess(self, calc_obj, positions, element_list):
