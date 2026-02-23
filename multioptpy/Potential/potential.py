@@ -189,6 +189,7 @@ class BiasPotentialCalculation:
             
         
         np.save(self.BPA_FOLDER_DIRECTORY+"raw_bias_hessian.npy", BPA_hessian)
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_bias_grad.npy", BPA_grad_list)
         
         B_g = g + BPA_grad_list
         B_e = B_e.item() + e
