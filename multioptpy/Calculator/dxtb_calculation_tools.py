@@ -141,6 +141,7 @@ class Calculation:
         # Convert to numpy
         return_exact_hess = exact_hess.to('cpu').detach().numpy().copy()
         
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", return_exact_hess)
         # Project out TR
         # positions for projection: needs to be numpy array.
         # torch_positions is tensor.

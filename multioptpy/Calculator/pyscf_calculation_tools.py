@@ -180,7 +180,7 @@ class Calculation:
         # In original `single_point`, `input_data_for_display` was `geom / bohr2ang` (Bohr).
         # So we must pass Bohr coords to projection tool.
         positions_bohr = positions_ang / self.bohr2angstroms
-        
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", exact_hess)
         exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(
             exact_hess, element_list, positions_bohr, display_eigval=True
         )

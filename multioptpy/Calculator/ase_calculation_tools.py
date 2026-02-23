@@ -159,6 +159,8 @@ class Calculation:
             vib.clean()  
             exact_hess = exact_hess / self.hartree2eV * (self.bohr2angstroms ** 2)
         
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", exact_hess)
+        
         # Project out translation and rotation
         if type(element_list[0]) is str:
             exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(exact_hess, element_list, positions)

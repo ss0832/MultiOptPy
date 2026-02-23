@@ -146,7 +146,7 @@ class Calculation:
         # Original code passed `input_data_for_display` which was `geom_ang / bohr2ang` (Bohr).
         # So we convert Ang -> Bohr here.
         positions_bohr = positions_ang / psi4.constants.bohr2angstroms
-        
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", exact_hess)
         exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(
             exact_hess, element_list, positions_bohr, display_eigval=False
         )
