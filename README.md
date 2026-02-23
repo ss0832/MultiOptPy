@@ -1,5 +1,9 @@
 # MultiOptPy
 
+**Status: Maintenance Mode**
+This project is currently in maintenance mode following the release of version 1.21.0. Version 1.21.0 represents the most recent stable release, incorporating the latest structural optimization algorithms and interface modifications developed within this framework. Active development of new functionalities is suspended. Future updates may be limited to specific bug fixes or dependency adjustments, and the frequency of these updates is undetermined. The repository remains accessible under the GNU Affero General Public License v3.0. Users seeking to implement new features or modify existing algorithms are advised to fork the codebase for independent development.
+
+
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1wpW8YO8r9gq20GACyzdaEsFK4Va1JQs4?usp=sharing) (Test 1, only use GFN2-xTB)
 
 
