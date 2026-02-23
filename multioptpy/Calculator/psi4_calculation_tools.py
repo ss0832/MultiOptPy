@@ -127,6 +127,7 @@ class Calculation:
         g, wfn = psi4.gradient(self.FUNCTIONAL, molecule=mol, return_wfn=True)
         e = float(wfn.energy())
         g = np.array(g, dtype="float64")
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g)
         
         return e, g, wfn
 

@@ -91,6 +91,8 @@ class Calculation:
         e = float(res.get("energy"))
         g = res.get("gradient") # Hartree/Bohr
         
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g)
+        
         self.res = res # Store full result for later access to orbitals, etc.
         
         return e, g

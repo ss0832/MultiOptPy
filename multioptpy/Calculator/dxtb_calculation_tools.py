@@ -115,6 +115,7 @@ class Calculation:
         # Detach to numpy
         e_np = e.to('cpu').detach().numpy().copy()
         g_np = g_tensor.to('cpu').detach().numpy().copy()
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g_np)
         
         return e_np, g_np, calc, torch_positions
 

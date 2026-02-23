@@ -145,6 +145,8 @@ class Calculation:
             final_mf = td_obj
 
         g = np.array(g, dtype="float64")
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g)
+        
         return e, g, final_mf
 
     def calc_exact_hess(self, mf_obj, positions_ang, element_list):
