@@ -188,8 +188,8 @@ class BiasPotentialCalculation:
             self.mi_bias_pot_obj_list[j].save_state()
             
         
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_bias_hessian.npy", BPA_hessian)
         
-         
         B_g = g + BPA_grad_list
         B_e = B_e.item() + e
         #new_geometry:ang. 
