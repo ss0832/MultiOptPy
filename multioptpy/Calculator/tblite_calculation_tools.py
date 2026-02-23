@@ -47,6 +47,7 @@ class Calculation:
         self.alpb_solv_model = kwarg.get("alpb_solv_model", None)
         self.method = kwarg.get("method", "GFN2-xTB") # Default method
         self.verbosity = 0
+        self.numerical_delivative_delta = 0.0001
 
     def _get_calculator(self, positions_bohr, element_numbers, charge, uhf):
         """Internal helper to create Calculator instance"""
@@ -98,7 +99,6 @@ class Calculation:
         """
         Compute numerical Hessian using finite difference of gradients.
         """
-        numerical_delivative_delta = 0.0001
         n_atoms = len(geom_num_list)
         hessian = np.zeros((3 * n_atoms, 3 * n_atoms))
         
@@ -120,7 +120,7 @@ class Calculation:
                         for direction in [1, -1]:
                             # Perturb geometry
                             perturbed_geom = copy.copy(geom_num_list)
-                            perturbed_geom[atom_num][i] += direction * numerical_delivative_delta
+                            perturbed_geom[atom_num][i] += direction * self.numerical_delivative_delta
                             
                             calc = self._get_calculator(perturbed_geom, element_number_list, charge, uhf)
                             res = calc.singlepoint()
@@ -128,7 +128,7 @@ class Calculation:
                             tmp_grad.append(g[atom_num_2][j])
                         
                         # Central difference
-                        val = (tmp_grad[0] - tmp_grad[1]) / (2 * numerical_delivative_delta)
+                        val = (tmp_grad[0] - tmp_grad[1]) / (2 * self.numerical_delivative_delta)
                         hessian[3*atom_num+i][3*atom_num_2+j] = val
                         hessian[3*atom_num_2+j][3*atom_num+i] = val
                         
@@ -141,7 +141,7 @@ class Calculation:
         """
         # Compute raw numerical Hessian
         exact_hess = self.numerical_hessian(positions_bohr, element_number_list, charge_mult)
-        
+        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", exact_hess)
         # Project out Translation/Rotation
         # Note: Calculationtools usually expects Bohr for projection if hessian is in au?
         # Re-checking previous context: `project_out_hess_tr_and_rot_for_coord` seems to handle it.
