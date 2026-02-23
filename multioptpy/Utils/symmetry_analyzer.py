@@ -72,9 +72,9 @@ class SymmetryAnalyzer:
         self,
         atoms,
         coordinates,
-        tol: float = 1e-2,
+        tol: float = 1e-1,
         angle_tol: float = 1e-4,
-        perp_tol: float = 0.15,     # FIX #2: was implicitly angle_tol (1e-4) – far too tight
+        perp_tol: float = 0.15,     
         max_n_fold: int = 8,
     ):
         if coordinates is None or len(coordinates) == 0:
@@ -403,10 +403,10 @@ class SymmetryAnalyzer:
 def analyze_symmetry(
     atoms,
     coordinates,
-    tol: float       = 1e-2,
+    tol: float       = 1e-1,
     angle_tol: float = 1e-4,
     perp_tol: float  = 0.15,
-    max_n_fold: int  = 6,
+    max_n_fold: int  = 8,
 ) -> str:
     """
     Determine the molecular point group.
