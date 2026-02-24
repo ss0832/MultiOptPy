@@ -210,6 +210,11 @@ For relaxed scan (Similar to functions implemented in Gaussian)
 ```
 python relaxed_scan.py SN2.xyz -nsample 8 -scan bond 1,2 1.3,2.6 -elec -1 -spin 0 -xtb GFN2-xTB -opt crsirfo_block_fsb -modelhess
 ```
+For reaction network exploration
+```
+python run_mapper.py mapper_test.xyz -cfg config_mapper_test.json
+```
+
 ## Options
 (optmain.py)
 
