@@ -7,7 +7,7 @@ MultiOptPy Documentation
     *Multifunctional geometry optimization tools for quantum chemical calculations (AFIR, NEB, MD, TS search, NNP/UMA support).*
 
 .. note::
-   The project is frozen after reaching stability goals (v1.20.2). No new features are planned by the original author, but community contributions are welcome.
+   The project is frozen after reaching stability goals (v1.21.0). No new features are planned by the original author.
 
 .. warning::
    This program has **not** been experimentally validated in laboratory settings. Use at your own discretion.
