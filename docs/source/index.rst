@@ -1,7 +1,7 @@
 MultiOptPy Documentation
 ========================
 
-    **Version**: v1.20.5  
+    **Version**: v1.21.0  
     **Repository**: `https://github.com/ss0832/MultiOptPy <https://github.com/ss0832/MultiOptPy>`_  
     **Status**: Maintenance Mode / Frozen  
     *Multifunctional geometry optimization tools for quantum chemical calculations (AFIR, NEB, MD, TS search, NNP/UMA support).*
@@ -350,6 +350,100 @@ Conformation search
 
     confsearch s8_for_confomation_search_test.xyz -xtb GFN2-xTB -ns 2000
 
+--------------------------------------------
+MultiOptPy v1.21.0 — Reaction Network Mapper
+--------------------------------------------
+
+Overview
+--------
+
+v1.21.0 introduces ``ReactionNetworkMapper``, an automated exploration module for chemical reaction networks implemented as an extension of the existing ``AutoTSWorkflow``. Starting from a single XYZ structure, the mapper is designed to iteratively generate perturbations, execute TS searches, follow IRC endpoints, and construct a reaction network graph. This process operates without requiring manual intervention during the execution loop.
+
+New Modules
+-----------
+
+mapper.py — Core Engine
+~~~~~~~~~~~~~~~~~~~~~~~
+
+**ReactionNetworkMapper**
+The top-level orchestrator. It accepts pluggable components (queue, checker, perturber), allowing the exploration strategy to be exchanged without modifying the primary loop. The network is configured to be serialized to ``reaction_network.json`` after each iteration and can be resumed utilizing the ``--resume`` flag.
+
+**BoltzmannQueue** (default exploration strategy)
+Tasks are prioritized based on the Boltzmann weight of their source node:
+
+$$P = \exp\!\left(-\frac{\Delta E}{k_\mathrm{B} T}\right)$$
+
+Nodes with lower relative energies are prioritized for exploration; higher-energy nodes are accepted probabilistically in accordance with ``temperature_K``. The temperature parameter is exposed in ``config.json`` (``mapper_settings.temperature_K``) and as ``--temperature`` via the command-line interface.
+
+**ExplorationQueue** (abstract base class)
+To implement a custom exploration strategy (e.g., barrier-height-first or random selection), subclass ``ExplorationQueue`` and override ``compute_priority``. The existing ``should_add`` logic and sorted-insertion queue mechanisms are structurally inherited.
+
+**StructureChecker**
+Evaluates whether two optimized geometries are considered structurally equivalent. The algorithm operates in three stages:
+
+1. Center and align each geometry to its principal axes (PCA).
+2. Evaluate all four proper rotations of the axis frame to mitigate sign-flip ambiguity.
+3. For each rotation, calculate the optimal atom permutation utilizing the Hungarian algorithm (``scipy.optimize.linear_sum_assignment``), followed by computation of the rotation-minimized RMSD via the Kabsch algorithm.
+
+Structures with an RMSD < ``rmsd_threshold`` (default **0.30 Å**) are treated as structurally corresponding geometries. An energy pre-filter (default **1.0 kcal/mol**) bypasses the computationally demanding RMSD calculation for pairs exceeding the threshold, which is expected to reduce the number of geometric comparisons in extensive networks.
+
+**PerturbationGenerator**
+Selects non-covalent atom pairs within a specified distance window (default **1.5 – 5.0 Å**) and generates AFIR parameter lists compatible with ``AutoTSWorkflow``. Pairs categorized as bonded (within ``covalent_margin × (r_i + r_j)``) are excluded. Two parameters are introduced in this release:
+
+* ``active_atoms``: Restricts the pair search to a specified subset of atoms (1-based labels). This is considered applicable to systems where perturbation is restricted to a specific reactive site.
+* ``include_negative_gamma``: Generates repulsive (negative gamma) perturbations for selected pairs, which is expected to increase structural sampling in bond-dissociation directions.
+
+**ExploredPairsLog**
+Records each explored ``(node, atom_i, atom_j, gamma_sign)`` combination to a plain-text file. Upon restart, the log is reloaded and redundant calculations are bypassed, enabling the resumption of interrupted processes.
+
+**NetworkGraph / EQNode / TSEdge** (internal)
+A dataclass-based graph structure for reaction network management. Nodes store equilibrium geometries and energies; edges store TS geometries, energies, and forward/reverse barriers.
+
+run_mapper.py — CLI Entry Point
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A command-line interface structured similarly to ``run_autots.py``. Mapper parameters are defined in the ``"mapper_settings"`` block of ``config.json`` or overridden via command-line arguments.
+
+**Basic Usage**
+
+.. code-block:: bash
+
+    # Minimal execution (reads config.json in the working directory)
+    python run_mapper.py initial.xyz -cfg config.json
+
+    # Override temperature and constrain iterations
+    python run_mapper.py initial.xyz --temperature 500 --max_iter 30
+
+    # Specify AFIR parameters for the initial iteration
+    python run_mapper.py initial.xyz -ma 150.0 1,2 3,4,5
+
+    # Resume an interrupted execution
+    python run_mapper.py initial.xyz --resume
+
+**mapper_settings block (config.json)**
+
+.. code-block:: json
+
+    {
+      "mapper_settings": {
+        "temperature_K"          : 500.0,
+        "rmsd_threshold"         : 0.50,
+        "max_iterations"         : 150,
+        "afir_gamma_kJmol"       : 300.0,
+        "max_pairs"              : 5,
+        "dist_lower_ang"         : 2.0,
+        "dist_upper_ang"         : 7.0,
+        "output_dir"             : "mapper_output",
+        "rng_seed"               : 30,
+        "active_atoms"           : null,
+        "include_negative_gamma" : false
+      }
+    }
+
+CLI arguments take precedence over ``mapper_settings``, which structurally supersede the default values documented above.
+
+
+
 ----------------
 References & Citation
 ---------------------
@@ -358,8 +452,7 @@ If you use MultiOptPy, please cite:
 
 .. code-block:: text
 
-    ss0832. (2025). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.20.4).
-    Zenodo. https://doi.org/10.5281/zenodo.17973395
+    ss0832. (2026). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.21.0). Zenodo. https://doi.org/10.5281/zenodo.18737307
 
 References are embedded in source code comments.
 
