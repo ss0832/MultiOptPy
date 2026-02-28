@@ -198,6 +198,7 @@ def call_optimizeparser(parser):
     parser.add_argument("-press", "--pressure",  type=float, default='101325', help='pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa)')
     parser.add_argument("-negeigval", "--detect_negative_eigenvalues", help="Detect negative eigenvalues in the Hessian matrix at ITR. 0 if you calculate exact hessian (-fc >0). If negative eigenvalues are not detected and saddle_order > 0, the optimization is stopped.", action='store_true')
     parser.add_argument("-mf", "--model_function", nargs="*",  type=str, default=[], help='minimize model function(ex.) [[model function type (seam, avoid, conical etc.)] [electronic charge] [spin multiplicity]] ')
+    parser.add_argument('-nosymm','--no_symmetry_analyzer', help="Do not apply the symmetry analyzer after convergence. (Treat as C1 symmetry)", action='store_true')
     
     return parser
 
