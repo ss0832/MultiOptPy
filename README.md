@@ -13,9 +13,9 @@ This project is currently in maintenance mode following the release of version 1
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ss0832)
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/multioptpy?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/multioptpy)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18737307.svg)](https://doi.org/10.5281/zenodo.18737307)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18811289.svg)](https://doi.org/10.5281/zenodo.18811289)
 
-(Docker images) https://github.com/ss0832/mop_docker_image
+
 
 If this tool helped your studies, education, or saved your time, I'd appreciate a coffee!
 Your support serves as a great encouragement for this personal project and fuels my next journey.
@@ -404,13 +404,13 @@ If you use MultiOptPy in your research, please cite it as follows:
   month        = dec,
   year         = 2026,
   publisher    = {Zenodo},
-  version      = {v1.21.0},
-  doi          = {10.5281/zenodo.18737307},
-  url          = {https://doi.org/10.5281/zenodo.18737307}
+  version      = {v1.21.1},
+  doi          = {10.5281/zenodo.18811289},
+  url          = {https://doi.org/10.5281/zenodo.18811289}
 }
 ```
 ```
-ss0832. (2026). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.21.0). Zenodo. https://doi.org/10.5281/zenodo.18737307
+ss0832. (2026). MultiOptPy: Multifunctional geometry optimization tools for quantum chemical calculations (v1.21.1). Zenodo. https://doi.org/10.5281/zenodo.18811289
 ```
 
 ## Setting Up an Environment for Using NNP(UMA) on Windows 11
