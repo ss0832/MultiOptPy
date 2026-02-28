@@ -42,7 +42,7 @@ class Calculation:
         self.SET_MEMORY = kwarg.get("SET_MEMORY", "4GB")
         self.FUNCTIONAL = kwarg.get("FUNCTIONAL", "b3lyp")
         self.FC_COUNT = kwarg.get("FC_COUNT", 1)
-        self.BPA_FOLDER_DIRECTORY = kwarg.get("BPA_FOLDER_DIRECTORY", None)
+        self.BPA_FOLDER_DIRECTORY = kwarg.get("BPA_FOLDER_DIRECTORY", "./")
         self.Model_hess = kwarg.get("Model_hess", None)
         self.electronic_charge = kwarg.get("electronic_charge", 0)
         self.spin_multiplicity = kwarg.get("spin_multiplicity", 1)

@@ -80,7 +80,7 @@ class Calculation:
         self.FUNCTIONAL = kwarg.get("FUNCTIONAL", "PBE")
         self.BASIS_SET = kwarg.get("BASIS_SET", "6-31G(d)")
         self.FC_COUNT = kwarg.get("FC_COUNT", 1)
-        self.BPA_FOLDER_DIRECTORY = kwarg.get("BPA_FOLDER_DIRECTORY", None)
+        self.BPA_FOLDER_DIRECTORY = kwarg.get("BPA_FOLDER_DIRECTORY", "./")
         self.Model_hess = kwarg.get("Model_hess", None)
         self.unrestrict = kwarg.get("unrestrict", None)
         self.software_type = kwarg.get("software_type", None)
@@ -277,7 +277,7 @@ class ASEEngine:
         hess_count = 0
         
         for num, input_file in enumerate(file_list):
-            try:
+            if True:#try:
                 print(f"Processing file: {input_file}")
                 positions, element_list, electric_charge_and_multiplicity = xyz2list(input_file, None)
                 positions = np.array(positions, dtype="float64")
@@ -324,11 +324,11 @@ class ASEEngine:
                     np.save(os.path.join(config.NEB_FOLDER_DIRECTORY, f"tmp_hessian_{hess_count}.npy"), exact_hess)
                     hess_count += 1
                 
-            except Exception as error:
-                print(f"Error: {error}")
-                print("This molecule could not be optimized.")
-                if optimize_num != 0:
-                    delete_pre_total_velocity.append(num)
+            #except Exception as error:
+            #    print(f"Error: {error}")
+            #    print("This molecule could not be optimized.")
+            #    if optimize_num != 0:
+            #        delete_pre_total_velocity.append(num)
         
         try:
             if config.save_pict:
