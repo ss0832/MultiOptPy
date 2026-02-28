@@ -101,6 +101,7 @@ class OptimizationConfig:
         self.spin_multiplicity = args.spin_multiplicity
         self.electronic_charge = args.electronic_charge
         self.model_function = args.model_function
+        self.no_symmetry_analyzer = args.no_symmetry_analyzer
         
         
 
@@ -2382,7 +2383,10 @@ class Optimize:
         self.state.final_bias_energy = B_e
 
         if not exit_flag:
-            self.symmetry = analyze_symmetry(self.element_list, self.state.final_geometry)
+            if self.config.no_symmetry_analyzer:
+                self.symmetry = "C1"
+            else:
+                self.symmetry = analyze_symmetry(self.element_list, self.state.final_geometry)
             self.state.symmetry = self.symmetry
             with open(self.BPA_FOLDER_DIRECTORY + "symmetry.txt", "w") as f:
                 f.write(f"Symmetry of final structure: {self.symmetry}")
