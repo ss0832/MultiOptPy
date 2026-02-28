@@ -214,6 +214,7 @@ For reaction network exploration
 ```
 python run_mapper.py mapper_test.xyz -cfg config_mapper_test.json
 ```
+Test of run_mapping.py (https://github.com/ss0832/mop_mapper_test/).
 
 ## Options
 (optmain.py)
