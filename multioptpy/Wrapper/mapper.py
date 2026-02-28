@@ -866,7 +866,7 @@ class ReactionNetworkMapper:
         graph_json: str = "reaction_network.json",
         max_iterations: int = 50,
         resume: bool = False,
-        boltzmann_resample_attempts: int = 10000,
+        boltzmann_resample_attempts: int = 1000000,
         rng_seed: int = 42,
         energy_tolerance_kcalmol: float = 1.0,
         config_file_path: str | None = None,
