@@ -31,14 +31,23 @@ def save_bias_param_grad_info(file_path, gradient, bias_pot_id):
 
 def read_software_path(file_path="./software_path.conf"):
     print("Reading software path from", file_path)
-    with open(file_path, "r") as f:
-        words = f.read().splitlines()
     software_path_dict = {}
-    for word in words:
-        tmp_split = word.split("::")
-        soft_name = tmp_split[0]
-        soft_path = tmp_split[1]
-        software_path_dict[soft_name] = soft_path
+    
+    try:
+        with open(file_path, "r") as f:
+            words = f.read().splitlines()
+            
+        for word in words:
+            tmp_split = word.split("::")
+            # Added a condition to prevent IndexError for empty or malformed lines.
+            if len(tmp_split) >= 2:
+                soft_name = tmp_split[0]
+                soft_path = tmp_split[1]
+                software_path_dict[soft_name] = soft_path
+                
+    except FileNotFoundError:
+        print(f"Warning: FileNotFoundError encountered. The file '{file_path}' does not exist. Returning an empty dictionary.")
+        
     return software_path_dict
 
 def xyz2list(file_path, args_electric_charge_and_multiplicity):
