@@ -55,7 +55,7 @@ class LQA:
         """
         self.max_step = max_step
         self.step_size = step_size
-        self.N_euler = 40000  # Number of Euler integration steps
+        self.N_euler = 20000  # Number of Euler integration steps
         self.ModelHessianUpdate = ModelHessianUpdate()
         self.CE = calc_engine
         self.FC_count = FC_count
@@ -282,8 +282,8 @@ class LQA:
         if len(self.irc_mw_gradients) > 1 and len(self.irc_mw_coords) > 1:
             delta_g = (self.irc_mw_gradients[-1] - self.irc_mw_gradients[-2]).reshape(-1, 1)
             delta_x = (self.irc_mw_coords[-1] - self.irc_mw_coords[-2]).reshape(-1, 1)
+
             delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
-            
             self.mw_hessian += delta_hess
 
         # Add bias potential hessian and diagonalize
