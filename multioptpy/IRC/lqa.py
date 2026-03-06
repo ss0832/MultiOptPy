@@ -282,9 +282,34 @@ class LQA:
         if len(self.irc_mw_gradients) > 1 and len(self.irc_mw_coords) > 1:
             delta_g = (self.irc_mw_gradients[-1] - self.irc_mw_gradients[-2]).reshape(-1, 1)
             delta_x = (self.irc_mw_coords[-1] - self.irc_mw_coords[-2]).reshape(-1, 1)
-          
+
             delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
             self.mw_hessian += delta_hess
+
+            # Parallel transport correction for the Hessian.
+            #
+            # As the IRC path curves through mass-weighted Cartesian space, the local
+            # coordinate frame rotates from step to step. The Bofill update is expressed
+            # in the fixed Cartesian frame and therefore accumulates a frame-rotation
+            # error proportional to the path curvature. The parallel transport
+            # (covariant derivative) correction removes this error to first order in κ:
+            #
+            #   ΔH_pt = -κ * ( H·n ⊗ t  +  t ⊗ H·n )
+            #
+            # where t is the unit tangent vector along the IRC path, n is the unit
+            # curvature (principal normal) vector, and κ is the scalar curvature.
+            # This is the discrete analogue of Lie-transporting the Hessian tensor
+            # along the path and ensures that successive Bofill updates are consistent
+            # with the same local frame, reducing drift between full Hessian recalculations.
+            unit_tangent_vector, curvature_vector, scalar_curvature, _ = calc_irc_curvature_properties(
+                self.irc_mw_gradients[-1], self.irc_mw_gradients[-2], self.mw_hessian, self.step_size
+            )
+            t_vec = unit_tangent_vector.flatten()
+            n_vec = curvature_vector.flatten()
+            Hn = np.dot(self.mw_hessian, n_vec)
+            delta_hess_pt = -scalar_curvature * (np.outer(Hn, t_vec) + np.outer(t_vec, Hn))
+            self.mw_hessian += delta_hess_pt
+            print(f"  [LQA] Parallel transport correction applied: curvature={scalar_curvature:.4e}")
 
         # Add bias potential hessian and diagonalize
         combined_hessian = self.mw_hessian + mw_BPA_hessian
@@ -314,39 +339,49 @@ class LQA:
         mw_gradient_proj = np.dot(eigenvectors.T, flattened_gradient)
 
         # Integration of the step size
+        # Use a for/else to detect if the arc length saturated before reaching step_size.
+        # Saturation occurs near the EQ where the gradient norm is very small and
+        # exp(-2*lambda*t) decays rapidly, causing the integrand to vanish before
+        # the target arc length is reached. In this case the full N_euler loop
+        # completes without breaking, so the else clause fires.
         t = dt
         current_length = 0
+        saturated = False
         for j in range(self.N_euler):
             dsdt = np.sqrt(np.sum(mw_gradient_proj**2 * np.exp(-2*eigenvalues*t)))
             current_length += dsdt * dt
             if current_length > self.step_size:
                 break
             t += dt
-        
-        # --- START MODIFICATION (Fix for numerical stability) ---
-        
-        # Calculate alphas and the IRC step
-        # Original: alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
-        # This suffers from catastrophic cancellation if (eigenvalues*t) is near zero.
-        
-        x = -eigenvalues * t
-        
-        # Use np.expm1(x) for numerical stability.
-        # np.expm1(x) calculates exp(x) - 1 accurately.
-        # We need (exp(x) - 1) / eigenvalues.
-        # Since x = -eigenvalues * t, then eigenvalues = -x / t
-        # (exp(x) - 1) / (-x / t) = -t * (exp(x) - 1) / x
-        
-        # We use np.where to handle the limit x -> 0, where (exp(x)-1)/x -> 1, so alpha -> -t
-        small_x_mask = np.abs(x) < 1e-8
-        
-        alphas = np.where(
-            small_x_mask,
-            -t,  # Limit of (exp(x)-1)/eigenvalues as x->0 is -t
-            np.expm1(x) / eigenvalues # Use numerically stable function
-        )
-        
-        # --- END MODIFICATION ---
+        else:
+            # Loop completed without reaching step_size: arc length has saturated.
+            # This indicates we are near the EQ. Scale the step proportionally to
+            # avoid overshooting and oscillating around the minimum.
+            saturated = True
+
+        if saturated:
+            # Near the EQ the arc length integrand decays to zero before reaching
+            # step_size, meaning the distance to the EQ is smaller than one full step.
+            # The LQA formula has a well-defined t -> infinity limit:
+            #   alpha_i = (exp(-lambda_i * t) - 1) / lambda_i  ->  -1 / lambda_i
+            # which is exactly the Newton step in the eigenbasis of the Hessian.
+            # Using this limit directly is both numerically clean and physically correct:
+            # on a local quadratic surface the Newton step lands at the minimum in one step.
+            alphas = -1.0 / eigenvalues
+            print(f"  [LQA] Arc length saturated at {current_length:.4e}: "
+                  f"using Newton step (t->inf limit of LQA)")
+        else:
+            # Normal LQA: compute alphas from the integration time t.
+            # Use np.expm1 to avoid catastrophic cancellation when eigenvalues*t ~ 0:
+            #   (exp(-lambda*t) - 1) / lambda = expm1(-lambda*t) / lambda
+            # Limit as lambda*t -> 0: alpha -> -t
+            x = -eigenvalues * t
+            small_x_mask = np.abs(x) < 1e-8
+            alphas = np.where(
+                small_x_mask,
+                -t,                         # Limiting value as x -> 0
+                np.expm1(x) / eigenvalues   # Numerically stable for finite x
+            )
         
         A = np.dot(eigenvectors, np.dot(np.diag(alphas), eigenvectors.T))
         step = np.dot(A, flattened_gradient)
