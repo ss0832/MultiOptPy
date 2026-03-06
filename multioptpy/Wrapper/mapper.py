@@ -47,6 +47,8 @@ except ImportError as _covalent_import_err:
     covalent_radii_lib = None
     _BOHR2ANG = 0.529177210903
 
+from multioptpy.Utils.rcmc import RCMCQueue
+
 logger = logging.getLogger(__name__)
 
 # Module-level physical constants
@@ -96,109 +98,401 @@ def distance_matrix(coords: np.ndarray) -> np.ndarray:
 
 
 # ===========================================================================
-# Section 2 : Fast StructureChecker
+# Section 2 : StructureChecker
 # ===========================================================================
 
+
 class StructureChecker:
+    """
+    Determines whether two molecular structures are identical up to
+    rotation and atom-index permutation.
+    """
+
+    # Relative tolerance for declaring two eigenvalues degenerate.
+    _DEGENERACY_REL_TOL: float = 0.02
+
     def __init__(self, rmsd_threshold: float = 0.30) -> None:
         self.rmsd_threshold = rmsd_threshold
+
+    # ------------------------------------------------------------------ #
+    #  Public interface                                                    #
+    # ------------------------------------------------------------------ #
 
     def are_similar(
         self,
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> bool:
-        """Evaluates structural similarity based on PCA alignment and optimal matching."""
-        rmsd_val = self.compute_rmsd(sym_a, coords_a, sym_b, coords_b)
-        return rmsd_val < self.rmsd_threshold
+        return self.compute_rmsd(sym_a, coords_a, sym_b, coords_b) < self.rmsd_threshold
 
     def compute_rmsd(
         self,
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> float:
+        """
+        Return the minimum RMSD between the two structures over all proper
+        rotations and atom-index permutations.  Returns inf if the element
+        compositions differ.
+        """
         if len(sym_a) != len(sym_b) or set(sym_a) != set(sym_b):
             return float("inf")
 
         ca = coords_a - coords_a.mean(axis=0)
         cb = coords_b - coords_b.mean(axis=0)
 
-        ca_aligned = self._principal_axis_align(ca)
-        cb_aligned = self._principal_axis_align(cb)
+        ca_aligned, eigvals_a = self._pca_align(ca)
+        cb_aligned, eigvals_b = self._pca_align(cb)
 
-        min_rmsd = float("inf")
+        # -------------------------------------------------------------- #
+        # Stage 1: 4 sign-flip candidates — sufficient when no degeneracy #
+        # -------------------------------------------------------------- #
+        min_rmsd = self._try_candidates(
+            self._sign_flip_candidates(),
+            sym_a, ca_aligned, sym_b, cb_aligned,
+        )
+        if min_rmsd < self.rmsd_threshold:
+            return min_rmsd
 
-     
-        proper_rotations = [
-            np.array([1, 1, 1]),
-            np.array([-1, -1, 1]),
-            np.array([-1, 1, -1]),
-            np.array([1, -1, -1])
-        ]
+        # -------------------------------------------------------------- #
+        # Stage 2: degeneracy check — skip heavy stages if unnecessary    #
+        # -------------------------------------------------------------- #
+        deg_01, deg_12 = self._degeneracy_flags(eigvals_a, eigvals_b)
+        if not deg_01 and not deg_12:
+            return min_rmsd
 
-        for ref in proper_rotations:
-            cb_ref = cb_aligned * ref
-            perm = self._optimal_mapping(sym_a, ca_aligned, sym_b, cb_ref)
-            if perm is not None:
-                rmsd_current = self._kabsch_rmsd(ca_aligned, cb_ref[perm])
-                if rmsd_current < min_rmsd:
-                    min_rmsd = rmsd_current
+        # -------------------------------------------------------------- #
+        # Stage 3: partial degeneracy — coarse planar grid                #
+        #   deg_01 only → free rotation around z  (lambda_0 ≈ lambda_1)  #
+        #   deg_12 only → free rotation around x  (lambda_1 ≈ lambda_2)  #
+        #   both        → coarse SO(3) grid as a first pass               #
+        # -------------------------------------------------------------- #
+        coarse = self._build_planar_candidates(deg_01, deg_12, n_plane=6, n_sphere=4)
+        min_rmsd = min(min_rmsd, self._try_candidates(
+            coarse, sym_a, ca_aligned, sym_b, cb_aligned,
+        ))
+        if min_rmsd < self.rmsd_threshold:
+            return min_rmsd
+
+        # -------------------------------------------------------------- #
+        # Stage 4: full degeneracy only — fine SO(3) grid                 #
+        # -------------------------------------------------------------- #
+        if deg_01 and deg_12:
+            fine = self._build_planar_candidates(deg_01, deg_12, n_plane=12, n_sphere=8)
+            min_rmsd = min(min_rmsd, self._try_candidates(
+                fine, sym_a, ca_aligned, sym_b, cb_aligned,
+            ))
 
         return min_rmsd
 
+    # ------------------------------------------------------------------ #
+    #  Candidate evaluation                                                #
+    # ------------------------------------------------------------------ #
+
+    def _try_candidates(
+        self,
+        candidates: list[np.ndarray],
+        sym_a: list[str], ca: np.ndarray,
+        sym_b: list[str], cb: np.ndarray,
+    ) -> float:
+        """Evaluate every rotation candidate and return the minimum RMSD found."""
+        min_rmsd = float("inf")
+        for R in candidates:
+            cb_rot = cb @ R.T
+            perm = self._optimal_mapping(sym_a, ca, sym_b, cb_rot)
+            if perm is None:
+                continue
+            rmsd = self._kabsch_rmsd(ca, cb_rot[perm])
+            if rmsd < min_rmsd:
+                min_rmsd = rmsd
+        return min_rmsd
+
+    # ------------------------------------------------------------------ #
+    #  PCA alignment                                                       #
+    # ------------------------------------------------------------------ #
+
     @staticmethod
-    def _principal_axis_align(coords: np.ndarray) -> np.ndarray:
+    def _pca_align(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Rotate *coords* so that its principal axes coincide with the
+        Cartesian axes (largest variance → x, smallest → z).
+
+        The rotation matrix is forced to have det = +1 (proper rotation)
+        by negating the last eigenvector when necessary.  Without this
+        fix the PCA step can silently apply a reflection, causing
+        enantiomers to be declared identical.
+
+        Returns
+        -------
+        aligned : ndarray  – rotated coordinates
+        eigvals : ndarray  – PCA eigenvalues in descending order, shape (3,)
+        """
         if len(coords) < 2:
-            return coords
-        cov_matrix = np.cov(coords.T)
-        # eigh returns eigenvalues in ascending order; reverse to descending
-        # for a consistent, reproducible orientation of the principal axes.
-        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
-        idx = eigvals.argsort()[::-1]
-        eigvecs = eigvecs[:, idx]
-        return coords @ eigvecs
+            return coords, np.ones(3)
+
+        eigvals, eigvecs = np.linalg.eigh(np.cov(coords.T))
+
+        # Descending eigenvalue order → canonical axis labelling.
+        order = eigvals.argsort()[::-1]
+        eigvals = eigvals[order]
+        eigvecs = eigvecs[:, order]
+
+        # Guarantee a proper rotation (det = +1).
+        if np.linalg.det(eigvecs) < 0:
+            eigvecs[:, -1] *= -1
+
+        return coords @ eigvecs, eigvals
+
+    # ------------------------------------------------------------------ #
+    #  Rotation candidates                                                 #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _sign_flip_candidates() -> list[np.ndarray]:
+        """
+        The 4 proper rotations (det = +1) arising from sign-flip ambiguity
+        of PCA eigenvectors.  Always necessary; sufficient when no
+        eigenvalue degeneracy is present.
+        """
+        return [
+            np.diag([ 1.0,  1.0,  1.0]),
+            np.diag([-1.0, -1.0,  1.0]),
+            np.diag([-1.0,  1.0, -1.0]),
+            np.diag([ 1.0, -1.0, -1.0]),
+        ]
+
+    @classmethod
+    def _build_planar_candidates(
+        cls,
+        deg_01: bool,
+        deg_12: bool,
+        n_plane: int,
+        n_sphere: int,
+    ) -> list[np.ndarray]:
+        """
+        Build rotation candidates for degenerate subspaces.
+
+        deg_01 only  → sample rotations around z (the well-defined axis).
+        deg_12 only  → sample rotations around x (the well-defined axis).
+        deg_01 & deg_12 → fully degenerate; sample SO(3) via ZYZ Euler grid.
+
+        Each set is combined with all 4 sign-flip matrices so that
+        sign-flip ambiguity is still covered.
+        """
+        sign_flips = cls._sign_flip_candidates()
+
+        if deg_01 and deg_12:
+            extra = cls._so3_grid(n_sphere)
+        elif deg_01:
+            extra = [cls._Rz(2 * np.pi * k / n_plane) for k in range(n_plane)]
+        else:  # deg_12 only
+            extra = [cls._Rx(2 * np.pi * k / n_plane) for k in range(n_plane)]
+
+        return [S @ R for S in sign_flips for R in extra]
+
+    @classmethod
+    def _degeneracy_flags(
+        cls,
+        eigvals_a: np.ndarray,
+        eigvals_b: np.ndarray,
+    ) -> tuple[bool, bool]:
+        """
+        Return (deg_01, deg_12) indicating which adjacent eigenvalue pairs
+        are degenerate in at least one of the two structures.
+
+        The OR across both structures is conservative: if either structure
+        has a degenerate axis we must sample it.
+        A relative tolerance is used so the test is scale-independent.
+        """
+        tol = cls._DEGENERACY_REL_TOL
+
+        def rel_close(ev: np.ndarray, i: int, j: int) -> bool:
+            denom = max(abs(ev[i]), abs(ev[j]), 1e-10)
+            return abs(ev[i] - ev[j]) / denom < tol
+
+        deg_01 = rel_close(eigvals_a, 0, 1) or rel_close(eigvals_b, 0, 1)
+        deg_12 = rel_close(eigvals_a, 1, 2) or rel_close(eigvals_b, 1, 2)
+        return deg_01, deg_12
+
+    @staticmethod
+    def _so3_grid(n: int) -> list[np.ndarray]:
+        """
+        Coarse uniform-ish grid over SO(3) using ZYZ Euler angles.
+
+        Alpha, gamma in [0, 2*pi) are sampled uniformly in n steps.
+        Beta in [0, pi] is sampled with equal-area (cos-spaced) spacing
+        so that grid points are roughly uniformly distributed on S².
+
+        Total: n³ rotation matrices (512 for n = 8).
+        """
+        rotations: list[np.ndarray] = []
+        for i in range(n):
+            alpha = 2 * np.pi * i / n
+            ca, sa = np.cos(alpha), np.sin(alpha)
+            Rz_alpha = np.array([[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]])
+
+            for j in range(n):
+                beta = np.arccos(np.clip(1.0 - 2.0 * (j + 0.5) / n, -1.0, 1.0))
+                cb, sb = np.cos(beta), np.sin(beta)
+                Ry_beta = np.array([[cb, 0.0, sb], [0.0, 1.0, 0.0], [-sb, 0.0, cb]])
+
+                for k in range(n):
+                    gamma = 2 * np.pi * k / n
+                    cg, sg = np.cos(gamma), np.sin(gamma)
+                    Rz_gamma = np.array([[cg, -sg, 0.0], [sg, cg, 0.0], [0.0, 0.0, 1.0]])
+                    rotations.append(Rz_alpha @ Ry_beta @ Rz_gamma)
+
+        return rotations
+
+    @staticmethod
+    def _Rx(t: float) -> np.ndarray:
+        c, s = np.cos(t), np.sin(t)
+        return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+
+    @staticmethod
+    def _Rz(t: float) -> np.ndarray:
+        c, s = np.cos(t), np.sin(t)
+        return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+    # ------------------------------------------------------------------ #
+    #  Atom mapping (Hungarian algorithm)                                  #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _optimal_mapping(
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> list[int] | None:
-        """Assigns atoms using the Hungarian algorithm to minimize squared distances."""
+        """
+        Find the permutation of B's atoms that minimises the total
+        squared distance to A, solved independently per element.
+        Returns None if stoichiometry is inconsistent.
+        """
         perm: list[int | None] = [None] * len(sym_a)
-        unique_elements = set(sym_a)
-
-        for elem in unique_elements:
+        for elem in set(sym_a):
             idx_a = [i for i, s in enumerate(sym_a) if s == elem]
             idx_b = [i for i, s in enumerate(sym_b) if s == elem]
-
             if len(idx_a) != len(idx_b):
                 return None
-
-            sub_a = coords_a[idx_a]
-            sub_b = coords_b[idx_b]
-
-            # Calculate distance matrix for the subset of atoms
-            dists = cdist(sub_a, sub_b, metric='sqeuclidean')
-
-            # Solve the linear sum assignment problem to find the global minimum mapping
-            row_ind, col_ind = linear_sum_assignment(dists)
-
+            cost = cdist(coords_a[idx_a], coords_b[idx_b], metric="sqeuclidean")
+            row_ind, col_ind = linear_sum_assignment(cost)
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
+        return None if None in perm else perm  # type: ignore
 
-        if None in perm:
-            return None
-        return perm  # type: ignore
+    # ------------------------------------------------------------------ #
+    #  Kabsch RMSD                                                         #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _kabsch_rmsd(pa: np.ndarray, pb: np.ndarray) -> float:
-        H = pb.T @ pa
-        U, _, Vt = np.linalg.svd(H)
-        sign_d = np.linalg.det(Vt.T @ U.T)
-        D = np.diag([1.0, 1.0, sign_d])
+        """
+        Minimum RMSD between *pa* and *pb* over all proper rotations.
+
+        The determinant correction enforces det(R) = +1, preventing the
+        SVD from finding a reflection that would artificially lower the
+        RMSD for enantiomeric pairs.
+        """
+        U, _, Vt = np.linalg.svd(pb.T @ pa)
+        D = np.diag([1.0, 1.0, np.linalg.det(Vt.T @ U.T)])
         R = Vt.T @ D @ U.T
         diff = pa - pb @ R.T
         return float(np.sqrt((diff ** 2).sum() / len(pa)))
+
+
+# ===========================================================================
+# Section 2b : BondTopologyChecker
+# ===========================================================================
+
+
+class BondTopologyChecker:
+    """Detects covalent bond rearrangements by comparing bond-type fingerprints.
+
+    A bond "fingerprint" is a dictionary mapping sorted element-pair tuples
+    to the number of bonds of that type in the structure, e.g.::
+
+        {("C", "C"): 2, ("C", "H"): 6, ("N", "H"): 1}
+
+    Comparison is atom-index-permutation-invariant because it relies solely
+    on element identities and bond counts, not on specific atom indices.  This
+    is sufficient to detect formation or cleavage of covalent bonds (i.e.,
+    reactions) while being insensitive to conformational changes.
+
+    Parameters
+    ----------
+    covalent_margin : float
+        Multiplicative margin applied to the sum of covalent radii when
+        deciding whether two atoms are bonded.  A value of 1.2 (default)
+        means atoms are considered bonded when their distance is within
+        120 % of (r_i + r_j).
+    """
+
+    def __init__(self, covalent_margin: float = 1.2) -> None:
+        self.covalent_margin = covalent_margin
+
+    # ------------------------------------------------------------------ #
+    #  Public interface                                                    #
+    # ------------------------------------------------------------------ #
+
+    def fingerprint(
+        self,
+        symbols: list[str],
+        coords: np.ndarray,
+    ) -> dict[tuple[str, str], int]:
+        """Return the bond-type count dictionary for *symbols* / *coords*.
+
+        Each key is a ``(elem_a, elem_b)`` tuple with elements in sorted
+        order (so C–H and H–C map to the same key).  The value is the
+        number of such bonds.
+        """
+        n = len(symbols)
+        dmat = distance_matrix(coords)
+        counts: dict[tuple[str, str], int] = {}
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                threshold = self._bond_threshold(symbols[i], symbols[j])
+                if dmat[i, j] <= threshold:
+                    key = (min(symbols[i], symbols[j]), max(symbols[i], symbols[j]))
+                    counts[key] = counts.get(key, 0) + 1
+
+        return counts
+
+    def has_rearrangement(
+        self,
+        ref_symbols: list[str],
+        ref_coords: np.ndarray,
+        new_symbols: list[str],
+        new_coords: np.ndarray,
+    ) -> bool:
+        """Return ``True`` when the bond topology of *new* differs from *ref*.
+
+        Structures with different stoichiometry are considered to have
+        undergone rearrangement (returns ``True``).
+        """
+        if sorted(ref_symbols) != sorted(new_symbols):
+            return True  # Stoichiometry changed — treat as rearrangement.
+
+        ref_fp = self.fingerprint(ref_symbols, ref_coords)
+        new_fp = self.fingerprint(new_symbols, new_coords)
+        return ref_fp != new_fp
+
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _bond_threshold(self, elem_i: str, elem_j: str) -> float:
+        """Return the maximum bonding distance [Å] for this element pair."""
+        if covalent_radii_lib is not None:
+            try:
+                r_i = covalent_radii_lib(elem_i) * _BOHR2ANG
+                r_j = covalent_radii_lib(elem_j) * _BOHR2ANG
+                return self.covalent_margin * (r_i + r_j)
+            except KeyError:
+                pass
+        # Fall back to a generic threshold when covalent radii are unavailable.
+        return self.covalent_margin * 1.5
+
 
 # ===========================================================================
 # Section 3 : ExplorationQueue
@@ -282,6 +576,33 @@ class ExplorationQueue(ABC):
         )
         p = self.compute_priority(dummy_task)
         return bool(self._rng.random() < p)
+
+    def refresh_priorities(self, ref_e: float | None) -> None:
+        """Recompute priorities for all queued tasks using the current reference energy.
+
+        Should be called at the start of each iteration (before ``pop()``) so
+        that tasks enqueued when the reference energy was higher are
+        re-weighted against the latest minimum-energy node in the graph.
+
+        ``task.metadata["source_node_energy"]`` (the node's absolute SCF
+        energy in Hartree) is used to derive an up-to-date
+        ``delta_E_hartree``.  If either value is unavailable the stored
+        ``delta_E_hartree`` is left unchanged so the priority degrades
+        gracefully to the value set at enqueue time.
+
+        The queue is re-sorted in descending priority order after all tasks
+        have been updated.
+        """
+        if not self._tasks or ref_e is None:
+            return
+
+        for task in self._tasks:
+            node_energy = task.metadata.get("source_node_energy")
+            if node_energy is not None:
+                task.metadata["delta_E_hartree"] = node_energy - ref_e
+            task.priority = self.compute_priority(task)
+
+        self._tasks.sort(key=lambda t: t.priority, reverse=True)
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -870,6 +1191,9 @@ class ReactionNetworkMapper:
         rng_seed: int = 42,
         energy_tolerance_kcalmol: float = 1.0,
         config_file_path: str | None = None,
+        excluded_node_ids: list[int] | set[int] | None = None,
+        exclude_bond_rearrangement: bool = False,
+        bond_checker: BondTopologyChecker | None = None,
     ) -> None:
         """
         Parameters
@@ -926,6 +1250,20 @@ class ReactionNetworkMapper:
             :meth:`run` under the name ``config_snapshot.json``.  This makes
             every mapper output directory self-contained and reproducible.
             ``None`` disables the copy (default).
+        excluded_node_ids : list[int] | set[int] | None
+            EQ node IDs that must never be used as AFIR exploration starting
+            points.  Matching nodes are still registered in the graph (so that
+            edges connecting to them are preserved) but no perturbation tasks
+            are ever enqueued for them.  ``None`` (default) means no exclusions.
+        exclude_bond_rearrangement : bool
+            When ``True``, any newly discovered EQ node whose covalent bond
+            topology differs from that of the seed structure (EQ0) is
+            automatically added to ``excluded_node_ids`` and will not be
+            explored further.  Default is ``False``.
+        bond_checker : BondTopologyChecker | None
+            Instance used for bond-topology comparisons when
+            ``exclude_bond_rearrangement`` is ``True``.  Defaults to
+            ``BondTopologyChecker()`` when ``None`` and the option is enabled.
         """
         self.base_config = base_config
         self.queue    = queue if queue is not None else BoltzmannQueue()
@@ -962,6 +1300,20 @@ class ReactionNetworkMapper:
         self.config_file_path: str | None = (
             os.path.abspath(config_file_path) if config_file_path else None
         )
+
+        # ── EQ exclusion options ──────────────────────────────────────────
+        # Set of node IDs that are excluded from AFIR exploration.
+        self.excluded_node_ids: set[int] = set(excluded_node_ids) if excluded_node_ids else set()
+
+        # Bond-rearrangement filter.
+        self.exclude_bond_rearrangement: bool = exclude_bond_rearrangement
+        self.bond_checker: BondTopologyChecker = (
+            bond_checker if bond_checker is not None else BondTopologyChecker()
+        )
+        # Fingerprint of the seed structure (EQ0); set in _register_seed_structure.
+        self._ref_bond_fingerprint: dict[tuple[str, str], int] | None = None
+        self._ref_bond_symbols: list[str] = []
+        self._ref_bond_coords: np.ndarray = np.empty((0, 3), dtype=float)
 
     # ------------------------------------------------------------------
     # Main loop
@@ -1019,6 +1371,12 @@ class ReactionNetworkMapper:
                 break
 
             # ── Task selection ──────────────────────────────────────────────
+            # Refresh queue priorities against the current reference energy
+            # before popping so that tasks enqueued under a higher ref_e are
+            # re-weighted correctly (relevant when a new lowest-energy node
+            # has been found since those tasks were pushed).
+            self.queue.refresh_priorities(self.graph.reference_energy())
+
             # Phase 1: drain the pre-built queue (respects Boltzmann priority).
             task = self.queue.pop()
 
@@ -1089,6 +1447,11 @@ class ReactionNetworkMapper:
             for pdir in profile_dirs:
                 self._process_profile(pdir, run_dir)
 
+            # Notify the queue about the updated graph (required by RCMCQueue
+            # to recompute transient-population priorities over the full network).
+            if hasattr(self.queue, "set_graph"):
+                self.queue.set_graph(self.graph)
+
             self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
             self.graph.save(self.graph_json_path)
             # Write after new nodes and tasks have been registered so the log
@@ -1115,18 +1478,22 @@ class ReactionNetworkMapper:
         Returns ``None`` when no unexplored combination can be found within
         the allowed number of attempts.
         """
-        nodes = [n for n in self.graph.all_nodes() if n.coords.size > 0]
+        nodes = [
+            n for n in self.graph.all_nodes()
+            if n.coords.size > 0
+            and (
+                n.node_id not in self.excluded_node_ids
+                or not self._node_has_been_explored(n.node_id)
+            )
+        ]
         if not nodes:
             return None
 
         ref_e = self.graph.reference_energy()
 
-        # Derive temperature from the queue when possible.
-        temperature_K: float = (
-            self.queue.temperature_K
-            if isinstance(self.queue, BoltzmannQueue)
-            else 300.0
-        )
+        # Derive temperature from the queue when possible (works for both
+        # BoltzmannQueue and RCMCQueue, which both expose temperature_K).
+        temperature_K: float = getattr(self.queue, "temperature_K", 300.0)
 
         # Compute per-node Boltzmann weights.
         raw_weights: list[float] = []
@@ -1285,6 +1652,19 @@ class ReactionNetworkMapper:
         )
         self.graph.add_node(node)
         self.graph.save(self.graph_json_path)   # Persist immediately after EQ0 is registered
+
+        # Store the reference bond topology for the rearrangement filter.
+        if self.exclude_bond_rearrangement and node.coords.size > 0:
+            self._ref_bond_fingerprint = self.bond_checker.fingerprint(
+                node.symbols, node.coords
+            )
+            self._ref_bond_symbols = list(node.symbols)
+            self._ref_bond_coords  = node.coords.copy()
+            logger.info(
+                "_register_seed_structure: reference bond fingerprint stored: %s",
+                self._ref_bond_fingerprint,
+            )
+
         self._enqueue_perturbations(node, force_add=True)
 
     def _run_initial_optimization(
@@ -1400,6 +1780,22 @@ class ReactionNetworkMapper:
                 )
 
     def _requeue_all_nodes(self) -> None:
+        # On resume, re-derive the reference bond fingerprint from EQ0 so
+        # that the rearrangement filter works correctly for newly found nodes.
+        if self.exclude_bond_rearrangement and self._ref_bond_fingerprint is None:
+            seed_node = self.graph.get_node(0)
+            if seed_node is not None and seed_node.coords.size > 0:
+                self._ref_bond_fingerprint = self.bond_checker.fingerprint(
+                    seed_node.symbols, seed_node.coords
+                )
+                self._ref_bond_symbols = list(seed_node.symbols)
+                self._ref_bond_coords  = seed_node.coords.copy()
+                logger.info(
+                    "_requeue_all_nodes: reference bond fingerprint restored "
+                    "from EQ0: %s",
+                    self._ref_bond_fingerprint,
+                )
+
         for node in self.graph.all_nodes():
             self._enqueue_perturbations(node, force_add=True)
 
@@ -1673,6 +2069,25 @@ class ReactionNetworkMapper:
         )
         self.graph.add_node(new_node)
 
+        # ── Bond-rearrangement filter ──────────────────────────────────────
+        if (
+            self.exclude_bond_rearrangement
+            and self._ref_bond_fingerprint is not None
+            and new_node.coords.size > 0
+        ):
+            rearranged = self.bond_checker.has_rearrangement(
+                self._ref_bond_symbols, self._ref_bond_coords,
+                new_node.symbols, new_node.coords,
+            )
+            if rearranged:
+                self.excluded_node_ids.add(node_id)
+                logger.info(
+                    "_find_or_register_node: EQ%d has a different bond topology "
+                    "from the seed structure — added to excluded_node_ids "
+                    "(exclude_bond_rearrangement=True).",
+                    node_id,
+                )
+
         ref_e = self.graph.reference_energy()
         if ref_e is None or new_node.energy is None:
             self._enqueue_perturbations(new_node, force_add=True)
@@ -1681,12 +2096,28 @@ class ReactionNetworkMapper:
 
         return node_id
 
+    def _node_has_been_explored(self, node_id: int) -> bool:
+        """Return ``True`` if *node_id* has at least one recorded exploration.
+
+        Used to implement "skip-after-first" semantics for excluded nodes:
+        an excluded node is still allowed one round of AFIR exploration
+        when it is first registered, but is skipped on all subsequent calls.
+        """
+        return any(nid == node_id for (nid, *_) in self.explored_log._explored)
+
     def _enqueue_perturbations(self, node: EQNode, force_add: bool = False) -> None:
         if node.coords.size == 0:
             return
 
-        perturbations = self.perturber.generate_afir_perturbations(node.symbols, node.coords)
-        if not perturbations:
+        # ── Exclusion check ───────────────────────────────────────────────
+        # Exclusion is applied only from the second exploration onwards so
+        # that each excluded node is still explored at least once.
+        if node.node_id in self.excluded_node_ids and self._node_has_been_explored(node.node_id):
+            logger.debug(
+                "_enqueue_perturbations: EQ%d is in excluded_node_ids and has "
+                "already been explored at least once — skipped.",
+                node.node_id,
+            )
             return
 
         ref_e = self.graph.reference_energy()
@@ -1699,8 +2130,57 @@ class ReactionNetworkMapper:
         if not accepted:
             return
 
-        for afir_params in perturbations:
-            delta_e = ((node.energy - ref_e) if (node.energy is not None and ref_e is not None) else 0.0)
+        # ── Build the complete candidate pool ────────────────────────────
+        # Use get_candidate_pairs (returns all valid pairs without sampling)
+        # so we can filter before sampling, avoiding the bug where
+        # generate_afir_perturbations could randomly select only already-
+        # explored pairs and produce zero useful tasks.
+        all_candidates = self.perturber.get_candidate_pairs(node.symbols, node.coords)
+        if not all_candidates:
+            return
+
+        pos_gamma_str = f"{self.perturber.afir_gamma_kJmol:.6g}"
+        neg_gamma_str = f"{-self.perturber.afir_gamma_kJmol:.6g}"
+        gamma_signs: list[str] = ["+"]
+        if self.perturber.include_negative_gamma:
+            gamma_signs.append("-")
+
+        # ── Filter out already-explored and already-queued pairs ─────────
+        unexplored: list[tuple[int, int, str]] = []
+        for (i0, j0) in all_candidates:
+            atom_i, atom_j = i0 + 1, j0 + 1  # convert to 1-based
+            for sign in gamma_signs:
+                if self.explored_log.has(node.node_id, atom_i, atom_j, sign):
+                    continue  # already run — skip
+                gamma_str = neg_gamma_str if sign == "-" else pos_gamma_str
+                queue_key = (node.node_id, (gamma_str, str(atom_i), str(atom_j)))
+                if queue_key in self.queue._submitted:
+                    continue  # already in the queue — skip
+                unexplored.append((i0, j0, sign))
+
+        if not unexplored:
+            logger.debug(
+                "_enqueue_perturbations: EQ%d — all candidate pairs already "
+                "explored or queued; nothing to enqueue.",
+                node.node_id,
+            )
+            return
+
+        # ── Sample up to max_pairs from the unexplored combinations ──────
+        n_sel = min(self.perturber.max_pairs, len(unexplored))
+        chosen_indices = self._rng.choice(len(unexplored), size=n_sel, replace=False)
+
+        delta_e = (
+            (node.energy - ref_e)
+            if (node.energy is not None and ref_e is not None)
+            else 0.0
+        )
+
+        for idx in chosen_indices:
+            i0, j0, sign = unexplored[int(idx)]
+            atom_i, atom_j = i0 + 1, j0 + 1
+            gamma_str = neg_gamma_str if sign == "-" else pos_gamma_str
+            afir_params = [gamma_str, str(atom_i), str(atom_j)]
             task = ExplorationTask(
                 node_id=node.node_id,
                 xyz_file=node.xyz_file,
