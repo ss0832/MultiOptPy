@@ -282,9 +282,11 @@ class LQA:
         if len(self.irc_mw_gradients) > 1 and len(self.irc_mw_coords) > 1:
             delta_g = (self.irc_mw_gradients[-1] - self.irc_mw_gradients[-2]).reshape(-1, 1)
             delta_x = (self.irc_mw_coords[-1] - self.irc_mw_coords[-2]).reshape(-1, 1)
-
-            delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
-            self.mw_hessian += delta_hess
+           
+            # Only update if the step and gradient difference are meaningful
+            if np.dot(delta_x.T, delta_g)[0, 0] > 1e-10:
+                delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
+                self.mw_hessian += delta_hess
 
         # Add bias potential hessian and diagonalize
         combined_hessian = self.mw_hessian + mw_BPA_hessian
@@ -449,9 +451,9 @@ class LQA:
             # Check for energy oscillations
             if self.check_energy_oscillation(self.irc_bias_energy_list):
                 oscillation_counter += 1
-                print(f"Energy oscillation detected ({oscillation_counter}/10)")
-                if oscillation_counter >= 10:
-                    print("Terminating IRC: Energy oscillated for 10 consecutive steps")
+                print(f"Energy oscillation detected ({oscillation_counter}/5)")
+                if oscillation_counter >= 5:
+                    print("Terminating IRC: Energy oscillated for 5 consecutive steps")
                     break
             else:
                 # Reset counter if no oscillation is detected
