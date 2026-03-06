@@ -55,7 +55,7 @@ class LQA:
         """
         self.max_step = max_step
         self.step_size = step_size
-        self.N_euler = 20000  # Number of Euler integration steps
+        self.N_euler = 40000  # Number of Euler integration steps
         self.ModelHessianUpdate = ModelHessianUpdate()
         self.CE = calc_engine
         self.FC_count = FC_count
@@ -451,9 +451,9 @@ class LQA:
             # Check for energy oscillations
             if self.check_energy_oscillation(self.irc_bias_energy_list):
                 oscillation_counter += 1
-                print(f"Energy oscillation detected ({oscillation_counter}/5)")
-                if oscillation_counter >= 5:
-                    print("Terminating IRC: Energy oscillated for 5 consecutive steps")
+                print(f"Energy oscillation detected ({oscillation_counter}/10)")
+                if oscillation_counter >= 10:
+                    print("Terminating IRC: Energy oscillated for 10 consecutive steps")
                     break
             else:
                 # Reset counter if no oscillation is detected
@@ -502,7 +502,7 @@ class LQA:
             print("Bias Energy    : ", B_e)
             print("RMS B. grad    : ", np.sqrt((B_g**2).mean()))
             
-            
+            """
             if len(self.irc_mw_coords) > 1:
                 # Calculate curvature properties
                 unit_tangent_vector, curvature_vector, scalar_curvature, curvature_coupling = calc_irc_curvature_properties(
@@ -523,7 +523,8 @@ class LQA:
                     curvature_coupling
                 )
                 print()
-
+            """
+            
         # Save final data visualization
         G = Graph(self.directory)
         rms_gradient_list = []
