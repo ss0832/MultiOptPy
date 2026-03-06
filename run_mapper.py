@@ -31,6 +31,9 @@ Exclude structures where covalent bonds have rearranged (relative to EQ0):
 Use RCMC priority (temperature 500 K, reaction time 1e-6 s):
     python run_mapper.py initial.xyz --use_rcmc --rcmc_temperature 500 --rcmc_time 1e-6
 
+Use RCMC with EQ3 as the kinetic starting point:
+    python run_mapper.py initial.xyz --use_rcmc --rcmc_start_node 3
+
 config.json keys understood by the mapper
 -----------------------------------------
 All keys used by run_autots.py (step1_settings, step2_settings,
@@ -55,7 +58,8 @@ An optional "mapper_settings" block controls the mapper itself:
         "exclude_bond_rearrangement" : false,    // exclude structures with rearranged bonds
         "use_rcmc"                   : false,    // use RCMC priority queue
         "rcmc_temperature_K"         : 300.0,    // RCMC temperature [K]
-        "rcmc_reaction_time_s"       : 1.0       // RCMC reaction time [s]
+        "rcmc_reaction_time_s"       : 1.0,      // RCMC reaction time [s]
+        "rcmc_start_node_id"         : 0         // EQ node ID used as RCMC initial population source
     }
 
 CLI arguments take precedence over mapper_settings, which in turn
@@ -303,6 +307,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--rcmc_start_node",
+        type=int,
+        default=None,
+        help=(
+            "EQ node ID to use as the initial population source in the RCMC "
+            "kinetic simulation.  The transient population vector is initialised "
+            "with p[start_node]=1 before contraction.  "
+            "Only used when --use_rcmc is set.  Default: from "
+            "mapper_settings[\"rcmc_start_node_id\"] or 0 (EQ0)."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from an existing reaction_network.json.",
@@ -397,6 +413,7 @@ def merge_config(args: argparse.Namespace, config: dict) -> dict:
         "use_rcmc":                    args.use_rcmc or ms.get("use_rcmc", False),
         "rcmc_temperature_K":          resolve(args.rcmc_temperature, "rcmc_temperature_K",   300.0),
         "rcmc_reaction_time_s":        resolve(args.rcmc_time,        "rcmc_reaction_time_s", 1.0),
+        "rcmc_start_node_id":          resolve(args.rcmc_start_node,  "rcmc_start_node_id",   0),
         # Absolute path to the loaded JSON file; forwarded to ReactionNetworkMapper
         # so a snapshot copy is saved inside output_dir at startup.
         "config_file_path":            os.path.abspath(args.config_file),
@@ -439,7 +456,8 @@ def print_config_summary(config: dict) -> None:
     if m.get("use_rcmc"):
         print(f"  Priority queue  : RCMC  "
               f"T={m['rcmc_temperature_K']} K  "
-              f"t={m['rcmc_reaction_time_s']} s")
+              f"t={m['rcmc_reaction_time_s']} s  "
+              f"start_node=EQ{m['rcmc_start_node_id']}")
     else:
         print(f"  Priority queue  : Boltzmann  T={m['temperature_K']} K")
     print(sep)
@@ -489,7 +507,8 @@ def launch_mapper(config: dict) -> None:
             temperature_K=m["rcmc_temperature_K"],
             reaction_time_s=m["rcmc_reaction_time_s"],
             rng_seed=m["rng_seed"],
-            start_node_id=0,
+            start_node_id=m["rcmc_start_node_id"],
+            output_dir=m["output_dir"],
         )
     else:
         queue = BoltzmannQueue(
