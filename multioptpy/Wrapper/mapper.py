@@ -47,7 +47,6 @@ except ImportError as _covalent_import_err:
     covalent_radii_lib = None
     _BOHR2ANG = 0.529177210903
 
-from multioptpy.Utils.rcmc import RCMCQueue
 
 logger = logging.getLogger(__name__)
 
