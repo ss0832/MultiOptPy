@@ -9,8 +9,13 @@ ref.: https://doi.org/10.48550/arXiv.2312.05470
       https://doi.org/10.1002/jcc.24526
 """
 
+import logging
+import os
+
 import numpy as np
 from multioptpy.Wrapper.mapper import ExplorationQueue, ExplorationTask
+
+logger = logging.getLogger(__name__)
 
 # Physical constants
 K_B_J_K = 1.380649e-23
@@ -23,13 +28,16 @@ class RCMCQueue(ExplorationQueue):
         temperature_K: float = 300.0,
         reaction_time_s: float = 1.0,
         rng_seed: int = 42,
-        start_node_id: int = 0
+        start_node_id: int = 0,
+        output_dir: str | None = None,
     ) -> None:
         super().__init__(rng_seed=rng_seed)
         self.temperature_K = temperature_K
         self.reaction_time_s = reaction_time_s
         self.start_node_id = start_node_id
+        self.output_dir = output_dir
         self.graph = None
+        self._pop_count: int = 0
 
     def compute_priority(self, task: ExplorationTask) -> float:
         """
@@ -45,6 +53,63 @@ class RCMCQueue(ExplorationQueue):
     def should_add(self, node, reference_energy: float, **kwargs) -> bool:
         """Accepts all exploration candidates for dynamic evaluation."""
         return True
+
+    def _save_K_matrix(
+        self,
+        D: "np.ndarray",
+        T_indices: list,
+        nodes: list,
+        pop_count: int,
+    ) -> None:
+        """Save the contracted super-state rate matrix to a CSV file in output_dir.
+
+        ``D`` is the Schur-complement-contracted effective rate matrix produced
+        by the RCMC contraction loop.  Its rows and columns correspond to the
+        frontier (T) super-states that remained after contracting out the fast
+        (S) states.
+
+        File path: ``{output_dir}/rcmc_K_contracted_{pop_count:04d}.csv``
+
+        Parameters
+        ----------
+        D : np.ndarray
+            The contracted (|T| × |T|) effective rate matrix [s⁻¹] at loop
+            termination.
+        T_indices : list[int]
+            Global indices into ``nodes`` for the rows/columns of D.
+        nodes : list[EQNode]
+            Full ordered node list used to resolve labels from T_indices.
+        pop_count : int
+            Current pop() call index, used as the file name suffix.
+        """
+        if self.output_dir is None:
+            return
+        try:
+            os.makedirs(self.output_dir, exist_ok=True)
+            fpath = os.path.join(
+                self.output_dir, f"rcmc_K_contracted_{pop_count:04d}.csv"
+            )
+            super_labels = [f"EQ{nodes[i].node_id}" for i in T_indices]
+            n = len(super_labels)
+            with open(fpath, "w", encoding="utf-8") as fh:
+                fh.write(
+                    f"# RCMC contracted super-state rate matrix D [s^-1]  "
+                    f"pop_step={pop_count}  "
+                    f"T={self.temperature_K} K  "
+                    f"n_superstates={n}\n"
+                )
+                fh.write("node," + ",".join(super_labels) + "\n")
+                for i, lbl in enumerate(super_labels):
+                    row = ",".join(f"{D[i, j]:.6e}" for j in range(n))
+                    fh.write(f"{lbl},{row}\n")
+            logger.info(
+                "RCMC contracted K matrix saved: %s  "
+                "(superstates=%s)",
+                fpath,
+                super_labels,
+            )
+        except OSError as exc:
+            logger.warning("RCMC contracted K matrix could not be saved: %s", exc)
 
     def pop(self) -> ExplorationTask | None:
         if not self._tasks:
@@ -88,6 +153,16 @@ class RCMCQueue(ExplorationQueue):
 
         for i in range(n_nodes):
             K[i, i] = -np.sum(K[:, i]) + K[i, i]
+
+        # ── Log rate matrix K ─────────────────────────────────────────────
+        if logger.isEnabledFor(logging.DEBUG):
+            node_labels = [f"EQ{n.node_id}" for n in nodes]
+            header = "  " + "  ".join(f"{lbl:>10s}" for lbl in node_labels)
+            rows = [header]
+            for i, lbl in enumerate(node_labels):
+                row_vals = "  ".join(f"{K[i, j]:10.3e}" for j in range(n_nodes))
+                rows.append(f"{lbl:>10s}  {row_vals}")
+            logger.debug("RCMC rate matrix K [s^-1]:\n%s", "\n".join(rows))
 
         p = np.zeros(n_nodes, dtype=np.float64)
         if self.start_node_id in node_to_idx:
@@ -140,8 +215,26 @@ class RCMCQueue(ExplorationQueue):
                 if sigma_KSS > 0 and rho_D > 0:
                     time_current = np.log(2) / np.sqrt(sigma_KSS * rho_D)
 
+            logger.debug(
+                "RCMC contraction step %d: contracted_nodes=%s, "
+                "remaining=%s, time_current=%.4e s (target=%.4e s)",
+                len(S),
+                [nodes[idx].node_id for idx in S],
+                [nodes[idx].node_id for idx in T],
+                time_current,
+                self.reaction_time_s,
+            )
+
             if time_current > self.reaction_time_s:
                 break
+
+        # ── Save contracted super-state K matrix (D at termination) ──────
+        # D is the Schur-complement-contracted effective rate matrix whose
+        # rows/columns correspond to the T (frontier) super-states.
+        # S super-states have been eliminated; their fast dynamics are
+        # already folded into D.
+        self._save_K_matrix(D, T, nodes, self._pop_count)
+        self._pop_count += 1
 
         q = np.zeros(n_nodes, dtype=np.float64)
         if len(S) > 0 and len(T) > 0:
@@ -185,4 +278,20 @@ class RCMCQueue(ExplorationQueue):
                 task.priority = 0.0
 
         self._tasks.sort(key=lambda t: t.priority, reverse=True)
-        return self._tasks.pop(0)
+        selected = self._tasks.pop(0)
+        logger.debug(
+            "RCMC pop(): selected EQ%d  priority(q)=%.6f  "
+            "remaining_tasks=%d",
+            selected.node_id,
+            selected.priority,
+            len(self._tasks),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            pop_lines = [
+                f"  EQ{t.node_id}: q={t.priority:.6f}"
+                for t in self._tasks[:10]
+            ]
+            if len(self._tasks) > 10:
+                pop_lines.append(f"  ... ({len(self._tasks) - 10} more)")
+            logger.debug("RCMC remaining queue (top 10):\n%s", "\n".join(pop_lines))
+        return selected

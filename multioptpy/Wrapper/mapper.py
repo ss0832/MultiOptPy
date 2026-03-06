@@ -2111,7 +2111,18 @@ class ReactionNetworkMapper:
         # ── Exclusion check ───────────────────────────────────────────────
         # Exclusion is applied only from the second exploration onwards so
         # that each excluded node is still explored at least once.
-        if node.node_id in self.excluded_node_ids and self._node_has_been_explored(node.node_id):
+        #
+        # Special case: when the graph contains only one node, all exclusion
+        # rules are disabled so that the sole available node is never silently
+        # skipped (the network cannot grow if the only node is excluded).
+        n_total_nodes = len(self.graph.all_nodes())
+        if n_total_nodes == 1 and node.node_id in self.excluded_node_ids:
+            logger.debug(
+                "_enqueue_perturbations: EQ%d is in excluded_node_ids but "
+                "graph has only 1 node — exclusion suppressed.",
+                node.node_id,
+            )
+        elif node.node_id in self.excluded_node_ids and self._node_has_been_explored(node.node_id):
             logger.debug(
                 "_enqueue_perturbations: EQ%d is in excluded_node_ids and has "
                 "already been explored at least once — skipped.",
