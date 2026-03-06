@@ -55,7 +55,7 @@ class LQA:
         """
         self.max_step = max_step
         self.step_size = step_size
-        self.N_euler = 30000  # Number of Euler integration steps
+        self.N_euler = 40000  # Number of Euler integration steps
         self.ModelHessianUpdate = ModelHessianUpdate()
         self.CE = calc_engine
         self.FC_count = FC_count
@@ -291,7 +291,7 @@ class LQA:
         eigenvalues, eigenvectors = np.linalg.eigh(combined_hessian)
         
         # Drop small eigenvalues and corresponding eigenvectors
-        small_eigvals = np.abs(eigenvalues) < 1e-7
+        small_eigvals = np.abs(eigenvalues) < 1e-8
         eigenvalues = eigenvalues[~small_eigvals]
         eigenvectors = eigenvectors[:,~small_eigvals]
         
@@ -304,7 +304,7 @@ class LQA:
         # Original: dt = 1 / self.N_euler * self.step_size / np.linalg.norm(flattened_gradient)
         # This can diverge if np.linalg.norm(flattened_gradient) -> 0
         
-        epsilon = 1e-9  # Prevent divergence when gradient norm is near zero
+        epsilon = 1e-6  # Prevent divergence when gradient norm is near zero
         norm_g = np.linalg.norm(flattened_gradient)
         dt = 1 / self.N_euler * self.step_size / max(norm_g, epsilon)
 
@@ -449,10 +449,10 @@ class LQA:
             # Check for energy oscillations
             if self.check_energy_oscillation(self.irc_bias_energy_list):
                 oscillation_counter += 1
-                print(f"Energy oscillation detected ({oscillation_counter}/10)")
+                print(f"Energy oscillation detected ({oscillation_counter}/5)")
                 
-                if oscillation_counter >= 10:
-                    print("Terminating IRC: Energy oscillated for 10 consecutive steps")
+                if oscillation_counter >= 5:
+                    print("Terminating IRC: Energy oscillated for 5 consecutive steps")
                     break
             else:
                 # Reset counter if no oscillation is detected
