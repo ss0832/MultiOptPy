@@ -282,11 +282,9 @@ class LQA:
         if len(self.irc_mw_gradients) > 1 and len(self.irc_mw_coords) > 1:
             delta_g = (self.irc_mw_gradients[-1] - self.irc_mw_gradients[-2]).reshape(-1, 1)
             delta_x = (self.irc_mw_coords[-1] - self.irc_mw_coords[-2]).reshape(-1, 1)
-           
-            # Only update if the step and gradient difference are meaningful
-            if np.dot(delta_x.T, delta_g)[0, 0] > 1e-10:
-                delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
-                self.mw_hessian += delta_hess
+          
+            delta_hess = self.ModelHessianUpdate.Bofill_hessian_update(self.mw_hessian, delta_x, delta_g)
+            self.mw_hessian += delta_hess
 
         # Add bias potential hessian and diagonalize
         combined_hessian = self.mw_hessian + mw_BPA_hessian
