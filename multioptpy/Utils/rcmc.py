@@ -58,39 +58,55 @@ class RCMCQueue(ExplorationQueue):
         self,
         D: "np.ndarray",
         T_indices: list,
+        superstate_members: dict,
         nodes: list,
         pop_count: int,
     ) -> None:
-        """Save the contracted super-state rate matrix to a CSV file in output_dir.
+        """Update the single contracted super-state rate matrix CSV.
 
-        ``D`` is the Schur-complement-contracted effective rate matrix produced
-        by the RCMC contraction loop.  Its rows and columns correspond to the
-        frontier (T) super-states that remained after contracting out the fast
-        (S) states.
+        The file is overwritten on every pop() call so it always reflects the
+        most recent contraction result.  Each super-state row is followed by a
+        comment line listing the EQ nodes that belong to it.
 
-        File path: ``{output_dir}/rcmc_K_contracted_{pop_count:04d}.csv``
+        File path: ``{output_dir}/rcmc_K_contracted.csv``
+
+        Format
+        ------
+        # RCMC contracted super-state rate matrix ...
+        # superstate_members: EQ0=[EQ0,EQ3], EQ1=[EQ1,EQ2], ...
+        node,EQ0,EQ1,...
+        EQ0,<D[0,0]>,<D[0,1]>,...
+        EQ1,<D[1,0]>,<D[1,1]>,...
 
         Parameters
         ----------
         D : np.ndarray
-            The contracted (|T| × |T|) effective rate matrix [s⁻¹] at loop
-            termination.
+            The contracted (|T| × |T|) effective rate matrix [s⁻¹].
         T_indices : list[int]
             Global indices into ``nodes`` for the rows/columns of D.
+        superstate_members : dict[int, list[int]]
+            Mapping from T global index → list of global indices of all EQ
+            nodes absorbed into that super-state.
         nodes : list[EQNode]
-            Full ordered node list used to resolve labels from T_indices.
+            Full ordered node list.
         pop_count : int
-            Current pop() call index, used as the file name suffix.
+            Current pop() call index (recorded in the header comment).
         """
         if self.output_dir is None:
             return
         try:
             os.makedirs(self.output_dir, exist_ok=True)
-            fpath = os.path.join(
-                self.output_dir, f"rcmc_K_contracted_{pop_count:04d}.csv"
-            )
+            fpath = os.path.join(self.output_dir, "rcmc_K_contracted.csv")
             super_labels = [f"EQ{nodes[i].node_id}" for i in T_indices]
             n = len(super_labels)
+
+            # Build member annotation: "EQ0=[EQ0,EQ3]"
+            member_parts = []
+            for t_global, lbl in zip(T_indices, super_labels):
+                members = superstate_members.get(t_global, [t_global])
+                member_str = "+".join(f"EQ{nodes[m].node_id}" for m in members)
+                member_parts.append(f"{lbl}=[{member_str}]")
+
             with open(fpath, "w", encoding="utf-8") as fh:
                 fh.write(
                     f"# RCMC contracted super-state rate matrix D [s^-1]  "
@@ -98,14 +114,18 @@ class RCMCQueue(ExplorationQueue):
                     f"T={self.temperature_K} K  "
                     f"n_superstates={n}\n"
                 )
+                fh.write(
+                    f"# superstate_members: {',  '.join(member_parts)}\n"
+                )
                 fh.write("node," + ",".join(super_labels) + "\n")
                 for i, lbl in enumerate(super_labels):
                     row = ",".join(f"{D[i, j]:.6e}" for j in range(n))
                     fh.write(f"{lbl},{row}\n")
             logger.info(
-                "RCMC contracted K matrix saved: %s  "
-                "(superstates=%s)",
+                "RCMC contracted K matrix updated: %s  "
+                "(pop_step=%d  superstates=%s)",
                 fpath,
+                pop_count,
                 super_labels,
             )
         except OSError as exc:
@@ -176,6 +196,11 @@ class RCMCQueue(ExplorationQueue):
         D = K.copy()
         time_current = 0.0
 
+        # superstate_members[global_idx] = list of global indices absorbed
+        # into the super-state whose representative is global_idx.
+        # Initially every node is its own super-state.
+        superstate_members: dict[int, list[int]] = {i: [i] for i in range(n_nodes)}
+
         while len(T) > 1:
             diag_D = np.abs(np.diag(D))
             j_local = np.argmax(diag_D)
@@ -195,6 +220,19 @@ class RCMCQueue(ExplorationQueue):
             # Recalculate diagonal elements to preserve numerical stability
             for i in range(D_new.shape[0]):
                 D_new[i, i] = -np.sum(D_new[:, i]) + D_new[i, i]
+
+            # Assign j to the T state most strongly coupled to it,
+            # then merge j's member list into that state's members.
+            coupling = np.abs(D[mask, j_local])
+            if coupling.max() > 0:
+                absorb_local = int(np.argmax(coupling))
+            else:
+                absorb_local = 0
+            remaining_T = [t for k, t in enumerate(T) if k != j_local]
+            absorb_global = remaining_T[absorb_local]
+            superstate_members[absorb_global].extend(
+                superstate_members.pop(j_global)
+            )
 
             S.append(j_global)
             T.pop(j_local)
@@ -228,12 +266,8 @@ class RCMCQueue(ExplorationQueue):
             if time_current > self.reaction_time_s:
                 break
 
-        # ── Save contracted super-state K matrix (D at termination) ──────
-        # D is the Schur-complement-contracted effective rate matrix whose
-        # rows/columns correspond to the T (frontier) super-states.
-        # S super-states have been eliminated; their fast dynamics are
-        # already folded into D.
-        self._save_K_matrix(D, T, nodes, self._pop_count)
+        # ── Update contracted super-state K matrix (D at termination) ────
+        self._save_K_matrix(D, T, superstate_members, nodes, self._pop_count)
         self._pop_count += 1
 
         q = np.zeros(n_nodes, dtype=np.float64)
