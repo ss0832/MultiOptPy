@@ -327,7 +327,7 @@ class LQA:
         
         # Calculate alphas and the IRC step
         # Original: alphas = (np.exp(-eigenvalues*t) - 1) / eigenvalues
-        # This suffers from catastrophic cancellation (桁落ち) if (eigenvalues*t) is near zero.
+        # This suffers from catastrophic cancellation if (eigenvalues*t) is near zero.
         
         x = -eigenvalues * t
         
@@ -449,10 +449,9 @@ class LQA:
             # Check for energy oscillations
             if self.check_energy_oscillation(self.irc_bias_energy_list):
                 oscillation_counter += 1
-                print(f"Energy oscillation detected ({oscillation_counter}/5)")
-                
-                if oscillation_counter >= 5:
-                    print("Terminating IRC: Energy oscillated for 5 consecutive steps")
+                print(f"Energy oscillation detected ({oscillation_counter}/10)")
+                if oscillation_counter >= 10:
+                    print("Terminating IRC: Energy oscillated for 10 consecutive steps")
                     break
             else:
                 # Reset counter if no oscillation is detected
