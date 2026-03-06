@@ -1311,7 +1311,7 @@ def run_mapper():
 
     Autonomously maps a chemical reaction network by iteratively calling
     AutoTSWorkflow and exploring new equilibrium structures via AFIR
-    perturbations, using a Boltzmann-weighted priority queue.
+    perturbations, using a Boltzmann-weighted (or RCMC) priority queue.
 
     Usage (after pip install)
     -------------------------
@@ -1321,6 +1321,9 @@ def run_mapper():
     run_mapper initial.xyz --active_atoms 1 2 5 6 --negative_gamma
     run_mapper initial.xyz --resume
     run_mapper initial.xyz -cfg my_config.json -osp /path/to/software_path.conf
+    run_mapper initial.xyz --exclude_nodes 3 7 12
+    run_mapper initial.xyz --exclude_bond_rearrangement
+    run_mapper initial.xyz --use_rcmc --rcmc_temperature 500 --rcmc_time 1e-6
 
     config.json  --  mapper_settings block
     ---------------------------------------
@@ -1329,17 +1332,22 @@ def run_mapper():
     turn takes precedence over the built-in defaults shown below:
 
         "mapper_settings": {
-            "temperature_K"          : 300.0,
-            "rmsd_threshold"         : 0.30,
-            "max_iterations"         : 50,
-            "afir_gamma_kJmol"       : 100.0,
-            "max_pairs"              : 5,
-            "dist_lower_ang"         : 1.5,
-            "dist_upper_ang"         : 5.0,
-            "output_dir"             : "mapper_output",
-            "rng_seed"               : 42,
-            "active_atoms"           : null,
-            "include_negative_gamma" : false
+            "temperature_K"              : 300.0,
+            "rmsd_threshold"             : 0.30,
+            "max_iterations"             : 50,
+            "afir_gamma_kJmol"           : 100.0,
+            "max_pairs"                  : 5,
+            "dist_lower_ang"             : 1.5,
+            "dist_upper_ang"             : 5.0,
+            "output_dir"                 : "mapper_output",
+            "rng_seed"                   : 42,
+            "active_atoms"               : null,
+            "include_negative_gamma"     : false,
+            "excluded_node_ids"          : [],
+            "exclude_bond_rearrangement" : false,
+            "use_rcmc"                   : false,
+            "rcmc_temperature_K"         : 300.0,
+            "rcmc_reaction_time_s"       : 1.0
         }
     """
 
@@ -1354,10 +1362,17 @@ def run_mapper():
             BoltzmannQueue,
             StructureChecker,
             PerturbationGenerator,
+            BondTopologyChecker,
         )
     except ImportError as _err:
         print(f"Error: could not import mapper components: {_err}")
         sys.exit(1)
+
+    try:
+        from multioptpy.Utils.rcmc import RCMCQueue
+    except ImportError as _rcmc_err:
+        print(f"Warning: could not import RCMCQueue: {_rcmc_err}")
+        RCMCQueue = None
 
     # ==================================================================
     # Nested helpers (mirrors the structure of run_autots())
@@ -1508,6 +1523,48 @@ def run_mapper():
             ),
         )
         parser.add_argument(
+            "--exclude_nodes",
+            nargs="+",
+            type=int,
+            default=None,
+            metavar="NODE_ID",
+            help=(
+                "EQ node IDs to exclude from AFIR exploration (2nd run onwards). "
+                "Example: --exclude_nodes 3 7 12  Default: no exclusions."
+            ),
+        )
+        parser.add_argument(
+            "--exclude_bond_rearrangement",
+            action="store_true",
+            default=False,
+            help=(
+                "Automatically exclude any newly found EQ node whose covalent "
+                "bond topology differs from that of the seed structure (EQ0). "
+                "Default: disabled."
+            ),
+        )
+        parser.add_argument(
+            "--use_rcmc",
+            action="store_true",
+            default=False,
+            help=(
+                "Use the RCMC algorithm for exploration priorities instead of "
+                "the default Boltzmann queue. Default: disabled."
+            ),
+        )
+        parser.add_argument(
+            "--rcmc_temperature",
+            type=float,
+            default=None,
+            help="Temperature [K] for the RCMC priority calculation. Default: 300.",
+        )
+        parser.add_argument(
+            "--rcmc_time",
+            type=float,
+            default=None,
+            help="Reaction time [s] for the RCMC priority calculation. Default: 1.0.",
+        )
+        parser.add_argument(
             "--resume",
             action="store_true",
             help="Resume from an existing reaction_network.json.",
@@ -1572,23 +1629,32 @@ def run_mapper():
             return ms.get(json_key, default)
 
         config["_mapper"] = {
-            "temperature_K":          resolve(args.temperature,    "temperature_K",          300.0),
-            "rmsd_threshold":         resolve(args.rmsd_threshold, "rmsd_threshold",         0.30),
-            "max_iterations":         resolve(args.max_iter,       "max_iterations",         50),
-            "afir_gamma_kJmol":       resolve(args.afir_gamma,     "afir_gamma_kJmol",       100.0),
-            "max_pairs":              resolve(args.max_pairs,       "max_pairs",              5),
-            "dist_lower_ang":         resolve(args.dist_lower,     "dist_lower_ang",         1.5),
-            "dist_upper_ang":         resolve(args.dist_upper,     "dist_upper_ang",         5.0),
-            "output_dir":             resolve(args.output_dir,     "output_dir",             "mapper_output"),
-            "rng_seed":               resolve(args.rng_seed,       "rng_seed",               42),
-            "resume":                 args.resume,
-            # New options
-            "active_atoms":           args.active_atoms if args.active_atoms is not None
-                                          else ms.get("active_atoms", None),
-            "include_negative_gamma": args.negative_gamma or ms.get("include_negative_gamma", False),
-            # Absolute path to the loaded JSON file; forwarded to ReactionNetworkMapper
-            # so a snapshot copy is saved inside output_dir at startup.
-            "config_file_path":       os.path.abspath(args.config_file),
+            "temperature_K":               resolve(args.temperature,    "temperature_K",          300.0),
+            "rmsd_threshold":              resolve(args.rmsd_threshold, "rmsd_threshold",         0.30),
+            "max_iterations":              resolve(args.max_iter,       "max_iterations",         50),
+            "afir_gamma_kJmol":            resolve(args.afir_gamma,     "afir_gamma_kJmol",       100.0),
+            "max_pairs":                   resolve(args.max_pairs,       "max_pairs",              5),
+            "dist_lower_ang":              resolve(args.dist_lower,     "dist_lower_ang",         1.5),
+            "dist_upper_ang":              resolve(args.dist_upper,     "dist_upper_ang",         5.0),
+            "output_dir":                  resolve(args.output_dir,     "output_dir",             "mapper_output"),
+            "rng_seed":                    resolve(args.rng_seed,       "rng_seed",               42),
+            "resume":                      args.resume,
+            # Atom-pair restrictions
+            "active_atoms":                args.active_atoms if args.active_atoms is not None
+                                               else ms.get("active_atoms", None),
+            "include_negative_gamma":      args.negative_gamma or ms.get("include_negative_gamma", False),
+            # EQ exclusion options
+            "excluded_node_ids":           (
+                                               list(args.exclude_nodes) if args.exclude_nodes is not None
+                                               else ms.get("excluded_node_ids", None)
+                                           ),
+            "exclude_bond_rearrangement":  args.exclude_bond_rearrangement or ms.get("exclude_bond_rearrangement", False),
+            # RCMC options
+            "use_rcmc":                    args.use_rcmc or ms.get("use_rcmc", False),
+            "rcmc_temperature_K":          resolve(args.rcmc_temperature, "rcmc_temperature_K",   300.0),
+            "rcmc_reaction_time_s":        resolve(args.rcmc_time,        "rcmc_reaction_time_s", 1.0),
+            # Config snapshot
+            "config_file_path":            os.path.abspath(args.config_file),
         }
 
         return config
@@ -1603,7 +1669,6 @@ def run_mapper():
         print(f"  Input structure : {config['initial_mol_file']}")
         print(f"  Output directory: {m['output_dir']}")
         print(f"  Max iterations  : {m['max_iterations'] or 'unlimited'}")
-        print(f"  Temperature     : {m['temperature_K']} K  (Boltzmann queue)")
         print(f"  RMSD threshold  : {m['rmsd_threshold']} A")
         print(f"  AFIR gamma      : {m['afir_gamma_kJmol']} kJ/mol")
         print(f"  Max pairs/node  : {m['max_pairs']}")
@@ -1613,6 +1678,16 @@ def run_mapper():
         active_str = ", ".join(str(a) for a in m["active_atoms"]) if m["active_atoms"] else "all"
         print(f"  Active atoms    : {active_str}")
         print(f"  Negative gamma  : {'yes' if m['include_negative_gamma'] else 'no'}")
+        excl_ids = m.get("excluded_node_ids")
+        excl_str = ", ".join(str(n) for n in sorted(excl_ids)) if excl_ids else "none"
+        print(f"  Excluded EQ IDs : {excl_str}")
+        print(f"  Excl. bond rearr: {'yes' if m.get('exclude_bond_rearrangement') else 'no'}")
+        if m.get("use_rcmc"):
+            print(f"  Priority queue  : RCMC  "
+                  f"T={m['rcmc_temperature_K']} K  "
+                  f"t={m['rcmc_reaction_time_s']} s")
+        else:
+            print(f"  Priority queue  : Boltzmann  T={m['temperature_K']} K")
         print(sep)
 
     def launch_mapper(config):
@@ -1634,10 +1709,26 @@ def run_mapper():
         """
         m = config["_mapper"]
 
-        queue = BoltzmannQueue(
-            temperature_K=m["temperature_K"],
-            rng_seed=m["rng_seed"],
-        )
+        # ── Priority queue ────────────────────────────────────────────────
+        if m.get("use_rcmc", False):
+            if RCMCQueue is None:
+                print(
+                    "Error: --use_rcmc requested but RCMCQueue could not be imported. "
+                    "Check that multioptpy.Utils.rcmc is available."
+                )
+                sys.exit(1)
+            queue = RCMCQueue(
+                temperature_K=m["rcmc_temperature_K"],
+                reaction_time_s=m["rcmc_reaction_time_s"],
+                rng_seed=m["rng_seed"],
+                start_node_id=0,
+            )
+        else:
+            queue = BoltzmannQueue(
+                temperature_K=m["temperature_K"],
+                rng_seed=m["rng_seed"],
+            )
+
         checker = StructureChecker(
             rmsd_threshold=m["rmsd_threshold"],
         )
@@ -1660,10 +1751,9 @@ def run_mapper():
             graph_json="reaction_network.json",
             max_iterations=m["max_iterations"],
             resume=m["resume"],
-            # config_file_path is stored in _mapper by merge_config; forwarding it
-            # here causes ReactionNetworkMapper to copy the JSON to output_dir as
-            # config_snapshot.json so the run is fully self-contained.
             config_file_path=m.get("config_file_path"),
+            excluded_node_ids=m.get("excluded_node_ids"),
+            exclude_bond_rearrangement=m.get("exclude_bond_rearrangement", False),
         )
         mapper.run()
 
