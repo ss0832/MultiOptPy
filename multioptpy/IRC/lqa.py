@@ -400,16 +400,16 @@ class LQA:
             if finish_frag:
                 break
 
-            # FIX (Bug 1): get_mass_array() を Hessian 再計算ブロックより前に移動する。
-            # 元のコードでは get_mass_array() がこのブロックの後にあるため、
-            # three_sqrt_mass_list が未定義のまま mass_weight_hessian() に渡せなかった。
+            # FIX (Bug 1): Move get_mass_array() before the Hessian recalculation block.
+            # In the original code, get_mass_array() was called after this block, so
+            # three_sqrt_mass_list was undefined when mass_weight_hessian() needed it.
             elem_mass_list, sqrt_mass_list, three_elem_mass_list, three_sqrt_mass_list = self.get_mass_array()
 
             # Recalculate Hessian if needed
             if iter % self.FC_count == 0 and iter > 0:
-                # FIX (Bug 2): self.CE.Model_hess はデカルト座標系のヘシアンであり、
-                # そのまま mw_hessian に代入すると単位系が合わず以降のステップが壊れる。
-                # mass_weight_hessian() で質量重み付けを施してから代入する。
+                # FIX (Bug 2): self.CE.Model_hess is a Cartesian-coordinate Hessian.
+                # Assigning it directly to mw_hessian causes a unit mismatch that
+                # corrupts all subsequent IRC steps. Apply mass_weight_hessian() first.
                 self.mw_hessian = self.mass_weight_hessian(
                     self.CE.Model_hess, three_sqrt_mass_list
                 )
