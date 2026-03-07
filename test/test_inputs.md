@@ -36,5 +36,6 @@ python ieipmain.py curtius_rearrgement -xtb GFN2-xTB
 python run_autots.py autots_v2_test.py -cfg config_autots_v2_test.json
 ```
 ```
-python run_autots.py aldol_rxn.py -cfg config_autots_run_xtb_test.json
+python run_autots.py aldol_rxn.xyz -cfg config_autots_run_xtb_test.json
+
 ```
