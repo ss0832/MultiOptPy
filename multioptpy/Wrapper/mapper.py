@@ -2014,7 +2014,17 @@ class ReactionNetworkMapper:
             return None
 
         # Search only EQNode objects (graph.all_nodes) — never TSEdge objects.
+        # Nodes listed in excluded_node_ids are also skipped from the comparison
+        # pool so that a structure identical to an excluded node is treated as a
+        # new, independent node rather than being collapsed into the excluded one.
         for existing in self.graph.all_nodes():
+            if existing.node_id in self.excluded_node_ids:
+                logger.debug(
+                    "_find_or_register_node: EQ%d is in excluded_node_ids — "
+                    "skipped from identity comparison pool.",
+                    existing.node_id,
+                )
+                continue
             if existing.coords.size == 0:
                 logger.debug(
                     "_find_or_register_node: EQ%d has empty coords, skipped.", existing.node_id
