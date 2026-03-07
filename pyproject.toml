@@ -34,15 +34,15 @@ dependencies = [
 ]
 
 [project.scripts]
-optmain = "multioptpy.entrypoints:run_optmain"     
-ieipmain = "multioptpy.entrypoints:run_ieipmain"  
-mdmain = "multioptpy.entrypoints:run_mdmain"       
-nebmain = "multioptpy.entrypoints:run_nebmain"     
-confsearch = "multioptpy.entrypoints:run_confsearch"
-relaxedscan = "multioptpy.entrypoints:run_relaxedscan"
-run_autots = "multioptpy.entrypoints:run_autots"       
-orientsearch = "multioptpy.entrypoints:run_orientsearch"
-run_mapper = "multioptpy.entrypoints:run_mapper"
+optmain = "multioptpy.Entrypoints:run_optmain"
+ieipmain = "multioptpy.Entrypoints:run_ieipmain"
+mdmain = "multioptpy.Entrypoints:run_mdmain"
+nebmain = "multioptpy.Entrypoints:run_nebmain"
+confsearch = "multioptpy.Entrypoints:run_confsearch"
+relaxedscan = "multioptpy.Entrypoints:run_relaxedscan"
+run_autots = "multioptpy.Entrypoints:run_autots"
+orientsearch = "multioptpy.Entrypoints:run_orientsearch"
+run_mapper = "multioptpy.Entrypoints:run_mapper"
 
 [tool.setuptools.packages.find]
 where = ["."]
