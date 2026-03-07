@@ -532,6 +532,10 @@ class ExplorationQueue(ABC):
 
     def __init__(self, rng_seed: int = 42) -> None:
         self._tasks: list[ExplorationTask] = []
+        # Parallel list of negated priorities kept in ascending order so that
+        # bisect can locate the insertion point in O(log n) without an O(n)
+        # list comprehension on every push().
+        self._neg_priorities: list[float] = []
         self._submitted: set[tuple] = set()
         self._rng = np.random.default_rng(rng_seed)
 
@@ -541,17 +545,21 @@ class ExplorationQueue(ABC):
             return False
 
         task.priority = self.compute_priority(task)
-        # _tasks is maintained in descending priority order. Since bisect
-        # assumes ascending order, negate the key to find the correct
-        # insertion index in O(log n).
-        keys = [-t.priority for t in self._tasks]
-        idx = bisect.bisect_right(keys, -task.priority)
+        # _tasks is maintained in descending priority order. _neg_priorities
+        # mirrors it as ascending negated values so bisect can find the correct
+        # insertion index in O(log n) without rebuilding the list each call.
+        neg_p = -task.priority
+        idx = bisect.bisect_right(self._neg_priorities, neg_p)
         self._tasks.insert(idx, task)
+        self._neg_priorities.insert(idx, neg_p)
         self._submitted.add(key)
         return True
 
     def pop(self) -> ExplorationTask | None:
-        return self._tasks.pop(0) if self._tasks else None
+        if not self._tasks:
+            return None
+        self._neg_priorities.pop(0)
+        return self._tasks.pop(0)
 
     def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
@@ -602,6 +610,8 @@ class ExplorationQueue(ABC):
             task.priority = self.compute_priority(task)
 
         self._tasks.sort(key=lambda t: t.priority, reverse=True)
+        # Rebuild the parallel negated-priority list to stay in sync after sort.
+        self._neg_priorities = [-t.priority for t in self._tasks]
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -684,6 +694,8 @@ class ExploredPairsLog:
         self._filepath = filepath
         # In-memory set for O(1) look-up: (node_id, atom_i, atom_j, gamma_sign)
         self._explored: set[tuple[int, int, int, str]] = set()
+        # Fast O(1) membership check: which node_ids have been explored at all.
+        self._explored_node_ids: set[int] = set()
         self._load()
 
     # ------------------------------------------------------------------
@@ -711,6 +723,7 @@ class ExploredPairsLog:
                     if gamma_sign not in ("+", "-"):
                         continue
                     self._explored.add((node_id, atom_i, atom_j, gamma_sign))
+                    self._explored_node_ids.add(node_id)
                 except (ValueError, IndexError):
                     continue
         logger.info(
@@ -732,6 +745,7 @@ class ExploredPairsLog:
         if key in self._explored:
             return
         self._explored.add(key)
+        self._explored_node_ids.add(node_id)
         with open(self._filepath, "a", encoding="utf-8") as fh:
             fh.write(f"EQ{node_id:06d} {atom_i} {atom_j} {gamma_sign}\n")
 
@@ -799,36 +813,65 @@ class PerturbationGenerator:
         """Return all atom pairs that satisfy the distance and covalency filters.
 
         Pairs are expressed as 0-based index tuples ``(i, j)`` with ``i < j``.
+
+        Implementation uses numpy broadcasting to evaluate all N*(N-1)/2 pairs
+        in a single vectorised pass, avoiding an O(N²) Python-level loop.
         """
         n = len(symbols)
         if n < 2:
             return []
 
-        dmat = distance_matrix(coords)
-        candidates: list[tuple[int, int]] = []
-
         # Build the pool of atom indices subject to active_atoms restriction.
         # active_atoms stores 1-based labels; convert to 0-based for indexing.
         if self.active_atoms is not None:
-            atom_indices = [i for i in range(n) if (i + 1) in self.active_atoms]
+            atom_indices = np.array(
+                [i for i in range(n) if (i + 1) in self.active_atoms], dtype=np.intp
+            )
         else:
-            atom_indices = list(range(n))
+            atom_indices = np.arange(n, dtype=np.intp)
 
-        for idx, i in enumerate(atom_indices):
-            for j in atom_indices[idx + 1:]:
-                dist = dmat[i, j]
-                if self.dist_lower_ang <= dist <= self.dist_upper_ang:
-                    if covalent_radii_lib is not None:
-                        try:
-                            r_i = covalent_radii_lib(symbols[i]) * _BOHR2ANG
-                            r_j = covalent_radii_lib(symbols[j]) * _BOHR2ANG
-                            if dist <= self.covalent_margin * (r_i + r_j):
-                                continue
-                        except KeyError:
-                            pass
-                    candidates.append((i, j))
+        if len(atom_indices) < 2:
+            return []
 
-        return candidates
+        # Restrict coords/symbols to the active subset.
+        sub_coords  = coords[atom_indices]           # (m, 3)
+        sub_symbols = [symbols[i] for i in atom_indices]
+        m = len(atom_indices)
+
+        # Pairwise distances for the active subset — vectorised.
+        diff = sub_coords[:, np.newaxis, :] - sub_coords[np.newaxis, :, :]  # (m,m,3)
+        dmat = np.sqrt((diff ** 2).sum(axis=-1))                             # (m,m)
+
+        # Upper-triangle indices (i < j).
+        ii, jj = np.triu_indices(m, k=1)   # each has shape (P,) where P = m*(m-1)/2
+        dists = dmat[ii, jj]               # (P,)
+
+        # ── Distance window filter ────────────────────────────────────────
+        dist_mask = (dists >= self.dist_lower_ang) & (dists <= self.dist_upper_ang)
+
+        # ── Covalent-bond exclusion filter ────────────────────────────────
+        if covalent_radii_lib is not None:
+            # Build per-atom radii array for the active subset, falling back to
+            # a generic value for unknown elements so the filter still works.
+            radii = np.empty(m, dtype=np.float64)
+            for k, sym in enumerate(sub_symbols):
+                try:
+                    radii[k] = covalent_radii_lib(sym) * _BOHR2ANG
+                except KeyError:
+                    radii[k] = 0.75   # generic fallback [Å]
+            # Vectorised threshold for every upper-triangle pair.
+            cov_thresh = self.covalent_margin * (radii[ii] + radii[jj])  # (P,)
+            cov_mask = dists > cov_thresh
+        else:
+            # No radii library — apply a fixed generic threshold.
+            cov_mask = dists > (self.covalent_margin * 1.5)
+
+        keep = dist_mask & cov_mask   # (P,) boolean
+
+        # Convert back to original (0-based) atom indices.
+        orig_ii = atom_indices[ii[keep]]
+        orig_jj = atom_indices[jj[keep]]
+        return list(zip(orig_ii.tolist(), orig_jj.tolist()))
 
     # ------------------------------------------------------------------
     # Public interface
@@ -2124,11 +2167,10 @@ class ReactionNetworkMapper:
     def _node_has_been_explored(self, node_id: int) -> bool:
         """Return ``True`` if *node_id* has at least one recorded exploration.
 
-        Used to implement "skip-after-first" semantics for excluded nodes:
-        an excluded node is still allowed one round of AFIR exploration
-        when it is first registered, but is skipped on all subsequent calls.
+        Uses the O(1) ``_explored_node_ids`` set on :class:`ExploredPairsLog`
+        instead of a linear scan over all explored tuples.
         """
-        return any(nid == node_id for (nid, *_) in self.explored_log._explored)
+        return node_id in self.explored_log._explored_node_ids
 
     def _enqueue_perturbations(self, node: EQNode, force_add: bool = False) -> None:
         if node.coords.size == 0:
@@ -2182,17 +2224,21 @@ class ReactionNetworkMapper:
             gamma_signs.append("-")
 
         # ── Filter out already-explored and already-queued pairs ─────────
-        unexplored: list[tuple[int, int, str]] = []
-        for (i0, j0) in all_candidates:
-            atom_i, atom_j = i0 + 1, j0 + 1  # convert to 1-based
-            for sign in gamma_signs:
-                if self.explored_log.has(node.node_id, atom_i, atom_j, sign):
-                    continue  # already run — skip
-                gamma_str = neg_gamma_str if sign == "-" else pos_gamma_str
-                queue_key = (node.node_id, (gamma_str, str(atom_i), str(atom_j)))
-                if queue_key in self.queue._submitted:
-                    continue  # already in the queue — skip
-                unexplored.append((i0, j0, sign))
+        # Build unexplored list with a single list comprehension to avoid
+        # Python-level nested loop overhead.  Local variable aliases avoid
+        # repeated attribute lookups inside the hot path.
+        nid            = node.node_id
+        explored_set   = self.explored_log._explored    # set[(nid,i,j,sign)]
+        submitted_set  = self.queue._submitted           # set[(nid, tuple(params))]
+        sign_to_gamma  = {"+": pos_gamma_str, "-": neg_gamma_str}
+
+        unexplored: list[tuple[int, int, str]] = [
+            (i0, j0, sign)
+            for (i0, j0) in all_candidates
+            for sign in gamma_signs
+            if (nid, i0 + 1, j0 + 1, sign) not in explored_set
+            and (nid, (sign_to_gamma[sign], str(i0 + 1), str(j0 + 1))) not in submitted_set
+        ]
 
         if not unexplored:
             logger.debug(
@@ -2215,7 +2261,7 @@ class ReactionNetworkMapper:
         for idx in chosen_indices:
             i0, j0, sign = unexplored[int(idx)]
             atom_i, atom_j = i0 + 1, j0 + 1
-            gamma_str = neg_gamma_str if sign == "-" else pos_gamma_str
+            gamma_str = sign_to_gamma[sign]
             afir_params = [gamma_str, str(atom_i), str(atom_j)]
             task = ExplorationTask(
                 node_id=node.node_id,
