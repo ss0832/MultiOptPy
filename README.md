@@ -140,8 +140,11 @@ References are given in the source code.
 
 ## Usage
 
-After downloading the repository using git clone or similar commands, move to the generated directory and run the following:
-python command
+1. Download the repository using git clone or similar commands, and navigate to the generated directory.
+
+2. Copy the corresponding .xyz file from the test directory and the .py file from the scripts directory.
+
+3. Run the following Python command:
 ```
 python optmain.py SN2.xyz -ma 150 1 6 -pyscf -elec 0 -spin 0 -opt rsirfo_block_fsb -modelhess
 ```
