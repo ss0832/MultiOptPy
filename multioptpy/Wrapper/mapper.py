@@ -1304,6 +1304,14 @@ class ReactionNetworkMapper:
         # Set of node IDs that are excluded from AFIR exploration.
         self.excluded_node_ids: set[int] = set(excluded_node_ids) if excluded_node_ids else set()
 
+        # Subset of excluded_node_ids that were added automatically by the
+        # bond-rearrangement filter (exclude_bond_rearrangement=True).
+        # Kept separate so that the identity-comparison pool can treat these
+        # nodes differently from manually-specified exclusions: bond-rearrangement
+        # excluded nodes are still used as reference structures for deduplication,
+        # whereas manually-specified nodes are removed from that pool entirely.
+        self._bond_rearrangement_excluded_ids: set[int] = set()
+
         # Bond-rearrangement filter.
         self.exclude_bond_rearrangement: bool = exclude_bond_rearrangement
         self.bond_checker: BondTopologyChecker = (
@@ -2017,10 +2025,17 @@ class ReactionNetworkMapper:
         # Nodes listed in excluded_node_ids are also skipped from the comparison
         # pool so that a structure identical to an excluded node is treated as a
         # new, independent node rather than being collapsed into the excluded one.
+        # Exception: nodes excluded automatically by the bond-rearrangement filter
+        # (_bond_rearrangement_excluded_ids) are still included in the comparison
+        # pool — they serve as valid deduplication references even though they are
+        # not explored further.
         for existing in self.graph.all_nodes():
-            if existing.node_id in self.excluded_node_ids:
+            if (
+                existing.node_id in self.excluded_node_ids
+                and existing.node_id not in self._bond_rearrangement_excluded_ids
+            ):
                 logger.debug(
-                    "_find_or_register_node: EQ%d is in excluded_node_ids — "
+                    "_find_or_register_node: EQ%d is in excluded_node_ids (manual) — "
                     "skipped from identity comparison pool.",
                     existing.node_id,
                 )
@@ -2090,6 +2105,7 @@ class ReactionNetworkMapper:
             )
             if rearranged:
                 self.excluded_node_ids.add(node_id)
+                self._bond_rearrangement_excluded_ids.add(node_id)
                 logger.info(
                     "_find_or_register_node: EQ%d has a different bond topology "
                     "from the seed structure — added to excluded_node_ids "
