@@ -218,8 +218,6 @@ def parser_for_biasforce(parser):
     parser.add_argument("-kav2", "--keep_angle_v2", nargs="*",  type=str, default=[], help='keep angle_v2 0.5*k*(θ - θ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep angle (degrees)] [Fragm.1] [Fragm.2] [Fragm.3] ...] ')
     parser.add_argument("-up", "--universal_potential", nargs="*",  type=str, default=[], help="Potential to gather specified atoms to a single point (ex.) [[potential (kJ/mol)] [target atoms (1,2)] ...]")
     
-    parser.add_argument("-ddka", "--atom_distance_dependent_keep_angle", nargs="*",  type=str, default=[], help='atom-distance-dependent keep angle (ex.) [[spring const.(a.u.)] [minimum keep angle (degrees)] [maximum keep angle (degrees)] [base distance (ang.)] [reference atom (1 atom)] [center atom (1 atom)] [atom1,atom2,atom3] ...] ')
-    
     
     parser.add_argument("-kda", "--keep_dihedral_angle", nargs="*",  type=str, default=[], help='keep dihedral angle 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep dihedral angle (degrees)] [atom1,atom2,atom3,atom4] ...] ')
     parser.add_argument("-kopa", "--keep_out_of_plain_angle", nargs="*",  type=str, default=[], help='keep_out_of_plain_angle 0.5*k*(φ - φ0)^2 (0 ~ 180 deg.) (ex.) [[spring const.(a.u.)] [keep out of plain angle (degrees)] [atom1,atom2,atom3,atom4] ...] ')

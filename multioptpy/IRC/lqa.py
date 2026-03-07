@@ -283,10 +283,8 @@ class LQA:
             delta_g = (self.irc_mw_gradients[-1] - self.irc_mw_gradients[-2]).reshape(-1, 1)
             delta_x = (self.irc_mw_coords[-1] - self.irc_mw_coords[-2]).reshape(-1, 1)
            
-            # Only update if the step and gradient difference are meaningful
-            if np.dot(delta_x.T, delta_g)[0, 0] > 1e-10:
-                delta_hess = self.ModelHessianUpdate.BFGS_hessian_update(self.mw_hessian, delta_x, delta_g)
-                self.mw_hessian += delta_hess
+            delta_hess = self.ModelHessianUpdate.FSB_hessian_update(self.mw_hessian, delta_x, delta_g)
+            self.mw_hessian += delta_hess
 
         # Add bias potential hessian and diagonalize
         combined_hessian = self.mw_hessian + mw_BPA_hessian
@@ -306,7 +304,7 @@ class LQA:
         # Original: dt = 1 / self.N_euler * self.step_size / np.linalg.norm(flattened_gradient)
         # This can diverge if np.linalg.norm(flattened_gradient) -> 0
         
-        epsilon = 1e-6  # Prevent divergence when gradient norm is near zero
+        epsilon = 1e-8  # Prevent divergence when gradient norm is near zero
         norm_g = np.linalg.norm(flattened_gradient)
         dt = 1 / self.N_euler * self.step_size / max(norm_g, epsilon)
 
