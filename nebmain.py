@@ -1,9 +1,5 @@
-import sys
-sys.path.append('./multioptpy')
+"""Backward-compatible standalone script. Delegates to the installed entry point."""
+from multioptpy.entrypoints import run_nebmain
 
-import multioptpy
-
-parser = multioptpy.interface.init_parser()
-args = multioptpy.interface.nebparser(parser)
-NEB = multioptpy.neb.NEB(args)
-NEB.run()
+if __name__ == "__main__":
+    run_nebmain()

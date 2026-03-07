@@ -1,9 +1,5 @@
-import sys
-sys.path.append('./multioptpy')
+"""Backward-compatible standalone script. Delegates to the installed entry point."""
+from multioptpy.entrypoints import run_mdmain
 
-import multioptpy
-
-parser = multioptpy.interface.init_parser()
-args = multioptpy.interface.mdparser(parser)
-MD = multioptpy.moleculardynamics.MD(args)
-MD.run()
+if __name__ == "__main__":
+    run_mdmain()
