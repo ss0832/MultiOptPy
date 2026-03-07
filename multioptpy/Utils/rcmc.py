@@ -13,6 +13,7 @@ import logging
 import os
 
 import numpy as np
+from scipy.linalg import lu_factor, lu_solve
 from multioptpy.Wrapper.mapper import ExplorationQueue, ExplorationTask
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,53 @@ class RCMCQueue(ExplorationQueue):
         except OSError as exc:
             logger.warning("RCMC contracted K matrix could not be saved: %s", exc)
 
+    def _save_population(
+        self,
+        q: "np.ndarray",
+        nodes: list,
+        pop_count: int,
+    ) -> None:
+        """Append the per-node transient population distribution to the
+        contracted K-matrix CSV file.
+
+        Called immediately after :meth:`_save_K_matrix` so the two tables
+        appear in the same file, separated by a blank line.
+
+        File path: ``{output_dir}/rcmc_K_contracted.csv``
+
+        Format (appended below the K-matrix block)
+        -------------------------------------------
+        # RCMC transient population  pop_step=N  T=300.0 K  t=1.0 s
+        node,population
+        EQ0,4.56000000e-01
+        EQ1,3.21000000e-01
+        ...
+        """
+        if self.output_dir is None:
+            return
+        try:
+            fpath = os.path.join(self.output_dir, "rcmc_K_contracted.csv")
+            with open(fpath, "a", encoding="utf-8") as fh:
+                fh.write("\n")
+                fh.write(
+                    f"# RCMC transient population  "
+                    f"pop_step={pop_count}  "
+                    f"T={self.temperature_K} K  "
+                    f"t={self.reaction_time_s} s\n"
+                )
+                fh.write("node,population\n")
+                for i, node in enumerate(nodes):
+                    fh.write(f"EQ{node.node_id},{q[i]:.8e}\n")
+            logger.info(
+                "RCMC population distribution appended: %s  "
+                "(pop_step=%d  n_nodes=%d)",
+                fpath,
+                pop_count,
+                len(nodes),
+            )
+        except OSError as exc:
+            logger.warning("RCMC population CSV could not be saved: %s", exc)
+
     def pop(self) -> ExplorationTask | None:
         if not self._tasks:
             return None
@@ -201,57 +249,86 @@ class RCMCQueue(ExplorationQueue):
         # Initially every node is its own super-state.
         superstate_members: dict[int, list[int]] = {i: [i] for i in range(n_nodes)}
 
+        # ── Incremental K_SS buffer ───────────────────────────────────────
+        # Maintained by block-appending each newly contracted node so we
+        # avoid rebuilding via fancy indexing (K[np.ix_(S,S)]) every step.
+        K_SS_buf: np.ndarray = np.empty((0, 0), dtype=np.float64)
+
         while len(T) > 1:
-            diag_D = np.abs(np.diag(D))
-            j_local = np.argmax(diag_D)
+            # Only the diagonal is needed for argmax — extract with np.diag
+            # rather than keeping a full abs matrix.
+            j_local = int(np.argmax(np.abs(np.diag(D))))
             j_global = T[j_local]
             D_jj = D[j_local, j_local]
 
             if abs(D_jj) < 1e-30:
                 break
 
-            mask = np.arange(len(T)) != j_local
-            D_TT = D[np.ix_(mask, mask)]
-            D_Tj = D[mask, j_local].reshape(-1, 1)
-            D_jT = D[j_local, mask].reshape(1, -1)
-            
-            D_new = D_TT - (D_Tj @ D_jT) / D_jj
-            
-            # Recalculate diagonal elements to preserve numerical stability
-            for i in range(D_new.shape[0]):
-                D_new[i, i] = -np.sum(D_new[:, i]) + D_new[i, i]
+            # Boolean mask is faster than np.arange comparison for slicing.
+            mask = np.ones(len(T), dtype=bool)
+            mask[j_local] = False
+
+            D_Tj = D[mask, j_local]          # shape (n-1,)
+            D_jT = D[j_local, mask]          # shape (n-1,)
+
+            # Schur-complement rank-1 update.
+            D_new = D[np.ix_(mask, mask)] - np.outer(D_Tj, D_jT) / D_jj
+
+            # Vectorised diagonal correction (replaces Python for-loop):
+            # enforce column-sum-to-zero so numerical drift does not accumulate.
+            off_diag_col_sums = D_new.sum(axis=0) - D_new.diagonal()
+            np.fill_diagonal(D_new, -off_diag_col_sums)
 
             # Assign j to the T state most strongly coupled to it,
             # then merge j's member list into that state's members.
-            coupling = np.abs(D[mask, j_local])
-            if coupling.max() > 0:
-                absorb_local = int(np.argmax(coupling))
-            else:
-                absorb_local = 0
+            # D_Tj was already computed above — reuse it.
+            coupling = np.abs(D_Tj)
+            absorb_local = int(np.argmax(coupling)) if coupling.max() > 0 else 0
             remaining_T = [t for k, t in enumerate(T) if k != j_local]
             absorb_global = remaining_T[absorb_local]
             superstate_members[absorb_global].extend(
                 superstate_members.pop(j_global)
             )
 
+            # ── Incremental K_SS expansion ────────────────────────────────
+            # Append j_global as a new row/column instead of re-indexing K.
+            if K_SS_buf.size == 0:
+                K_SS_buf = np.array([[K[j_global, j_global]]])
+            else:
+                new_col = K[S, j_global].reshape(-1, 1)
+                new_row = K[j_global, S].reshape(1, -1)
+                K_SS_buf = np.block([
+                    [K_SS_buf,                          new_col             ],
+                    [new_row,  np.array([[K[j_global, j_global]]])]
+                ])
+
             S.append(j_global)
             T.pop(j_local)
             D = D_new
 
-            if len(S) > 0:
-                K_SS = K[np.ix_(S, S)]
-                try:
-                    inv_1S = np.linalg.solve(-K_SS, np.ones(len(S)))
-                    inv_T_1S = np.linalg.solve(-K_SS.T, np.ones(len(S)))
-                    rho_KSS_inv = min(np.max(inv_1S), np.max(inv_T_1S))
-                    sigma_KSS = 1.0 / rho_KSS_inv if rho_KSS_inv > 0 else 1e-30
-                except np.linalg.LinAlgError:
-                    sigma_KSS = 1e-30
+            # ── Convergence check using a single LU factorisation ─────────
+            # lu_solve(…, trans=1) solves the transposed system without a
+            # second factorisation, replacing two separate np.linalg.solve
+            # calls on -K_SS and -K_SS.T.
+            try:
+                lu, piv = lu_factor(-K_SS_buf)
+                ones_S = np.ones(len(S))
+                inv_1S   = lu_solve((lu, piv), ones_S)
+                inv_T_1S = lu_solve((lu, piv), ones_S, trans=1)
+                rho_KSS_inv = min(float(np.max(inv_1S)), float(np.max(inv_T_1S)))
+                sigma_KSS = 1.0 / rho_KSS_inv if rho_KSS_inv > 0 else 1e-30
+            except Exception:
+                sigma_KSS = 1e-30
 
-                rho_D = min(np.max(np.sum(np.abs(D), axis=1)), np.max(np.sum(np.abs(D), axis=0)))
+            # Compute abs(D) once and reuse for both axis sums.
+            abs_D = np.abs(D)
+            rho_D = min(
+                float(np.max(abs_D.sum(axis=1))),
+                float(np.max(abs_D.sum(axis=0))),
+            )
 
-                if sigma_KSS > 0 and rho_D > 0:
-                    time_current = np.log(2) / np.sqrt(sigma_KSS * rho_D)
+            if sigma_KSS > 0 and rho_D > 0:
+                time_current = np.log(2) / np.sqrt(sigma_KSS * rho_D)
 
             logger.debug(
                 "RCMC contraction step %d: contracted_nodes=%s, "
@@ -268,20 +345,21 @@ class RCMCQueue(ExplorationQueue):
 
         # ── Update contracted super-state K matrix (D at termination) ────
         self._save_K_matrix(D, T, superstate_members, nodes, self._pop_count)
-        self._pop_count += 1
 
         q = np.zeros(n_nodes, dtype=np.float64)
         if len(S) > 0 and len(T) > 0:
-            K_SS = K[np.ix_(S, S)]
+            # K_SS_buf is already up to date — no need to re-index K.
             K_ST = K[np.ix_(S, T)]
             K_TS = K[np.ix_(T, S)]
             p_S = p[S]
             p_T = p[T]
 
             try:
-                X_ST = np.linalg.solve(K_SS, K_ST)
-                X_pS = np.linalg.solve(K_SS, p_S)
-                X_ST_2 = np.linalg.solve(K_SS, X_ST)
+                # Factorise K_SS once; reuse for the three back-solves.
+                lu, piv = lu_factor(K_SS_buf)
+                X_ST   = lu_solve((lu, piv), K_ST)
+                X_pS   = lu_solve((lu, piv), p_S)
+                X_ST_2 = lu_solve((lu, piv), X_ST)
 
                 M = np.eye(len(T)) + K_TS @ X_ST_2
                 m_vec = np.sum(M, axis=0)
@@ -295,14 +373,18 @@ class RCMCQueue(ExplorationQueue):
                 q_S = np.maximum(q_S, 0.0)
                 q[T] = q_T
                 q[S] = q_S
-                total_q = np.sum(q)
+                total_q = float(np.sum(q))
                 if total_q > 0.0:
                     q /= total_q
 
-            except np.linalg.LinAlgError:
+            except Exception:
                 q = p
         else:
             q = p
+
+        # ── Append population distribution below the K-matrix CSV ────────
+        self._save_population(q, nodes, self._pop_count)
+        self._pop_count += 1
 
         for task in self._tasks:
             if task.node_id in node_to_idx:
