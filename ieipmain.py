@@ -1,9 +1,5 @@
-import sys
-sys.path.append('./multioptpy')
+"""Backward-compatible standalone script. Delegates to the installed entry point."""
+from multioptpy.entrypoints import run_ieipmain
 
-import multioptpy
-
-parser = multioptpy.interface.init_parser()
-args = multioptpy.interface.ieipparser(parser)
-iEIP = multioptpy.ieip.iEIP(args)
-iEIP.run()
+if __name__ == "__main__":
+    run_ieipmain()
