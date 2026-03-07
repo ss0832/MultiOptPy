@@ -23,6 +23,7 @@ def run_mapper():
     run_mapper initial.xyz --exclude_nodes 3 7 12
     run_mapper initial.xyz --exclude_bond_rearrangement
     run_mapper initial.xyz --use_rcmc --rcmc_temperature 500 --rcmc_time 1e-6
+    run_mapper initial.xyz --use_rcmc --rcmc_start_node 3
 
     config.json  --  mapper_settings block
     ---------------------------------------
@@ -46,8 +47,12 @@ def run_mapper():
             "exclude_bond_rearrangement" : false,
             "use_rcmc"                   : false,
             "rcmc_temperature_K"         : 300.0,
-            "rcmc_reaction_time_s"       : 1.0
+            "rcmc_reaction_time_s"       : 1.0,
+            "rcmc_start_node_id"         : 0
         }
+
+    CLI arguments take precedence over mapper_settings, which in turn
+    takes precedence over the defaults listed above.
     """
 
     # ------------------------------------------------------------------
@@ -106,6 +111,7 @@ def run_mapper():
         parser = argparse.ArgumentParser(
             prog="run_mapper",
             description="Autonomous chemical reaction network mapper.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
         # ---- Positional ----
@@ -226,7 +232,9 @@ def run_mapper():
             default=None,
             metavar="NODE_ID",
             help=(
-                "EQ node IDs to exclude from AFIR exploration (2nd run onwards). "
+                "EQ node IDs to exclude from AFIR exploration.  Matching nodes "
+                "are still registered in the reaction network graph but will "
+                "never be used as starting points for new AFIR runs.  "
                 "Example: --exclude_nodes 3 7 12  Default: no exclusions."
             ),
         )
@@ -236,7 +244,9 @@ def run_mapper():
             default=False,
             help=(
                 "Automatically exclude any newly found EQ node whose covalent "
-                "bond topology differs from that of the seed structure (EQ0). "
+                "bond topology differs from that of the seed structure (EQ0).  "
+                "Useful for restricting exploration to a single potential-energy "
+                "surface without crossing into reactive products.  "
                 "Default: disabled."
             ),
         )
@@ -245,21 +255,31 @@ def run_mapper():
             action="store_true",
             default=False,
             help=(
-                "Use the RCMC algorithm for exploration priorities instead of "
-                "the default Boltzmann queue. Default: disabled."
+                "Use the RCMC (Rate Constant Matrix Contraction) algorithm to "
+                "determine exploration priorities instead of the default "
+                "Boltzmann queue.  Requires --rcmc_temperature and optionally "
+                "--rcmc_time.  Default: disabled."
             ),
         )
         parser.add_argument(
             "--rcmc_temperature",
             type=float,
             default=None,
-            help="Temperature [K] for the RCMC priority calculation. Default: 300.",
+            help=(
+                "Temperature [K] for the RCMC priority calculation.  "
+                "Only used when --use_rcmc is set.  Default: from "
+                "mapper_settings or 300."
+            ),
         )
         parser.add_argument(
             "--rcmc_time",
             type=float,
             default=None,
-            help="Reaction time [s] for the RCMC priority calculation. Default: 1.0.",
+            help=(
+                "Reaction time [s] for the RCMC priority calculation.  "
+                "Only used when --use_rcmc is set.  Default: from "
+                "mapper_settings or 1.0."
+            ),
         )
         parser.add_argument(
             "--rcmc_start_node",
@@ -388,10 +408,14 @@ def run_mapper():
         active_str = ", ".join(str(a) for a in m["active_atoms"]) if m["active_atoms"] else "all"
         print(f"  Active atoms    : {active_str}")
         print(f"  Negative gamma  : {'yes' if m['include_negative_gamma'] else 'no'}")
+
+        # ── EQ exclusion options ─────────────────────────────────────────────
         excl_ids = m.get("excluded_node_ids")
         excl_str = ", ".join(str(n) for n in sorted(excl_ids)) if excl_ids else "none"
         print(f"  Excluded EQ IDs : {excl_str}")
         print(f"  Excl. bond rearr: {'yes' if m.get('exclude_bond_rearrangement') else 'no'}")
+
+        # ── Priority queue ───────────────────────────────────────────────────
         if m.get("use_rcmc"):
             print(f"  Priority queue  : RCMC  "
                   f"T={m['rcmc_temperature_K']} K  "
@@ -414,9 +438,17 @@ def run_mapper():
             2. Instantiate your subclass here instead of BoltzmannQueue.
             3. Pass it as queue=<your_instance> to ReactionNetworkMapper.
 
-        The config_file_path required for the snapshot feature is read
-        directly from config["_mapper"]["config_file_path"], which is
-        populated by merge_config() from args.config_file.
+        Example:
+            from mapper import ExplorationQueue, ExplorationTask
+
+            class BarrierFirstQueue(ExplorationQueue):
+                def compute_priority(self, task):
+                    return -task.metadata.get("barrier_kcalmol", 0.0)
+                def should_add(self, node, ref_e, **kw):
+                    return True
+
+            queue = BarrierFirstQueue()
+            # ... build mapper with queue=queue
         """
         m = config["_mapper"]
 
