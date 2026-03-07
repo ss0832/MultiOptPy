@@ -1,5 +1,5 @@
 """Backward-compatible standalone script. Delegates to the installed entry point."""
-from multioptpy.entrypoints import run_mdmain
+from multioptpy.Entrypoints import run_mdmain
 
 if __name__ == "__main__":
     run_mdmain()
