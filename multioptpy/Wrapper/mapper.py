@@ -519,10 +519,6 @@ class BondTopologyChecker:
         order (so C–H and H–C map to the same key).  The value is the
         number of such bonds.
 
-        Radii are precomputed per unique element so ``_bond_threshold`` is
-        called at most once per element instead of once per atom-pair.
-        Distances are computed with ``cdist`` to avoid a Python-level O(N²)
-        loop.
         """
         n = len(symbols)
         # Precompute covalent radius for each unique element.
@@ -575,21 +571,7 @@ class BondTopologyChecker:
         new_fp = self.fingerprint(new_symbols, new_coords)
         return ref_fp != new_fp
 
-    # ------------------------------------------------------------------ #
-    #  Internal helpers                                                    #
-    # ------------------------------------------------------------------ #
 
-    def _bond_threshold(self, elem_i: str, elem_j: str) -> float:
-        """Return the maximum bonding distance [Å] for this element pair."""
-        if covalent_radii_lib is not None:
-            try:
-                r_i = covalent_radii_lib(elem_i) * _BOHR2ANG
-                r_j = covalent_radii_lib(elem_j) * _BOHR2ANG
-                return self.covalent_margin * (r_i + r_j)
-            except KeyError:
-                pass
-        # Fall back to a generic threshold when covalent radii are unavailable.
-        return self.covalent_margin * 1.5
 
 
 # ===========================================================================
@@ -2683,7 +2665,7 @@ class ReactionNetworkMapper:
                 metadata={
                     "delta_E_hartree":         delta_e,
                     "source_node_energy":      node.energy,
-                    "source_node_free_energy": node.free_energy,
+                    "source_node_free_energy": getattr(node, "free_energy", None),
                 },
             )
             self.queue.push(task)
