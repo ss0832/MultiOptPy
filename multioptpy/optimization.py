@@ -2314,12 +2314,19 @@ class Optimize:
         MV = MolecularVibrations(
             atoms=element_list, coordinates=geom_num_list, hessian=tmp_hess, skip_judge_symm=self.config.no_symmetry_analyzer
         )
+        
+        if self.config.args.pyscf:
+            tmp_mult = min(1, int(self.config.spin_multiplicity) + 1)
+        else:
+            tmp_mult = min(1, int(self.config.spin_multiplicity))
+        
         thermo_results = MV.calculate_thermochemistry(
             e_tot=B_e,
             temperature=self.config.thermo_temperature,
             pressure=self.config.thermo_pressure,
             quasi_harmonic=self.config.frequency_correction_method,
             freq_cutoff=self.config.frequency_analysis_cutoff,
+            multiplicity=tmp_mult,
         )
         # Store the full thermochemistry dict on the state so it can be
         # propagated to Optimize and collected in all_results.
