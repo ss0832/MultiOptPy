@@ -176,8 +176,8 @@ def run_mapper():
         parser.add_argument(
             "--max_pairs",
             type=int,
-            default=None,
-            help="Max AFIR atom-pair perturbations per node. Default: 5.",
+            default=9999,
+            help="Max AFIR atom-pair perturbations per node. Default: 9999.",
         )
         parser.add_argument(
             "--dist_lower",
@@ -362,7 +362,7 @@ def run_mapper():
             "rmsd_threshold":              resolve(args.rmsd_threshold, "rmsd_threshold",         0.30),
             "max_iterations":              resolve(args.max_iter,       "max_iterations",         50),
             "afir_gamma_kJmol":            resolve(args.afir_gamma,     "afir_gamma_kJmol",       100.0),
-            "max_pairs":                   resolve(args.max_pairs,       "max_pairs",              5),
+            "max_pairs":                   resolve(args.max_pairs,       "max_pairs",              9999),
             "dist_lower_ang":              resolve(args.dist_lower,     "dist_lower_ang",         1.5),
             "dist_upper_ang":              resolve(args.dist_upper,     "dist_upper_ang",         5.0),
             "output_dir":                  resolve(args.output_dir,     "output_dir",             "mapper_output"),
