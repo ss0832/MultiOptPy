@@ -43,6 +43,7 @@ relaxedscan = "multioptpy.Entrypoints:run_relaxedscan"
 run_autots = "multioptpy.Entrypoints:run_autots"
 orientsearch = "multioptpy.Entrypoints:run_orientsearch"
 run_mapper = "multioptpy.Entrypoints:run_mapper"
+run_rcmc = "multioptpy.Entrypoints:run_rcmc"
 
 [tool.setuptools.packages.find]
 where = ["."]
