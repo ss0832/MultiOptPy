@@ -179,7 +179,7 @@ class MolecularVibrations:
         # Analysis results will be stored here
         self.results = {}
         
-        self.filter_safe_freq = 10.0
+        self.filter_safe_freq = 10.0 
 
     def _get_atomic_mass(self, atom):
         """Returns atomic mass for a given element symbol."""
@@ -344,8 +344,9 @@ class MolecularVibrations:
 
         freq_au = self.results['freq_au']
         au2hz = (HARTREE_TO_J / (ATOMIC_MASS * BOHR ** 2)) ** 0.5 / (2 * np.pi)
-        # Use np.where to safely filter positive frequencies
-        pos_idx = np.where(freq_au.real > self.filter_safe_freq)[0]
+        # Use np.where to safely filter positive frequencies (compare in cm⁻¹ units)
+        freq_wn = self.results['freq_wavenumber']
+        pos_idx = np.where(freq_wn.real > self.filter_safe_freq)[0] 
         vib_temperature = freq_au.real[pos_idx] * au2hz * PLANCK / KB
         rt = vib_temperature / max(1e-10, temperature)
         exp_neg_rt = np.exp(-rt)
@@ -585,8 +586,8 @@ class MolecularVibrations:
             # Only positive real frequencies above cutoff
             idx = np.where(freq_wn.real > cutoff_freq)[0]
         
-        # Sort modes: real frequencies first in ascending order, then imaginary in descending magnitude
-        sort_idx = np.argsort(freq_wn[idx].real)
+        # Sort modes: imaginary frequencies (negative value) first, then real in ascending order
+        sort_idx = np.argsort(freq_wn[idx].real - freq_wn[idx].imag)
         idx = idx[sort_idx]
         
         freq_wn_filtered = freq_wn[idx]
@@ -800,8 +801,8 @@ class _VibrationalModeAnimator:
             # Only positive real frequencies above cutoff
             idx = np.where(freq_wn.real > cutoff_freq)[0]
         
-        # Sort modes: real frequencies first in ascending order, then imaginary in descending magnitude
-        sort_idx = np.argsort(freq_wn[idx].real)
+        # Sort modes: imaginary frequencies (negative value) first, then real in ascending order
+        sort_idx = np.argsort(freq_wn[idx].real - freq_wn[idx].imag)
         idx = idx[sort_idx]
         
         self.freq_wn = freq_wn[idx]
@@ -920,7 +921,7 @@ def analyze_molecular_vibrations(atoms, coordinates, hessian, symm_tolerance=0.2
 
 def calculate_molecular_thermochemistry(atoms, coordinates, hessian, e_tot=0.0, temperature=298.15,
                               pressure=101325, symm_tolerance=0.25, max_symm_fold=6,
-                              quasi_harmonic=None, freq_cutoff=50.0):
+                              quasi_harmonic=None, freq_cutoff=50.0, multiplicity=1):
     """
     Calculate thermochemical properties for a molecular system.
 
@@ -956,7 +957,8 @@ def calculate_molecular_thermochemistry(atoms, coordinates, hessian, e_tot=0.0, 
     analyzer.analyze_normal_modes()
     return analyzer.calculate_thermochemistry(e_tot, temperature, pressure,
                                               quasi_harmonic=quasi_harmonic,
-                                              freq_cutoff=freq_cutoff)
+                                              freq_cutoff=freq_cutoff,
+                                              multiplicity=multiplicity)
 
 
 def generate_vibration_animation(atoms, coordinates, hessian, mode_index=None, 
