@@ -178,6 +178,8 @@ class MolecularVibrations:
 
         # Analysis results will be stored here
         self.results = {}
+        
+        self.filter_safe_freq = 10.0
 
     def _get_atomic_mass(self, atom):
         """Returns atomic mass for a given element symbol."""
@@ -342,9 +344,9 @@ class MolecularVibrations:
         freq_au = self.results['freq_au']
         au2hz = (HARTREE_TO_J / (ATOMIC_MASS * BOHR ** 2)) ** 0.5 / (2 * np.pi)
         # Use np.where to safely filter positive frequencies
-        pos_idx = np.where(freq_au.real > 0)[0]
+        pos_idx = np.where(freq_au.real > self.filter_safe_freq)[0]
         vib_temperature = freq_au.real[pos_idx] * au2hz * PLANCK / KB
-        rt = vib_temperature / max(1e-14, temperature)
+        rt = vib_temperature / max(1e-10, temperature)
         exp_neg_rt = np.exp(-rt)
 
         ZPE = R_Eh * 0.5 * vib_temperature.sum()
@@ -380,7 +382,7 @@ class MolecularVibrations:
             # theta = h * nu / kB,  nu (Hz) = freq_cutoff (cm^-1) * c (m/s) * 100
             theta_cutoff = PLANCK * freq_cutoff * LIGHT_SPEED * 100.0 / KB
             eff_vib_temp = np.maximum(vib_temperature, theta_cutoff)
-            eff_rt = eff_vib_temp / max(1e-14, temperature)
+            eff_rt = eff_vib_temp / max(1e-10, temperature)
             eff_exp_neg = np.exp(-eff_rt)
             eff_denom = 1.0 - eff_exp_neg
             mask_eff = np.abs(eff_denom) < 1e-10
@@ -419,7 +421,7 @@ class MolecularVibrations:
             mu_prime = mu_i * B_av / (mu_i + B_av)  # interpolated moment
             factor_fr = 8.0 * np.pi ** 3 * mu_prime * KB * temperature / PLANCK ** 2
             # Clamp to avoid log(0)
-            factor_fr = np.where(factor_fr > 1e-300, factor_fr, 1e-300)
+            factor_fr = np.where(factor_fr > 1e-10, factor_fr, 1e-10)
             s_fr_per_mode = R_Eh * (0.5 + 0.5 * np.log(factor_fr))
 
             # Per-mode RRHO entropy and thermal energy
