@@ -1,4 +1,3 @@
-
 import os
 import shutil
 import numpy as np
@@ -277,6 +276,7 @@ class AutoTSWorkflow:
             # Get TS energy (as per Q2, this is set before IRC runs)
             ts_e = irc_instance.final_energy
             ts_bias_e = irc_instance.final_bias_energy
+            ts_g = self._extract_free_energy(irc_instance)
             
             # Get IRC endpoint paths
             endpoint_paths = irc_instance.irc_terminal_struct_paths
@@ -327,6 +327,7 @@ class AutoTSWorkflow:
                     "path": final_opt_path,
                     "e": opt_instance.final_energy,
                     "bias_e": opt_instance.final_bias_energy,
+                    "g": self._extract_free_energy(opt_instance),
                     "label": f"Endpoint_{j+1}"
                 })
 
@@ -345,7 +346,7 @@ class AutoTSWorkflow:
             os.makedirs(result_dir, exist_ok=True)
            
             e_profile = {
-                "TS": {"e": ts_e, "bias_e": ts_bias_e, "path": ts_path},
+                "TS": {"e": ts_e, "bias_e": ts_bias_e, "g": ts_g, "path": ts_path},
             }
             if len(endpoint_results) >= 1:
                 e_profile["End1"] = endpoint_results[0]
@@ -372,103 +373,247 @@ class AutoTSWorkflow:
 
         print("\n--- STEP 4: IRC & EQ OPTIMIZATION COMPLETE ---") 
 
+    @staticmethod
+    def _extract_free_energy(instance):
+        """Return G_tot (Hartree, float) from an optimizer instance, or None.
+
+        Looks up ``instance.thermochemistry_results["G_tot"][0]``.  Returns
+        ``None`` silently when vibrational analysis was not performed or when
+        the key is absent, so callers can treat ``None`` as "not available".
+        """
+        try:
+            thermo = getattr(instance, "thermochemistry_results", None)
+            if thermo is None:
+                return None
+            return thermo["G_tot"][0]
+        except (KeyError, TypeError, IndexError):
+            return None
+
     def _create_energy_profile_plot(self, e_profile, output_path, title_name):
-        """Generates an energy profile plot using matplotlib."""
+        """Generate an energy profile plot, optionally with a free-energy panel.
+
+        When at least one structure in *e_profile* carries a ``"g"`` key with a
+        non-None value the figure is split into two vertically stacked subplots:
+
+        * **Top panel** – electronic / bias energy profile (existing behaviour).
+        * **Bottom panel** – Gibbs free energy profile (``G_tot`` from
+          ``thermochemistry_results``).
+
+        Structures whose ``"g"`` value is ``None`` are shown as gaps on the
+        free-energy panel with an ``"N/A"`` annotation so the reader knows the
+        data was not available rather than zero.
+
+        When *no* structure has a ``"g"`` value the plot falls back to the
+        original single-panel layout.
+        """
         if not MATPLOTLIB_AVAILABLE:
             print(f"  Skipping plot generation: matplotlib not installed.")
             return
- 
+
         try:
             labels = []
             energies = []
             biased_energies = []
- 
-       
+            free_energies = []   # None where not available
+
             if "End1" in e_profile:
                 labels.append("End1")
                 energies.append(e_profile["End1"]["e"])
                 biased_energies.append(e_profile["End1"]["bias_e"])
- 
+                free_energies.append(e_profile["End1"].get("g"))
+
             labels.append("TS")
             energies.append(e_profile["TS"]["e"])
             biased_energies.append(e_profile["TS"]["bias_e"])
- 
+            free_energies.append(e_profile["TS"].get("g"))
+
             if "End2" in e_profile:
                 labels.append("End2")
                 energies.append(e_profile["End2"]["e"])
                 biased_energies.append(e_profile["End2"]["bias_e"])
-            
-         
+                free_energies.append(e_profile["End2"].get("g"))
+
             if not energies:
                 print("  Warning: No energies found to plot.")
                 return
- 
-            # Convert to relative kcal/mol
+
+            # Determine whether any free-energy data is present
+            has_free_energy = any(g is not None for g in free_energies)
+
+            # --- Convert electronic/bias energies to relative kcal/mol ---
             min_e = min(energies)
             min_bias_e = min(biased_energies)
-            
             rel_energies = (np.array(energies) - min_e) * 627.509
             rel_biased_energies = (np.array(biased_energies) - min_bias_e) * 627.509
- 
-            x = list(range(len(labels))) 
-            plt.figure(figsize=(8, 6))
-            
-            # Plot both energies as requested in Q1
-            plt.plot(x, rel_energies, 'o-', c='blue', label='Energy (E_final)')
-            plt.plot(x, rel_biased_energies, 'o--', c='red', label='Bias Energy (E_bias_final)')
-            
-            plt.xticks(x, labels)
-            plt.ylabel("Relative Energy (kcal/mol)")
-            plt.title(f"Reaction Profile for {title_name}")
-            plt.legend()
-            plt.grid(axis='y', linestyle='--', alpha=0.7)
-            plt.savefig(output_path, dpi=300)
+            x = list(range(len(labels)))
+
+            if has_free_energy:
+                # Two-panel figure: electronic energy (top) + free energy (bottom)
+                fig, (ax_e, ax_g) = plt.subplots(
+                    2, 1, figsize=(8, 10),
+                    sharex=True,
+                    gridspec_kw={"hspace": 0.35},
+                )
+
+                # --- Top panel: electronic / bias energies ---
+                ax_e.plot(x, rel_energies, "o-", c="blue", label="Energy (E_final)")
+                ax_e.plot(x, rel_biased_energies, "o--", c="red", label="Bias Energy (E_bias_final)")
+                ax_e.set_xticks(x)
+                ax_e.set_xticklabels(labels)
+                ax_e.set_ylabel("Relative Energy (kcal/mol)")
+                ax_e.set_title(f"Electronic Energy Profile – {title_name}")
+                ax_e.legend()
+                ax_e.grid(axis="y", linestyle="--", alpha=0.7)
+
+                # --- Bottom panel: Gibbs free energy ---
+                # Build arrays; use NaN for missing points so matplotlib breaks
+                # the line but still plots the available segments.
+                g_values_ha = [g if g is not None else float("nan") for g in free_energies]
+                g_arr = np.array(g_values_ha, dtype=float)
+
+                # Compute reference using the minimum of available (non-NaN) values
+                valid_g = g_arr[~np.isnan(g_arr)]
+                if valid_g.size > 0:
+                    min_g = valid_g.min()
+                    rel_g = (g_arr - min_g) * 627.509
+                else:
+                    rel_g = g_arr  # All NaN – panel will be empty
+
+                ax_g.plot(x, rel_g, "o-", c="green", label="Free Energy (G_tot)")
+
+                # Annotate N/A for unavailable points
+                for xi, (g_val, lbl) in enumerate(zip(free_energies, labels)):
+                    if g_val is None:
+                        ax_g.annotate(
+                            "N/A",
+                            xy=(xi, 0),
+                            xytext=(xi, 0),
+                            ha="center",
+                            va="bottom",
+                            color="gray",
+                            fontsize=9,
+                        )
+                        print(
+                            f"  Warning: Free energy not available for '{lbl}' "
+                            f"(vibrational analysis may not have been performed)."
+                        )
+
+                ax_g.set_xticks(x)
+                ax_g.set_xticklabels(labels)
+                ax_g.set_ylabel("Relative Free Energy (kcal/mol)")
+                ax_g.set_title(f"Gibbs Free Energy Profile – {title_name}")
+                ax_g.legend()
+                ax_g.grid(axis="y", linestyle="--", alpha=0.7)
+
+            else:
+                # Original single-panel layout (no free-energy data at all)
+                fig, ax_e = plt.subplots(figsize=(8, 6))
+                ax_e.plot(x, rel_energies, "o-", c="blue", label="Energy (E_final)")
+                ax_e.plot(x, rel_biased_energies, "o--", c="red", label="Bias Energy (E_bias_final)")
+                ax_e.set_xticks(x)
+                ax_e.set_xticklabels(labels)
+                ax_e.set_ylabel("Relative Energy (kcal/mol)")
+                ax_e.set_title(f"Reaction Profile for {title_name}")
+                ax_e.legend()
+                ax_e.grid(axis="y", linestyle="--", alpha=0.7)
+
+            plt.savefig(output_path, dpi=300, bbox_inches="tight")
             plt.close()
             print(f"  Generated energy plot: {output_path}")
- 
+
         except Exception as e:
             print(f"  Warning: Failed to generate energy plot: {e}")
 
     def _write_energy_profile_text(self, e_profile, output_path, title_name):
-        """Writes the final energies to a text file."""
+        """Write final energies to a text file.
+
+        The existing electronic-energy table is preserved unchanged.  When at
+        least one structure carries a ``"g"`` key a dedicated free-energy
+        section is appended after the existing content, including:
+
+        * A table of absolute ``G_tot`` values (Hartree).
+        * Activation free energies (ΔG‡) and reaction free energy (ΔG_rxn)
+          in kcal/mol, or ``N/A`` where the data is missing.
+        """
+        KCAL = 627.509  # Hartree → kcal/mol
+
         try:
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
+                # ----------------------------------------------------------------
+                # Existing electronic-energy section (unchanged)
+                # ----------------------------------------------------------------
                 f.write(f"# Energy Profile for {title_name}\n")
                 f.write("# All energies in Hartree\n")
                 f.write("# -------------------------------------------------------------------\n")
-                f.write(f"Structure,    File_Path,                          Final_Energy,     Final_Bias_Energy\n")
-                
-                
-                ts_total = e_profile['TS']['bias_e']
+                f.write("Structure,    File_Path,                          Final_Energy,     Final_Bias_Energy\n")
+
+                ts_total = e_profile["TS"]["bias_e"]
                 f.write(f"TS,           {e_profile['TS']['path']}, {e_profile['TS']['e']:.12f}, {e_profile['TS']['bias_e']:.12f}\n")
 
                 end1_total = None
                 if "End1" in e_profile:
-                    end1_total = e_profile['End1']['bias_e']
+                    end1_total = e_profile["End1"]["bias_e"]
                     f.write(f"Endpoint_1,   {e_profile['End1']['path']}, {e_profile['End1']['e']:.12f}, {e_profile['End1']['bias_e']:.12f}\n")
-                
+
                 end2_total = None
                 if "End2" in e_profile:
-                    end2_total = e_profile['End2']['bias_e']
+                    end2_total = e_profile["End2"]["bias_e"]
                     f.write(f"Endpoint_2,   {e_profile['End2']['path']}, {e_profile['End2']['e']:.12f}, {e_profile['End2']['bias_e']:.12f}\n")
-                
+
                 f.write("# -------------------------------------------------------------------\n")
-                 # Calculate and write barriers and reaction energies if possible
                 if end1_total is not None:
-                    barrier_1 = (ts_total - end1_total) * 627.509
+                    barrier_1 = (ts_total - end1_total) * KCAL
                     f.write(f"Activation Energy (End1 -> TS): {barrier_1: .2f} kcal/mol\n")
- 
                 if end2_total is not None:
-                    barrier_2 = (ts_total - end2_total) * 627.509
+                    barrier_2 = (ts_total - end2_total) * KCAL
                     f.write(f"Activation Energy (End2 -> TS): {barrier_2: .2f} kcal/mol\n")
- 
                 if end1_total is not None and end2_total is not None:
-                    reaction_e = (end2_total - end1_total) * 627.509
+                    reaction_e = (end2_total - end1_total) * KCAL
                     f.write(f"Reaction Energy (End1 -> End2): {reaction_e: .2f} kcal/mol\n")
-                elif end1_total is not None:
-                    pass
- 
- 
+
+                # ----------------------------------------------------------------
+                # Free-energy section – appended when any G_tot data is present
+                # ----------------------------------------------------------------
+                ts_g    = e_profile["TS"].get("g")
+                end1_g  = e_profile["End1"].get("g") if "End1" in e_profile else None
+                end2_g  = e_profile["End2"].get("g") if "End2" in e_profile else None
+
+                if any(v is not None for v in [ts_g, end1_g, end2_g]):
+                    f.write("\n")
+                    f.write("# ===================================================================\n")
+                    f.write("# FREE ENERGY SECTION (G_tot from thermochemistry analysis)\n")
+                    f.write("# ===================================================================\n")
+                    f.write("# All values in Hartree unless noted otherwise.\n")
+                    f.write("# 'N/A' indicates vibrational analysis was not performed for that\n")
+                    f.write("# structure; results in that row should be interpreted with caution.\n")
+                    f.write("# -------------------------------------------------------------------\n")
+                    f.write("Structure,    G_tot [Hartree]\n")
+
+                    def _fmt_g(val):
+                        return f"{val:.12f}" if val is not None else "N/A"
+
+                    f.write(f"TS,           {_fmt_g(ts_g)}\n")
+                    if "End1" in e_profile:
+                        f.write(f"Endpoint_1,   {_fmt_g(end1_g)}\n")
+                    if "End2" in e_profile:
+                        f.write(f"Endpoint_2,   {_fmt_g(end2_g)}\n")
+
+                    f.write("# -------------------------------------------------------------------\n")
+
+                    # ΔG‡ and ΔG_rxn – only when both operands are available
+                    def _delta_kcal(a, b):
+                        """Return (a - b) * KCAL as formatted string, or 'N/A'."""
+                        if a is None or b is None:
+                            return "N/A"
+                        return f"{(a - b) * KCAL: .2f} kcal/mol"
+
+                    if "End1" in e_profile:
+                        f.write(f"Activation Free Energy (End1 -> TS): {_delta_kcal(ts_g, end1_g)}\n")
+                    if "End2" in e_profile:
+                        f.write(f"Activation Free Energy (End2 -> TS): {_delta_kcal(ts_g, end2_g)}\n")
+                    if "End1" in e_profile and "End2" in e_profile:
+                        f.write(f"Reaction Free Energy   (End1 -> End2): {_delta_kcal(end2_g, end1_g)}\n")
+
             print(f"  Generated energy text file: {output_path}")
         except Exception as e:
             print(f"  Warning: Failed to write energy text file: {e}")
@@ -1167,6 +1312,7 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
                 
             ts_e = irc_instance.final_energy
             ts_bias_e = irc_instance.final_bias_energy
+            ts_g = self._extract_free_energy(irc_instance)
             endpoint_paths = irc_instance.irc_terminal_struct_paths
 
             if not endpoint_paths or len(endpoint_paths) != 2:
@@ -1203,6 +1349,7 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
                     "path": final_opt_path,
                     "e": opt_instance.final_energy,
                     "bias_e": opt_instance.final_bias_energy,
+                    "g": self._extract_free_energy(opt_instance),
                 })
 
             if not endpoint_results:
@@ -1213,7 +1360,7 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             result_dir = f"{ts_name_base}_Step4_Profile"
             os.makedirs(result_dir, exist_ok=True)
             
-            e_profile = {"TS": {"e": ts_e, "bias_e": ts_bias_e, "path": ts_path}}
+            e_profile = {"TS": {"e": ts_e, "bias_e": ts_bias_e, "g": ts_g, "path": ts_path}}
             if len(endpoint_results) >= 1: e_profile["End1"] = endpoint_results[0]
             if len(endpoint_results) >= 2: e_profile["End2"] = endpoint_results[1]
         
@@ -1235,5 +1382,3 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             profile_dirs.append(result_dir)
         
         return {"profile_dirs": profile_dirs}
-        
-        
