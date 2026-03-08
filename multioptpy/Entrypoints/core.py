@@ -1,5 +1,5 @@
 import multioptpy
-
+from multioptpy.Utils.rcmc import main as rcmc_main
 
 def run_optmain():
     """ Entry point for the main geometry optimization script (optmain.py). """
@@ -31,3 +31,13 @@ def run_nebmain():
     args = multioptpy.interface.nebparser(parser)
     NEB = multioptpy.neb.NEB(args)
     NEB.run()
+
+def run_rcmc():
+    """Entry point for the RCMC standalone analysis (rcmc.py).
+
+    Usage (after ``pip install .``):
+        run_rcmc reaction_network.json -T 300 -t 1.0
+        run_rcmc reaction_network.json --temperature 500 --time 1e-9 \\
+                 --start-node 2 --output-dir ./rcmc_out
+    """
+    rcmc_main()
