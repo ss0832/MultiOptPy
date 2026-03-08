@@ -102,6 +102,8 @@ class OptimizationConfig:
         self.electronic_charge = args.electronic_charge
         self.model_function = args.model_function
         self.no_symmetry_analyzer = args.no_symmetry_analyzer
+        self.frequency_analysis_cutoff = args.frequency_analysis_cutoff
+        self.frequency_correction_method = args.frequency_correction_method
         
         
 
@@ -2316,6 +2318,8 @@ class Optimize:
             e_tot=B_e,
             temperature=self.config.thermo_temperature,
             pressure=self.config.thermo_pressure,
+            quasi_harmonic=self.config.frequency_correction_method,
+            freq_cutoff=self.config.frequency_analysis_cutoff,
         )
         # Store the full thermochemistry dict on the state so it can be
         # propagated to Optimize and collected in all_results.

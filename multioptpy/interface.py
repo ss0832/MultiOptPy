@@ -193,6 +193,8 @@ def call_optimizeparser(parser):
     parser.add_argument("-pc", "--projection_constrain", nargs="*",  type=str, default=[], help='apply constrain conditions with projection of gradient and hessian (ex.) [[(constraint condition name) (atoms(ex. 1,2))] ...] ')
     parser.add_argument("-oniom", "--oniom_flag", nargs="*",  type=str, default=[], help='apply ONIOM method (Warning: This option is unavailable.)')
     parser.add_argument("-freq", "--frequency_analysis",  help="Perform normal vibrational analysis after converging geometry optimization.", action='store_true')
+    parser.add_argument("-freq_cutoff", "--frequency_analysis_cutoff", type=float, default=100.0,   help="A cutoff frequency of input value is applied to the low-frequency vibrational modes. (default: 100.0 cm^-1)")
+    parser.add_argument("-freq_corr", "--frequency_correction_method",  help="Applies frequency correction using either Truhlar's or Grimme's method. (default: grimme)", type=str, default="grimme")
     parser.add_argument("-force_freq", "--force_frequency_analysis",  help="Execute normal vibrational analysis after geometry optimization, regardless of convergence status.", action='store_true')
     parser.add_argument("-temp", "--temperature",  type=float, default='298.15', help='temperatrue to calculate thermochemistry (Unit: K) (default: 298.15K)')
     parser.add_argument("-press", "--pressure",  type=float, default='101325', help='pressure to calculate thermochemistry (Unit: Pa) (default: 101325Pa)')
