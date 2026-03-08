@@ -2310,7 +2310,7 @@ class Optimize:
         tmp_hess += BPA_hessian
 
         MV = MolecularVibrations(
-            atoms=element_list, coordinates=geom_num_list, hessian=tmp_hess
+            atoms=element_list, coordinates=geom_num_list, hessian=tmp_hess, skip_judge_symm=self.config.no_symmetry_analyzer
         )
         thermo_results = MV.calculate_thermochemistry(
             e_tot=B_e,
