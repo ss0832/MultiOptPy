@@ -448,7 +448,17 @@ class RCMCQueue(ExplorationQueue):
 #   python rcmc.py reaction_network.json -T 300 -t 1.0 --start-node 0 --output-dir ./out
 # ══════════════════════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    """Standalone CLI entry point for RCMC analysis.
+
+    Can be called directly (``python rcmc.py …``) or via the installed
+    console script ``run_rcmc`` registered in pyproject.toml.
+
+    Parameters
+    ----------
+    argv:
+        Argument list. ``None`` means ``sys.argv[1:]`` (normal CLI behaviour).
+    """
     import argparse
     import json
     import sys
@@ -507,7 +517,7 @@ if __name__ == "__main__":
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: WARNING).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # ── Logging setup ─────────────────────────────────────────────────────────
     logging.basicConfig(
@@ -645,3 +655,7 @@ if __name__ == "__main__":
         print(f"\nContracted K-matrix + populations saved to: {out_file}")
 
     print()
+
+
+if __name__ == "__main__":
+    main()
