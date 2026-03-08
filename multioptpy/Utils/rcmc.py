@@ -60,6 +60,7 @@ class RCMCQueue(ExplorationQueue):
         rng_seed: int = 42,
         start_node_id: int = 0,
         output_dir: str | None = None,
+        use_free_energy: bool = False,
     ) -> None:
         super().__init__(rng_seed=rng_seed)
         self.temperature_K = temperature_K
@@ -68,6 +69,10 @@ class RCMCQueue(ExplorationQueue):
         self.output_dir = output_dir
         self.graph = None
         self._pop_count: int = 0
+        # When True, use Gibbs free energy (G_tot) in place of electronic
+        # energy for rate-constant and population calculations.
+        # Defaults to False for backward compatibility.
+        self.use_free_energy: bool = use_free_energy
 
     def compute_priority(self, task: ExplorationTask) -> float:
         """
@@ -216,7 +221,26 @@ class RCMCQueue(ExplorationQueue):
             self._tasks.sort(key=lambda t: t.metadata.get("delta_E_hartree", 0.0))
             return self._tasks.pop(0)
 
-        nodes = [n for n in self.graph.all_nodes() if n.has_real_energy]
+        # ── Select nodes and energy accessor based on energy mode ───────────
+        # In free-energy mode only nodes that carry a G_tot value are included;
+        # nodes with free_energy=None are silently excluded (they were already
+        # filtered/warned at the CLI level before pop() is called).
+        if self.use_free_energy:
+            nodes = [
+                n for n in self.graph.all_nodes()
+                if getattr(n, "free_energy", None) is not None
+            ]
+            def _node_e(n):
+                return n.free_energy
+            def _edge_ts_e(edge):
+                return getattr(edge, "ts_free_energy", None)
+        else:
+            nodes = [n for n in self.graph.all_nodes() if n.has_real_energy]
+            def _node_e(n):
+                return n.energy
+            def _edge_ts_e(edge):
+                return edge.ts_energy
+
         if not nodes:
             return self._tasks.pop(0)
 
@@ -228,16 +252,17 @@ class RCMCQueue(ExplorationQueue):
         RT_ha = K_B_HARTREE * self.temperature_K
 
         for edge in self.graph.all_edges():
-            if edge.ts_energy is None:
+            ts_e = _edge_ts_e(edge)
+            if ts_e is None:
                 continue
             if edge.node_id_1 not in node_to_idx or edge.node_id_2 not in node_to_idx:
                 continue
-            
+
             u = node_to_idx[edge.node_id_1]
             v = node_to_idx[edge.node_id_2]
-            E_u = nodes[u].energy
-            E_v = nodes[v].energy
-            E_TS = edge.ts_energy
+            E_u  = _node_e(nodes[u])
+            E_v  = _node_e(nodes[v])
+            E_TS = ts_e
 
             E_TS_u = max(E_TS, E_u)
             E_TS_v = max(E_TS, E_v)
@@ -265,7 +290,7 @@ class RCMCQueue(ExplorationQueue):
         if self.start_node_id in node_to_idx:
             p[node_to_idx[self.start_node_id]] = 1.0
         else:
-            start_idx = np.argmin([n.energy for n in nodes])
+            start_idx = np.argmin([_node_e(n) for n in nodes])
             p[start_idx] = 1.0
 
         S = []
@@ -511,6 +536,20 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     parser.add_argument(
+        "--energy-type",
+        type=str,
+        default="electronic",
+        choices=["electronic", "free"],
+        metavar="TYPE",
+        help=(
+            "Energy type used for rate-constant calculations. "
+"            'electronic' (default) uses the SCF energy (energy_hartree). "
+"            'free' uses the Gibbs free energy (free_energy_hartree). "
+"            In free mode, nodes whose free_energy_hartree is null are "
+"            removed along with all edges connected to them before RCMC."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="WARNING",
@@ -530,15 +569,17 @@ def main(argv: list[str] | None = None) -> None:
     @dataclass
     class _Node:
         node_id: int
-        energy: float        # Hartree
+        energy: float | None        # Hartree (electronic)
         xyz_file: str = ""
         has_real_energy: bool = True
+        free_energy: float | None = None   # Hartree (Gibbs, None if unavailable)
 
     @dataclass
     class _Edge:
         node_id_1: int
         node_id_2: int
-        ts_energy: float     # Hartree (None-safe: kept as float here)
+        ts_energy: float | None          # Hartree (electronic TS energy)
+        ts_free_energy: float | None = None  # Hartree (free-energy TS)
 
     class _Graph:
         def __init__(self, nodes: list, edges: list) -> None:
@@ -564,27 +605,71 @@ def main(argv: list[str] | None = None) -> None:
     if not raw_nodes:
         sys.exit("ERROR: No nodes found in the JSON file.")
 
+    use_free_energy: bool = (args.energy_type == "free")
+
     nodes = [
         _Node(
             node_id=nd["node_id"],
             energy=nd["energy_hartree"],
             xyz_file=nd.get("xyz_file", ""),
+            has_real_energy=nd["energy_hartree"] is not None,
+            free_energy=nd.get("free_energy_hartree"),
         )
         for nd in raw_nodes
     ]
 
+    # ── Free-energy mode: remove nodes with null G_tot and their edges ────
+    if use_free_energy:
+        null_ids = {nd.node_id for nd in nodes if nd.free_energy is None}
+        if null_ids:
+            print(
+                f"WARNING: The following nodes have no free energy and will be "
+                f"excluded from the RCMC calculation:\n"
+                + "\n".join(f"  EQ{nid}" for nid in sorted(null_ids))
+            )
+            nodes = [nd for nd in nodes if nd.node_id not in null_ids]
+            if not nodes:
+                sys.exit(
+                    "ERROR: No nodes with free_energy_hartree remain after filtering. "
+                    "Run without --energy-type free or recompute with vibrational analysis."
+                )
+            # Check start node before filtering edges
+            if args.start_node in null_ids:
+                sys.exit(
+                    f"ERROR: --start-node EQ{args.start_node} has no free energy "
+                    f"and was excluded. Choose a different start node or use "
+                    f"--energy-type electronic."
+                )
+
     edges = []
     for ed in raw_edges:
-        ts_e = ed.get("ts_energy_hartree")
-        if ts_e is None:
-            continue                 # skip edges without a TS energy
+        # In free-energy mode use ts_free_energy; fall back to ts_energy otherwise.
+        if use_free_energy:
+            ts_e      = None   # not used for K-matrix in free mode
+            ts_free_e = ed.get("ts_free_energy_hartree")
+            if ts_free_e is None:
+                continue       # skip edges without a free TS energy
+        else:
+            ts_e      = ed.get("ts_energy_hartree")
+            ts_free_e = ed.get("ts_free_energy_hartree")
+            if ts_e is None:
+                continue       # skip edges without a TS energy
+
         if ed["node_id_1"] == ed["node_id_2"]:
-            continue                 # skip self-loops
+            continue           # skip self-loops
+
+        # In free-energy mode skip edges connected to excluded (null G) nodes
+        if use_free_energy and (
+            ed["node_id_1"] in null_ids or ed["node_id_2"] in null_ids
+        ):
+            continue
+
         edges.append(
             _Edge(
                 node_id_1=ed["node_id_1"],
                 node_id_2=ed["node_id_2"],
                 ts_energy=ts_e,
+                ts_free_energy=ts_free_e,
             )
         )
 
@@ -597,22 +682,25 @@ def main(argv: list[str] | None = None) -> None:
         reaction_time_s=args.time,
         start_node_id=args.start_node,
         output_dir=args.output_dir,
+        use_free_energy=use_free_energy,
     )
     queue.set_graph(graph)
 
     # Add every EQ node as a candidate task so pop() can rank them all.
     for nd in nodes:
+        eff_e = nd.free_energy if (use_free_energy and nd.free_energy is not None) else nd.energy
         queue._tasks.append(
             ExplorationTask(
                 node_id=nd.node_id,
                 xyz_file=nd.xyz_file if hasattr(nd, "xyz_file") else "",
                 afir_params={},
                 priority=0.0,
-                metadata={"delta_E_hartree": nd.energy},
+                metadata={"delta_E_hartree": eff_e},
             )
         )
 
     # ── Run RCMC – one full pop() pass ────────────────────────────────────────
+    energy_label = "Gibbs free energy (G_tot)" if use_free_energy else "Electronic energy (SCF)"
     print(
         f"\n{'═'*60}\n"
         f"  RCMC standalone analysis\n"
@@ -621,6 +709,7 @@ def main(argv: list[str] | None = None) -> None:
         f"  T         : {args.temperature} K\n"
         f"  Time scale: {args.time:.3e} s\n"
         f"  Start node: EQ{args.start_node}\n"
+        f"  Energy    : {energy_label}\n"
         f"{'═'*60}"
     )
 
