@@ -250,6 +250,9 @@ class OptimizationState:
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
         self.symmetry = None
+        # Full dict returned by MolecularVibrations.calculate_thermochemistry().
+        # Remains None when vibrational analysis has not been performed.
+        self.thermochemistry_results = None
 
         # Flags
         self.exit_flag = False
@@ -1487,6 +1490,13 @@ class Optimize:
         self.traj_file = None
         self.bias_pot_params_grad_list = None
         self.bias_pot_params_grad_name_list = None
+        # Full dict from MolecularVibrations.calculate_thermochemistry() for the
+        # most-recently completed job.  None when vibrational analysis has not
+        # been performed.  Preserved for single-job backward compatibility.
+        self.thermochemistry_results = None
+        # One entry per job executed via run().  Each entry is the snapshot dict
+        # built by _build_job_snapshot().  Empty until run() is called.
+        self.all_results = []
 
         # Managers
         self.constraints = ConstraintManager(self.config)
@@ -1845,13 +1855,11 @@ class Optimize:
 
         # Koopman
         if self.config.koopman_analysis:
-            # FIX: Use self.state.element_list
             KA = KoopmanAnalyzer(len(self.state.element_list), file_directory=self.BPA_FOLDER_DIRECTORY)
         else:
             KA = None
 
         # Initial files
-        # FIX: Use self.state.element_list
         self.file_io.print_geometry_list(
             self.state.geometry * self.config.bohr2angstroms,
             self.state.element_list,
@@ -1908,7 +1916,6 @@ class Optimize:
 
             # Initial geometry save
             if iter_idx == 0:
-                # FIX: Use self.state.element_list
                 initial_geom_num_list, pre_geom = self._save_init_geometry(
                     self.state.geometry, self.state.element_list, allactive_flag
                 )
@@ -2199,6 +2206,11 @@ class Optimize:
             self.irc_terminal_struct_paths = []
 
         print(f"Trial of geometry optimization ({file}) was completed.")
+
+        # Append a snapshot of this job's results to all_results so that batch
+        # runs retain every job's output.  Single-job callers can continue to
+        # use the flat attributes (self.final_energy, etc.) unchanged.
+        self.all_results.append(self._build_job_snapshot(file))
         
     # ------------------------------------------------------------------
     # Secondary helpers reused from legacy
@@ -2300,11 +2312,14 @@ class Optimize:
         MV = MolecularVibrations(
             atoms=element_list, coordinates=geom_num_list, hessian=tmp_hess
         )
-        MV.calculate_thermochemistry(
+        thermo_results = MV.calculate_thermochemistry(
             e_tot=B_e,
             temperature=self.config.thermo_temperature,
             pressure=self.config.thermo_pressure,
         )
+        # Store the full thermochemistry dict on the state so it can be
+        # propagated to Optimize and collected in all_results.
+        self.state.thermochemistry_results = thermo_results
         MV.print_thermochemistry(
             output_file=self.BPA_FOLDER_DIRECTORY + "/thermochemistry.txt"
         )
@@ -2414,6 +2429,45 @@ class Optimize:
             self.bias_pot_params_grad_list = self.state.bias_pot_params_grad_list
             self.bias_pot_params_grad_name_list = self.state.bias_pot_params_grad_name_list
             self.optimized_flag = self.state.optimized_flag
+            # Propagate thermochemistry dict (None when vib analysis was skipped)
+            self.thermochemistry_results = getattr(self.state, "thermochemistry_results", None)
+
+    def _build_job_snapshot(self, input_file):
+        """Return a plain dict summarising the completed job.
+
+        This snapshot is appended to ``self.all_results`` after every job so
+        that batch runs retain results for all input files.  The dict mirrors
+        the flat attributes on ``Optimize`` for straightforward access::
+
+            opt.all_results[0]["thermochemistry_results"]   # first job
+            opt.all_results[-1]["final_energy"]             # last job
+
+        Parameters
+        ----------
+        input_file : str
+            Path to the input file that was just optimised.
+
+        Returns
+        -------
+        dict
+            Snapshot of all final-result attributes for the completed job.
+        """
+        return {
+            "input_file": input_file,
+            "folder_directory": self.BPA_FOLDER_DIRECTORY,
+            "final_file_directory": self.final_file_directory,
+            "final_geometry": self.final_geometry,
+            "final_energy": self.final_energy,
+            "final_bias_energy": self.final_bias_energy,
+            "symmetry": self.symmetry,
+            "optimized_flag": getattr(self, "optimized_flag", None),
+            "irc_terminal_struct_paths": list(self.irc_terminal_struct_paths),
+            "bias_pot_params_grad_list": self.bias_pot_params_grad_list,
+            "bias_pot_params_grad_name_list": self.bias_pot_params_grad_name_list,
+            # Full dict from MolecularVibrations.calculate_thermochemistry().
+            # None when vibrational analysis was not performed for this job.
+            "thermochemistry_results": self.thermochemistry_results,
+        }
 
     def geom_info_extract(self, force_data, file_directory, B_g, g):
         # kept for backward compatibility; delegate to logger
