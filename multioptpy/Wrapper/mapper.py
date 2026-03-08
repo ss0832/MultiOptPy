@@ -1974,9 +1974,16 @@ class ReactionNetworkMapper:
     def _write_priority_log(self, priority_log: str) -> None:
         """Overwrite the priority log with the current queue state.
 
-        Called at the end of each iteration, after new nodes and tasks have
-        been registered, so that tasks discovered in that iteration are
-        correctly reflected with their computed priorities.
+        Each EQ node is written as a single line showing its priority and the
+        total number of pending AFIR pairs, rather than one line per pair.
+        Nodes are sorted by priority descending (highest first).
+
+        Format
+        ------
+        # Iter 000002 | queued=294 | explored_pairs=2 | ref_energy=-18.1413 Ha
+        Node: EQ000000 | Priority: 1.000000 | pending_pairs=71
+        Node: EQ000001 | Priority: 0.500000 | pending_pairs=68
+        ...
         """
         ref_e = self.graph.reference_energy()
         with open(priority_log, "w", encoding="utf-8") as fh:
@@ -1989,11 +1996,22 @@ class ReactionNetworkMapper:
                 f"# Iter {self._iteration:06d} | queued={len(self.queue)} | "
                 f"explored_pairs={len(self.explored_log)} | ref_energy=N/A\n"
             )
+
+            # Group tasks by node_id; keep the representative priority for each
+            # node (all tasks on the same node share the same priority value).
+            node_priority: dict[int, float] = {}
+            node_pair_count: dict[int, int] = {}
             for item in self.queue.export_queue_status():
+                nid = item["node_id"]
+                node_priority[nid] = item["priority"]
+                node_pair_count[nid] = node_pair_count.get(nid, 0) + 1
+
+            # Write one line per EQ node, sorted by priority descending.
+            for nid in sorted(node_priority, key=lambda x: node_priority[x], reverse=True):
                 fh.write(
-                    f"Node: EQ{item['node_id']:06d} | "
-                    f"Priority: {item['priority']:.6f} | "
-                    f"AFIR: {item['afir_params']}\n"
+                    f"Node: EQ{nid:06d} | "
+                    f"Priority: {node_priority[nid]:.6f} | "
+                    f"pending_pairs={node_pair_count[nid]}\n"
                 )
 
     def _requeue_all_nodes(self) -> None:
