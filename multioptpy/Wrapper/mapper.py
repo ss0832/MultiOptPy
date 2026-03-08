@@ -953,8 +953,7 @@ class PerturbationGenerator:
         m = len(atom_indices)
 
         # Pairwise distances for the active subset — vectorised.
-        diff = sub_coords[:, np.newaxis, :] - sub_coords[np.newaxis, :, :]  # (m,m,3)
-        dmat = np.sqrt((diff ** 2).sum(axis=-1))                             # (m,m)
+        dmat = distance_matrix(sub_coords)                     # (m,m)
 
         # Upper-triangle indices (i < j).
         ii, jj = np.triu_indices(m, k=1)   # each has shape (P,) where P = m*(m-1)/2
