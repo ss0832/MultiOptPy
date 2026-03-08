@@ -1,7 +1,7 @@
 """
 rcmc.py - Rate Constant Matrix Contraction (RCMC) Queue
 =======================================================
-Queue implementation applying the RCMC algorithm (Type A) to dynamically
+Queue implementation applying the RCMC algorithm to dynamically
 expanding chemical reaction networks. Determines the exploration priority
 of frontier EQ nodes based on transient population dynamics.
 
@@ -14,7 +14,36 @@ import os
 
 import numpy as np
 from scipy.linalg import lu_factor, lu_solve
-from multioptpy.Wrapper.mapper import ExplorationQueue, ExplorationTask
+try:
+    from multioptpy.Wrapper.mapper import ExplorationQueue, ExplorationTask
+except ImportError:
+    # ── Minimal stub base classes used when running as __main__ ──────────
+    # These are NOT part of RCMCQueue and are never used in normal library
+    # operation (multioptpy must be installed for that).
+    class ExplorationQueue:  # type: ignore[no-redef]
+        """Stub base class – library mode requires the real multioptpy."""
+        def __init__(self, rng_seed: int = 42) -> None:
+            self._tasks: list = []
+
+        def push(self, task) -> None:
+            self._tasks.append(task)
+
+    class ExplorationTask:  # type: ignore[no-redef]
+        """Stub task object – mirrors the real ExplorationTask signature."""
+        def __init__(
+            self,
+            node_id: int,
+            xyz_file: str = "",
+            afir_params: dict | None = None,
+            priority: float = 0.0,
+            metadata: dict | None = None,
+            **kwargs,
+        ) -> None:
+            self.node_id = node_id
+            self.xyz_file = xyz_file
+            self.afir_params = afir_params if afir_params is not None else {}
+            self.priority = priority
+            self.metadata = metadata if metadata is not None else {}
 
 logger = logging.getLogger(__name__)
 
@@ -411,3 +440,208 @@ class RCMCQueue(ExplorationQueue):
                 pop_lines.append(f"  ... ({len(self._tasks) - 10} more)")
             logger.debug("RCMC remaining queue (top 10):\n%s", "\n".join(pop_lines))
         return selected
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Standalone CLI entry point
+# Usage:
+#   python rcmc.py reaction_network.json --temperature 500 --time 1e-6
+#   python rcmc.py reaction_network.json -T 300 -t 1.0 --start-node 0 --output-dir ./out
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    import sys
+    from dataclasses import dataclass
+
+    # ── Argument parsing ──────────────────────────────────────────────────────
+    parser = argparse.ArgumentParser(
+        prog="rcmc.py",
+        description=(
+            "Standalone RCMC analysis.\n"
+            "Loads a reaction-network JSON, builds the rate-constant matrix,\n"
+            "applies Type-A contraction up to the specified time scale, and\n"
+            "reports the transient population distribution for each EQ node."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "json_file",
+        help="Path to reaction_network.json produced by MultiOptPy.",
+    )
+    parser.add_argument(
+        "-T", "--temperature",
+        type=float,
+        default=300.0,
+        metavar="K",
+        help="Temperature in Kelvin (default: 300.0).",
+    )
+    parser.add_argument(
+        "-t", "--time",
+        type=float,
+        default=1.0,
+        metavar="S",
+        help="Reaction time scale in seconds (default: 1.0).",
+    )
+    parser.add_argument(
+        "--start-node",
+        type=int,
+        default=0,
+        metavar="ID",
+        help="node_id of the initial EQ node (default: 0).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Directory to write rcmc_K_contracted.csv "
+            "(default: none – results printed to stdout only)."
+        ),
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging verbosity (default: WARNING).",
+    )
+    args = parser.parse_args()
+
+    # ── Logging setup ─────────────────────────────────────────────────────────
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(levelname)s  %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
+    # ── Lightweight graph stubs ───────────────────────────────────────────────
+    @dataclass
+    class _Node:
+        node_id: int
+        energy: float        # Hartree
+        xyz_file: str = ""
+        has_real_energy: bool = True
+
+    @dataclass
+    class _Edge:
+        node_id_1: int
+        node_id_2: int
+        ts_energy: float     # Hartree (None-safe: kept as float here)
+
+    class _Graph:
+        def __init__(self, nodes: list, edges: list) -> None:
+            self._nodes = nodes
+            self._edges = edges
+
+        def all_nodes(self) -> list:
+            return self._nodes
+
+        def all_edges(self) -> list:
+            return self._edges
+
+    # ── Load JSON ─────────────────────────────────────────────────────────────
+    try:
+        with open(args.json_file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"ERROR: Cannot read '{args.json_file}': {exc}")
+
+    raw_nodes = data.get("nodes", [])
+    raw_edges = data.get("edges", [])
+
+    if not raw_nodes:
+        sys.exit("ERROR: No nodes found in the JSON file.")
+
+    nodes = [
+        _Node(
+            node_id=nd["node_id"],
+            energy=nd["energy_hartree"],
+            xyz_file=nd.get("xyz_file", ""),
+        )
+        for nd in raw_nodes
+    ]
+
+    edges = []
+    for ed in raw_edges:
+        ts_e = ed.get("ts_energy_hartree")
+        if ts_e is None:
+            continue                 # skip edges without a TS energy
+        if ed["node_id_1"] == ed["node_id_2"]:
+            continue                 # skip self-loops
+        edges.append(
+            _Edge(
+                node_id_1=ed["node_id_1"],
+                node_id_2=ed["node_id_2"],
+                ts_energy=ts_e,
+            )
+        )
+
+    graph = _Graph(nodes, edges)
+    node_ids = {nd.node_id for nd in nodes}
+
+    # ── Build RCMCQueue and populate with stub tasks ──────────────────────────
+    queue = RCMCQueue(
+        temperature_K=args.temperature,
+        reaction_time_s=args.time,
+        start_node_id=args.start_node,
+        output_dir=args.output_dir,
+    )
+    queue.set_graph(graph)
+
+    # Add every EQ node as a candidate task so pop() can rank them all.
+    for nd in nodes:
+        queue._tasks.append(
+            ExplorationTask(
+                node_id=nd.node_id,
+                xyz_file=nd.xyz_file if hasattr(nd, "xyz_file") else "",
+                afir_params={},
+                priority=0.0,
+                metadata={"delta_E_hartree": nd.energy},
+            )
+        )
+
+    # ── Run RCMC – one full pop() pass ────────────────────────────────────────
+    print(
+        f"\n{'═'*60}\n"
+        f"  RCMC standalone analysis\n"
+        f"  JSON      : {args.json_file}\n"
+        f"  Nodes     : {len(nodes)}  |  Edges: {len(edges)}\n"
+        f"  T         : {args.temperature} K\n"
+        f"  Time scale: {args.time:.3e} s\n"
+        f"  Start node: EQ{args.start_node}\n"
+        f"{'═'*60}"
+    )
+
+    top_task = queue.pop()
+
+    # ── Print ranked population distribution ─────────────────────────────────
+    # After pop() the remaining tasks carry updated priorities (populations).
+    # Re-collect all tasks including the one that was popped.
+    all_tasks = list(queue._tasks)
+    if top_task is not None:
+        all_tasks.insert(0, top_task)   # re-insert at front (highest priority)
+
+    all_tasks.sort(key=lambda t: t.priority, reverse=True)
+
+    col_w = max(len(f"EQ{t.node_id}") for t in all_tasks) + 2
+    print(f"\n{'Node':<{col_w}}  {'Population':>18}  {'Rank':>6}")
+    print(f"{'─'*col_w}  {'─'*18}  {'─'*6}")
+    for rank, task in enumerate(all_tasks, start=1):
+        marker = "  ◀ highest priority" if rank == 1 else ""
+        print(
+            f"EQ{task.node_id:<{col_w-2}}  {task.priority:18.8e}  {rank:6d}{marker}"
+        )
+
+    if top_task is not None:
+        print(
+            f"\nRCMC recommends exploring: EQ{top_task.node_id}  "
+            f"(population = {top_task.priority:.6e})"
+        )
+
+    if args.output_dir:
+        out_file = os.path.join(args.output_dir, "rcmc_K_contracted.csv")
+        print(f"\nContracted K-matrix + populations saved to: {out_file}")
+
+    print()
