@@ -568,17 +568,27 @@ class ExplorationQueue(ABC):
         directly as the acceptance probability.  Override with ``return True``
         for deterministic acceptance of all nodes, or override with a custom
         probabilistic model as needed.
+
+        When the node carries a Gibbs free energy (``node.free_energy``), that
+        value is used in place of the electronic energy for the ΔE calculation
+        so that the Boltzmann weight reflects the free-energy landscape.  The
+        ``reference_energy`` argument should already be the unified reference
+        returned by :meth:`NetworkGraph.reference_energy` (G-based when any
+        node has thermochemistry, electronic otherwise).
         """
+        eff_e = getattr(node, "free_energy", None)
+        if eff_e is None:
+            eff_e = node.energy
         dummy_task = ExplorationTask(
             node_id=node.node_id,
             xyz_file=node.xyz_file,
             afir_params=[],
             metadata={
                 "delta_E_hartree": (
-                    node.energy - reference_energy
-                    if node.energy is not None else 0.0
+                    eff_e - reference_energy if eff_e is not None else 0.0
                 ),
-                "source_node_energy": node.energy,
+                "source_node_energy":      node.energy,
+                "source_node_free_energy": getattr(node, "free_energy", None),
             },
         )
         p = self.compute_priority(dummy_task)
@@ -591,11 +601,21 @@ class ExplorationQueue(ABC):
         that tasks enqueued when the reference energy was higher are
         re-weighted against the latest minimum-energy node in the graph.
 
-        ``task.metadata["source_node_energy"]`` (the node's absolute SCF
-        energy in Hartree) is used to derive an up-to-date
-        ``delta_E_hartree``.  If either value is unavailable the stored
-        ``delta_E_hartree`` is left unchanged so the priority degrades
-        gracefully to the value set at enqueue time.
+        When ``task.metadata["source_node_free_energy"]`` is present the
+        free energy is used as the effective energy for the ΔE calculation
+        (so that the Boltzmann weight tracks the free-energy landscape).
+        Otherwise ``task.metadata["source_node_energy"]`` (electronic
+        energy) is used, preserving the original behaviour for nodes without
+        thermochemistry results.
+
+        The ``ref_e`` argument should already be the unified reference
+        returned by :meth:`NetworkGraph.reference_energy` (G-based when any
+        node has thermochemistry, electronic otherwise), so the mixed-mode
+        ΔE values remain directly comparable.
+
+        If neither value is available the stored ``delta_E_hartree`` is left
+        unchanged so the priority degrades gracefully to the value set at
+        enqueue time.
 
         The queue is re-sorted in descending priority order after all tasks
         have been updated.
@@ -604,9 +624,11 @@ class ExplorationQueue(ABC):
             return
 
         for task in self._tasks:
-            node_energy = task.metadata.get("source_node_energy")
-            if node_energy is not None:
-                task.metadata["delta_E_hartree"] = node_energy - ref_e
+            node_g = task.metadata.get("source_node_free_energy")
+            node_e = task.metadata.get("source_node_energy")
+            eff_e  = node_g if node_g is not None else node_e
+            if eff_e is not None:
+                task.metadata["delta_E_hartree"] = eff_e - ref_e
             task.priority = self.compute_priority(task)
 
         self._tasks.sort(key=lambda t: t.priority, reverse=True)
@@ -947,17 +969,33 @@ class EQNode:
     coords: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=float))
     source_run_dir: str = ""
     extra: dict = field(default_factory=dict)
+    # Gibbs free energy (G_tot) from thermochemistry analysis; None when
+    # vibrational analysis was not performed for this structure.
+    free_energy: float | None = None
 
     @property
     def has_real_energy(self) -> bool:
         return self.energy is not None
 
+    @property
+    def effective_energy(self) -> float | None:
+        """Return free_energy when available, otherwise fall back to energy.
+
+        Used throughout the mapper so that nodes with thermochemistry results
+        are prioritised by Gibbs free energy while nodes without (e.g. the
+        seed structure optimisation) still use electronic energy — both
+        compared against the unified reference from
+        :meth:`NetworkGraph.reference_energy`.
+        """
+        return self.free_energy if self.free_energy is not None else self.energy
+
     def to_dict(self) -> dict:
         return {
-            "node_id":        self.node_id,
-            "xyz_file":       self.xyz_file,
-            "energy_hartree": self.energy,
-            "source_run_dir": self.source_run_dir,
+            "node_id":             self.node_id,
+            "xyz_file":            self.xyz_file,
+            "energy_hartree":      self.energy,
+            "free_energy_hartree": self.free_energy,
+            "source_run_dir":      self.source_run_dir,
             **self.extra,
         }
 
@@ -975,6 +1013,11 @@ class TSEdge:
     symbols: list[str] = field(default_factory=list)
     coords: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=float))
     extra: dict = field(default_factory=dict)
+    # Free-energy counterparts (G_tot-based); None when thermochemistry was not
+    # performed for the TS or one of its IRC endpoints.
+    ts_free_energy: float | None = None
+    barrier_fwd_free: float | None = None
+    barrier_rev_free: float | None = None
 
     @property
     def has_coords(self) -> bool:
@@ -983,14 +1026,17 @@ class TSEdge:
 
     def to_dict(self) -> dict:
         data: dict = {
-            "edge_id":           self.edge_id,
-            "node_id_1":         self.node_id_1,
-            "node_id_2":         self.node_id_2,
-            "ts_xyz_file":       self.ts_xyz_file,
-            "ts_energy_hartree": self.ts_energy,
-            "barrier_fwd_kcal":  self.barrier_fwd,
-            "barrier_rev_kcal":  self.barrier_rev,
-            "source_run_dir":    self.source_run_dir,
+            "edge_id":                self.edge_id,
+            "node_id_1":              self.node_id_1,
+            "node_id_2":              self.node_id_2,
+            "ts_xyz_file":            self.ts_xyz_file,
+            "ts_energy_hartree":      self.ts_energy,
+            "barrier_fwd_kcal":       self.barrier_fwd,
+            "barrier_rev_kcal":       self.barrier_rev,
+            "ts_free_energy_hartree": self.ts_free_energy,
+            "barrier_fwd_free_kcal":  self.barrier_fwd_free,
+            "barrier_rev_free_kcal":  self.barrier_rev_free,
+            "source_run_dir":         self.source_run_dir,
         }
         # Merge extra, skipping non-JSON-serialisable values
         for k, v in self.extra.items():
@@ -1034,6 +1080,24 @@ class NetworkGraph:
         return eid
 
     def reference_energy(self) -> float | None:
+        """Return the unified reference energy for priority/Boltzmann calculations.
+
+        Strategy (matches ``EQNode.effective_energy``):
+
+        * When **any** node carries a Gibbs free energy (``free_energy``),
+          return the minimum of all available ``free_energy`` values.
+          Nodes without thermochemistry results will compare their
+          electronic energy against this G-based reference, which is the
+          intended mixed-mode behaviour (see Q2 design decision).
+        * When **no** node has free energy, fall back to the minimum
+          electronic energy, preserving the original behaviour.
+        """
+        free_energies = [
+            n.free_energy for n in self._nodes.values()
+            if n.free_energy is not None
+        ]
+        if free_energies:
+            return min(free_energies)
         real_energies = [n.energy for n in self._nodes.values() if n.has_real_energy]
         return min(real_energies) if real_energies else None
 
@@ -1065,6 +1129,7 @@ class NetworkGraph:
                 energy=nd["energy_hartree"],
                 symbols=[],
                 source_run_dir=nd.get("source_run_dir", ""),
+                free_energy=nd.get("free_energy_hartree"),
             )
             if os.path.isfile(node.xyz_file):
                 try:
@@ -1083,6 +1148,9 @@ class NetworkGraph:
                 barrier_fwd=ed.get("barrier_fwd_kcal"),
                 barrier_rev=ed.get("barrier_rev_kcal"),
                 source_run_dir=ed.get("source_run_dir", ""),
+                ts_free_energy=ed.get("ts_free_energy_hartree"),
+                barrier_fwd_free=ed.get("barrier_fwd_free_kcal"),
+                barrier_rev_free=ed.get("barrier_rev_free_kcal"),
             )
             # Populate in-memory geometry cache for TS-vs-TS comparisons.
             if edge.ts_xyz_file and os.path.isfile(edge.ts_xyz_file):
@@ -1121,13 +1189,17 @@ class NetworkGraph:
             lines.append(f"  EQ{node.node_id:06d}: {e_str}  [{node.xyz_file}]")
 
         for edge in sorted(self._edges.values(), key=lambda e: e.edge_id):
-            fwd  = f"{edge.barrier_fwd:.2f}"  if edge.barrier_fwd  is not None else "N/A"
-            rev  = f"{edge.barrier_rev:.2f}"  if edge.barrier_rev  is not None else "N/A"
-            ts_e = f"{edge.ts_energy:.8f} Ha" if edge.ts_energy    is not None else "N/A"
+            fwd      = f"{edge.barrier_fwd:.2f}"       if edge.barrier_fwd      is not None else "N/A"
+            rev      = f"{edge.barrier_rev:.2f}"       if edge.barrier_rev      is not None else "N/A"
+            ts_e     = f"{edge.ts_energy:.8f} Ha"      if edge.ts_energy        is not None else "N/A"
+            fwd_free = f"{edge.barrier_fwd_free:.2f}"  if edge.barrier_fwd_free is not None else "N/A"
+            rev_free = f"{edge.barrier_rev_free:.2f}"  if edge.barrier_rev_free is not None else "N/A"
             lines.append(
                 f"  TS{edge.edge_id:06d}: "
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
-                f"E(TS)={ts_e}  Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol"
+                f"E(TS)={ts_e}  "
+                f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol  "
+                f"ΔG‡(fwd)={fwd_free} kcal/mol  ΔG‡(rev)={rev_free} kcal/mol"
             )
         return "\n".join(lines)
 
@@ -1159,17 +1231,26 @@ class ProfileParser:
             return None
 
         ts_file = ts_matches[0]
-        energies = self._parse_energy_txt(txt_path)
+        energies      = self._parse_energy_txt(txt_path)
+        free_energies = self._parse_free_energy_txt(txt_path)
 
         ts_e   = energies.get("TS")
         ep1_e  = energies.get("Endpoint_1")
         ep2_e  = energies.get("Endpoint_2")
 
+        ts_g   = free_energies.get("TS")
+        ep1_g  = free_energies.get("Endpoint_1")
+        ep2_g  = free_energies.get("Endpoint_2")
+
         logger.info(
-            "ProfileParser: parsed  ts=%s  ep1=%s  ep2=%s  [%s]",
-            f"{ts_e:.8f} Ha" if ts_e is not None else "None",
+            "ProfileParser: parsed  ts=%s  ep1=%s  ep2=%s  "
+            "ts_G=%s  ep1_G=%s  ep2_G=%s  [%s]",
+            f"{ts_e:.8f} Ha"  if ts_e  is not None else "None",
             f"{ep1_e:.8f} Ha" if ep1_e is not None else "None",
             f"{ep2_e:.8f} Ha" if ep2_e is not None else "None",
+            f"{ts_g:.8f} Ha"  if ts_g  is not None else "None",
+            f"{ep1_g:.8f} Ha" if ep1_g is not None else "None",
+            f"{ep2_g:.8f} Ha" if ep2_g is not None else "None",
             profile_dir,
         )
 
@@ -1179,18 +1260,31 @@ class ProfileParser:
             return (e_ts - e_eq) * HARTREE_TO_KCALMOL
 
         return {
-            "ts_xyz_file":       ts_file,
-            "ts_energy":         ts_e,
-            "endpoint_1_xyz":    ep1,
-            "endpoint_2_xyz":    ep2,
-            "endpoint_1_energy": ep1_e,
-            "endpoint_2_energy": ep2_e,
-            "barrier_fwd":       _barrier(ep1_e, ts_e),
-            "barrier_rev":       _barrier(ep2_e, ts_e),
+            "ts_xyz_file":            ts_file,
+            "ts_energy":              ts_e,
+            "endpoint_1_xyz":         ep1,
+            "endpoint_2_xyz":         ep2,
+            "endpoint_1_energy":      ep1_e,
+            "endpoint_2_energy":      ep2_e,
+            "barrier_fwd":            _barrier(ep1_e, ts_e),
+            "barrier_rev":            _barrier(ep2_e, ts_e),
+            # Free-energy counterparts (None when thermochemistry unavailable)
+            "ts_free_energy":         ts_g,
+            "endpoint_1_free_energy": ep1_g,
+            "endpoint_2_free_energy": ep2_g,
+            "barrier_fwd_free":       _barrier(ep1_g, ts_g),
+            "barrier_rev_free":       _barrier(ep2_g, ts_g),
         }
 
     @staticmethod
     def _parse_energy_txt(txt_path: str) -> dict:
+        """Parse the electronic-energy table from energy_profile.txt.
+
+        Reads lines of the form ``Structure, file_path, energy, bias_energy``
+        and returns a dict mapping structure key to the third column (Hartree).
+        Stops reading at the free-energy section header so that G_tot values
+        are never accidentally picked up by this method.
+        """
         result: dict[str, float | None] = {"TS": None, "Endpoint_1": None, "Endpoint_2": None}
         if not os.path.isfile(txt_path):
             return result
@@ -1198,6 +1292,11 @@ class ProfileParser:
         with open(txt_path, "r") as fh:
             for line in fh:
                 stripped = line.strip()
+                # Stop at the free-energy section so G_tot is not mis-parsed
+                # as an electronic energy (the section starts with "# ===...
+                # FREE ENERGY SECTION").
+                if "FREE ENERGY SECTION" in stripped:
+                    break
                 if not stripped or stripped.startswith("#"):
                     continue
                 parts = [p.strip() for p in stripped.split(",")]
@@ -1210,6 +1309,61 @@ class ProfileParser:
                     result[key] = float(parts[2])
                 except ValueError:
                     pass
+        return result
+
+    @staticmethod
+    def _parse_free_energy_txt(txt_path: str) -> dict:
+        """Parse the free-energy section appended by autots.py to energy_profile.txt.
+
+        The section written by ``_write_energy_profile_text`` looks like::
+
+            # ===================================================================
+            # FREE ENERGY SECTION (G_tot from thermochemistry analysis)
+            # ===================================================================
+            # ...
+            Structure,    G_tot [Hartree]
+            TS,           -123.456789012345
+            Endpoint_1,   -122.345678901234
+            Endpoint_2,   N/A
+
+        Lines whose second column is ``N/A`` (vibrational analysis was not
+        performed) are stored as ``None``.  The section is terminated by the
+        next ``# ---...`` separator or end-of-file.
+
+        Returns a dict with keys ``"TS"``, ``"Endpoint_1"``, ``"Endpoint_2"``
+        mapping to ``float | None``.
+        """
+        result: dict[str, float | None] = {"TS": None, "Endpoint_1": None, "Endpoint_2": None}
+        if not os.path.isfile(txt_path):
+            return result
+
+        in_section = False
+        with open(txt_path, "r") as fh:
+            for line in fh:
+                stripped = line.strip()
+                # Detect entry into free-energy section
+                if "FREE ENERGY SECTION" in stripped:
+                    in_section = True
+                    continue
+                if not in_section:
+                    continue
+                # Skip comment lines and the column-header line
+                if not stripped or stripped.startswith("#"):
+                    continue
+                parts = [p.strip() for p in stripped.split(",")]
+                if len(parts) < 2:
+                    continue
+                key = parts[0]
+                if key not in result:
+                    continue
+                raw = parts[1].strip()
+                if raw.upper() == "N/A" or not raw:
+                    result[key] = None
+                else:
+                    try:
+                        result[key] = float(raw)
+                    except ValueError:
+                        result[key] = None
         return result
 
 
@@ -1545,11 +1699,15 @@ class ReactionNetworkMapper:
         # BoltzmannQueue and RCMCQueue, which both expose temperature_K).
         temperature_K: float = getattr(self.queue, "temperature_K", 300.0)
 
-        # Compute per-node Boltzmann weights.
+        # Compute per-node Boltzmann weights using effective_energy (free energy
+        # when available, electronic energy otherwise).  ref_e is the unified
+        # reference from NetworkGraph.reference_energy() so ΔE values are
+        # directly comparable regardless of which energy type a node uses.
         raw_weights: list[float] = []
         for node in nodes:
-            if node.energy is not None and ref_e is not None:
-                delta_e = node.energy - ref_e
+            eff_e = node.effective_energy
+            if eff_e is not None and ref_e is not None:
+                delta_e = eff_e - ref_e
                 w = float(np.exp(-delta_e / (K_B_HARTREE * temperature_K)))
             else:
                 w = 1.0
@@ -1594,9 +1752,10 @@ class ReactionNetworkMapper:
                     if gamma_sign == "-"
                     else [pos_gamma_str, str(atom_i), str(atom_j)]
                 )
+                eff_e = node.effective_energy
                 delta_e = (
-                    (node.energy - ref_e)
-                    if (node.energy is not None and ref_e is not None)
+                    (eff_e - ref_e)
+                    if (eff_e is not None and ref_e is not None)
                     else 0.0
                 )
                 task = ExplorationTask(
@@ -1605,8 +1764,9 @@ class ReactionNetworkMapper:
                     afir_params=afir_params,
                     priority=weight_arr[node_idx],
                     metadata={
-                        "delta_E_hartree":    delta_e,
-                        "source_node_energy": node.energy,
+                        "delta_E_hartree":            delta_e,
+                        "source_node_energy":         node.energy,
+                        "source_node_free_energy":    node.free_energy,
                         "boltzmann_resample_attempt": attempt + 1,
                     },
                 )
@@ -1949,11 +2109,13 @@ class ReactionNetworkMapper:
         node_id_1 = self._find_or_register_node(
             xyz_file=result["endpoint_1_xyz"],
             energy=result["endpoint_1_energy"],
+            free_energy=result.get("endpoint_1_free_energy"),
             run_dir=run_dir,
         )
         node_id_2 = self._find_or_register_node(
             xyz_file=result["endpoint_2_xyz"],
             energy=result["endpoint_2_energy"],
+            free_energy=result.get("endpoint_2_free_energy"),
             run_dir=run_dir,
         )
 
@@ -2031,6 +2193,9 @@ class ReactionNetworkMapper:
             source_run_dir=run_dir,
             symbols=ts_sym,    # cached for future TS-vs-TS comparisons
             coords=ts_coords,  # cached for future TS-vs-TS comparisons
+            ts_free_energy=result.get("ts_free_energy"),
+            barrier_fwd_free=result.get("barrier_fwd_free"),
+            barrier_rev_free=result.get("barrier_rev_free"),
         )
         self.graph.add_edge(edge)
         logger.info(
@@ -2045,6 +2210,7 @@ class ReactionNetworkMapper:
         xyz_file: str,
         energy: float | None,
         run_dir: str,
+        free_energy: float | None = None,
     ) -> int | None:
         """Return the node_id of a matching EQNode, registering a new one if needed.
 
@@ -2054,6 +2220,14 @@ class ReactionNetworkMapper:
         TS saddle-point geometries held in :class:`TSEdge` are never involved
         in this comparison; they are handled exclusively by
         :meth:`_process_profile`.
+
+        Parameters
+        ----------
+        free_energy : float | None
+            Gibbs free energy (G_tot, Hartree) from thermochemistry analysis,
+            or ``None`` when vibrational analysis was not performed.  Stored
+            on the newly created :class:`EQNode` and used for priority
+            calculations when available.
         """
         try:
             symbols, coords = parse_xyz(xyz_file)
@@ -2133,6 +2307,7 @@ class ReactionNetworkMapper:
             symbols=symbols,
             coords=coords,
             source_run_dir=run_dir,
+            free_energy=free_energy,
         )
         self.graph.add_node(new_node)
 
@@ -2252,9 +2427,13 @@ class ReactionNetworkMapper:
         n_sel = min(self.perturber.max_pairs, len(unexplored))
         chosen_indices = self._rng.choice(len(unexplored), size=n_sel, replace=False)
 
+        # Use free energy for ΔE when available; fall back to electronic energy.
+        # The reference (ref_e) is already the unified reference from
+        # NetworkGraph.reference_energy() (G-based when any node has G_tot).
+        eff_e = node.effective_energy
         delta_e = (
-            (node.energy - ref_e)
-            if (node.energy is not None and ref_e is not None)
+            (eff_e - ref_e)
+            if (eff_e is not None and ref_e is not None)
             else 0.0
         )
 
@@ -2268,8 +2447,9 @@ class ReactionNetworkMapper:
                 xyz_file=node.xyz_file,
                 afir_params=afir_params,
                 metadata={
-                    "delta_E_hartree":    delta_e,
-                    "source_node_energy": node.energy,
+                    "delta_E_hartree":         delta_e,
+                    "source_node_energy":      node.energy,
+                    "source_node_free_energy": node.free_energy,
                 },
             )
             self.queue.push(task)
