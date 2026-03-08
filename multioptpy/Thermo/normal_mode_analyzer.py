@@ -247,7 +247,8 @@ class MolecularVibrations:
         self.results.update(results)
         return results
 
-    def calculate_thermochemistry(self, e_tot=0.0, temperature=298.15, pressure=101325):
+    def calculate_thermochemistry(self, e_tot=0.0, temperature=298.15, pressure=101325,
+                                   quasi_harmonic="grimme", freq_cutoff=50.0):
         """
         Calculate thermochemical properties.
 
@@ -259,11 +260,30 @@ class MolecularVibrations:
             Temperature in Kelvin.
         pressure : float
             Pressure in Pascal.
+        quasi_harmonic : str or None
+            Quasi-harmonic approximation method for treating low-frequency modes.
+            ``None``      – standard RRHO (default).
+            ``"truhlar"`` – Truhlar's quasi-RRHO: replaces every vibrational
+                            frequency below *freq_cutoff* with *freq_cutoff* in
+                            both the entropy and the thermal enthalpy.
+                            Ref: Truhlar, J. Chem. Theory Comput. 2012, 8, 1-2.
+            ``"grimme"``  – Grimme's quasi-RRHO: smoothly interpolates the
+                            vibrational entropy between the RRHO value and a
+                            free-rotor value, and interpolates the thermal
+                            enthalpy between the RRHO value and 1/2 RT, using a
+                            fourth-order damping function centred on *freq_cutoff*.
+                            Ref: Grimme, Chem. Eur. J. 2012, 18, 9955-9964.
+        freq_cutoff : float
+            Frequency cutoff in cm^-1 used by the quasi-harmonic correction
+            (default: 50 cm^-1).  Ignored when *quasi_harmonic* is None.
 
         Returns
         -------
         dict
-            Thermochemistry results.
+            Thermochemistry results.  When *quasi_harmonic* is not None the
+            dict contains both the original RRHO values (keys suffixed with
+            ``_rrho``) and the corrected values (standard keys), so downstream
+            code can compare both without re-running the calculation.
         """
         if 'freq_au' not in self.results:
             self.analyze_normal_modes()
@@ -323,23 +343,119 @@ class MolecularVibrations:
         exp_neg_rt = np.exp(-rt)
 
         ZPE = R_Eh * 0.5 * vib_temperature.sum()
-        
+
         results['ZPE'] = (ZPE, 'Eh')
-        
+
         tmp_denom = 1 - exp_neg_rt
         mask = np.abs(tmp_denom) < 1e-10
         tmp_denom[mask] = 1e-10
-        
-      
-        results['S_vib'] = (R_Eh * (rt * exp_neg_rt / tmp_denom - np.log(tmp_denom)).sum(), 'Eh/K')
-        results['Cv_vib'] = results['Cp_vib'] = (R_Eh * (exp_neg_rt * rt ** 2 / tmp_denom ** 2).sum(), 'Eh/K')
-        results['E_vib'] = results['H_vib'] = (
-            ZPE + R_Eh * temperature * (rt * exp_neg_rt / tmp_denom).sum(), 'Eh')
+
+        # --- RRHO vibrational contributions (always computed) ---
+        s_vib_rrho  = R_Eh * (rt * exp_neg_rt / tmp_denom - np.log(tmp_denom)).sum()
+        cv_vib_rrho = R_Eh * (exp_neg_rt * rt ** 2 / tmp_denom ** 2).sum()
+        # Thermal part of E_vib (ZPE added separately so QH methods can leave ZPE unchanged)
+        e_vib_thermal_rrho = R_Eh * temperature * (rt * exp_neg_rt / tmp_denom).sum()
+
+        if quasi_harmonic is None:
+            # Standard RRHO – nothing extra to do
+            s_vib  = s_vib_rrho
+            cv_vib = cv_vib_rrho
+            e_vib_thermal = e_vib_thermal_rrho
+
+        elif quasi_harmonic == "truhlar":
+            # ------------------------------------------------------------------
+            # Truhlar quasi-RRHO
+            # Replace every ν_i < freq_cutoff with freq_cutoff before evaluating
+            # both the entropy and the thermal enthalpy.
+            # The ZPE is kept at the original harmonic value (consistent with
+            # GoodVibes and common practice).
+            # Ref: Truhlar, J. Chem. Theory Comput. 2012, 8, 1-2.
+            # ------------------------------------------------------------------
+            # Convert freq_cutoff (cm^-1) to vibrational temperature (K):
+            # theta = h * nu / kB,  nu (Hz) = freq_cutoff (cm^-1) * c (m/s) * 100
+            theta_cutoff = PLANCK * freq_cutoff * LIGHT_SPEED * 100.0 / KB
+            eff_vib_temp = np.maximum(vib_temperature, theta_cutoff)
+            eff_rt = eff_vib_temp / max(1e-14, temperature)
+            eff_exp_neg = np.exp(-eff_rt)
+            eff_denom = 1.0 - eff_exp_neg
+            mask_eff = np.abs(eff_denom) < 1e-10
+            eff_denom[mask_eff] = 1e-10
+
+            s_vib  = R_Eh * (eff_rt * eff_exp_neg / eff_denom - np.log(eff_denom)).sum()
+            cv_vib = R_Eh * (eff_exp_neg * eff_rt ** 2 / eff_denom ** 2).sum()
+            e_vib_thermal = R_Eh * temperature * (eff_rt * eff_exp_neg / eff_denom).sum()
+
+            # Store RRHO values for reference
+            results['S_vib_rrho']  = (s_vib_rrho,  'Eh/K')
+            results['H_vib_rrho']  = (ZPE + e_vib_thermal_rrho, 'Eh')
+            results['E_vib_rrho']  = results['H_vib_rrho']
+            results['freq_cutoff'] = (freq_cutoff, 'cm^-1')
+            results['theta_cutoff'] = (theta_cutoff, 'K')
+
+        elif quasi_harmonic == "grimme":
+            # ------------------------------------------------------------------
+            # Grimme quasi-RRHO
+            # Entropy: S_qRRHO = w * S_RRHO + (1 - w) * S_FR
+            # Enthalpy: E_qRRHO = w * E_RRHO + (1 - w) * (1/2) R T  per mode
+            # Damping function: w = 1 / (1 + (theta_cutoff / theta_i)^4)
+            # Free-rotor entropy uses global average moment of inertia B_av.
+            # Ref: Grimme, Chem. Eur. J. 2012, 18, 9955-9964.
+            # ------------------------------------------------------------------
+            theta_cutoff = PLANCK * freq_cutoff * LIGHT_SPEED * 100.0 / KB
+
+            # Damping weights (one per positive mode)
+            w_damp = 1.0 / (1.0 + (theta_cutoff / vib_temperature) ** 4)
+
+            # Free-rotor entropy contribution per mode
+            # mu_i = h / (8 pi^2 nu_i)  [effective moment of inertia, kg m^2]
+            # nu_i (Hz) = vib_temperature[i] * kB / h
+            mu_i = PLANCK ** 2 / (8.0 * np.pi ** 2 * vib_temperature * KB)
+            B_av = 1.0e-44  # kg m^2  (Grimme's global average moment of inertia)
+            mu_prime = mu_i * B_av / (mu_i + B_av)  # interpolated moment
+            factor_fr = 8.0 * np.pi ** 3 * mu_prime * KB * temperature / PLANCK ** 2
+            # Clamp to avoid log(0)
+            factor_fr = np.where(factor_fr > 1e-300, factor_fr, 1e-300)
+            s_fr_per_mode = R_Eh * (0.5 + 0.5 * np.log(factor_fr))
+
+            # Per-mode RRHO entropy and thermal energy
+            s_rrho_per_mode  = R_Eh * (rt * exp_neg_rt / tmp_denom - np.log(tmp_denom))
+            e_rrho_per_mode  = R_Eh * temperature * (rt * exp_neg_rt / tmp_denom)
+
+            # Interpolated quasi-RRHO values
+            s_qh_per_mode = w_damp * s_rrho_per_mode + (1.0 - w_damp) * s_fr_per_mode
+            e_qh_per_mode = w_damp * e_rrho_per_mode + (1.0 - w_damp) * 0.5 * R_Eh * temperature
+
+            s_vib  = s_qh_per_mode.sum()
+            cv_vib = cv_vib_rrho  # Cv correction not defined in Grimme; keep RRHO
+            e_vib_thermal = e_qh_per_mode.sum()
+
+            # Store RRHO values for reference
+            results['S_vib_rrho']  = (s_vib_rrho,  'Eh/K')
+            results['H_vib_rrho']  = (ZPE + e_vib_thermal_rrho, 'Eh')
+            results['E_vib_rrho']  = results['H_vib_rrho']
+            results['freq_cutoff'] = (freq_cutoff, 'cm^-1')
+            results['theta_cutoff'] = (theta_cutoff, 'K')
+
+        else:
+            raise ValueError(
+                f"Unknown quasi_harmonic method '{quasi_harmonic}'. "
+                "Choose None, 'truhlar', or 'grimme'."
+            )
+
+        results['S_vib']  = (s_vib,  'Eh/K')
+        results['Cv_vib'] = results['Cp_vib'] = (cv_vib, 'Eh/K')
+        results['E_vib']  = results['H_vib'] = (ZPE + e_vib_thermal, 'Eh')
 
         results['G_elec'] = (results['H_elec'][0] - temperature * results['S_elec'][0], 'Eh')
         results['G_trans'] = (results['H_trans'][0] - temperature * results['S_trans'][0], 'Eh')
         results['G_rot'] = (results['H_rot'][0] - temperature * results['S_rot'][0], 'Eh')
         results['G_vib'] = (results['H_vib'][0] - temperature * results['S_vib'][0], 'Eh')
+
+        # When quasi-harmonic corrections are applied, also store QH Gibbs for vib
+        if quasi_harmonic is not None:
+            results['G_vib_rrho'] = (
+                results['H_vib_rrho'][0] - temperature * results['S_vib_rrho'][0], 'Eh'
+            )
 
         # Calculate total thermodynamic properties
         keys = ('elec', 'trans', 'rot', 'vib')
@@ -795,7 +911,8 @@ def analyze_molecular_vibrations(atoms, coordinates, hessian, symm_tolerance=0.2
 
 
 def calculate_molecular_thermochemistry(atoms, coordinates, hessian, e_tot=0.0, temperature=298.15,
-                              pressure=101325, symm_tolerance=0.25, max_symm_fold=6):
+                              pressure=101325, symm_tolerance=0.25, max_symm_fold=6,
+                              quasi_harmonic=None, freq_cutoff=50.0):
     """
     Calculate thermochemical properties for a molecular system.
 
@@ -817,6 +934,10 @@ def calculate_molecular_thermochemistry(atoms, coordinates, hessian, e_tot=0.0, 
         Distance tolerance for symmetry operations.
     max_symm_fold : int
         Maximum n-fold rotation to check.
+    quasi_harmonic : str or None
+        Quasi-harmonic method: None (RRHO), 'truhlar', or 'grimme'.
+    freq_cutoff : float
+        Frequency cutoff in cm^-1 for quasi-harmonic correction (default: 50).
 
     Returns
     -------
@@ -825,7 +946,9 @@ def calculate_molecular_thermochemistry(atoms, coordinates, hessian, e_tot=0.0, 
     """
     analyzer = MolecularVibrations(atoms, coordinates, hessian, symm_tolerance, max_symm_fold)
     analyzer.analyze_normal_modes()
-    return analyzer.calculate_thermochemistry(e_tot, temperature, pressure)
+    return analyzer.calculate_thermochemistry(e_tot, temperature, pressure,
+                                              quasi_harmonic=quasi_harmonic,
+                                              freq_cutoff=freq_cutoff)
 
 
 def generate_vibration_animation(atoms, coordinates, hessian, mode_index=None, 
