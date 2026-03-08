@@ -1480,6 +1480,11 @@ class ReactionNetworkMapper:
         self.graph = NetworkGraph()
         self._iteration: int = 0
 
+        # Accumulates energy backfill requests discovered during each iteration.
+        # Maps node_id -> {"energy": float|None, "free_energy": float|None}.
+        # Applied in bulk by _flush_node_energy_updates() before graph.save().
+        self._pending_node_updates: dict[int, dict] = {}
+
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
@@ -1638,6 +1643,7 @@ class ReactionNetworkMapper:
                 profile_dirs = self._run_autots(task, run_dir)
             except Exception as e:
                 logger.error(f"AutoTS failed for run {run_dir}: {e}")
+                self._flush_node_energy_updates()
                 self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
                 self.graph.save(self.graph_json_path)
                 self._write_priority_log(priority_log)
@@ -1656,6 +1662,7 @@ class ReactionNetworkMapper:
             if hasattr(self.queue, "set_graph"):
                 self.queue.set_graph(self.graph)
 
+            self._flush_node_energy_updates()
             self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
             self.graph.save(self.graph_json_path)
             # Write after new nodes and tasks have been registered so the log
@@ -2205,6 +2212,62 @@ class ReactionNetworkMapper:
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
+    def _flush_node_energy_updates(self) -> None:
+        """Apply pending energy backfill updates accumulated during the iteration.
+
+        When :meth:`_find_or_register_node` matches an incoming structure to an
+        existing :class:`EQNode` but that node was registered without energy or
+        free-energy data (e.g. the seed structure optimisation did not perform
+        thermochemistry), the new non-null values are queued in
+        ``_pending_node_updates``.  This method applies all queued updates in
+        one batch, then clears the queue.
+
+        Design decisions (confirmed with user):
+        * Called once per iteration, just before ``graph.save()``.
+        * Both ``energy`` (electronic) and ``free_energy`` are updated when
+          the existing value is ``None`` and the incoming value is not.
+        * Existing TSEdge barrier values are **never** modified here — they
+          always reflect the actual measured values from the IRC run that
+          produced them (see Q3 design decision).
+        """
+        if not self._pending_node_updates:
+            return
+
+        for node_id, updates in self._pending_node_updates.items():
+            node = self.graph.get_node(node_id)
+            if node is None:
+                logger.warning(
+                    "_flush_node_energy_updates: node EQ%d not found in graph; skipping.",
+                    node_id,
+                )
+                continue
+
+            changed: list[str] = []
+
+            new_e = updates.get("energy")
+            if new_e is not None and node.energy is None:
+                node.energy = new_e
+                changed.append(f"energy={new_e:.10f} Ha")
+
+            new_g = updates.get("free_energy")
+            if new_g is not None and node.free_energy is None:
+                node.free_energy = new_g
+                changed.append(f"free_energy={new_g:.10f} Ha")
+
+            if changed:
+                logger.info(
+                    "_flush_node_energy_updates: EQ%d updated — %s",
+                    node_id, "  ".join(changed),
+                )
+            else:
+                logger.debug(
+                    "_flush_node_energy_updates: EQ%d queued but no null fields "
+                    "to fill (already populated by a prior update).",
+                    node_id,
+                )
+
+        self._pending_node_updates.clear()
+
     def _find_or_register_node(
         self,
         xyz_file: str,
@@ -2291,6 +2354,29 @@ class ReactionNetworkMapper:
                     "_find_or_register_node: MATCH EQ%d  RMSD=%.4f A < threshold=%.3f A.",
                     existing.node_id, rmsd, self.checker.rmsd_threshold,
                 )
+                # ── Energy backfill ───────────────────────────────────────
+                # When the matched node was registered without energy or free-
+                # energy data (e.g. seed node from a plain optimisation) and
+                # the new incoming structure carries those values, queue an
+                # update so that _flush_node_energy_updates() can populate the
+                # null fields before the next graph.save().
+                needs_update: dict = {}
+                if existing.energy is None and energy is not None:
+                    needs_update["energy"] = energy
+                if existing.free_energy is None and free_energy is not None:
+                    needs_update["free_energy"] = free_energy
+                if needs_update:
+                    prev = self._pending_node_updates.get(existing.node_id, {})
+                    # Only overwrite fields that are still absent in prior queued updates.
+                    if "energy" not in prev and "energy" in needs_update:
+                        prev["energy"] = needs_update["energy"]
+                    if "free_energy" not in prev and "free_energy" in needs_update:
+                        prev["free_energy"] = needs_update["free_energy"]
+                    self._pending_node_updates[existing.node_id] = prev
+                    logger.debug(
+                        "_find_or_register_node: queued backfill for EQ%d: %s",
+                        existing.node_id, needs_update,
+                    )
                 return existing.node_id
             else:
                 logger.info(
