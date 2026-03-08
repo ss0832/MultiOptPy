@@ -255,7 +255,7 @@ class MolecularVibrations:
         return results
 
     def calculate_thermochemistry(self, e_tot=0.0, temperature=298.15, pressure=101325,
-                                   quasi_harmonic="grimme", freq_cutoff=50.0):
+                                   quasi_harmonic="grimme", freq_cutoff=50.0, multiplicity=1):
         """
         Calculate thermochemical properties.
 
@@ -283,6 +283,8 @@ class MolecularVibrations:
         freq_cutoff : float
             Frequency cutoff in cm^-1 used by the quasi-harmonic correction
             (default: 50 cm^-1).  Ignored when *quasi_harmonic* is None.
+        multiplicity : int
+            Spin multiplicity to calculate electronic entropy
 
         Returns
         -------
@@ -302,7 +304,6 @@ class MolecularVibrations:
         results['pressure'] = (pressure, 'Pa')
         results['E0'] = (e_tot, 'Eh')
 
-        multiplicity = 1  # This could be a parameter
         results['S_elec'] = (R_Eh * np.log(multiplicity), 'Eh/K')
         results['Cv_elec'] = results['Cp_elec'] = (0, 'Eh/K')
         results['E_elec'] = results['H_elec'] = (e_tot, 'Eh')
