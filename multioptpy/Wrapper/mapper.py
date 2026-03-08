@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import bisect
 import glob
-import heapq
 import json
 import logging
 import os
@@ -93,8 +92,8 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
     return symbols, np.array(coords_raw, dtype=float)
 
 def distance_matrix(coords: np.ndarray) -> np.ndarray:
-    # cdist avoids the (N,N,3) intermediate array produced by manual broadcasting.
-    return cdist(coords, coords)
+    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+    return np.sqrt((diff ** 2).sum(axis=-1))
 
 
 # ===========================================================================
@@ -110,15 +109,6 @@ class StructureChecker:
 
     # Relative tolerance for declaring two eigenvalues degenerate.
     _DEGENERACY_REL_TOL: float = 0.02
-
-    # The 4 proper rotations (det=+1) from PCA sign-flip ambiguity.
-    # Built once at class definition time instead of on every call.
-    _SIGN_FLIP_MATS: tuple[np.ndarray, ...] = (
-        np.diag([ 1.0,  1.0,  1.0]),
-        np.diag([-1.0, -1.0,  1.0]),
-        np.diag([-1.0,  1.0, -1.0]),
-        np.diag([ 1.0, -1.0, -1.0]),
-    )
 
     def __init__(self, rmsd_threshold: float = 0.30) -> None:
         self.rmsd_threshold = rmsd_threshold
@@ -204,34 +194,16 @@ class StructureChecker:
         sym_a: list[str], ca: np.ndarray,
         sym_b: list[str], cb: np.ndarray,
     ) -> float:
-        """Evaluate every rotation candidate and return the minimum RMSD found.
-
-        Element-to-index groupings are precomputed once before the rotation
-        loop so that the O(N) list comprehensions inside ``_optimal_mapping``
-        are not repeated for every candidate.
-        """
-        # --- Precompute element groups once (not per rotation) ---
-        elem_groups_a: dict[str, np.ndarray] = {}
-        for i, s in enumerate(sym_a):
-            elem_groups_a.setdefault(s, []).append(i)  # type: ignore[arg-type]
-        groups_a = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_a.items()}
-
-        elem_groups_b: dict[str, np.ndarray] = {}
-        for i, s in enumerate(sym_b):
-            elem_groups_b.setdefault(s, []).append(i)  # type: ignore[arg-type]
-        groups_b = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_b.items()}
-
+        """Evaluate every rotation candidate and return the minimum RMSD found."""
         min_rmsd = float("inf")
         for R in candidates:
             cb_rot = cb @ R.T
-            perm = self._optimal_mapping_fast(ca, cb_rot, groups_a, groups_b)
+            perm = self._optimal_mapping(sym_a, ca, sym_b, cb_rot)
             if perm is None:
                 continue
             rmsd = self._kabsch_rmsd(ca, cb_rot[perm])
             if rmsd < min_rmsd:
                 min_rmsd = rmsd
-                if min_rmsd < self.rmsd_threshold:
-                    return min_rmsd  # Early exit: threshold already met
         return min_rmsd
 
     # ------------------------------------------------------------------ #
@@ -274,14 +246,19 @@ class StructureChecker:
     #  Rotation candidates                                                 #
     # ------------------------------------------------------------------ #
 
-    @classmethod
-    def _sign_flip_candidates(cls) -> list[np.ndarray]:
+    @staticmethod
+    def _sign_flip_candidates() -> list[np.ndarray]:
         """
         The 4 proper rotations (det = +1) arising from sign-flip ambiguity
         of PCA eigenvectors.  Always necessary; sufficient when no
         eigenvalue degeneracy is present.
         """
-        return list(cls._SIGN_FLIP_MATS)
+        return [
+            np.diag([ 1.0,  1.0,  1.0]),
+            np.diag([-1.0, -1.0,  1.0]),
+            np.diag([-1.0,  1.0, -1.0]),
+            np.diag([ 1.0, -1.0, -1.0]),
+        ]
 
     @classmethod
     def _build_planar_candidates(
@@ -346,54 +323,25 @@ class StructureChecker:
         so that grid points are roughly uniformly distributed on S².
 
         Total: n³ rotation matrices (512 for n = 8).
-
-        Vectorised: all n³ matrix products are computed with batched numpy
-        operations instead of a triple Python for-loop.
         """
-        # --- Angle arrays ---
-        k = np.arange(n)
-        alphas = 2.0 * np.pi * k / n                                          # (n,)
-        betas  = np.arccos(np.clip(1.0 - 2.0 * (k + 0.5) / n, -1.0, 1.0))   # (n,)
-        gammas = 2.0 * np.pi * k / n                                          # (n,)
+        rotations: list[np.ndarray] = []
+        for i in range(n):
+            alpha = 2 * np.pi * i / n
+            ca, sa = np.cos(alpha), np.sin(alpha)
+            Rz_alpha = np.array([[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]])
 
-        # --- Component trig values ---
-        ca, sa = np.cos(alphas), np.sin(alphas)   # (n,)
-        cb, sb = np.cos(betas),  np.sin(betas)    # (n,)
-        cg, sg = np.cos(gammas), np.sin(gammas)   # (n,)
+            for j in range(n):
+                beta = np.arccos(np.clip(1.0 - 2.0 * (j + 0.5) / n, -1.0, 1.0))
+                cb, sb = np.cos(beta), np.sin(beta)
+                Ry_beta = np.array([[cb, 0.0, sb], [0.0, 1.0, 0.0], [-sb, 0.0, cb]])
 
-        # --- Batched Rz(alpha): shape (n, 3, 3) ---
-        zero = np.zeros(n)
-        one  = np.ones(n)
-        Rz_a = np.stack([
-            np.stack([ ca, -sa, zero], axis=-1),
-            np.stack([ sa,  ca, zero], axis=-1),
-            np.stack([zero, zero, one], axis=-1),
-        ], axis=1)  # (n, 3, 3)
+                for k in range(n):
+                    gamma = 2 * np.pi * k / n
+                    cg, sg = np.cos(gamma), np.sin(gamma)
+                    Rz_gamma = np.array([[cg, -sg, 0.0], [sg, cg, 0.0], [0.0, 0.0, 1.0]])
+                    rotations.append(Rz_alpha @ Ry_beta @ Rz_gamma)
 
-        # --- Batched Ry(beta): shape (n, 3, 3) ---
-        Ry_b = np.stack([
-            np.stack([ cb, zero,  sb], axis=-1),
-            np.stack([zero,  one, zero], axis=-1),
-            np.stack([-sb, zero,  cb], axis=-1),
-        ], axis=1)  # (n, 3, 3)
-
-        # --- Batched Rz(gamma): shape (n, 3, 3) ---
-        Rz_g = np.stack([
-            np.stack([ cg, -sg, zero], axis=-1),
-            np.stack([ sg,  cg, zero], axis=-1),
-            np.stack([zero, zero, one], axis=-1),
-        ], axis=1)  # (n, 3, 3)
-
-        # --- ZYZ product over all (n, n, n) combinations ---
-        # Rz_a[:, None, None] @ Ry_b[None, :, None] @ Rz_g[None, None, :]
-        # Broadcasting shapes: (n,1,1,3,3) @ (1,n,1,3,3) @ (1,1,n,3,3)
-        Rza = Rz_a[:, None, None]     # (n, 1, 1, 3, 3)
-        Ryb = Ry_b[None, :, None]     # (1, n, 1, 3, 3)
-        Rzg = Rz_g[None, None, :]     # (1, 1, n, 3, 3)
-        R_all = Rza @ Ryb @ Rzg       # (n, n, n, 3, 3)
-
-        # Flatten to list of (3,3) matrices.
-        return list(R_all.reshape(-1, 3, 3))
+        return rotations
 
     @staticmethod
     def _Rx(t: float) -> np.ndarray:
@@ -410,35 +358,12 @@ class StructureChecker:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _optimal_mapping_fast(
-        coords_a: np.ndarray,
-        coords_b: np.ndarray,
-        groups_a: dict[str, np.ndarray],
-        groups_b: dict[str, np.ndarray],
-    ) -> list[int] | None:
-        """Find the atom permutation of B minimising total squared distance to A.
-
-        Accepts precomputed element-to-index arrays (``groups_a``, ``groups_b``)
-        so that the grouping step is not repeated for every rotation candidate.
-        Returns ``None`` if stoichiometry is inconsistent.
-        """
-        perm: list[int | None] = [None] * sum(len(v) for v in groups_a.values())
-        for elem, idx_a in groups_a.items():
-            idx_b = groups_b.get(elem)
-            if idx_b is None or len(idx_a) != len(idx_b):
-                return None
-            cost = cdist(coords_a[idx_a], coords_b[idx_b], metric="sqeuclidean")
-            row_ind, col_ind = linear_sum_assignment(cost)
-            for r, c in zip(row_ind, col_ind):
-                perm[idx_a[r]] = idx_b[c]
-        return None if None in perm else perm  # type: ignore[return-value]
-
-    @staticmethod
     def _optimal_mapping(
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> list[int] | None:
-        """Find the permutation of B's atoms that minimises the total
+        """
+        Find the permutation of B's atoms that minimises the total
         squared distance to A, solved independently per element.
         Returns None if stoichiometry is inconsistent.
         """
@@ -518,41 +443,17 @@ class BondTopologyChecker:
         Each key is a ``(elem_a, elem_b)`` tuple with elements in sorted
         order (so C–H and H–C map to the same key).  The value is the
         number of such bonds.
-
-        Radii are precomputed per unique element so ``_bond_threshold`` is
-        called at most once per element instead of once per atom-pair.
-        Distances are computed with ``cdist`` to avoid a Python-level O(N²)
-        loop.
         """
         n = len(symbols)
-        # Precompute covalent radius for each unique element.
-        unique_elems = set(symbols)
-        elem_radius: dict[str, float] = {}
-        for elem in unique_elems:
-            if covalent_radii_lib is not None:
-                try:
-                    elem_radius[elem] = covalent_radii_lib(elem) * _BOHR2ANG
-                except KeyError:
-                    elem_radius[elem] = 0.75  # generic fallback [Å]
-            else:
-                elem_radius[elem] = 0.75
-
-        radii_arr = np.array([elem_radius[s] for s in symbols], dtype=np.float64)
-
-        # Pairwise distances — vectorised via cdist.
-        dmat = cdist(coords, coords)
-        ii, jj = np.triu_indices(n, k=1)
-        dists = dmat[ii, jj]
-
-        # Per-pair bonding threshold.
-        thresholds = self.covalent_margin * (radii_arr[ii] + radii_arr[jj])
-        bonded_idx = np.where(dists <= thresholds)[0]
-
+        dmat = distance_matrix(coords)
         counts: dict[tuple[str, str], int] = {}
-        for k in bonded_idx:
-            si, sj = symbols[ii[k]], symbols[jj[k]]
-            key = (si, sj) if si <= sj else (sj, si)
-            counts[key] = counts.get(key, 0) + 1
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                threshold = self._bond_threshold(symbols[i], symbols[j])
+                if dmat[i, j] <= threshold:
+                    key = (min(symbols[i], symbols[j]), max(symbols[i], symbols[j]))
+                    counts[key] = counts.get(key, 0) + 1
 
         return counts
 
@@ -630,10 +531,11 @@ class ExplorationQueue(ABC):
     """
 
     def __init__(self, rng_seed: int = 42) -> None:
-        # Min-heap storing (-priority, insertion_order, task).
-        # Negating priority turns Python's min-heap into a max-priority-queue.
-        self._heap: list[tuple[float, int, ExplorationTask]] = []
-        self._push_counter: int = 0
+        self._tasks: list[ExplorationTask] = []
+        # Parallel list of negated priorities kept in ascending order so that
+        # bisect can locate the insertion point in O(log n) without an O(n)
+        # list comprehension on every push().
+        self._neg_priorities: list[float] = []
         self._submitted: set[tuple] = set()
         self._rng = np.random.default_rng(rng_seed)
 
@@ -643,23 +545,21 @@ class ExplorationQueue(ABC):
             return False
 
         task.priority = self.compute_priority(task)
-        # Store as (-priority, counter, task) so the highest-priority task is
-        # always at heap[0] after heappush (min-heap on negated priority).
-        heapq.heappush(self._heap, (-task.priority, self._push_counter, task))
-        self._push_counter += 1
+        # _tasks is maintained in descending priority order. _neg_priorities
+        # mirrors it as ascending negated values so bisect can find the correct
+        # insertion index in O(log n) without rebuilding the list each call.
+        neg_p = -task.priority
+        idx = bisect.bisect_right(self._neg_priorities, neg_p)
+        self._tasks.insert(idx, task)
+        self._neg_priorities.insert(idx, neg_p)
         self._submitted.add(key)
         return True
 
     def pop(self) -> ExplorationTask | None:
-        if not self._heap:
+        if not self._tasks:
             return None
-        _, _, task = heapq.heappop(self._heap)
-        return task
-
-    @property
-    def _tasks(self) -> list[ExplorationTask]:
-        """Read-only view of queued tasks (used by refresh_priorities / export)."""
-        return [t for _, _, t in self._heap]
+        self._neg_priorities.pop(0)
+        return self._tasks.pop(0)
 
     def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
@@ -720,10 +620,10 @@ class ExplorationQueue(ABC):
         The queue is re-sorted in descending priority order after all tasks
         have been updated.
         """
-        if not self._heap or ref_e is None:
+        if not self._tasks or ref_e is None:
             return
 
-        for _, _, task in self._heap:
+        for task in self._tasks:
             node_g = task.metadata.get("source_node_free_energy")
             node_e = task.metadata.get("source_node_energy")
             eff_e  = node_g if node_g is not None else node_e
@@ -731,11 +631,9 @@ class ExplorationQueue(ABC):
                 task.metadata["delta_E_hartree"] = eff_e - ref_e
             task.priority = self.compute_priority(task)
 
-        # Rebuild the heap in-place with updated priorities.
-        self._heap = [(-t.priority, i, t) for i, (_, _, t) in enumerate(self._heap)]
-        heapq.heapify(self._heap)
-        # Reset counter to the new heap size to keep it monotone.
-        self._push_counter = len(self._heap)
+        self._tasks.sort(key=lambda t: t.priority, reverse=True)
+        # Rebuild the parallel negated-priority list to stay in sync after sort.
+        self._neg_priorities = [-t.priority for t in self._tasks]
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -748,7 +646,7 @@ class ExplorationQueue(ABC):
         ]
 
     def __len__(self) -> int:
-        return len(self._heap)
+        return len(self._tasks)
 
     @abstractmethod
     def compute_priority(self, task: ExplorationTask) -> float:
@@ -1149,23 +1047,15 @@ class TSEdge:
                 data[k] = str(v)
         return data
 
-# Sentinel object used by NetworkGraph to distinguish "not yet computed"
-# from a cached value of None (meaning no energy is available).
-_UNSET = object()
-
-
 class NetworkGraph:
     def __init__(self) -> None:
         self._nodes: dict[int, EQNode] = {}
         self._edges: dict[int, TSEdge] = {}
         self._node_counter: int = 0
         self._edge_counter: int = 0
-        # Cached reference energy; set to _UNSET when invalidated.
-        self._ref_energy_cache: float | None = _UNSET  # type: ignore[assignment]
 
     def add_node(self, node: EQNode) -> None:
         self._nodes[node.node_id] = node
-        self._ref_energy_cache = _UNSET  # type: ignore[assignment]
 
     def get_node(self, node_id: int) -> EQNode | None:
         return self._nodes.get(node_id)
@@ -1201,25 +1091,15 @@ class NetworkGraph:
           intended mixed-mode behaviour (see Q2 design decision).
         * When **no** node has free energy, fall back to the minimum
           electronic energy, preserving the original behaviour.
-
-        The result is cached and automatically invalidated whenever a new
-        node is added via :meth:`add_node`.
         """
-        if self._ref_energy_cache is not _UNSET:
-            return self._ref_energy_cache  # type: ignore[return-value]
-
         free_energies = [
             n.free_energy for n in self._nodes.values()
             if n.free_energy is not None
         ]
         if free_energies:
-            result: float | None = min(free_energies)
-        else:
-            real_energies = [n.energy for n in self._nodes.values() if n.has_real_energy]
-            result = min(real_energies) if real_energies else None
-
-        self._ref_energy_cache = result  # type: ignore[assignment]
-        return result
+            return min(free_energies)
+        real_energies = [n.energy for n in self._nodes.values() if n.has_real_energy]
+        return min(real_energies) if real_energies else None
 
     def save(self, filepath: str) -> None:
         data = {
@@ -2405,8 +2285,6 @@ class ReactionNetworkMapper:
                 )
 
         self._pending_node_updates.clear()
-        # Node energies may have changed; invalidate the cached reference energy.
-        self.graph._ref_energy_cache = _UNSET  # type: ignore[assignment]
 
     def _find_or_register_node(
         self,
