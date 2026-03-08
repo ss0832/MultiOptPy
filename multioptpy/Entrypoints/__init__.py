@@ -3,6 +3,7 @@ from multioptpy.Entrypoints.core import (
     run_ieipmain,
     run_mdmain,
     run_nebmain,
+    run_rcmc,
 )
 from multioptpy.Entrypoints.relaxed_scan import run_relaxedscan
 from multioptpy.Entrypoints.orientation_search import run_orientsearch
@@ -20,4 +21,5 @@ __all__ = [
     "run_autots",
     "run_confsearch",
     "run_mapper",
+    "run_rcmc",
 ]
