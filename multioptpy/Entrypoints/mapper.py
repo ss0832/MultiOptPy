@@ -111,7 +111,7 @@ def run_mapper():
     def build_parser():
         parser = argparse.ArgumentParser(
             prog="run_mapper",
-            description="Autonomous chemical reaction network mapper.",
+            description=run_mapper.__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
