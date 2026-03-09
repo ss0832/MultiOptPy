@@ -218,8 +218,13 @@ class RCMCQueue(ExplorationQueue):
             return None
 
         if self.graph is None or len(self.graph.all_edges()) == 0:
-            self._tasks.sort(key=lambda t: t.metadata.get("delta_E_hartree", 0.0))
-            return self._tasks.pop(0)
+            # No graph yet — return the task with the lowest raw energy.
+            selected = min(
+                self._tasks.values(),
+                key=lambda t: t.metadata.get("delta_E_hartree", 0.0),
+            )
+            del self._tasks[id(selected)]
+            return selected
 
         # ── Select nodes and energy accessor based on energy mode ───────────
         # In free-energy mode only nodes that carry a G_tot value are included;
@@ -242,7 +247,11 @@ class RCMCQueue(ExplorationQueue):
                 return edge.ts_energy
 
         if not nodes:
-            return self._tasks.pop(0)
+            if not self._tasks:
+                return None
+            selected = next(iter(self._tasks.values()))
+            del self._tasks[id(selected)]
+            return selected
 
         n_nodes = len(nodes)
         node_to_idx = {n.node_id: i for i, n in enumerate(nodes)}
@@ -440,15 +449,15 @@ class RCMCQueue(ExplorationQueue):
         self._save_population(q, nodes, self._pop_count)
         self._pop_count += 1
 
-        for task in self._tasks:
+        for task in self._tasks.values():
             if task.node_id in node_to_idx:
                 idx = node_to_idx[task.node_id]
                 task.priority = q[idx]
             else:
                 task.priority = 0.0
 
-        self._tasks.sort(key=lambda t: t.priority, reverse=True)
-        selected = self._tasks.pop(0)
+        selected = max(self._tasks.values(), key=lambda t: t.priority)
+        del self._tasks[id(selected)]
         logger.debug(
             "RCMC pop(): selected EQ%d  priority(q)=%.6f  "
             "remaining_tasks=%d",
@@ -689,15 +698,14 @@ def main(argv: list[str] | None = None) -> None:
     # Add every EQ node as a candidate task so pop() can rank them all.
     for nd in nodes:
         eff_e = nd.free_energy if (use_free_energy and nd.free_energy is not None) else nd.energy
-        queue._tasks.append(
-            ExplorationTask(
-                node_id=nd.node_id,
-                xyz_file=nd.xyz_file if hasattr(nd, "xyz_file") else "",
-                afir_params={},
-                priority=0.0,
-                metadata={"delta_E_hartree": eff_e},
-            )
+        task = ExplorationTask(
+            node_id=nd.node_id,
+            xyz_file=nd.xyz_file if hasattr(nd, "xyz_file") else "",
+            afir_params={},
+            priority=0.0,
+            metadata={"delta_E_hartree": eff_e},
         )
+        queue._tasks[id(task)] = task
 
     # ── Run RCMC – one full pop() pass ────────────────────────────────────────
     energy_label = "Gibbs free energy (G_tot)" if use_free_energy else "Electronic energy (SCF)"
@@ -718,7 +726,7 @@ def main(argv: list[str] | None = None) -> None:
     # ── Print ranked population distribution ─────────────────────────────────
     # After pop() the remaining tasks carry updated priorities (populations).
     # Re-collect all tasks including the one that was popped.
-    all_tasks = list(queue._tasks)
+    all_tasks = list(queue._tasks.values())
     if top_task is not None:
         all_tasks.insert(0, top_task)   # re-insert at front (highest priority)
 
