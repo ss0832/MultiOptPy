@@ -18,11 +18,11 @@ import json
 import logging
 import multiprocessing
 import os
+import re
 import copy
 import shutil
 import sys
 import tempfile
-import traceback
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass, field
@@ -136,7 +136,7 @@ def _autots_worker_with_queue(
     parent process via *result_queue* as a ``(tag, payload)`` tuple:
 
     * ``("ok", profiles)`` on success.
-    * ``("err", exception)`` on failure.
+    * ``("err", traceback_str)`` on failure (full traceback as a string).
 
     This avoids the per-call ``ProcessPoolExecutor`` setup/teardown
     overhead incurred by the sequential (``n_parallel=1``) code path.
@@ -145,7 +145,9 @@ def _autots_worker_with_queue(
         profiles = _autots_worker(config, run_dir, workspace)
         result_queue.put(("ok", profiles))
     except Exception as exc:  # noqa: BLE001
-        result_queue.put(("err", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
+        # Serialise the full traceback as a string so it crosses the process
+        # boundary safely (some exception types are not picklable).
+        result_queue.put(("err", traceback.format_exc()))
 
 
 logger = logging.getLogger(__name__)
@@ -159,45 +161,80 @@ K_B_HARTREE: float = 3.166811563e-6
 # Section 1 : XYZ Utilities
 # ===========================================================================
 
+
+# Pre-compiled XYZ atom-line pattern.  Placed at module level so the regex is
+# compiled exactly once rather than on every parse_xyz() call.
+_XYZ_PATTERN: re.Pattern = re.compile(
+    r"\s*([A-Za-z]+)\s+"
+    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s+"
+    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s+"
+    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s*"
+)
+
+
+def get_pattern_xyz() -> re.Pattern:
+    """Return the pre-compiled XYZ atom-line regex.
+
+    Kept for backward compatibility; callers should prefer ``_XYZ_PATTERN``
+    directly.  The regex is no longer recompiled on each call.
+    """
+    return _XYZ_PATTERN
+
 def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
-    with open(filepath, "r") as fh:
-        lines = fh.readlines()
+    with open(filepath, "r", encoding="utf-8") as fh:
 
-    n_atoms: int | None = None
-    data_start: int = 0
+        n_atoms = None
+        header_line_idx = 0
+        for line_idx, line in enumerate(fh, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.isdigit():
+                n_atoms = int(stripped)
+                header_line_idx = line_idx
+                break
+            else:
+                raise ValueError(
+                    f"Invalid XYZ format at {filepath}:{line_idx}: "
+                    f"Expected atom count, got '{stripped}'"
+                )
 
-    non_blank = [(i, ln.strip()) for i, ln in enumerate(lines) if ln.strip()]
-    if non_blank and non_blank[0][1].isdigit():
-        n_atoms = int(non_blank[0][1])
-        data_start = non_blank[0][0] + 2
+        if n_atoms is None:
+            raise ValueError(f"Empty or invalid XYZ file: {filepath}")
 
-    symbols: list[str] = []
-    coords_raw: list[list[float]] = []
+        # Skip comment line
+        next(fh, None)
 
-    for ln in lines[data_start:]:
-        parts = ln.split()
-        if len(parts) < 4:
-            continue
-        try:
-            symbols.append(parts[0])
-            coords_raw.append([float(parts[1]), float(parts[2]), float(parts[3])])
-        except ValueError:
-            logger.warning(
-                "parse_xyz: skipping malformed line in %s: %r", filepath, ln.strip()
+        symbols: list[str] = []
+        coords_raw: list[list[float]] = []
+
+        # line number of the first atom line = header + comment + 1
+        atom_line_start = header_line_idx + 2
+        for atom_line_idx, line in enumerate(fh, atom_line_start):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            match = _XYZ_PATTERN.match(line)
+            if not match:
+                raise ValueError(
+                    f"Invalid atom data at {filepath}:{atom_line_idx}: '{stripped}'"
+                )
+
+            sym, x, y, z = match.groups()
+            symbols.append(sym)
+            coords_raw.append([float(x), float(y), float(z)])
+
+            if len(symbols) >= n_atoms:
+                break
+
+        if len(symbols) < n_atoms:
+            raise ValueError(
+                f"Unexpected EOF in {filepath}: "
+                f"Expected {n_atoms} atoms, but only found {len(symbols)}."
             )
-            continue
-        if n_atoms is not None and len(symbols) >= n_atoms:
-            break
 
-    if n_atoms is not None and len(symbols) != n_atoms:
-        raise ValueError(
-            f"Expected {n_atoms} atoms in {filepath}, but parsed {len(symbols)}."
-        )
-
-    if not symbols:
-        raise ValueError(f"No atomic coordinates found in: {filepath}")
-
-    return symbols, np.array(coords_raw, dtype=float)
+    return symbols, np.array(coords_raw)
 
 def distance_matrix(coords: np.ndarray) -> np.ndarray:
     # cdist avoids the (N,N,3) intermediate array produced by manual broadcasting.
@@ -648,13 +685,12 @@ class BondTopologyChecker:
         thresholds = self.covalent_margin * (radii_arr[ii] + radii_arr[jj])
         bonded_idx = np.where(dists <= thresholds)[0]
 
-        counts: dict[tuple[str, str], int] = {}
-        for k in bonded_idx:
-            si, sj = symbols[ii[k]], symbols[jj[k]]
-            key = (si, sj) if si <= sj else (sj, si)
-            counts[key] = counts.get(key, 0) + 1
-
-        return counts
+        symbols_arr = np.array(symbols) 
+        bonded_si = symbols_arr[ii[bonded_idx]]
+        bonded_sj = symbols_arr[jj[bonded_idx]]
+        pairs = np.sort(np.column_stack((bonded_si, bonded_sj)), axis=1)
+        unique_pairs, counts = np.unique(pairs, axis=0, return_counts=True)
+        return {tuple(p): int(c) for p, c in zip(unique_pairs, counts)}
 
     def has_rearrangement(
         self,
@@ -1807,6 +1843,12 @@ class ProfileParser:
             return None
 
         ts_file = ts_matches[0]
+        if len(ts_matches) > 1:
+            logger.warning(
+                "ProfileParser: %d *_ts_final.xyz files found in %s — "
+                "using the first one (%s). Check for unexpected duplicates.",
+                len(ts_matches), profile_dir, ts_file,
+            )
         energies      = self._parse_energy_txt(txt_path)
         free_energies = self._parse_free_energy_txt(txt_path)
 
@@ -1865,11 +1907,7 @@ class ProfileParser:
         if not os.path.isfile(txt_path):
             return result
     
-        with open(txt_path, "r") as fh:
-            for line in fh:
-                stripped = line.strip()
-                # Stop at the free-energy section so G_tot is not mis-parsed
-                # as an electronic energy (the section starts with "# ===...
+        with open(txt_path, "r", encoding="utf-8") as fh:
                 # FREE ENERGY SECTION").
                 if "FREE ENERGY SECTION" in stripped:
                     break
@@ -1918,7 +1956,7 @@ class ProfileParser:
             return result
     
         in_section = False
-        with open(txt_path, "r") as fh:
+        with open(txt_path, "r", encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.strip()
                 # Detect entry into free-energy section
@@ -3041,7 +3079,11 @@ class ReactionNetworkMapper:
             )
         tag, payload = result_q.get_nowait()
         if tag == "err":
-            raise payload  # re-raise the original worker exception
+            # payload is a formatted traceback string (see _autots_worker_with_queue).
+            # Wrap in RuntimeError so it can be raised and caught normally.
+            raise RuntimeError(
+                f"AutoTSWorkflow subprocess failed:\n{payload}"
+            )
         profiles: list[str] = payload
         return profiles
 
