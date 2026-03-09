@@ -1174,6 +1174,7 @@ class NetworkGraph:
         self._edge_counter: int = 0
         # Cached reference energy; set to _UNSET when invalidated.
         self._ref_energy_cache: float | None = _UNSET  # type: ignore[assignment]
+        self.last_iteration: int = 0
 
     def add_node(self, node: EQNode) -> None:
         self._nodes[node.node_id] = node
@@ -1252,6 +1253,7 @@ class NetworkGraph:
             "metadata": {
                 "n_nodes": len(self._nodes),
                 "n_edges": len(self._edges),
+                "last_iteration": self.last_iteration,  
             },
         }
         with open(filepath, "w", encoding="utf-8") as fh:
@@ -1317,17 +1319,24 @@ class NetworkGraph:
             self._node_counter = max(self._nodes) + 1
         if self._edges:
             self._edge_counter = max(self._edges) + 1
+        
+        self.last_iteration = data.get("metadata", {}).get("last_iteration", 0)
 
     def summary(self) -> str:
         lines = [f"[NetworkGraph]  nodes={len(self._nodes)}  edges={len(self._edges)}"]
         ref = self.reference_energy()
 
-        for node in sorted(self._nodes.values(), key=lambda n: (n.energy is None, n.energy)):
-            if node.energy is not None and ref is not None:
-                rel = (node.energy - ref) * HARTREE_TO_KCALMOL
-                e_str = f"{node.energy:+.8f} Ha  (+{rel:.2f} kcal/mol)"
-            elif node.energy is not None:
-                e_str = f"{node.energy:+.8f} Ha"
+        for node in sorted(
+            self._nodes.values(),
+            key=lambda n: (n.effective_energy is None, n.effective_energy),
+        ):
+            eff = node.effective_energy
+            label = "G" if node.free_energy is not None else "E"
+            if eff is not None and ref is not None:
+                rel = (eff - ref) * HARTREE_TO_KCALMOL
+                e_str = f"{eff:+.8f} Ha  (+{rel:.2f} kcal/mol) [{label}]"
+            elif eff is not None:
+                e_str = f"{eff:+.8f} Ha  [{label}]"
             else:
                 e_str = "energy unknown"
             lines.append(f"  EQ{node.node_id:06d}: {e_str}  [{node.xyz_file}]")
@@ -1346,6 +1355,7 @@ class NetworkGraph:
                 f"ΔG‡(fwd)={fwd_free} kcal/mol  ΔG‡(rev)={rev_free} kcal/mol"
             )
         return "\n".join(lines)
+   
         
 # ===========================================================================
 # Section 6 : ProfileParser
@@ -1860,6 +1870,7 @@ class ReactionNetworkMapper:
 
         if self.resume and os.path.isfile(self.graph_json_path):
             self.graph.load(self.graph_json_path)
+            self._iteration = self.graph.last_iteration
             self._requeue_all_nodes()
         else:
             self._register_seed_structure()
@@ -1936,7 +1947,8 @@ class ReactionNetworkMapper:
 
             # ── Execute the task ────────────────────────────────────────────
             self._iteration += 1
-
+            self.graph.last_iteration = self._iteration
+            
             with open(history_log, "a", encoding="utf-8") as fh:
                 fh.write(
                     f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
@@ -2204,8 +2216,7 @@ class ReactionNetworkMapper:
                 )
 
     def _requeue_all_nodes(self) -> None:
-        # On resume, re-derive the reference bond fingerprint from EQ0 so
-        # that the rearrangement filter works correctly for newly found nodes.
+        # ── Step 1: Restore the reference fingerprint from EQ0 ─────────────────
         if self.exclude_bond_rearrangement and self._ref_bond_fingerprint is None:
             seed_node = self.graph.get_node(0)
             if seed_node is not None and seed_node.coords.size > 0:
@@ -2220,6 +2231,26 @@ class ReactionNetworkMapper:
                     self._ref_bond_fingerprint,
                 )
 
+        # ── Step 2: Reconstruct the bond-rearrangement exclusion list across all nodes ───────
+        # Since `_bond_rearrangement_excluded_ids` is reset to empty after a resume,
+        # re-evaluate the topology of each node to restore the exclusion list.
+        if self.exclude_bond_rearrangement and self._ref_bond_fingerprint is not None:
+            for node in self.graph.all_nodes():
+                if node.coords.size == 0:
+                    continue
+                if self.bond_checker.has_rearrangement(
+                    self._ref_bond_symbols, self._ref_bond_coords,
+                    node.symbols, node.coords,
+                ):
+                    self.excluded_node_ids.add(node.node_id)
+                    self._bond_rearrangement_excluded_ids.add(node.node_id)
+                    logger.info(
+                        "_requeue_all_nodes: EQ%d restored to excluded_node_ids "
+                        "(bond topology differs from seed structure).",
+                        node.node_id,
+                    )
+
+        # ── Step 3: Rebuild the queues for all nodes ───────────────────────────
         for node in self.graph.all_nodes():
             self._enqueue_perturbations(node, force_add=True)
 
