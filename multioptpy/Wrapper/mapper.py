@@ -2266,7 +2266,7 @@ class ReactionNetworkMapper:
         if result is None:
             return
 
-        ts_energy: float = result["ts_energy"] if result["ts_energy"] is not None else 0.0
+        ts_energy: float | None = result["ts_energy"]
 
         # ── Step 1: parse new TS geometry ─────────────────────────────────
         ts_sym:    list[str]  = []
@@ -2379,7 +2379,7 @@ class ReactionNetworkMapper:
         logger.info(
             "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
             edge_id, node_id_1, node_id_2,
-            f"{ts_energy:.8f} Ha",
+            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
