@@ -2215,6 +2215,22 @@ class ReactionNetworkMapper:
         config["step1_settings"]["manual_AFIR"] = task.afir_params
         config["run_step4"]     = True
 
+        # ── Persist the exact config passed to AutoTS ────────────────────
+        # Written before the workflow starts so the file survives a crash.
+        # This is the fully-resolved copy (deepcopy of base_config with
+        # initial_mol_file, work_dir, manual_AFIR, and run_step4 applied),
+        # so it reflects precisely what AutoTS will receive.
+        config_used_path = os.path.join(run_dir, "config_used.json")
+        try:
+            with open(config_used_path, "w", encoding="utf-8") as _fh:
+                json.dump(config, _fh, indent=2, default=str)
+            logger.debug("_run_autots: wrote config_used.json -> %s", config_used_path)
+        except Exception as _exc:
+            logger.warning(
+                "_run_autots: could not write config_used.json (%s): %s",
+                config_used_path, _exc,
+            )
+
         original_cwd = os.getcwd()
         try:
             os.chdir(run_dir)
