@@ -1908,6 +1908,10 @@ class ProfileParser:
             return result
     
         with open(txt_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                # Stop at the free-energy section so G_tot is not mis-parsed
+                # as an electronic energy (the section starts with "# ===...
                 # FREE ENERGY SECTION").
                 if "FREE ENERGY SECTION" in stripped:
                     break
