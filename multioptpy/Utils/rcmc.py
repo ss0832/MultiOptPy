@@ -223,7 +223,8 @@ class RCMCQueue(ExplorationQueue):
                 self._tasks.values(),
                 key=lambda t: t.metadata.get("delta_E_hartree", 0.0),
             )
-            del self._tasks[id(selected)]
+            target_key = next(k for k, v in self._tasks.items() if v is selected)
+            del self._tasks[target_key]
             return selected
 
         # ── Select nodes and energy accessor based on energy mode ───────────
@@ -250,7 +251,8 @@ class RCMCQueue(ExplorationQueue):
             if not self._tasks:
                 return None
             selected = next(iter(self._tasks.values()))
-            del self._tasks[id(selected)]
+            target_key = next(k for k, v in self._tasks.items() if v is selected)
+            del self._tasks[target_key]
             return selected
 
         n_nodes = len(nodes)
@@ -457,7 +459,8 @@ class RCMCQueue(ExplorationQueue):
                 task.priority = 0.0
 
         selected = max(self._tasks.values(), key=lambda t: t.priority)
-        del self._tasks[id(selected)]
+        target_key = next(k for k, v in self._tasks.items() if v is selected)
+        del self._tasks[target_key]
         logger.debug(
             "RCMC pop(): selected EQ%d  priority(q)=%.6f  "
             "remaining_tasks=%d",
@@ -705,7 +708,7 @@ def main(argv: list[str] | None = None) -> None:
             priority=0.0,
             metadata={"delta_E_hartree": eff_e},
         )
-        queue._tasks[id(task)] = task
+        queue.push(task)
 
     # ── Run RCMC – one full pop() pass ────────────────────────────────────────
     energy_label = "Gibbs free energy (G_tot)" if use_free_energy else "Electronic energy (SCF)"
