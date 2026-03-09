@@ -407,18 +407,27 @@ class RSIRFO:
         # More efficient projection matrix construction for multiple roots
         P = np.eye(gradient.size)
         root_num = 0
-        i = 0
-        while root_num < len(self.roots):
-            if np.abs(eigvals[i]) > 1e-10: 
-                # Extract the eigenvector once
-                trans_vec = eigvecs[:, i]
-                # Use inplace operation to update P (avoid new allocation)
-                if self.NEB_mode:
-                    P -= np.outer(trans_vec, trans_vec)
-                else:
-                    P -= 2 * np.outer(trans_vec, trans_vec)
-                root_num += 1
-            i += 1
+        
+        try:
+            for i in range(len(eigvals)):
+                if root_num >= len(self.roots):
+                    break
+                if np.abs(eigvals[i]) > 1e-10:
+                    trans_vec = eigvecs[:, i]
+                    if self.NEB_mode:
+                        P -= np.outer(trans_vec, trans_vec)
+                    else:
+                        P -= 2 * np.outer(trans_vec, trans_vec)
+                    root_num += 1
+
+            if root_num < len(self.roots):
+                raise ValueError("Not enough valid eigenvectors.")
+                
+        except (ValueError, IndexError) as e:
+            self.log(f"Projection Error: {str(e)}", force=True)
+            self.log("Falling back to identity projection (Steepest Descent).", force=True)
+            P = np.eye(gradient.size)
+            
         # Create the image Hessian H_star and image gradient grad_star
         H_star = np.dot(P, H)
         H_star = 0.5 * (H_star + H_star.T)  # Symmetrize the Hessian
