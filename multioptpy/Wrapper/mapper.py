@@ -39,7 +39,7 @@ except ImportError as _autots_import_err:
     AutoTSWorkflow = None  # type: ignore[assignment,misc]
 
 try:
-    from optimize_wrapper import OptimizationJob
+    from multioptpy.Wrapper.optimize_wrapper import OptimizationJob
 except ImportError as _opt_import_err:
     logging.getLogger(__name__).warning(
         "[mapper] OptimizationJob not available: %s", _opt_import_err
