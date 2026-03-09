@@ -8,6 +8,7 @@ and external optimization utilities.
 
 from __future__ import annotations
 
+import bisect
 import glob
 import heapq
 import json
@@ -1215,9 +1216,30 @@ class NetworkGraph:
         self._ref_energy_cache: float | None = _UNSET  # type: ignore[assignment]
         self.last_iteration: int = 0
 
+        # ── Energy-sorted indexes for O(log N) window queries ──────────────
+        # Each list stores (energy, id) tuples in ascending energy order,
+        # maintained by bisect.insort on every add_node / add_edge call.
+        # Nodes/edges whose energy is None are tracked separately in the
+        # _*_none_ids lists and always included in window query results
+        # (mirroring the original behaviour of skipping the energy pre-filter
+        # when either energy is None).
+        # The _index_dirty flag is raised by invalidate_energy_cache() and
+        # causes a full rebuild on the next window-query call, covering the
+        # case where backfill changes an energy from None to a real value.
+        self._node_energy_index: list[tuple[float, int]] = []
+        self._node_none_ids:     list[int]               = []
+        self._edge_energy_index: list[tuple[float, int]] = []
+        self._edge_none_ids:     list[int]               = []
+        self._index_dirty: bool = False
+
     def add_node(self, node: EQNode) -> None:
         self._nodes[node.node_id] = node
         self._ref_energy_cache = _UNSET  # type: ignore[assignment]
+        # Maintain energy index incrementally.
+        if node.energy is not None:
+            bisect.insort(self._node_energy_index, (node.energy, node.node_id))
+        else:
+            self._node_none_ids.append(node.node_id)
 
     def get_node(self, node_id: int) -> EQNode | None:
         return self._nodes.get(node_id)
@@ -1232,6 +1254,11 @@ class NetworkGraph:
 
     def add_edge(self, edge: TSEdge) -> None:
         self._edges[edge.edge_id] = edge
+        # Maintain energy index incrementally.
+        if edge.ts_energy is not None:
+            bisect.insort(self._edge_energy_index, (edge.ts_energy, edge.edge_id))
+        else:
+            self._edge_none_ids.append(edge.edge_id)
 
     def all_edges(self) -> list[TSEdge]:
         return list(self._edges.values())
@@ -1250,8 +1277,15 @@ class NetworkGraph:
 
         This method provides a public, encapsulated alternative to directly
         manipulating the internal ``_ref_energy_cache`` sentinel.
+
+        Also marks the energy-sorted indexes as dirty so that the next call to
+        :meth:`nodes_in_energy_window` or :meth:`edges_in_energy_window`
+        triggers a full rebuild.  This covers the backfill case where a node's
+        energy transitions from ``None`` to a real value, which would otherwise
+        leave the node stranded in ``_node_none_ids`` without a sorted entry.
         """
         self._ref_energy_cache = _UNSET  # type: ignore[assignment]
+        self._index_dirty = True
 
     def reference_energy(self) -> float | None:
         """Return the unified reference energy for priority/Boltzmann calculations.
@@ -1360,6 +1394,127 @@ class NetworkGraph:
             self._edge_counter = max(self._edges) + 1
         
         self.last_iteration = data.get("metadata", {}).get("last_iteration", 0)
+
+    # ------------------------------------------------------------------
+    # Energy-window index helpers
+    # ------------------------------------------------------------------
+
+    def _rebuild_indexes(self) -> None:
+        """Rebuild both energy-sorted indexes from scratch.
+
+        Called automatically by the window-query methods when
+        ``_index_dirty`` is ``True``.  The most common trigger is
+        :meth:`invalidate_energy_cache` after a backfill pass in
+        ``_flush_node_energy_updates``, where node energies may have
+        transitioned from ``None`` to real values.
+
+        Complexity: O(N log N) for nodes + O(E log E) for edges.
+        Called at most once per mapper iteration (the next backfill
+        flush) so the amortised cost per ``_process_profile`` call
+        remains O(log N) in steady state.
+        """
+        self._node_energy_index = []
+        self._node_none_ids     = []
+        for node in self._nodes.values():
+            if node.energy is not None:
+                bisect.insort(self._node_energy_index, (node.energy, node.node_id))
+            else:
+                self._node_none_ids.append(node.node_id)
+
+        self._edge_energy_index = []
+        self._edge_none_ids     = []
+        for edge in self._edges.values():
+            if edge.ts_energy is not None:
+                bisect.insort(self._edge_energy_index, (edge.ts_energy, edge.edge_id))
+            else:
+                self._edge_none_ids.append(edge.edge_id)
+
+        self._index_dirty = False
+
+    def nodes_in_energy_window(
+        self,
+        center: float,
+        tol: float,
+    ) -> list[EQNode]:
+        """Return EQ nodes whose energy lies within *center* ± *tol*.
+
+        Uses a binary-search on the internal sorted index for O(log N +
+        k) complexity, where k is the number of nodes in the window.
+        Nodes with ``energy = None`` are always included (the energy
+        pre-filter is not applied to them in the caller either).
+
+        Parameters
+        ----------
+        center:
+            The query energy in Hartree (typically the incoming node's
+            electronic energy).
+        tol:
+            Half-width of the energy window in Hartree (``self.energy_tolerance``
+            in :class:`ReactionMapper`).
+
+        Returns
+        -------
+        list[EQNode]
+            Candidate nodes to check.  May be empty.
+        """
+        if self._index_dirty:
+            self._rebuild_indexes()
+
+        lo = bisect.bisect_left(self._node_energy_index,  (center - tol, -1))
+        hi = bisect.bisect_right(self._node_energy_index, (center + tol, float("inf")))
+
+        result: list[EQNode] = [
+            self._nodes[nid]
+            for _, nid in self._node_energy_index[lo:hi]
+            if nid in self._nodes
+        ]
+        # Always include nodes whose energy is None.
+        for nid in self._node_none_ids:
+            node = self._nodes.get(nid)
+            if node is not None:
+                result.append(node)
+        return result
+
+    def edges_in_energy_window(
+        self,
+        center: float,
+        tol: float,
+    ) -> list[TSEdge]:
+        """Return TS edges whose ``ts_energy`` lies within *center* ± *tol*.
+
+        Analogous to :meth:`nodes_in_energy_window` but for
+        :class:`TSEdge` objects.  Edges without parsed energies
+        (``ts_energy = None``) are always included.
+
+        Parameters
+        ----------
+        center:
+            The incoming TS energy in Hartree.
+        tol:
+            Half-width of the energy window in Hartree.
+
+        Returns
+        -------
+        list[TSEdge]
+            Candidate edges to check for geometric duplication.
+        """
+        if self._index_dirty:
+            self._rebuild_indexes()
+
+        lo = bisect.bisect_left(self._edge_energy_index,  (center - tol, -1))
+        hi = bisect.bisect_right(self._edge_energy_index, (center + tol, float("inf")))
+
+        result: list[TSEdge] = [
+            self._edges[eid]
+            for _, eid in self._edge_energy_index[lo:hi]
+            if eid in self._edges
+        ]
+        # Always include edges whose ts_energy is None.
+        for eid in self._edge_none_ids:
+            edge = self._edges.get(eid)
+            if edge is not None:
+                result.append(edge)
+        return result
 
     def summary(self) -> str:
         lines = [f"[NetworkGraph]  nodes={len(self._nodes)}  edges={len(self._edges)}"]
@@ -2449,21 +2604,21 @@ class ReactionNetworkMapper:
 
         # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
         if ts_coords.size > 0:
-            for existing_edge in self.graph.all_edges():
+            # Narrow candidates to edges within the energy window.
+            # When ts_energy is None (profile parse failed) fall back to
+            # all_edges() so those structures still undergo geometric check.
+            ts_candidates: list[TSEdge] = (
+                self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
+                if ts_energy is not None
+                else self.graph.all_edges()
+            )
+            for existing_edge in ts_candidates:
                 if not existing_edge.has_coords:
                     continue
 
-                # Energy pre-filter: skip RMSD computation when energies
-                # differ by more than the tolerance (fast path).
-                # When either energy is None the filter is skipped so that
-                # structures without parsed energies still undergo the
-                # geometric check.
-                if ts_energy is not None and existing_edge.ts_energy is not None:
-                    energy_diff = abs(ts_energy - existing_edge.ts_energy)
-                    if energy_diff >= self.energy_tolerance:
-                        continue
-
-                # Geometric check via RMSD
+                # Geometric check via RMSD.
+                # Energy pre-filter is already enforced by the index window,
+                # so we proceed directly to the (more expensive) RMSD test.
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
@@ -2603,15 +2758,24 @@ class ReactionNetworkMapper:
             )
             return None
 
-        # Search only EQNode objects (graph.all_nodes) — never TSEdge objects.
-        # Nodes listed in excluded_node_ids are also skipped from the comparison
-        # pool so that a structure identical to an excluded node is treated as a
-        # new, independent node rather than being collapsed into the excluded one.
-        # Exception: nodes excluded automatically by the bond-rearrangement filter
-        # (_bond_rearrangement_excluded_ids) are still included in the comparison
-        # pool — they serve as valid deduplication references even though they are
-        # not explored further.
-        for existing in self.graph.all_nodes():
+        # Narrow the candidate pool to nodes within the energy window.
+        # When the incoming energy is None we fall back to all_nodes() so
+        # that structures without parsed energies still undergo the full
+        # geometric check (matching the original behaviour).
+        # Nodes listed in excluded_node_ids are also skipped from the
+        # comparison pool so that a structure identical to an excluded node
+        # is treated as a new, independent node rather than being collapsed
+        # into the excluded one.
+        # Exception: nodes excluded automatically by the bond-rearrangement
+        # filter (_bond_rearrangement_excluded_ids) are still included in
+        # the comparison pool — they serve as valid deduplication references
+        # even though they are not explored further.
+        candidates: list[EQNode] = (
+            self.graph.nodes_in_energy_window(energy, self.energy_tolerance)
+            if energy is not None
+            else self.graph.all_nodes()
+        )
+        for existing in candidates:
             if (
                 existing.node_id in self.excluded_node_ids
                 and existing.node_id not in self._bond_rearrangement_excluded_ids
@@ -2628,20 +2792,10 @@ class ReactionNetworkMapper:
                 )
                 continue
 
-            # Energy pre-filter (fast path).  Skipped when either energy is None.
-            if energy is not None and existing.energy is not None:
-                delta_ha = abs(energy - existing.energy)
-                if delta_ha > self.energy_tolerance:
-                    logger.debug(
-                        "_find_or_register_node: EQ%d rejected by energy pre-filter "
-                        "(|ΔE|=%.6f Ha = %.3f kcal/mol > tol=%.6f Ha = %.3f kcal/mol).",
-                        existing.node_id,
-                        delta_ha, delta_ha * HARTREE_TO_KCALMOL,
-                        self.energy_tolerance,
-                        self.energy_tolerance * HARTREE_TO_KCALMOL,
-                    )
-                    continue
-            elif energy is None or existing.energy is None:
+            # Energy pre-filter log — the window already enforces the tolerance
+            # for nodes with energy, so this branch fires only for the None-energy
+            # fallback path (both sides None) or cross-None cases.
+            if energy is None or existing.energy is None:
                 logger.debug(
                     "_find_or_register_node: energy pre-filter skipped for EQ%d "
                     "(new_E=%s  existing_E=%s).",
