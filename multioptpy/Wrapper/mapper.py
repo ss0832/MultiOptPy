@@ -2286,16 +2286,20 @@ class ReactionNetworkMapper:
             # ── Parallel path (n_parallel > 1) ──────────────────────────────
             if self.n_parallel > 1:
                 self.queue.refresh_priorities(self.graph.reference_energy())
-                batch = self._collect_task_batch(self.n_parallel)
+                # Clamp collection size so we never exceed max_iterations.
+                # This must be computed *before* _collect_task_batch because
+                # that method now pre-increments _iteration for each task.
+                if self.max_iterations > 0:
+                    remaining = self.max_iterations - self._iteration
+                    n_collect = min(self.n_parallel, remaining)
+                else:
+                    n_collect = self.n_parallel
+                batch = self._collect_task_batch(n_collect)
                 if not batch:
                     logger.info(
                         "All candidate (EQ, pair) combinations exhausted. Stopping."
                     )
                     break
-                # Clamp batch so we never exceed max_iterations.
-                if self.max_iterations > 0:
-                    remaining = self.max_iterations - self._iteration
-                    batch = batch[:remaining]
                 self._run_batch_parallel(batch, history_log, priority_log)
                 continue
 
@@ -2395,18 +2399,20 @@ class ReactionNetworkMapper:
     # Parallel batch execution helpers
     # ------------------------------------------------------------------
 
-    def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str]]:
+    def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str, str, int]]:
         """Pop up to *n* ready tasks and create their run directories.
 
-        Returns a list of ``(task, run_dir, gamma_sign, atom_i, atom_j)``
-        4-tuples — one per task that was selected.  The explored-pairs log
+        Returns a list of ``(task, run_dir, gamma_sign, atom_i, atom_j, iteration)``
+        6-tuples — one per task that was selected.  The explored-pairs log
         is updated immediately for each task (before execution) so that
-        concurrent workers do not re-select the same pair.
+        concurrent workers do not re-select the same pair.  ``self._iteration``
+        is pre-incremented once per task here so that each task in the batch
+        receives a unique run directory name even when ``n_parallel > 1``.
 
         An empty list is returned when no runnable tasks are available,
         which signals :meth:`_run_batch_parallel` to stop the loop.
         """
-        batch: list[tuple[ExplorationTask, str, str, str, str]] = []
+        batch: list[tuple[ExplorationTask, str, str, str, str, int]] = []
         while len(batch) < n:
             task = self.queue.pop()
             if task is None:
@@ -2425,8 +2431,11 @@ class ReactionNetworkMapper:
                 )
                 continue
             self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-            run_dir = self._make_run_dir(task)
-            batch.append((task, run_dir, gamma_sign, str(atom_i), str(atom_j)))
+            # Pre-increment so every task in the batch gets its own unique
+            # iteration number and therefore its own run directory.
+            self._iteration += 1
+            run_dir = self._make_run_dir(task, iteration=self._iteration)
+            batch.append((task, run_dir, gamma_sign, str(atom_i), str(atom_j), self._iteration))
         return batch
 
     def _run_batch_parallel(
@@ -2451,8 +2460,8 @@ class ReactionNetworkMapper:
             Absolute paths to the two log files maintained by :meth:`run`.
         """
         # ── Build per-task configs and persist config_used.json ──────────
-        task_configs: list[tuple[ExplorationTask, str, str, dict]] = []
-        for task, run_dir, *_ in batch:
+        task_configs: list[tuple[ExplorationTask, str, str, dict, int]] = []
+        for task, run_dir, *_, iteration in batch:
             workspace = os.path.join(run_dir, "autots_workspace")
             config = copy.deepcopy(self.base_config)
             config["initial_mol_file"]              = task.xyz_file
@@ -2470,39 +2479,40 @@ class ReactionNetworkMapper:
                     "_run_batch_parallel: could not write config_used.json "
                     "(%s): %s", config_used_path, exc,
                 )
-            task_configs.append((task, run_dir, workspace, config))
+            task_configs.append((task, run_dir, workspace, config, iteration))
 
         # ── Submit all tasks to the pool ──────────────────────────────────
-        futures: dict[concurrent.futures.Future, tuple[ExplorationTask, str, str]] = {}
+        futures: dict[concurrent.futures.Future, tuple[ExplorationTask, str, str, int]] = {}
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=self.n_parallel,
             mp_context=self._mp_ctx,
         ) as executor:
-            for task, run_dir, workspace, config in task_configs:
+            for task, run_dir, workspace, config, iteration in task_configs:
                 f = executor.submit(_autots_worker, config, run_dir, workspace)
-                futures[f] = (task, run_dir, workspace)
+                futures[f] = (task, run_dir, workspace, iteration)
 
         # ── Collect results (preserving submission order) ─────────────────
-        results: list[tuple[ExplorationTask, str, list[str], str]] = []
-        for f, (task, run_dir, _workspace) in futures.items():
+        results: list[tuple[ExplorationTask, str, list[str], str, int]] = []
+        for f, (task, run_dir, _workspace, iteration) in futures.items():
             try:
                 profile_dirs: list[str] = f.result()
-                results.append((task, run_dir, profile_dirs, "DONE"))
+                results.append((task, run_dir, profile_dirs, "DONE", iteration))
             except Exception as exc:
                 logger.error(
                     "_run_batch_parallel: AutoTS failed for run %s: %s",
                     run_dir, exc,
                 )
-                results.append((task, run_dir, [], "FAILED"))
+                results.append((task, run_dir, [], "FAILED", iteration))
 
         # ── Process results sequentially (graph is not thread-safe) ───────
-        for task, run_dir, profile_dirs, status in results:
-            self._iteration += 1
-            self.graph.last_iteration = self._iteration
+        for task, run_dir, profile_dirs, status, iteration in results:
+            # _iteration was already incremented in _collect_task_batch for
+            # each task; update the graph's last_iteration to the highest value.
+            self.graph.last_iteration = max(self.graph.last_iteration, iteration)
 
             with open(history_log, "a", encoding="utf-8") as fh:
                 fh.write(
-                    f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
+                    f"Iter: {iteration:06d} | Node: EQ{task.node_id:06d} "
                     f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params} "
                     f"| Status: {status}\n"
                 )
@@ -2510,7 +2520,7 @@ class ReactionNetworkMapper:
             if status == "DONE":
                 logger.info(
                     "Iter %06d (batch): _run_autots returned %d profile director%s.",
-                    self._iteration, len(profile_dirs),
+                    iteration, len(profile_dirs),
                     "y" if len(profile_dirs) == 1 else "ies",
                 )
                 for pdir in profile_dirs:
@@ -2793,8 +2803,9 @@ class ReactionNetworkMapper:
         for node in self.graph.all_nodes():
             self._enqueue_perturbations(node, force_add=True)
 
-    def _make_run_dir(self, task: ExplorationTask) -> str:
-        name = f"run_{self._iteration:06d}_node{task.node_id}"
+    def _make_run_dir(self, task: ExplorationTask, iteration: int | None = None) -> str:
+        iter_num = self._iteration if iteration is None else iteration
+        name = f"run_{iter_num:06d}_node{task.node_id}"
         run_dir = os.path.join(self.output_dir, "runs", name)
         os.makedirs(run_dir, exist_ok=True)
         os.makedirs(os.path.join(run_dir, "autots_workspace"), exist_ok=True)
