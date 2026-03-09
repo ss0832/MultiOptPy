@@ -1352,7 +1352,7 @@ class NetworkGraph:
                 f"EQ{edge.node_id_1} -- EQ{edge.node_id_2}  "
                 f"E(TS)={ts_e}  "
                 f"Ea(fwd)={fwd} kcal/mol  Ea(rev)={rev} kcal/mol  "
-                f"ΔG‡(fwd)={fwd_free} kcal/mol  ΔG‡(rev)={rev_free} kcal/mol"
+                f"ΔG_ddag(fwd)={fwd_free} kcal/mol  ΔG_ddag(rev)={rev_free} kcal/mol"
             )
         return "\n".join(lines)
    
@@ -2593,7 +2593,7 @@ class ReactionNetworkMapper:
             if energy is not None and existing.energy is not None:
                 delta_ha = abs(energy - existing.energy)
                 if delta_ha > self.energy_tolerance:
-                    logger.info(
+                    logger.debug(
                         "_find_or_register_node: EQ%d rejected by energy pre-filter "
                         "(|ΔE|=%.6f Ha = %.3f kcal/mol > tol=%.6f Ha = %.3f kcal/mol).",
                         existing.node_id,
@@ -2613,7 +2613,7 @@ class ReactionNetworkMapper:
 
             rmsd = self.checker.compute_rmsd(symbols, coords, existing.symbols, existing.coords)
             if rmsd < self.checker.rmsd_threshold:
-                logger.info(
+                logger.debug(
                     "_find_or_register_node: MATCH EQ%d  RMSD=%.4f A < threshold=%.3f A.",
                     existing.node_id, rmsd, self.checker.rmsd_threshold,
                 )
@@ -2642,7 +2642,7 @@ class ReactionNetworkMapper:
                     )
                 return existing.node_id
             else:
-                logger.info(
+                logger.debug(
                     "_find_or_register_node: no match EQ%d  RMSD=%.4f A >= threshold=%.3f A.",
                     existing.node_id, rmsd, self.checker.rmsd_threshold,
                 )
