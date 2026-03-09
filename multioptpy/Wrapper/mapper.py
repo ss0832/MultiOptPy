@@ -2440,7 +2440,7 @@ class ReactionNetworkMapper:
 
     def _run_batch_parallel(
         self,
-        batch: list[tuple[ExplorationTask, str, str, str, str]],
+        batch: list[tuple[ExplorationTask, str, str, str, str, int]],
         history_log: str,
         priority_log: str,
     ) -> None:
@@ -2682,18 +2682,40 @@ class ReactionNetworkMapper:
             energy: float | None = None
 
             if optimizer is not None:
-                for attr in ("energy", "final_energy", "scf_energy", "result_energy",
-                             "optimized_energy", "last_energy", "minimum_energy"):
-                    raw = getattr(optimizer, attr, None)
-                    if raw is not None:
+                # Priority 1: use a canonical accessor method when available.
+                # This is the most forward-compatible approach — if the Optimize
+                # class exposes get_energy() or get_final_energy(), use it
+                # directly rather than probing instance attributes.
+                for method_name in ("get_energy", "get_final_energy", "get_scf_energy"):
+                    method = getattr(optimizer, method_name, None)
+                    if callable(method):
                         try:
-                            energy = float(raw)
-                            logger.info(
-                                f"Initial optimization energy (optimizer.{attr}): {energy:.10f} Ha"
-                            )
-                            break
-                        except (TypeError, ValueError):
+                            raw = method()
+                            if raw is not None:
+                                energy = float(raw)
+                                logger.info(
+                                    "Initial optimization energy "
+                                    f"(optimizer.{method_name}()): {energy:.10f} Ha"
+                                )
+                        except (TypeError, ValueError, Exception):
                             pass
+                        break  # stop after the first matching method
+
+                # Priority 2: fall back to well-known instance attributes only
+                # when no accessor method was found.  The list is intentionally
+                # kept short; if none match, the warning below guides diagnosis.
+                if energy is None:
+                    for attr in ("energy", "final_energy", "scf_energy"):
+                        raw = getattr(optimizer, attr, None)
+                        if raw is not None:
+                            try:
+                                energy = float(raw)
+                                logger.info(
+                                    f"Initial optimization energy (optimizer.{attr}): {energy:.10f} Ha"
+                                )
+                                break
+                            except (TypeError, ValueError):
+                                pass
 
             if energy is None:
                 logger.warning(
