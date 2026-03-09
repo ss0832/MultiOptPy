@@ -1488,16 +1488,23 @@ class ReactionNetworkMapper:
     # Canonical set of keys accepted under the "mapper_settings" section.
     # Any key present in the config that is NOT listed here raises ValueError.
     _KNOWN_MAPPER_SETTINGS_KEYS: frozenset[str] = frozenset({
-        "temperature_K",
-        "rmsd_threshold",
-        "max_iterations",
-        "afir_gamma_kJmol",
-        "max_pairs",
-        "dist_lower_ang",
-        "dist_upper_ang",
-        "output_dir",
-        "rng_seed",
-        "exclude_nodes",
+            "temperature_K",
+            "rmsd_threshold",
+            "max_iterations",
+            "afir_gamma_kJmol",
+            "max_pairs",
+            "dist_lower_ang",
+            "dist_upper_ang",
+            "output_dir",
+            "rng_seed",
+            "active_atoms",
+            "include_negative_gamma",
+            "excluded_node_ids",
+            "exclude_bond_rearrangement",
+            "use_rcmc",
+            "rcmc_temperature_K",
+            "rcmc_reaction_time_s",
+            "rcmc_start_node_id",
     })
 
     @classmethod
@@ -1537,14 +1544,16 @@ class ReactionNetworkMapper:
         # ── Required keys and per-field checks ───────────────────────────
         # (key, type_or_types, condition_fn, condition_description)
         _checks: list[tuple] = [
-            ("temperature_K",    (int, float), lambda v: v > 0,   "must be > 0"),
-            ("rmsd_threshold",   (int, float), lambda v: v > 0,   "must be > 0"),
-            ("max_iterations",   int,          lambda v: v > 0,   "must be a positive integer"),
-            ("afir_gamma_kJmol", (int, float), lambda v: v > 0,   "must be > 0"),
-            ("max_pairs",        int,          lambda v: v > 0,   "must be a positive integer"),
-            ("dist_lower_ang",   (int, float), lambda v: v >= 0,  "must be >= 0"),
-            ("dist_upper_ang",   (int, float), lambda v: v > 0,   "must be > 0"),
-            ("rng_seed",         int,          lambda v: v >= 0,  "must be a non-negative integer"),
+            ("temperature_K",        (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rmsd_threshold",       (int, float), lambda v: v > 0,   "must be > 0"),
+            ("max_iterations",       int,          lambda v: v > 0,   "must be a positive integer"),
+            ("afir_gamma_kJmol",     (int, float), lambda v: v > 0,   "must be > 0"),
+            ("max_pairs",            int,          lambda v: v > 0,   "must be a positive integer"),
+            ("dist_lower_ang",       (int, float), lambda v: v >= 0,  "must be >= 0"),
+            ("dist_upper_ang",       (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rcmc_temperature_K",   (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rcmc_reaction_time_s", (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rng_seed",             int,          lambda v: v >= 0,  "must be a non-negative integer"),
         ]
 
         for key, expected_type, condition, description in _checks:
