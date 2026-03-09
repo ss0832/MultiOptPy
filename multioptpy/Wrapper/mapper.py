@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import bisect
 import concurrent.futures
+import traceback
 import glob
 import heapq
 import json
@@ -143,7 +144,7 @@ def _autots_worker_with_queue(
         profiles = _autots_worker(config, run_dir, workspace)
         result_queue.put(("ok", profiles))
     except Exception as exc:  # noqa: BLE001
-        result_queue.put(("err", exc))
+        result_queue.put(("err", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
 
 
 logger = logging.getLogger(__name__)
@@ -292,7 +293,7 @@ class StructureChecker:
         # Stage 4: full degeneracy only — fine SO(3) grid                 #
         # -------------------------------------------------------------- #
         if deg_01 and deg_12:
-            fine = self._build_planar_candidates(deg_01, deg_12, n_plane=12, n_sphere=8)
+            fine = self._build_planar_candidates(deg_01, deg_12, n_plane=8, n_sphere=6)
             min_rmsd = min(min_rmsd, self._try_candidates(
                 fine, sym_a, ca_aligned, sym_b, cb_aligned,
             ))
@@ -809,7 +810,7 @@ class ExplorationQueue(ABC):
         """
         # ── Stale-entry purge ────────────────────────────────────────────
         n_tasks = len(self._tasks)
-        if n_tasks > 0 and len(self._heap) > 2 * n_tasks:
+        if len(self._heap) > max(100, 2 * n_tasks):
             # Rebuild heap retaining only entries still present in _tasks.
             valid = [
                 entry for entry in self._heap
@@ -987,7 +988,6 @@ class ExploredPairsLog:
     so that duplicate exploration is avoided across separate mapper runs.
 
     File format (one record per line)::
-
         EQ{node_id:06d} {atom_i_1based} {atom_j_1based} {gamma_sign}
 
     where ``gamma_sign`` is ``'+'`` for a positive (attractive) AFIR gamma and
@@ -997,29 +997,37 @@ class ExploredPairsLog:
     ----------
     filepath : str
         Absolute path to the text file used for persistence.
+    flush_interval : int
+        Number of records to batch before flushing to disk. Defaults to 50.
+        Higher values reduce I/O bottleneck but risk losing the latest 
+        records if the process crashes unexpectedly.
     """
 
-    def __init__(self, filepath: str) -> None:
+    def __init__(self, filepath: str, flush_interval: int = 50) -> None:
         self._filepath = filepath
+        self._flush_interval = flush_interval
+        self._write_count = 0
+
         # In-memory set for O(1) look-up: (node_id, atom_i, atom_j, gamma_sign)
         self._explored: set[tuple[int, int, int, str]] = set()
         # Fast O(1) membership check: which node_ids have been explored at all.
         self._explored_node_ids: set[int] = set()
         self._load()
+
         # Keep the append handle open so each record() call is a single
-        # write() rather than open/write/close.  The handle is flushed after
-        # every write so the file stays consistent even if the process is
-        # interrupted between records.
+        # write() rather than open/write/close. 
+        # The handle is flushed periodically based on flush_interval.
         self._fh = open(self._filepath, "a", encoding="utf-8")  # noqa: SIM115
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    #  Private helpers                                                     #
+    # ------------------------------------------------------------------ #
 
     def _load(self) -> None:
         """Load existing records from the text file (if present)."""
         if not os.path.isfile(self._filepath):
             return
+        
         with open(self._filepath, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -1030,24 +1038,28 @@ class ExploredPairsLog:
                     continue
                 try:
                     # Strip the leading "EQ" prefix before converting to int
-                    node_id    = int(parts[0][2:])
-                    atom_i     = int(parts[1])
-                    atom_j     = int(parts[2])
+                    node_id = int(parts[0][2:])
+                    atom_i = int(parts[1])
+                    atom_j = int(parts[2])
                     gamma_sign = parts[3]
+                    
                     if gamma_sign not in ("+", "-"):
                         continue
+                        
                     self._explored.add((node_id, atom_i, atom_j, gamma_sign))
                     self._explored_node_ids.add(node_id)
                 except (ValueError, IndexError):
                     continue
+                    
         logger.info(
             "ExploredPairsLog: loaded %d records from %s",
-            len(self._explored), self._filepath,
+            len(self._explored),
+            self._filepath,
         )
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    #  Public interface                                                    #
+    # ------------------------------------------------------------------ #
 
     def has(self, node_id: int, atom_i: int, atom_j: int, gamma_sign: str) -> bool:
         """Return ``True`` if this (node, pair, sign) has already been explored."""
@@ -1056,17 +1068,17 @@ class ExploredPairsLog:
     def has_any_for_node(self, node_id: int) -> bool:
         """Return ``True`` if *node_id* has at least one recorded exploration.
 
-        Uses an internal O(1) set keyed by node_id so this method is
-        constant-time regardless of the total number of explored pairs.
+        Uses an internal O(1) set keyed by node_id so this method is constant-time
+        regardless of the total number of explored pairs.
         """
         return node_id in self._explored_node_ids
 
     def contains(self, key: tuple[int, int, int, str]) -> bool:
         """Return ``True`` if the exact (node_id, atom_i, atom_j, gamma_sign) tuple exists.
 
-        This is a convenience wrapper around :meth:`has` that accepts a
-        pre-built 4-tuple, which is useful when the caller has already
-        constructed the key for other purposes (e.g. set-difference checks).
+        This is a convenience wrapper around :meth:`has` that accepts a pre-built
+        4-tuple, which is useful when the caller has already constructed the key
+        for other purposes (e.g. set-difference checks).
         """
         return key in self._explored
 
@@ -1075,16 +1087,23 @@ class ExploredPairsLog:
         key = (node_id, atom_i, atom_j, gamma_sign)
         if key in self._explored:
             return
+
         self._explored.add(key)
         self._explored_node_ids.add(node_id)
+        
+        # Write to buffer
         self._fh.write(f"EQ{node_id:06d} {atom_i} {atom_j} {gamma_sign}\n")
-        self._fh.flush()
+        
+        # Batch flushing
+        self._write_count += 1
+        if self._write_count % self._flush_interval == 0:
+            self._fh.flush()
 
     def close(self) -> None:
         """Flush and close the underlying append file handle.
 
         Should be called when the log will no longer be written to (e.g. at
-        the end of :meth:`ReactionNetworkMapper.run`).  Safe to call multiple
+        the end of :meth:`ReactionNetworkMapper.run`). Safe to call multiple
         times — subsequent calls after the first are no-ops.
         """
         if not self._fh.closed:
@@ -1100,7 +1119,7 @@ class ExploredPairsLog:
 
     def __len__(self) -> int:
         return len(self._explored)
-
+        
 # ===========================================================================
 # Section 4 : PerturbationGenerator
 # ===========================================================================
@@ -3540,12 +3559,13 @@ class ReactionNetworkMapper:
                 shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
         except Exception as exc:
-            logger.warning(
-                "_persist_node_xyz: failed to copy EQ%06d xyz to output dir "
-                "(src=%s  dst=%s): %s — falling back to source path.",
-                node_id, src_xyz, dst, exc,
+            error_msg = (
+                f"Failed to persist node XYZ file for EQ{node_id:06d}. "
+                f"Cannot copy from '{src_xyz}' to '{dst}'. "
+                f"Please check disk space, directory existence, and access permissions."
             )
-            return os.path.abspath(src_xyz)
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from exc
 
     def _persist_ts_xyz(self, src_xyz: str, edge_id: int) -> str:
         dst = os.path.join(self.output_dir, "nodes", f"TS{edge_id:06d}.xyz")
@@ -3554,9 +3574,10 @@ class ReactionNetworkMapper:
                 shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
         except Exception as exc:
-            logger.warning(
-                "_persist_ts_xyz: failed to copy TS%06d xyz to output dir "
-                "(src=%s  dst=%s): %s — falling back to source path.",
-                edge_id, src_xyz, dst, exc,
+            error_msg = (
+                f"Failed to persist edge XYZ file for TS{edge_id:06d}. "
+                f"Cannot copy from '{src_xyz}' to '{dst}'. "
+                f"Please check disk space, directory existence, and access permissions."
             )
-            return os.path.abspath(src_xyz)
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from exc
