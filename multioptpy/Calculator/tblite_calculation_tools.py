@@ -36,7 +36,7 @@ class Calculation:
         self.START_FILE = kwarg.get("START_FILE", None)
         self.N_THREAD = kwarg.get("N_THREAD", 1)
         self.SET_MEMORY = kwarg.get("SET_MEMORY", "2GB")
-        self.FUNCTIONAL = kwarg.get("FUNCTIONAL", None) # Used for method selection if needed
+        self.FUNCTIONAL = kwarg.get("FUNCTIONAL", None)
         self.FC_COUNT = kwarg.get("FC_COUNT", 1)
         self.BPA_FOLDER_DIRECTORY = kwarg.get("BPA_FOLDER_DIRECTORY", "./")
         self.Model_hess = kwarg.get("Model_hess", None)
@@ -45,14 +45,19 @@ class Calculation:
         self.hessian_flag = False
         self.cpcm_solv_model = kwarg.get("cpcm_solv_model", None)
         self.alpb_solv_model = kwarg.get("alpb_solv_model", None)
-        self.method = kwarg.get("method", "GFN2-xTB") # Default method
+        self.method = kwarg.get("method", "GFN2-xTB")
         self.verbosity = 0
         self.numerical_delivative_delta = 0.0001
+
+        # --- OPTIMIZATION: Enforce Thread Count for tblite/OpenMP ---
+        os.environ["OMP_NUM_THREADS"] = str(self.N_THREAD)
+        os.environ["MKL_NUM_THREADS"] = str(self.N_THREAD)
+        os.environ["OPENBLAS_NUM_THREADS"] = str(self.N_THREAD)
 
     def _get_calculator(self, positions_bohr, element_numbers, charge, uhf):
         """Internal helper to create Calculator instance"""
         calc = Calculator(self.method, element_numbers, positions_bohr, charge=charge, uhf=uhf)
-        calc.set("max-iter", 500) # Or dynamic based on atoms
+        calc.set("max-iter", 500)
         calc.set("verbosity", self.verbosity)
         
         if self.cpcm_solv_model is not None:
@@ -65,92 +70,68 @@ class Calculation:
     def run_calculation(self, positions_bohr, element_number_list, charge_mult):
         """
         Execute TBLite calculation for a single geometry.
-        
-        Args:
-            positions_bohr (np.ndarray): Coordinates in Bohr.
-            element_number_list (np.ndarray): Array of atomic numbers.
-            charge_mult (list): [charge, multiplicity].
-            
-        Returns:
-            tuple: (energy, gradient)
         """
         charge = int(charge_mult[0])
         mult = int(charge_mult[1])
-        # xTB logic: uhf is number of unpaired electrons (mult - 1)
         uhf = max(mult - 1, 0)
         
-        # Override uhf if unrestrict flag is set but mult is 1 (though usually 0 for singlet)
         if self.unrestrict and uhf == 0:
-             # Logic depends on specific needs, usually 0 is fine for RHF/RKS equivalent
              pass
 
         calc = self._get_calculator(positions_bohr, element_number_list, charge, uhf)
         
-        # Execute
         res = calc.singlepoint()
         e = float(res.get("energy"))
         g = res.get("gradient") # Hartree/Bohr
         
-        np.save(self.BPA_FOLDER_DIRECTORY+"raw_grad.npy", g)
-        
-        self.res = res # Store full result for later access to orbitals, etc.
+        np.save(os.path.join(self.BPA_FOLDER_DIRECTORY, "raw_grad.npy"), g)
+        self.res = res 
         
         return e, g
 
     def numerical_hessian(self, geom_num_list, element_number_list, electric_charge_and_multiplicity):
         """
         Compute numerical Hessian using finite difference of gradients.
+        (Highly optimized O(N) evaluation with 1D loop and in-place modification)
         """
         n_atoms = len(geom_num_list)
         hessian = np.zeros((3 * n_atoms, 3 * n_atoms))
         
         charge = int(electric_charge_and_multiplicity[0])
-        uhf = int(electric_charge_and_multiplicity[1]) - 1
+        uhf = max(int(electric_charge_and_multiplicity[1]) - 1, 0)
+        delta = self.numerical_delivative_delta
+        
+        
+        geom = np.array(geom_num_list, dtype=float)
 
-        # Pre-calculation setup
-        # Note: Optimization opportunity - parallelize this loop if possible in future
-        count = 0
-        for atom_num in range(n_atoms):
-            for i in range(3): # x, y, z
-                for atom_num_2 in range(n_atoms):
-                    for j in range(3):
-                        # Symmetric check to avoid double calculation
-                        if count > 3 * atom_num_2 + j:
-                            continue
-                        
-                        tmp_grad = []
-                        for direction in [1, -1]:
-                            # Perturb geometry
-                            perturbed_geom = copy.copy(geom_num_list)
-                            perturbed_geom[atom_num][i] += direction * self.numerical_delivative_delta
-                            
-                            calc = self._get_calculator(perturbed_geom, element_number_list, charge, uhf)
-                            res = calc.singlepoint()
-                            g = res.get("gradient")
-                            tmp_grad.append(g[atom_num_2][j])
-                        
-                        # Central difference
-                        val = (tmp_grad[0] - tmp_grad[1]) / (2 * self.numerical_delivative_delta)
-                        hessian[3*atom_num+i][3*atom_num_2+j] = val
-                        hessian[3*atom_num_2+j][3*atom_num+i] = val
-                        
-                count += 1
+        for j in range(3 * n_atoms):
+            atom = j // 3
+            coord = j % 3
+
+            
+            geom[atom, coord] += delta
+            calc_plus = self._get_calculator(geom, element_number_list, charge, uhf)
+            grad_plus = calc_plus.singlepoint().get("gradient").flatten()
+
+           
+            geom[atom, coord] -= 2 * delta
+            calc_minus = self._get_calculator(geom, element_number_list, charge, uhf)
+            grad_minus = calc_minus.singlepoint().get("gradient").flatten()
+
+           
+            geom[atom, coord] += delta
+
+          
+            hessian[:, j] = (grad_plus - grad_minus) / (2 * delta)
+
+        
+        hessian = (hessian + hessian.T) / 2.0
         return hessian
 
     def calc_exact_hess(self, positions_bohr, element_number_list, charge_mult):
-        """
-        Calculate Exact Hessian (Numerical) and project out TR modes.
-        """
-        # Compute raw numerical Hessian
         exact_hess = self.numerical_hessian(positions_bohr, element_number_list, charge_mult)
-        np.save(self.BPA_FOLDER_DIRECTORY+"raw_hessian.npy", exact_hess)
-        # Project out Translation/Rotation
-        # Note: Calculationtools usually expects Bohr for projection if hessian is in au?
-        # Re-checking previous context: `project_out_hess_tr_and_rot_for_coord` seems to handle it.
-        # It takes `positions` which here are in Bohr.
+        np.save(os.path.join(self.BPA_FOLDER_DIRECTORY, "raw_hessian.npy"), exact_hess)
         
-        # Ensure element_number_list is a list for the tool if needed, or array
-        # The original code passed `element_number_list.tolist()`
         elem_list_arg = element_number_list.tolist() if isinstance(element_number_list, np.ndarray) else element_number_list
         
         exact_hess = Calculationtools().project_out_hess_tr_and_rot_for_coord(
