@@ -8,7 +8,6 @@ and external optimization utilities.
 
 from __future__ import annotations
 
-import bisect
 import glob
 import heapq
 import json
@@ -642,15 +641,19 @@ class ExplorationQueue(ABC):
 
         Also removes the task from ``_tasks`` so subclasses that iterate
         ``_tasks`` see a consistent state.
+
+        Stale heap entries (tasks that exist in the heap but have already
+        been removed from ``_tasks`` by a prior rebuild) are silently
+        skipped so that only valid tasks are ever returned to the caller.
         """
-        if not self._heap:
-            return None
-        _, _, task = heapq.heappop(self._heap)
-        try:
-            self._tasks.remove(task)  # O(n) but only called in base-class path
-        except ValueError:
-            pass
-        return task
+        while self._heap:
+            _, _, task = heapq.heappop(self._heap)
+            try:
+                self._tasks.remove(task)
+                return task
+            except ValueError:
+                continue  # stale entry — skip and try the next one
+        return None
 
     def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
@@ -723,9 +726,13 @@ class ExplorationQueue(ABC):
             task.priority = self.compute_priority(task)
 
         # Rebuild the heap from the updated _tasks list.
-        self._heap = [(-t.priority, i, t) for i, t in enumerate(self._tasks)]
+        # Use _push_counter-based indices to guarantee unique tie-breakers,
+        # then advance _push_counter so that subsequent push() calls never
+        # reuse a counter value (monotonic increase requirement).
+        base = self._push_counter
+        self._heap = [(-t.priority, base + i, t) for i, t in enumerate(self._tasks)]
         heapq.heapify(self._heap)
-        self._push_counter = len(self._heap)
+        self._push_counter = base + len(self._tasks)
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -1551,8 +1558,6 @@ class ReactionNetworkMapper:
             ("max_pairs",            int,          lambda v: v > 0,   "must be a positive integer"),
             ("dist_lower_ang",       (int, float), lambda v: v >= 0,  "must be >= 0"),
             ("dist_upper_ang",       (int, float), lambda v: v > 0,   "must be > 0"),
-            ("rcmc_temperature_K",   (int, float), lambda v: v > 0,   "must be > 0"),
-            ("rcmc_reaction_time_s", (int, float), lambda v: v > 0,   "must be > 0"),
             ("rng_seed",             int,          lambda v: v >= 0,  "must be a non-negative integer"),
         ]
 
@@ -1581,18 +1586,18 @@ class ReactionNetworkMapper:
                 f"string (got {type(ms['output_dir']).__name__})."
             )
 
-        # ── exclude_nodes: optional, must be list[int] when present ──────
-        if "exclude_nodes" in ms:
-            en = ms["exclude_nodes"]
+        # ── excluded_node_ids: optional, must be list[int] when present ──────
+        if "excluded_node_ids" in ms:
+            en = ms["excluded_node_ids"]
             if not isinstance(en, list):
                 raise ValueError(
-                    f"Config validation failed: 'mapper_settings.exclude_nodes' must be "
+                    f"Config validation failed: 'mapper_settings.excluded_node_ids' must be "
                     f"a list of integers (got {type(en).__name__})."
                 )
             for idx, item in enumerate(en):
                 if not isinstance(item, int):
                     raise ValueError(
-                        f"Config validation failed: 'mapper_settings.exclude_nodes[{idx}]' "
+                        f"Config validation failed: 'mapper_settings.excluded_node_ids[{idx}]' "
                         f"must be an integer (got {type(item).__name__}: {item!r})."
                     )
 
@@ -2328,13 +2333,17 @@ class ReactionNetworkMapper:
                 if not existing_edge.has_coords:
                     continue
                 
-                # Energy pre-filter
-                energy_diff = abs(ts_energy - (existing_edge.ts_energy or 0.0))
-                if energy_diff >= self.energy_tolerance:
-                    continue
+                # Energy pre-filter: skip RMSD computation when energies
+                # differ by more than the tolerance (fast path).
+                # When either energy is None the filter is skipped so that
+                # structures without parsed energies still undergo the
+                # geometric check.
+                if ts_energy is not None and existing_edge.ts_energy is not None:
+                    energy_diff = abs(ts_energy - existing_edge.ts_energy)
+                    if energy_diff >= self.energy_tolerance:
+                        continue
 
-                
-                # Geometric check via RMSD (evaluated only if topological check fails)
+                # Geometric check via RMSD
                 if self.checker.are_similar(
                     ts_sym, ts_coords,
                     existing_edge.symbols, existing_edge.coords,
@@ -2346,17 +2355,6 @@ class ReactionNetworkMapper:
                         node_id_1, node_id_2,
                     )
                     return
-                
-                # Topological check (order-independent node matching)
-                nodes_match = {node_id_1, node_id_2} == {existing_edge.node_id_1, existing_edge.node_id_2}
-                if nodes_match:
-                    logger.info(
-                        "Duplicate TS skipped (matches topological connection of TS%06d, "
-                        "energy diff=%.6f Ha) EQ%d -- EQ%d",
-                        existing_edge.edge_id, energy_diff, node_id_1, node_id_2
-                    )
-                    return  # Not registered anywhere
-
 
         # ── Step 4: unique TS — persist XYZ and register edge ─────────────
         edge_id = self.graph.next_edge_id()
