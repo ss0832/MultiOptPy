@@ -9,10 +9,12 @@ and external optimization utilities.
 from __future__ import annotations
 
 import bisect
+import concurrent.futures
 import glob
 import heapq
 import json
 import logging
+import multiprocessing
 import os
 import copy
 import shutil
@@ -29,13 +31,19 @@ from scipy.optimize import linear_sum_assignment
 try:
     from multioptpy.Wrapper.autots import AutoTSWorkflow
 except ImportError as _autots_import_err:
-    print(f"[mapper] Warning: could not import AutoTSWorkflow: {_autots_import_err}")
+    # logger is safe to use before basicConfig: the root logger buffers
+    # records until a handler is attached, so no output is lost.
+    logging.getLogger(__name__).warning(
+        "[mapper] AutoTSWorkflow not available: %s", _autots_import_err
+    )
     AutoTSWorkflow = None  # type: ignore[assignment,misc]
 
 try:
     from optimize_wrapper import OptimizationJob
 except ImportError as _opt_import_err:
-    print(f"[mapper] Warning: could not import OptimizationJob: {_opt_import_err}")
+    logging.getLogger(__name__).warning(
+        "[mapper] OptimizationJob not available: %s", _opt_import_err
+    )
     OptimizationJob = None # type: ignore[assignment,misc]
 
 try:
@@ -43,9 +51,72 @@ try:
     from multioptpy.Parameters.unit_values import UnitValueLib
     _BOHR2ANG = UnitValueLib().bohr2angstroms
 except ImportError as _covalent_import_err:
-    print(f"[mapper] Warning: could not import covalent radii lib: {_covalent_import_err}")
+    logging.getLogger(__name__).warning(
+        "[mapper] covalent_radii_lib not available: %s", _covalent_import_err
+    )
     covalent_radii_lib = None
     _BOHR2ANG = 0.529177210903
+
+
+# ---------------------------------------------------------------------------
+# Module-level worker function for subprocess isolation
+# ---------------------------------------------------------------------------
+# Must be defined at module level (not as a method or closure) so that it
+# can be pickled by the ``spawn`` start method on all platforms.
+#
+# Design rationale
+# ----------------
+# AutoTSWorkflow calls ``os.chdir(work_dir)`` inside ``setup_workspace()``.
+# Running it in a *spawned* child process confines that CWD change to the
+# child's address space, so the mapper's main process (and any other child
+# that may be running concurrently) is never affected.
+#
+# The worker:
+#   1. Changes to ``run_dir`` so that any relative paths emitted by
+#      OptimizationJob / NEBJob resolve to the correct location.
+#   2. Instantiates AutoTSWorkflow with the provided config and calls
+#      ``run_workflow()``.
+#   3. Returns the sorted list of Step-4 profile directories found under
+#      ``workspace``.  The list is pickled and sent back to the parent
+#      process via the standard ``concurrent.futures`` result channel.
+#
+# Exceptions propagate normally: if ``run_workflow()`` raises, the
+# ``Future`` will hold the exception and ``_run_autots`` will re-raise it
+# in the parent process exactly as before.
+
+def _autots_worker(config: dict, run_dir: str, workspace: str) -> list[str]:
+    """Isolated AutoTSWorkflow execution — intended for spawned subprocesses.
+
+    Parameters
+    ----------
+    config:
+        Fully-resolved configuration dict (deepcopy of ``base_config`` with
+        ``initial_mol_file``, ``work_dir``, ``manual_AFIR``, and
+        ``run_step4`` already applied).
+    run_dir:
+        Absolute path to the per-task run directory.  The worker changes
+        into this directory before starting the workflow so that any
+        relative-path output from AutoTS lands inside ``run_dir``.
+    workspace:
+        Absolute path to the ``autots_workspace`` sub-directory; used to
+        glob for ``*_Step4_Profile`` directories after the workflow exits.
+
+    Returns
+    -------
+    list[str]
+        Sorted absolute paths of all Step-4 profile directories produced by
+        the workflow.  May be empty when the workflow produced no profiles.
+    """
+    import glob as _glob
+    import os as _os
+    from multioptpy.Wrapper.autots import AutoTSWorkflow as _AutoTSWorkflow
+
+    _os.chdir(run_dir)
+    workflow = _AutoTSWorkflow(config=config)
+    workflow.run_workflow()
+
+    pattern = _os.path.join(workspace, "**", "*_Step4_Profile")
+    return sorted(_glob.glob(pattern, recursive=True))
 
 
 logger = logging.getLogger(__name__)
@@ -424,11 +495,31 @@ class StructureChecker:
         coords_b: np.ndarray,
         groups_a: dict[str, np.ndarray],
         groups_b: dict[str, np.ndarray],
-    ) -> list[int] | None:
+    ) -> np.ndarray | None:
+        """Return the optimal atom permutation as an integer ndarray, or None.
+
+        The permutation maps indices of *coords_b* onto positions of *coords_a*
+        such that same-element atoms are paired by the Hungarian algorithm.
+
+        The previous implementation used ``list[int]`` pre-filled with ``-1``
+        as a sentinel for unfilled slots.  Because ``-1`` is a valid Python
+        index (last element), a partially filled permutation could silently
+        produce wrong RMSD values instead of being rejected.
+
+        The new implementation avoids any sentinel value:
+
+        * ``perm`` is a ``np.ndarray`` of dtype ``np.intp`` — compatible with
+          NumPy fancy indexing (``cb_rot[perm]``) without any conversion.
+        * Completion is verified by counting assignments: if
+          ``n_assigned != n`` some elements were unmatched, so ``None`` is
+          returned.  This replaces the O(N) ``-1 in perm`` membership test
+          with an O(1) integer comparison.
+        """
         n = len(coords_a)
         if n != len(coords_b):
             return None
-        perm: list[int] = [-1] * n 
+        perm = np.empty(n, dtype=np.intp)
+        n_assigned = 0
         for elem, idx_a in groups_a.items():
             idx_b = groups_b.get(elem)
             if idx_b is None or len(idx_a) != len(idx_b):
@@ -437,7 +528,8 @@ class StructureChecker:
             row_ind, col_ind = linear_sum_assignment(cost)
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
-        return None if -1 in perm else perm
+            n_assigned += len(idx_a)
+        return perm if n_assigned == n else None
 
     # ------------------------------------------------------------------ #
     #  Kabsch RMSD                                                         #
@@ -675,7 +767,31 @@ class ExplorationQueue(ABC):
         ``delta_E_hartree`` is recomputed lazily for the popped task using the
         stored ``_current_ref_e`` before returning it, keeping the returned
         task's metadata current without O(N) heap reconstruction.
+
+        **Stale-entry purge:** if ``len(_heap) > 2 * len(_tasks)`` at the
+        start of a ``pop()`` call, the heap is rebuilt from ``_tasks`` to
+        prevent unbounded accumulation of stale entries.  The 2× threshold
+        keeps the amortised cost of each push/pop pair to O(log N) while
+        bounding worst-case ``pop()`` latency to O(N log N) in the rare case
+        where many tasks are discarded without being popped.
         """
+        # ── Stale-entry purge ────────────────────────────────────────────
+        n_tasks = len(self._tasks)
+        if n_tasks > 0 and len(self._heap) > 2 * n_tasks:
+            # Rebuild heap retaining only entries still present in _tasks.
+            valid = [
+                entry for entry in self._heap
+                if entry[2] in self._tasks
+            ]
+            heapq.heapify(valid)
+            n_purged = len(self._heap) - len(valid)
+            self._heap = valid
+            logger.debug(
+                "ExplorationQueue: heap purged — %d stale entries removed, "
+                "%d valid entries remain.",
+                n_purged, len(valid),
+            )
+
         while self._heap:
             raw_e, _, task_id = heapq.heappop(self._heap)
             task = self._tasks.pop(task_id, None)
@@ -1333,13 +1449,27 @@ class NetworkGraph:
             json.dump(data, fh, indent=2, ensure_ascii=False)
 
     def load(self, filepath: str) -> None:
-        self._nodes.clear()
-        self._edges.clear()
-        self._node_counter = 0
-        self._edge_counter = 0
+        """Load a reaction network from *filepath*, replacing the current graph.
 
+        **Atomic-swap guarantee:** all parsing is performed into temporary
+        local structures.  The live ``_nodes`` / ``_edges`` dicts and the
+        energy index are only replaced once every node and edge has been
+        successfully constructed.  If the JSON file is missing, malformed, or
+        contains an unrecoverable parse error, the existing graph data is
+        preserved unchanged and the exception propagates to the caller.
+
+        Raises
+        ------
+        FileNotFoundError, json.JSONDecodeError, KeyError, …
+            Any exception raised while opening or parsing the file.
+        """
+        # ── Phase 1: parse — all work done on local variables ─────────────
         with open(filepath, "r", encoding="utf-8") as fh:
             data = json.load(fh)
+
+        new_nodes: dict[int, EQNode] = {}
+        new_node_energy_index: list[tuple[float, int]] = []
+        new_node_none_ids:     list[int]               = []
 
         for nd in data.get("nodes", []):
             node = EQNode(
@@ -1355,7 +1485,15 @@ class NetworkGraph:
                     node.symbols, node.coords = parse_xyz(node.xyz_file)
                 except Exception as exc:
                     logger.warning("Could not re-read %s: %s", node.xyz_file, exc)
-            self.add_node(node)
+            new_nodes[node.node_id] = node
+            if node.energy is not None:
+                bisect.insort(new_node_energy_index, (node.energy, node.node_id))
+            else:
+                new_node_none_ids.append(node.node_id)
+
+        new_edges: dict[int, TSEdge] = {}
+        new_edge_energy_index: list[tuple[float, int]] = []
+        new_edge_none_ids:     list[int]               = []
 
         for ed in data.get("edges", []):
             edge = TSEdge(
@@ -1386,14 +1524,29 @@ class NetworkGraph:
                     "(path=%s). Duplicate detection for this edge will be skipped.",
                     edge.edge_id, edge.ts_xyz_file,
                 )
-            self.add_edge(edge)
+            new_edges[edge.edge_id] = edge
+            if edge.ts_energy is not None:
+                bisect.insort(new_edge_energy_index, (edge.ts_energy, edge.edge_id))
+            else:
+                new_edge_none_ids.append(edge.edge_id)
 
-        if self._nodes:
-            self._node_counter = max(self._nodes) + 1
-        if self._edges:
-            self._edge_counter = max(self._edges) + 1
-        
-        self.last_iteration = data.get("metadata", {}).get("last_iteration", 0)
+        new_node_counter = max(new_nodes) + 1 if new_nodes else 0
+        new_edge_counter = max(new_edges) + 1 if new_edges else 0
+        new_last_iteration = data.get("metadata", {}).get("last_iteration", 0)
+
+        # ── Phase 2: commit — replace live state atomically ────────────────
+        # Only reached when Phase 1 completed without raising.
+        self._nodes = new_nodes
+        self._edges = new_edges
+        self._node_counter = new_node_counter
+        self._edge_counter = new_edge_counter
+        self._node_energy_index = new_node_energy_index
+        self._node_none_ids     = new_node_none_ids
+        self._edge_energy_index = new_edge_energy_index
+        self._edge_none_ids     = new_edge_none_ids
+        self._index_dirty       = False
+        self._ref_energy_cache  = _UNSET  # type: ignore[assignment]
+        self.last_iteration     = new_last_iteration
 
     # ------------------------------------------------------------------
     # Energy-window index helpers
@@ -1751,6 +1904,7 @@ class ReactionNetworkMapper:
             "rcmc_temperature_K",
             "rcmc_reaction_time_s",
             "rcmc_start_node_id",
+            "n_parallel",
     })
 
     @classmethod
@@ -1849,6 +2003,20 @@ class ReactionNetworkMapper:
                 f"must be strictly less than 'dist_upper_ang' ({hi})."
             )
 
+        # ── n_parallel: optional int >= 1 ────────────────────────────────
+        if "n_parallel" in ms:
+            np_val = ms["n_parallel"]
+            if not isinstance(np_val, int):
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.n_parallel' must be "
+                    f"an integer (got {type(np_val).__name__}: {np_val!r})."
+                )
+            if np_val < 1:
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.n_parallel' must be "
+                    f">= 1 (got {np_val!r})."
+                )
+
         logger.info(
             "_validate_mapper_settings: all checks passed for 'mapper_settings'."
         )
@@ -1870,6 +2038,7 @@ class ReactionNetworkMapper:
         excluded_node_ids: list[int] | set[int] | None = None,
         exclude_bond_rearrangement: bool = False,
         bond_checker: BondTopologyChecker | None = None,
+        n_parallel: int = 1,
     ) -> None:
         """
         Parameters
@@ -1937,6 +2106,23 @@ class ReactionNetworkMapper:
             Instance used for bond-topology comparisons when
             ``exclude_bond_rearrangement`` is ``True``.  Defaults to
             ``BondTopologyChecker()`` when ``None`` and the option is enabled.
+        n_parallel : int
+            Maximum number of AutoTSWorkflow tasks to execute concurrently.
+            Each task runs in its own **spawned** subprocess so that
+            ``os.chdir()`` calls inside AutoTSWorkflow are fully isolated from
+            the mapper process and from each other.
+
+            * ``1`` (default) — sequential execution; one subprocess at a time.
+              Behaviour is identical to the previous single-process design
+              except that the mapper's CWD is never mutated.
+            * ``N > 1`` — up to *N* tasks are submitted simultaneously to a
+              :class:`concurrent.futures.ProcessPoolExecutor`.  After all *N*
+              subprocesses complete, their profiles are processed and the graph
+              is saved once for the whole batch.
+
+            Regardless of this value, the ``spawn`` start method is always
+            used so the subprocess environment is clean even on Linux (where
+            ``fork`` is the platform default).
         """
         self.base_config = base_config
 
@@ -2005,6 +2191,13 @@ class ReactionNetworkMapper:
         self._ref_bond_fingerprint: dict[tuple[str, str], int] | None = None
         self._ref_bond_symbols: list[str] = []
         self._ref_bond_coords: np.ndarray = np.empty((0, 3), dtype=float)
+
+        # ── Subprocess isolation settings ─────────────────────────────────
+        # n_parallel=1 → sequential (one spawn at a time).
+        # n_parallel>1 → concurrent batch via ProcessPoolExecutor.
+        # spawn is always forced so the child env is clean on all platforms.
+        self.n_parallel: int = max(1, int(n_parallel))
+        self._mp_ctx = multiprocessing.get_context("spawn")
 
     # ------------------------------------------------------------------
     # AFIR task key parsing (Fix 3)
@@ -2090,7 +2283,23 @@ class ReactionNetworkMapper:
                 )
                 break
 
-            # ── Task selection ──────────────────────────────────────────────
+            # ── Parallel path (n_parallel > 1) ──────────────────────────────
+            if self.n_parallel > 1:
+                self.queue.refresh_priorities(self.graph.reference_energy())
+                batch = self._collect_task_batch(self.n_parallel)
+                if not batch:
+                    logger.info(
+                        "All candidate (EQ, pair) combinations exhausted. Stopping."
+                    )
+                    break
+                # Clamp batch so we never exceed max_iterations.
+                if self.max_iterations > 0:
+                    remaining = self.max_iterations - self._iteration
+                    batch = batch[:remaining]
+                self._run_batch_parallel(batch, history_log, priority_log)
+                continue
+
+            # ── Sequential path (n_parallel == 1) ───────────────────────────
             # Refresh queue priorities against the current reference energy
             # before popping so that tasks enqueued under a higher ref_e are
             # re-weighted correctly (relevant when a new lowest-energy node
@@ -2183,8 +2392,142 @@ class ReactionNetworkMapper:
         self.graph.save(self.graph_json_path)
 
     # ------------------------------------------------------------------
-    # Config snapshot
+    # Parallel batch execution helpers
     # ------------------------------------------------------------------
+
+    def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str]]:
+        """Pop up to *n* ready tasks and create their run directories.
+
+        Returns a list of ``(task, run_dir, gamma_sign, atom_i, atom_j)``
+        4-tuples — one per task that was selected.  The explored-pairs log
+        is updated immediately for each task (before execution) so that
+        concurrent workers do not re-select the same pair.
+
+        An empty list is returned when no runnable tasks are available,
+        which signals :meth:`_run_batch_parallel` to stop the loop.
+        """
+        batch: list[tuple[ExplorationTask, str, str, str, str]] = []
+        while len(batch) < n:
+            task = self.queue.pop()
+            if task is None:
+                # Queue empty — try to refill once.
+                for node in self.graph.all_nodes():
+                    self._enqueue_perturbations(node, force_add=True)
+                task = self.queue.pop()
+                if task is None:
+                    break   # truly exhausted
+            gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+            if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                logger.debug(
+                    "_collect_task_batch: skipping already-explored task "
+                    "(EQ%06d, %d-%d, %s).",
+                    task.node_id, atom_i, atom_j, gamma_sign,
+                )
+                continue
+            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+            run_dir = self._make_run_dir(task)
+            batch.append((task, run_dir, gamma_sign, str(atom_i), str(atom_j)))
+        return batch
+
+    def _run_batch_parallel(
+        self,
+        batch: list[tuple[ExplorationTask, str, str, str, str]],
+        history_log: str,
+        priority_log: str,
+    ) -> None:
+        """Submit *batch* tasks concurrently and process all results.
+
+        Each task is executed in its own spawned subprocess via
+        :class:`concurrent.futures.ProcessPoolExecutor`.  After *all*
+        subprocesses have finished (success or failure) the profiles are
+        processed sequentially in submission order, the graph is saved
+        once, and the priority log is updated.
+
+        Parameters
+        ----------
+        batch:
+            Output of :meth:`_collect_task_batch`.
+        history_log, priority_log:
+            Absolute paths to the two log files maintained by :meth:`run`.
+        """
+        # ── Build per-task configs and persist config_used.json ──────────
+        task_configs: list[tuple[ExplorationTask, str, str, dict]] = []
+        for task, run_dir, *_ in batch:
+            workspace = os.path.join(run_dir, "autots_workspace")
+            config = copy.deepcopy(self.base_config)
+            config["initial_mol_file"]              = task.xyz_file
+            config["work_dir"]                      = workspace
+            config.setdefault("step1_settings", {})
+            config["step1_settings"]["manual_AFIR"] = task.afir_params
+            config["run_step4"]                     = True
+
+            config_used_path = os.path.join(run_dir, "config_used.json")
+            try:
+                with open(config_used_path, "w", encoding="utf-8") as fh:
+                    json.dump(config, fh, indent=2, default=str)
+            except Exception as exc:
+                logger.warning(
+                    "_run_batch_parallel: could not write config_used.json "
+                    "(%s): %s", config_used_path, exc,
+                )
+            task_configs.append((task, run_dir, workspace, config))
+
+        # ── Submit all tasks to the pool ──────────────────────────────────
+        futures: dict[concurrent.futures.Future, tuple[ExplorationTask, str, str]] = {}
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.n_parallel,
+            mp_context=self._mp_ctx,
+        ) as executor:
+            for task, run_dir, workspace, config in task_configs:
+                f = executor.submit(_autots_worker, config, run_dir, workspace)
+                futures[f] = (task, run_dir, workspace)
+
+        # ── Collect results (preserving submission order) ─────────────────
+        results: list[tuple[ExplorationTask, str, list[str], str]] = []
+        for f, (task, run_dir, _workspace) in futures.items():
+            try:
+                profile_dirs: list[str] = f.result()
+                results.append((task, run_dir, profile_dirs, "DONE"))
+            except Exception as exc:
+                logger.error(
+                    "_run_batch_parallel: AutoTS failed for run %s: %s",
+                    run_dir, exc,
+                )
+                results.append((task, run_dir, [], "FAILED"))
+
+        # ── Process results sequentially (graph is not thread-safe) ───────
+        for task, run_dir, profile_dirs, status in results:
+            self._iteration += 1
+            self.graph.last_iteration = self._iteration
+
+            with open(history_log, "a", encoding="utf-8") as fh:
+                fh.write(
+                    f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
+                    f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params} "
+                    f"| Status: {status}\n"
+                )
+
+            if status == "DONE":
+                logger.info(
+                    "Iter %06d (batch): _run_autots returned %d profile director%s.",
+                    self._iteration, len(profile_dirs),
+                    "y" if len(profile_dirs) == 1 else "ies",
+                )
+                for pdir in profile_dirs:
+                    self._process_profile(pdir, run_dir)
+
+            if hasattr(self.queue, "set_graph"):
+                self.queue.set_graph(self.graph)
+
+            self._flush_node_energy_updates()
+            self._save_run_metadata(
+                run_dir, task,
+                status=status,
+                profile_dirs=profile_dirs,
+            )
+
+        self.graph.save(self.graph_json_path)
+        self._write_priority_log(priority_log)
 
     def _save_config_snapshot(self) -> None:
         """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
@@ -2251,8 +2594,10 @@ class ReactionNetworkMapper:
         try:
             symbols, coords = parse_xyz(saved_xyz)
         except Exception as e:
-            logger.error(f"Failed to parse initial structure: {e}")
-            sys.exit(1)
+            raise RuntimeError(
+                f"_register_seed_structure: failed to parse initial structure "
+                f"at '{saved_xyz}': {e}"
+            ) from e
 
         node = EQNode(
             node_id=node_id,
@@ -2481,6 +2826,36 @@ class ReactionNetworkMapper:
             json.dump(info, fh, indent=2)
 
     def _run_autots(self, task: ExplorationTask, run_dir: str) -> list[str]:
+        """Execute AutoTSWorkflow in an isolated spawned subprocess.
+
+        The previous implementation called ``os.chdir(run_dir)`` in the mapper
+        process itself, which was not thread-safe and caused CWD corruption when
+        more than one task ran concurrently.  Now the CWD change happens
+        exclusively inside a spawned child process so the mapper's working
+        directory is never mutated.
+
+        The child process runs :func:`_autots_worker`, which:
+
+        1. ``os.chdir(run_dir)``
+        2. Instantiates and runs ``AutoTSWorkflow``
+        3. Returns the sorted list of ``*_Step4_Profile`` directories
+
+        A non-zero exit code is converted to a ``RuntimeError`` so the caller's
+        existing ``except Exception`` handler triggers unchanged.
+
+        Parameters
+        ----------
+        task : ExplorationTask
+            The task whose ``xyz_file`` and ``afir_params`` configure the run.
+        run_dir : str
+            Absolute path to the per-task directory created by
+            :meth:`_make_run_dir`.
+
+        Returns
+        -------
+        list[str]
+            Sorted absolute paths of all Step-4 profile directories produced.
+        """
         if AutoTSWorkflow is None:
             raise RuntimeError(
                 "AutoTSWorkflow is not available. "
@@ -2497,9 +2872,6 @@ class ReactionNetworkMapper:
 
         # ── Persist the exact config passed to AutoTS ────────────────────
         # Written before the workflow starts so the file survives a crash.
-        # This is the fully-resolved copy (deepcopy of base_config with
-        # initial_mol_file, work_dir, manual_AFIR, and run_step4 applied),
-        # so it reflects precisely what AutoTS will receive.
         config_used_path = os.path.join(run_dir, "config_used.json")
         try:
             with open(config_used_path, "w", encoding="utf-8") as _fh:
@@ -2511,16 +2883,17 @@ class ReactionNetworkMapper:
                 config_used_path, _exc,
             )
 
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(run_dir)
-            workflow = AutoTSWorkflow(config=config)
-            workflow.run_workflow()
-        finally:
-            os.chdir(original_cwd)
+        # ── Run workflow in a spawned subprocess ─────────────────────────
+        # ProcessPoolExecutor with max_workers=1 is the cleanest way to use
+        # the stored mp_context for a single blocking call while keeping the
+        # same code path as the parallel branch.
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=self._mp_ctx,
+        ) as executor:
+            future = executor.submit(_autots_worker, config, run_dir, workspace)
+            profiles: list[str] = future.result()  # re-raises on worker exception
 
-        pattern = os.path.join(workspace, "**", "*_Step4_Profile")
-        profiles = sorted(glob.glob(pattern, recursive=True))
         return profiles
 
     def _process_profile(self, profile_dir: str, run_dir: str) -> None:
@@ -2614,6 +2987,16 @@ class ReactionNetworkMapper:
             )
             for existing_edge in ts_candidates:
                 if not existing_edge.has_coords:
+                    # Geometry is missing for this edge — geometric duplicate
+                    # detection cannot be performed.  Log a warning so the
+                    # operator knows the check was skipped; the incoming TS
+                    # will be registered as a new edge rather than suppressed.
+                    logger.warning(
+                        "_process_profile: TS%06d has no cached coordinates — "
+                        "cannot compare with incoming TS (profile_dir=%s). "
+                        "Skipping duplicate check for this edge.",
+                        existing_edge.edge_id, profile_dir,
+                    )
                     continue
 
                 # Geometric check via RMSD.
