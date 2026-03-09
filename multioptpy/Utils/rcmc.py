@@ -469,9 +469,14 @@ class RCMCQueue(ExplorationQueue):
             len(self._tasks),
         )
         if logger.isEnabledFor(logging.DEBUG):
+            # self._tasks is dict[int, ExplorationTask] — must convert to list
+            # before slicing; dict[:N] raises TypeError.
+            remaining = sorted(
+                self._tasks.values(), key=lambda t: t.priority, reverse=True
+            )
             pop_lines = [
                 f"  EQ{t.node_id}: q={t.priority:.6f}"
-                for t in self._tasks[:10]
+                for t in remaining[:10]
             ]
             if len(self._tasks) > 10:
                 pop_lines.append(f"  ... ({len(self._tasks) - 10} more)")
