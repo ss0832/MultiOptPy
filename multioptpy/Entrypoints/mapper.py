@@ -48,7 +48,8 @@ def run_mapper():
             "use_rcmc"                   : false,
             "rcmc_temperature_K"         : 300.0,
             "rcmc_reaction_time_s"       : 1.0,
-            "rcmc_start_node_id"         : 0
+            "rcmc_start_node_id"         : 0,
+            "n_parallel"                 : 1
         }
 
     CLI arguments take precedence over mapper_settings, which in turn
@@ -298,6 +299,19 @@ def run_mapper():
             action="store_true",
             help="Resume from an existing reaction_network.json.",
         )
+        parser.add_argument(
+            "--max_workers",
+            type=int,
+            default=None,
+            metavar="N",
+            help=(
+                "Number of AutoTSWorkflow tasks to run concurrently.  "
+                "Each task is executed in its own spawned subprocess so that "
+                "os.chdir() calls inside AutoTSWorkflow are fully isolated.  "
+                "1 (default) gives sequential execution identical to the "
+                "single-process behaviour.  Overrides mapper_settings.n_parallel."
+            ),
+        )
 
         # ---- Logging ----
         parser.add_argument(
@@ -383,6 +397,8 @@ def run_mapper():
             "rcmc_temperature_K":          resolve(args.rcmc_temperature, "rcmc_temperature_K",   300.0),
             "rcmc_reaction_time_s":        resolve(args.rcmc_time,        "rcmc_reaction_time_s", 1.0),
             "rcmc_start_node_id":          resolve(args.rcmc_start_node,  "rcmc_start_node_id",   0),
+            # Parallel execution
+            "n_parallel":                  resolve(args.max_workers,      "n_parallel",           1),
             # Config snapshot
             "config_file_path":            os.path.abspath(args.config_file),
         }
@@ -423,6 +439,7 @@ def run_mapper():
                   f"start_node=EQ{m['rcmc_start_node_id']}")
         else:
             print(f"  Priority queue  : Boltzmann  T={m['temperature_K']} K")
+        print(f"  Parallel workers: {m.get('n_parallel', 1)}")
         print(sep)
 
     def launch_mapper(config):
@@ -498,6 +515,7 @@ def run_mapper():
             config_file_path=m.get("config_file_path"),
             excluded_node_ids=m.get("excluded_node_ids"),
             exclude_bond_rearrangement=m.get("exclude_bond_rearrangement", False),
+            n_parallel=m.get("n_parallel", 1),
         )
         mapper.run()
 
