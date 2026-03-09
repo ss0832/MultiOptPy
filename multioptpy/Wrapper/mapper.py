@@ -1028,12 +1028,12 @@ class ExploredPairsLog:
     filepath : str
         Absolute path to the text file used for persistence.
     flush_interval : int
-        Number of records to batch before flushing to disk. Defaults to 100.
+        Number of records to batch before flushing to disk. Defaults to 5.
         Higher values reduce I/O bottleneck but risk losing the latest 
         records if the process crashes unexpectedly.
     """
 
-    def __init__(self, filepath: str, flush_interval: int = 100) -> None:
+    def __init__(self, filepath: str, flush_interval: int = 5) -> None:
         self._filepath = filepath
         self._flush_interval = flush_interval
         self._write_count = 0
