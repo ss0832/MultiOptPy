@@ -88,6 +88,11 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
         if n_atoms is not None and len(symbols) >= n_atoms:
             break
 
+    if n_atoms is not None and len(symbols) != n_atoms:
+        raise ValueError(
+            f"Expected {n_atoms} atoms in {filepath}, but parsed {len(symbols)}."
+        )
+
     if not symbols:
         raise ValueError(f"No atomic coordinates found in: {filepath}")
 
@@ -419,16 +424,10 @@ class StructureChecker:
         groups_a: dict[str, np.ndarray],
         groups_b: dict[str, np.ndarray],
     ) -> list[int] | None:
-        """Find the atom permutation of B minimising total squared distance to A.
-
-        Accepts precomputed element-to-index arrays (``groups_a``, ``groups_b``)
-        so that the grouping step is not repeated for every rotation candidate.
-        Returns ``None`` if stoichiometry is inconsistent.
-        """
         n = len(coords_a)
         if n != len(coords_b):
             return None
-        perm: list[int | None] = [None] * n
+        perm: list[int] = [-1] * n 
         for elem, idx_a in groups_a.items():
             idx_b = groups_b.get(elem)
             if idx_b is None or len(idx_a) != len(idx_b):
@@ -437,7 +436,7 @@ class StructureChecker:
             row_ind, col_ind = linear_sum_assignment(cost)
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
-        return None if None in perm else perm  # type: ignore[return-value]
+        return None if -1 in perm else perm
 
     # ------------------------------------------------------------------ #
     #  Kabsch RMSD                                                         #
