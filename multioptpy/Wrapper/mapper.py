@@ -803,8 +803,7 @@ class ExplorationQueue(ABC):
         self._task_counter += 1
         task_id = self._task_counter
         self._tasks[task_id] = task
-        
-       
+
         heapq.heappush(self._heap, (-task.priority, self._push_counter, task_id))
         
         self._push_counter += 1
@@ -852,6 +851,14 @@ class ExplorationQueue(ABC):
             task = self._tasks.pop(task_id, None)
             if task is None:
                 continue  # stale entry — task was already removed
+
+            # Remove the key from _submitted so the set only tracks tasks that
+            # are *currently* in the queue.  Without this removal, _submitted
+            # would grow without bound over a long run because tasks are added
+            # on push() but were never removed.  Duplicate-submission prevention
+            # is now handled by ExploredPairsLog.has() in _enqueue_perturbations.
+            key = (task.node_id, tuple(task.afir_params))
+            self._submitted.discard(key)
 
             # Lazy delta_E / priority refresh for the single task being returned.
             if self._current_ref_e is not None:
@@ -1459,6 +1466,11 @@ class NetworkGraph:
 
     def all_nodes(self) -> list[EQNode]:
         return list(self._nodes.values())
+
+    @property
+    def node_count(self) -> int:
+        """Return the number of nodes in O(1) without allocating a list copy."""
+        return len(self._nodes)
 
     def next_node_id(self) -> int:
         nid = self._node_counter
@@ -2495,7 +2507,7 @@ class ReactionNetworkMapper:
                 try:
                     profile_dirs = self._run_autots(task, run_dir)
                 except Exception as e:
-                    logger.error(f"AutoTS failed for run {run_dir}: {e}")
+                    logger.error("AutoTS failed for run %s: %s", run_dir, e)
                     self._flush_node_energy_updates()
                     self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
                     self.graph.save(self.graph_json_path)
@@ -2526,7 +2538,7 @@ class ReactionNetworkMapper:
             self.graph.save(self.graph_json_path)
             self.explored_log.close()
 
-    def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str, str, int]]:
+    def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, int, int, int]]:
         """Pop up to *n* ready tasks and create their run directories.
 
         Returns a list of ``(task, run_dir, gamma_sign, atom_i, atom_j, iteration)``
@@ -2575,12 +2587,12 @@ class ReactionNetworkMapper:
             # iteration number and therefore its own run directory.
             self._iteration += 1
             run_dir = self._make_run_dir(task, iteration=self._iteration)
-            batch.append((task, run_dir, gamma_sign, str(atom_i), str(atom_j), self._iteration))
+            batch.append((task, run_dir, gamma_sign, atom_i, atom_j, self._iteration))
         return batch
 
     def _run_batch_parallel(
         self,
-        batch: list[tuple[ExplorationTask, str, str, str, str, int]],
+        batch: list[tuple[ExplorationTask, str, str, int, int, int]],
         history_log: str,
         priority_log: str,
     ) -> None:
@@ -2841,7 +2853,8 @@ class ReactionNetworkMapper:
                                 energy = float(raw)
                                 logger.info(
                                     "Initial optimization energy "
-                                    f"(optimizer.{method_name}()): {energy:.10f} Ha"
+                                    "(optimizer.%s()): %.10f Ha",
+                                    method_name, energy,
                                 )
                                 break   # success — stop trying methods
                         except Exception:
@@ -2857,7 +2870,8 @@ class ReactionNetworkMapper:
                             try:
                                 energy = float(raw)
                                 logger.info(
-                                    f"Initial optimization energy (optimizer.{attr}): {energy:.10f} Ha"
+                                    "Initial optimization energy (optimizer.%s): %.10f Ha",
+                                    attr, energy,
                                 )
                                 break
                             except (TypeError, ValueError):
@@ -2874,13 +2888,13 @@ class ReactionNetworkMapper:
                     float_attrs = {k: v for k, v in vars(optimizer).items()
                                    if isinstance(v, float)}
                     if float_attrs:
-                        logger.warning(f"Float attributes on optimizer: {float_attrs}")
+                        logger.warning("Float attributes on optimizer: %s", float_attrs)
 
             return optimized_xyz_path, energy
 
         except Exception as e:
             logger.error(
-                f"Initial optimization failed: {e}. Falling back to unoptimized geometry."
+                "Initial optimization failed: %s. Falling back to unoptimized geometry.", e
             )
             traceback.print_exc()
             return seed_xyz, None
@@ -3068,20 +3082,47 @@ class ReactionNetworkMapper:
         # overhead (executor pool creation, queue initialisation, etc.).
         # The return value travels back via a multiprocessing.Queue that
         # is safe to use across spawn boundaries.
+        #
+        # IMPORTANT — deadlock prevention
+        # --------------------------------
+        # result_q.get() MUST be called *before* proc.join().
+        # If proc.join() is called first, and the worker's single put() blocks
+        # because the OS pipe buffer is full (e.g. a very large traceback
+        # string), the parent will wait forever for the child to exit while
+        # the child waits for the parent to consume the queue — deadlock.
+        # Consuming the item first guarantees the worker can finish and exit.
         result_q: multiprocessing.Queue = self._mp_ctx.Queue()  # type: ignore[type-arg]
         proc = self._mp_ctx.Process(
             target=_autots_worker_with_queue,
             args=(config, run_dir, workspace, result_q),
         )
         proc.start()
+
+        # ── Step 1: blocking get — drains the single result before join ──
+        try:
+            tag, payload = result_q.get(timeout=None)  # block until worker puts
+        except Exception as exc:
+            # Queue.get() itself raised (e.g. interrupted); terminate cleanly.
+            proc.terminate()
+            proc.join()
+            raise RuntimeError(
+                f"_run_autots: failed to receive result from worker: {exc}"
+            ) from exc
+
+        # ── Step 2: drain any unexpected residual items (get_nowait loop) ─
+        # The worker is designed to put exactly one item, but drain defensively
+        # so that no unconsumed data keeps the child's feeder thread alive and
+        # prevents clean exit.
+        import queue as _queue_mod
+        while True:
+            try:
+                result_q.get_nowait()
+            except _queue_mod.Empty:
+                break
+
+        # ── Step 3: join after the queue is empty — never deadlocks ──────
         proc.join()
 
-        if result_q.empty():
-            raise RuntimeError(
-                f"_run_autots: worker process exited with code {proc.exitcode} "
-                "without returning a result (possibly killed by a signal)."
-            )
-        tag, payload = result_q.get_nowait()
         if tag == "err":
             # payload is a formatted traceback string (see _autots_worker_with_queue).
             # Wrap in RuntimeError so it can be raised and caught normally.
@@ -3487,7 +3528,7 @@ class ReactionNetworkMapper:
         # Special case: when the graph contains only one node, all exclusion
         # rules are disabled so that the sole available node is never silently
         # skipped (the network cannot grow if the only node is excluded).
-        n_total_nodes = len(self.graph.all_nodes())
+        n_total_nodes = self.graph.node_count
         if n_total_nodes == 1 and node.node_id in self.excluded_node_ids:
             logger.debug(
                 "_enqueue_perturbations: EQ%d is in excluded_node_ids but "
