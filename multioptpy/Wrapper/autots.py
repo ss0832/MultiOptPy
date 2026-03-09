@@ -663,8 +663,8 @@ class AutoTSWorkflow:
         except Exception as e:
             print(f"\n --- AUTO-TS WORKFLOW FAILED --- ")
             print(f"Error: {e}")
-            
             traceback.print_exc()
+            raise
         finally:
             os.chdir(original_cwd)
             print(f"Returned to directory: {original_cwd}")
@@ -751,6 +751,7 @@ class AutoTSWorkflow_v2(AutoTSWorkflow):
             print(f"\n --- AUTO-TS WORKFLOW (V2) FAILED --- ")
             print(f"Error: {e}")
             traceback.print_exc()
+            raise
         finally:
             os.chdir(original_cwd)
             print(f"Returned to directory: {original_cwd}")
