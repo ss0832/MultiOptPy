@@ -1481,6 +1481,125 @@ class ProfileParser:
 # ===========================================================================
 
 class ReactionNetworkMapper:
+    # ------------------------------------------------------------------
+    # Config validation
+    # ------------------------------------------------------------------
+
+    # Canonical set of keys accepted under the "mapper_settings" section.
+    # Any key present in the config that is NOT listed here raises ValueError.
+    _KNOWN_MAPPER_SETTINGS_KEYS: frozenset[str] = frozenset({
+        "temperature_K",
+        "rmsd_threshold",
+        "max_iterations",
+        "afir_gamma_kJmol",
+        "max_pairs",
+        "dist_lower_ang",
+        "dist_upper_ang",
+        "output_dir",
+        "rng_seed",
+        "exclude_nodes",
+    })
+
+    @classmethod
+    def _validate_mapper_settings(cls, config: dict) -> None:
+        """Validate the ``mapper_settings`` section of *config*.
+
+        Raises
+        ------
+        ValueError
+            - ``mapper_settings`` key is missing from *config*.
+            - Any unknown key is found inside ``mapper_settings``
+              (likely a typo — stops the run before wasting compute time).
+            - Any required numeric key is absent.
+            - Any value fails a range or type check.
+
+        This method is intentionally strict: every detected problem raises
+        ``ValueError`` immediately rather than logging a warning, because a
+        misconfigured mapper on a long chemical-exploration run can silently
+        corrupt the reaction network with no easy way to recover.
+        """
+        if "mapper_settings" not in config:
+            raise ValueError(
+                "Config validation failed: top-level key 'mapper_settings' is missing."
+            )
+
+        ms: dict = config["mapper_settings"]
+
+        # ── Unknown-key check ─────────────────────────────────────────────
+        unknown = set(ms.keys()) - cls._KNOWN_MAPPER_SETTINGS_KEYS
+        if unknown:
+            raise ValueError(
+                f"Config validation failed: unknown key(s) in 'mapper_settings': "
+                f"{sorted(unknown)}. "
+                f"Known keys are: {sorted(cls._KNOWN_MAPPER_SETTINGS_KEYS)}."
+            )
+
+        # ── Required keys and per-field checks ───────────────────────────
+        # (key, type_or_types, condition_fn, condition_description)
+        _checks: list[tuple] = [
+            ("temperature_K",    (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rmsd_threshold",   (int, float), lambda v: v > 0,   "must be > 0"),
+            ("max_iterations",   int,          lambda v: v > 0,   "must be a positive integer"),
+            ("afir_gamma_kJmol", (int, float), lambda v: v > 0,   "must be > 0"),
+            ("max_pairs",        int,          lambda v: v > 0,   "must be a positive integer"),
+            ("dist_lower_ang",   (int, float), lambda v: v >= 0,  "must be >= 0"),
+            ("dist_upper_ang",   (int, float), lambda v: v > 0,   "must be > 0"),
+            ("rng_seed",         int,          lambda v: v >= 0,  "must be a non-negative integer"),
+        ]
+
+        for key, expected_type, condition, description in _checks:
+            if key not in ms:
+                raise ValueError(
+                    f"Config validation failed: required key '{key}' is missing "
+                    f"from 'mapper_settings'."
+                )
+            val = ms[key]
+            if not isinstance(val, expected_type):
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.{key}' must be "
+                    f"{expected_type} but got {type(val).__name__} ({val!r})."
+                )
+            if not condition(val):
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.{key}' {description} "
+                    f"(got {val!r})."
+                )
+
+        # ── output_dir: optional str, but must be str when present ────────
+        if "output_dir" in ms and not isinstance(ms["output_dir"], str):
+            raise ValueError(
+                f"Config validation failed: 'mapper_settings.output_dir' must be a "
+                f"string (got {type(ms['output_dir']).__name__})."
+            )
+
+        # ── exclude_nodes: optional, must be list[int] when present ──────
+        if "exclude_nodes" in ms:
+            en = ms["exclude_nodes"]
+            if not isinstance(en, list):
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.exclude_nodes' must be "
+                    f"a list of integers (got {type(en).__name__})."
+                )
+            for idx, item in enumerate(en):
+                if not isinstance(item, int):
+                    raise ValueError(
+                        f"Config validation failed: 'mapper_settings.exclude_nodes[{idx}]' "
+                        f"must be an integer (got {type(item).__name__}: {item!r})."
+                    )
+
+        # ── Cross-field consistency ───────────────────────────────────────
+        lo = ms.get("dist_lower_ang")
+        hi = ms.get("dist_upper_ang")
+        if lo is not None and hi is not None and lo >= hi:
+            raise ValueError(
+                f"Config validation failed: 'mapper_settings.dist_lower_ang' ({lo}) "
+                f"must be strictly less than 'dist_upper_ang' ({hi})."
+            )
+
+        logger.info(
+            "_validate_mapper_settings: all checks passed for 'mapper_settings'."
+        )
+
     def __init__(
         self,
         base_config: dict,
@@ -1492,7 +1611,6 @@ class ReactionNetworkMapper:
         graph_json: str = "reaction_network.json",
         max_iterations: int = 50,
         resume: bool = False,
-        boltzmann_resample_attempts: int = 1000000,
         rng_seed: int = 42,
         energy_tolerance_kcalmol: float = 1.0,
         config_file_path: str | None = None,
@@ -1537,9 +1655,6 @@ class ReactionNetworkMapper:
             (or when a ``stop.txt`` sentinel file is detected).
         resume : bool
             If ``True`` and a previous graph JSON exists, resume from it.
-        boltzmann_resample_attempts : int
-            Maximum number of consecutive Boltzmann resampling trials before
-            the mapper gives up because all pairs appear to be exhausted.
         rng_seed : int
             Seed for the internal NumPy RNG used during Boltzmann sampling.
         energy_tolerance_kcalmol : float
@@ -1571,6 +1686,12 @@ class ReactionNetworkMapper:
             ``BondTopologyChecker()`` when ``None`` and the option is enabled.
         """
         self.base_config = base_config
+
+        # ── Validate config at construction time ──────────────────────────
+        # Raises ValueError immediately if mapper_settings is invalid so that
+        # misconfigured jobs never reach the expensive calculation loop.
+        self._validate_mapper_settings(base_config)
+
         self.queue    = queue if queue is not None else BoltzmannQueue()
         # A single StructureChecker is used for both EQ and TS comparisons.
         # The two types are kept strictly separate by the pools they search:
@@ -1583,7 +1704,6 @@ class ReactionNetworkMapper:
         self.graph_json_path = os.path.join(self.output_dir, graph_json)
         self.max_iterations = max_iterations
         self.resume = resume
-        self.boltzmann_resample_attempts = boltzmann_resample_attempts
         self._rng = np.random.default_rng(rng_seed)
 
         self.graph = NetworkGraph()
@@ -1651,16 +1771,20 @@ class ReactionNetworkMapper:
            a new (EQ, pair) by drawing an EQ node proportionally to its
            Boltzmann weight and then selecting a pair uniformly from all valid
            candidates for that node.
-        3. **Duplicate rejection** – Before executing, the mapper checks
-           ``explored_pairs.txt`` (located in ``work_dir``).  If the selected
-           combination has already been run it is rejected and a new sample is
-           drawn.  This loop repeats up to ``boltzmann_resample_attempts``
-           times.
+        3. **Queue re-scan** – When the queue is empty, all nodes are
+           re-scanned via :meth:`_enqueue_perturbations` to find any
+           remaining unexplored pairs.  If none are found the loop stops.
 
         The loop runs indefinitely (no limit on the number of unique EQ/pair
         combinations) and stops only when ``max_iterations`` executions have
         been completed or a ``stop.txt`` file is detected in ``output_dir``.
         """
+        # ── Re-validate config at run() entry ────────────────────────────
+        # base_config could have been mutated between __init__ and run(), so
+        # a second check here guarantees the config is still valid at the
+        # moment the expensive calculation loop actually starts.
+        self._validate_mapper_settings(self.base_config)
+
         if self.resume and os.path.isfile(self.graph_json_path):
             self.graph.load(self.graph_json_path)
             self._requeue_all_nodes()
@@ -1718,15 +1842,23 @@ class ReactionNetworkMapper:
                     # Do NOT count against max_iterations; try again next cycle.
                     continue
             else:
-                # Phase 2: queue exhausted – resample via Boltzmann distribution.
-                task = self._boltzmann_sample_task()
-                if task is None:
+                # Phase 2: queue exhausted — deterministically re-scan every node
+                # for unexplored pairs and re-fill the queue.  This replaces the
+                # former rejection-sampling loop (_boltzmann_sample_task), which
+                # could miss valid pairs as the explored set grew large.
+                logger.info(
+                    "Queue empty; re-scanning all nodes for unexplored pairs."
+                )
+                for node in self.graph.all_nodes():
+                    self._enqueue_perturbations(node, force_add=True)
+                if len(self.queue) == 0:
                     logger.info(
-                        "All candidate (EQ, pair) combinations appear exhausted "
-                        "after %d resampling attempts. Stopping.",
-                        self.boltzmann_resample_attempts,
+                        "All candidate (EQ, pair) combinations exhausted. Stopping."
                     )
                     break
+                # Restart the loop so the freshly enqueued tasks are popped
+                # in priority order on the next iteration.
+                continue
 
             # ── Record the pair as explored before execution ────────────────
             gamma_sign = (
@@ -1781,124 +1913,13 @@ class ReactionNetworkMapper:
         self.graph.save(self.graph_json_path)
 
     # ------------------------------------------------------------------
-    # Boltzmann resampling
-    # ------------------------------------------------------------------
-
-    def _boltzmann_sample_task(self) -> ExplorationTask | None:
-        """Sample a new, unexplored (EQ node, atom pair) via Boltzmann weighting.
-
-        The probability of selecting a node is proportional to
-        ``exp(-ΔE / k_B T)`` where ΔE is the node's energy relative to the
-        current reference (minimum) energy.  After a node is selected, one
-        atom pair is drawn uniformly from that node's valid candidate pool.
-        The combination is then checked against ``explored_pairs.txt``.  If
-        it has already been explored the trial is discarded and a new sample
-        is drawn, repeating up to ``boltzmann_resample_attempts`` times.
-
-        Returns ``None`` when no unexplored combination can be found within
-        the allowed number of attempts.
-        """
-        nodes = [
-            n for n in self.graph.all_nodes()
-            if n.coords.size > 0
-            and (
-                n.node_id not in self.excluded_node_ids
-                or not self._node_has_been_explored(n.node_id)
-            )
-        ]
-        if not nodes:
-            return None
-
-        ref_e = self.graph.reference_energy()
-
-        # Derive temperature from the queue when possible (works for both
-        # BoltzmannQueue and RCMCQueue, which both expose temperature_K).
-        temperature_K: float = getattr(self.queue, "temperature_K", 300.0)
-
-        # Compute per-node Boltzmann weights using effective_energy (free energy
-        # when available, electronic energy otherwise).  ref_e is the unified
-        # reference from NetworkGraph.reference_energy() so ΔE values are
-        # directly comparable regardless of which energy type a node uses.
-        raw_weights: list[float] = []
-        for node in nodes:
-            eff_e = node.effective_energy
-            if eff_e is not None and ref_e is not None:
-                delta_e = eff_e - ref_e
-                w = float(np.exp(-delta_e / (K_B_HARTREE * temperature_K)))
-            else:
-                w = 1.0
-            raw_weights.append(max(w, 1e-300))
-
-        weight_arr = np.array(raw_weights, dtype=float)
-        weight_arr /= weight_arr.sum()
-
-        pos_gamma_str = f"{self.perturber.afir_gamma_kJmol:.6g}"
-        neg_gamma_str = f"{-self.perturber.afir_gamma_kJmol:.6g}"
-
-        for attempt in range(self.boltzmann_resample_attempts):
-            # Draw a node proportional to its Boltzmann weight.
-            node_idx = int(self._rng.choice(len(nodes), p=weight_arr))
-            node = nodes[node_idx]
-
-            # Draw a candidate pair uniformly.
-            candidates = self.perturber.get_candidate_pairs(node.symbols, node.coords)
-            if not candidates:
-                continue
-
-            pair_idx = int(self._rng.integers(len(candidates)))
-            i0, j0 = candidates[pair_idx]
-            atom_i, atom_j = i0 + 1, j0 + 1  # convert to 1-based
-
-            # Decide gamma sign: always try positive first; try negative only
-            # when include_negative_gamma is enabled.
-            gamma_signs: list[str] = ["+"]
-            if self.perturber.include_negative_gamma:
-                gamma_signs.append("-")
-
-            # Shuffle sign order to avoid systematic bias over resample rounds.
-            self._rng.shuffle(gamma_signs)  # type: ignore[arg-type]
-
-            for gamma_sign in gamma_signs:
-                if self.explored_log.has(node.node_id, atom_i, atom_j, gamma_sign):
-                    continue  # already explored – try next sign or resample
-
-                # Found an unexplored combination.
-                afir_params = (
-                    [neg_gamma_str, str(atom_i), str(atom_j)]
-                    if gamma_sign == "-"
-                    else [pos_gamma_str, str(atom_i), str(atom_j)]
-                )
-                eff_e = node.effective_energy
-                delta_e = (
-                    (eff_e - ref_e)
-                    if (eff_e is not None and ref_e is not None)
-                    else 0.0
-                )
-                task = ExplorationTask(
-                    node_id=node.node_id,
-                    xyz_file=node.xyz_file,
-                    afir_params=afir_params,
-                    priority=weight_arr[node_idx],
-                    metadata={
-                        "delta_E_hartree":            delta_e,
-                        "source_node_energy":         node.energy,
-                        "source_node_free_energy":    node.free_energy,
-                        "boltzmann_resample_attempt": attempt + 1,
-                    },
-                )
-                logger.debug(
-                    "Boltzmann resample: selected EQ%06d pair (%d, %d) sign=%s "
-                    "after %d attempt(s).",
-                    node.node_id, atom_i, atom_j, gamma_sign, attempt + 1,
-                )
-                return task
-
-        # All attempts exhausted without finding an unexplored pair.
-        return None
-
-    # ------------------------------------------------------------------
     # Config snapshot
     # ------------------------------------------------------------------
+    #
+    # (The former _boltzmann_sample_task / Boltzmann-resampling section
+    # has been removed.  When the queue empties, run() now deterministically
+    # re-scans all nodes via _enqueue_perturbations instead of using
+    # rejection sampling, which was unreliable as the explored set grew.)
 
     def _save_config_snapshot(self) -> None:
         """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
