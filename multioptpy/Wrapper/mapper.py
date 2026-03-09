@@ -570,6 +570,21 @@ class ExplorationTask:
     priority: float = 0.0
     metadata: dict = field(default_factory=dict)
 
+
+@dataclass
+class NodeUpdateData:
+    """Typed container for pending node energy backfill data.
+
+    Both fields are nullable so that partial updates (e.g. only ``energy``
+    is known at registration time) are correctly represented.  ``frozen``
+    is intentionally left ``False`` so that future fields can be added
+    without breaking existing serialisation/deserialisation code.
+    """
+
+    energy: float | None = None
+    free_energy: float | None = None
+
+
 class ExplorationQueue(ABC):
     """Abstract base class for priority-ordered exploration queues.
 
@@ -596,17 +611,26 @@ class ExplorationQueue(ABC):
     """
 
     def __init__(self, rng_seed: int = 42) -> None:
-        # _tasks: canonical list of ExplorationTask objects.
-        # Kept as a real list so that subclasses (e.g. RCMCQueue) can call
-        # .sort() and .pop(0) on it directly without breaking.
-        self._tasks: list[ExplorationTask] = []
-        # _heap: parallel min-heap of (-priority, counter, task) used by the
-        # base-class push()/pop() for O(log n) insertion and extraction.
-        # RCMCQueue overrides pop() entirely and never touches _heap.
-        self._heap: list[tuple[float, int, ExplorationTask]] = []
+        # _tasks: id(task) → ExplorationTask mapping.
+        # Using a dict instead of a list gives O(1) deletion in pop() without
+        # the O(N) list.remove() cost that previously negated the heap benefit.
+        # Subclasses that need an ordered view should call
+        # sorted(self._tasks.values(), ...) rather than operating on the dict
+        # directly.
+        self._tasks: dict[int, ExplorationTask] = {}
+        # _heap: min-heap of (raw_energy, counter, task_id) for O(log N)
+        # extraction.  Entries keyed by id(task); stale entries (whose task_id
+        # is absent from _tasks) are silently skipped in pop().
+        # Storing raw_energy (absolute, not delta) means the heap order is
+        # invariant to reference-energy shifts, so refresh_priorities() no
+        # longer needs to rebuild the heap.
+        self._heap: list[tuple[float, int, int]] = []
         self._push_counter: int = 0
         self._submitted: set[tuple] = set()
         self._rng = np.random.default_rng(rng_seed)
+        # Latest reference energy supplied by refresh_priorities(); used for
+        # lazy delta_E recalculation inside pop().
+        self._current_ref_e: float | None = None
 
     def push(self, task: ExplorationTask) -> bool:
         key = (task.node_id, tuple(task.afir_params))
@@ -614,30 +638,59 @@ class ExplorationQueue(ABC):
             return False
 
         task.priority = self.compute_priority(task)
-        # Update both _tasks (for subclass access) and _heap (for base-class pop).
-        self._tasks.append(task)
-        heapq.heappush(self._heap, (-task.priority, self._push_counter, task))
+
+        # Extract the absolute (raw) energy of the source node so the heap
+        # can be ordered by raw_energy.  Lower raw_energy == higher Boltzmann
+        # priority, so a min-heap on raw_energy gives correct pop() order
+        # without ever rebuilding the heap when ref_e changes.
+        # Fall back to delta_E_hartree + current ref_e for legacy callers that
+        # do not populate source_node_energy.
+        node_g = task.metadata.get("source_node_free_energy")
+        node_e = task.metadata.get("source_node_energy")
+        raw_e: float = (
+            node_g if node_g is not None
+            else node_e if node_e is not None
+            else (
+                task.metadata.get("delta_E_hartree", 0.0)
+                + (self._current_ref_e or 0.0)
+            )
+        )
+
+        task_id = id(task)
+        self._tasks[task_id] = task
+        heapq.heappush(self._heap, (raw_e, self._push_counter, task_id))
         self._push_counter += 1
         self._submitted.add(key)
         return True
 
     def pop(self) -> ExplorationTask | None:
-        """Pop the highest-priority task using the heap (O(log n)).
+        """Pop the highest-priority task using the heap (O(log N) amortised).
 
-        Also removes the task from ``_tasks`` so subclasses that iterate
-        ``_tasks`` see a consistent state.
+        ``_tasks`` deletion is O(1) because it is now a ``dict`` keyed by
+        ``id(task)``.  Stale heap entries (whose ``task_id`` has already been
+        removed from ``_tasks``) are silently skipped.
 
-        Stale heap entries (tasks that exist in the heap but have already
-        been removed from ``_tasks`` by a prior rebuild) are silently
-        skipped so that only valid tasks are ever returned to the caller.
+        When :meth:`refresh_priorities` has been called since the last push,
+        ``delta_E_hartree`` is recomputed lazily for the popped task using the
+        stored ``_current_ref_e`` before returning it, keeping the returned
+        task's metadata current without O(N) heap reconstruction.
         """
         while self._heap:
-            _, _, task = heapq.heappop(self._heap)
-            try:
-                self._tasks.remove(task)
-                return task
-            except ValueError:
-                continue  # stale entry — skip and try the next one
+            raw_e, _, task_id = heapq.heappop(self._heap)
+            task = self._tasks.pop(task_id, None)
+            if task is None:
+                continue  # stale entry — task was already removed
+
+            # Lazy delta_E / priority refresh for the single task being returned.
+            if self._current_ref_e is not None:
+                node_g = task.metadata.get("source_node_free_energy")
+                node_e = task.metadata.get("source_node_energy")
+                eff_e = node_g if node_g is not None else node_e
+                if eff_e is not None:
+                    task.metadata["delta_E_hartree"] = eff_e - self._current_ref_e
+                task.priority = self.compute_priority(task)
+
+            return task
         return None
 
     def is_submitted(self, key: tuple) -> bool:
@@ -690,50 +743,36 @@ class ExplorationQueue(ABC):
         return bool(self._rng.random() < p)
 
     def refresh_priorities(self, ref_e: float | None) -> None:
-        """Recompute priorities for all queued tasks using the current reference energy.
+        """Record the current reference energy for lazy evaluation at pop() time.
 
-        Should be called at the start of each iteration (before ``pop()``) so
-        that tasks enqueued when the reference energy was higher are
-        re-weighted against the latest minimum-energy node in the graph.
+        The previous implementation rebuilt the entire heap with
+        ``heapq.heapify()`` on every iteration — O(N) cost.  This was
+        unnecessary because the heap is ordered by *raw* (absolute) node
+        energy, and the relative order of tasks is invariant to a uniform
+        shift of the reference energy.
 
-        When ``task.metadata["source_node_free_energy"]`` is present the
-        free energy is used as the effective energy for the ΔE calculation
-        (so that the Boltzmann weight tracks the free-energy landscape).
-        Otherwise ``task.metadata["source_node_energy"]`` (electronic
-        energy) is used, preserving the original behaviour for nodes without
-        thermochemistry results.
+        The new design simply stores ``ref_e`` so that :meth:`pop` can
+        recompute ``delta_E_hartree`` and ``priority`` for the single task
+        it is about to return, eliminating the per-iteration O(N) rebuild
+        entirely.
 
-        The ``ref_e`` argument should already be the unified reference
-        returned by :meth:`NetworkGraph.reference_energy` (G-based when any
-        node has thermochemistry, electronic otherwise), so the mixed-mode
-        ΔE values remain directly comparable.
+        For subclasses whose ``compute_priority`` is *not* monotone in
+        ``delta_E`` (i.e. a lower raw energy does not always imply a higher
+        priority), the heap order may be approximate.  In those cases
+        subclasses should override ``pop()`` with a full-sort strategy
+        (as ``RCMCQueue`` does) rather than relying on the heap.
 
-        If neither value is available the stored ``delta_E_hartree`` is left
-        unchanged so the priority degrades gracefully to the value set at
-        enqueue time.
-
-        The queue is re-sorted in descending priority order after all tasks
-        have been updated.
+        Parameters
+        ----------
+        ref_e:
+            Unified reference energy from
+            :meth:`NetworkGraph.reference_energy` (G-based when any node
+            carries thermochemistry, electronic otherwise).  ``None`` is
+            accepted and leaves the stored value unchanged, so the method
+            is safe to call unconditionally at the start of each iteration.
         """
-        if not self._tasks or ref_e is None:
-            return
-
-        for task in self._tasks:
-            node_g = task.metadata.get("source_node_free_energy")
-            node_e = task.metadata.get("source_node_energy")
-            eff_e  = node_g if node_g is not None else node_e
-            if eff_e is not None:
-                task.metadata["delta_E_hartree"] = eff_e - ref_e
-            task.priority = self.compute_priority(task)
-
-        # Rebuild the heap from the updated _tasks list.
-        # Use _push_counter-based indices to guarantee unique tie-breakers,
-        # then advance _push_counter so that subsequent push() calls never
-        # reuse a counter value (monotonic increase requirement).
-        base = self._push_counter
-        self._heap = [(-t.priority, base + i, t) for i, t in enumerate(self._tasks)]
-        heapq.heapify(self._heap)
-        self._push_counter = base + len(self._tasks)
+        if ref_e is not None:
+            self._current_ref_e = ref_e
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -742,7 +781,7 @@ class ExplorationQueue(ABC):
                 "priority": t.priority,
                 "afir_params": t.afir_params,
             }
-            for t in self._tasks
+            for t in self._tasks.values()
         ]
 
     def __len__(self) -> int:
@@ -1769,9 +1808,9 @@ class ReactionNetworkMapper:
         self._iteration: int = 0
 
         # Accumulates energy backfill requests discovered during each iteration.
-        # Maps node_id -> {"energy": float|None, "free_energy": float|None}.
+        # Maps node_id -> NodeUpdateData (typed container for energy/free_energy).
         # Applied in bulk by _flush_node_energy_updates() before graph.save().
-        self._pending_node_updates: dict[int, dict] = {}
+        self._pending_node_updates: dict[int, NodeUpdateData] = {}
 
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.work_dir,   exist_ok=True)
@@ -2500,12 +2539,12 @@ class ReactionNetworkMapper:
 
             changed: list[str] = []
 
-            new_e = updates.get("energy")
+            new_e = updates.energy
             if new_e is not None and node.energy is None:
                 node.energy = new_e
                 changed.append(f"energy={new_e:.10f} Ha")
 
-            new_g = updates.get("free_energy")
+            new_g = updates.free_energy
             if new_g is not None and node.free_energy is None:
                 node.free_energy = new_g
                 changed.append(f"free_energy={new_g:.10f} Ha")
@@ -2623,18 +2662,19 @@ class ReactionNetworkMapper:
                 # the new incoming structure carries those values, queue an
                 # update so that _flush_node_energy_updates() can populate the
                 # null fields before the next graph.save().
-                needs_update: dict = {}
-                if existing.energy is None and energy is not None:
-                    needs_update["energy"] = energy
-                if existing.free_energy is None and free_energy is not None:
-                    needs_update["free_energy"] = free_energy
-                if needs_update:
-                    prev = self._pending_node_updates.get(existing.node_id, {})
+                needs_update = NodeUpdateData(
+                    energy=energy if existing.energy is None else None,
+                    free_energy=free_energy if existing.free_energy is None else None,
+                )
+                if needs_update.energy is not None or needs_update.free_energy is not None:
+                    prev = self._pending_node_updates.get(
+                        existing.node_id, NodeUpdateData()
+                    )
                     # Only overwrite fields that are still absent in prior queued updates.
-                    if "energy" not in prev and "energy" in needs_update:
-                        prev["energy"] = needs_update["energy"]
-                    if "free_energy" not in prev and "free_energy" in needs_update:
-                        prev["free_energy"] = needs_update["free_energy"]
+                    if prev.energy is None and needs_update.energy is not None:
+                        prev.energy = needs_update.energy
+                    if prev.free_energy is None and needs_update.free_energy is not None:
+                        prev.free_energy = needs_update.free_energy
                     self._pending_node_updates[existing.node_id] = prev
                     logger.debug(
                         "_find_or_register_node: queued backfill for EQ%d: %s",
