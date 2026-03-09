@@ -26,6 +26,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 from scipy.spatial.distance import cdist, pdist
@@ -611,7 +612,7 @@ class StructureChecker:
         RMSD for enantiomeric pairs.
         """
         U, S, Vt = np.linalg.svd(pb.T @ pa)
-        d = np.sign(np.linalg.det(U) * np.linalg.det(Vt))
+        d = 1.0 if np.linalg.det(U) * np.linalg.det(Vt) >= 0 else -1.0
         E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
         rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + d * S[2])) / len(pa)
         return float(np.sqrt(rmsd_sq))
@@ -724,7 +725,7 @@ class ExplorationTask:
     xyz_file: str
     afir_params: list[str]
     priority: float = 0.0
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1054,12 +1055,11 @@ class ExploredPairsLog:
     # ------------------------------------------------------------------ #
 
     def _load(self) -> None:
-        """Load existing records from the text file (if present)."""
         if not os.path.isfile(self._filepath):
             return
-        
+    
         with open(self._filepath, "r", encoding="utf-8") as fh:
-            for line in fh:
+            for lineno, line in enumerate(fh, 1):  
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
@@ -1067,18 +1067,24 @@ class ExploredPairsLog:
                 if len(parts) < 4:
                     continue
                 try:
-                    # Strip the leading "EQ" prefix before converting to int
                     node_id = int(parts[0][2:])
                     atom_i = int(parts[1])
                     atom_j = int(parts[2])
                     gamma_sign = parts[3]
-                    
+    
                     if gamma_sign not in ("+", "-"):
                         continue
-                        
+    
                     self._explored.add((node_id, atom_i, atom_j, gamma_sign))
                     self._explored_node_ids.add(node_id)
                 except (ValueError, IndexError):
+                    logger.warning(
+                        "ExploredPairsLog._load: malformed record at %s:%d "
+                        "(content=%r) — skipped.",
+                        self._filepath,
+                        lineno,
+                        line,
+                    )
                     continue
                     
         logger.info(
@@ -2551,7 +2557,7 @@ class ReactionNetworkMapper:
         An empty list is returned when no runnable tasks are available,
         which signals :meth:`_run_batch_parallel` to stop the loop.
         """
-        batch: list[tuple[ExplorationTask, str, str, str, str, int]] = []
+        batch: list[tuple[ExplorationTask, str, str, int, int, int]] = []
         # Safety limit: if every task remaining in the queue is already
         # explored, stop after at most (current queue size + n) skips rather
         # than draining the entire queue one pop at a time.
@@ -3005,6 +3011,7 @@ class ReactionNetworkMapper:
         task: ExplorationTask,
         status: str,
         profile_dirs: list[str],
+        iteration=None,
     ) -> None:
         info = {
             "iteration":    self._iteration,
