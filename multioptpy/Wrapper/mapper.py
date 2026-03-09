@@ -2289,7 +2289,10 @@ class ReactionNetworkMapper:
         # Applied in bulk by _flush_node_energy_updates() before graph.save().
         self._pending_node_updates: dict[int, NodeUpdateData] = {}
         
-        os.makedirs(self.output_dir, exist_ok=False) # for safe
+        if self.resume:
+            os.makedirs(self.output_dir, exist_ok=True)
+        else:
+            os.makedirs(self.output_dir, exist_ok=False) # for safe
         os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "runs"),  exist_ok=True)
