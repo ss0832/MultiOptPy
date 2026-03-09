@@ -19,8 +19,10 @@ import os
 import copy
 import shutil
 import sys
+import tempfile
 import traceback
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -222,7 +224,7 @@ class StructureChecker:
         rotations and atom-index permutations.  Returns inf if the element
         compositions differ.
         """
-        if len(sym_a) != len(sym_b) or set(sym_a) != set(sym_b):
+        if len(sym_a) != len(sym_b) or Counter(sym_a) != Counter(sym_b):
             return float("inf")
 
         ca = coords_a - coords_a.mean(axis=0)
@@ -974,6 +976,11 @@ class ExploredPairsLog:
         # Fast O(1) membership check: which node_ids have been explored at all.
         self._explored_node_ids: set[int] = set()
         self._load()
+        # Keep the append handle open so each record() call is a single
+        # write() rather than open/write/close.  The handle is flushed after
+        # every write so the file stays consistent even if the process is
+        # interrupted between records.
+        self._fh = open(self._filepath, "a", encoding="utf-8")  # noqa: SIM115
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1040,8 +1047,26 @@ class ExploredPairsLog:
             return
         self._explored.add(key)
         self._explored_node_ids.add(node_id)
-        with open(self._filepath, "a", encoding="utf-8") as fh:
-            fh.write(f"EQ{node_id:06d} {atom_i} {atom_j} {gamma_sign}\n")
+        self._fh.write(f"EQ{node_id:06d} {atom_i} {atom_j} {gamma_sign}\n")
+        self._fh.flush()
+
+    def close(self) -> None:
+        """Flush and close the underlying append file handle.
+
+        Should be called when the log will no longer be written to (e.g. at
+        the end of :meth:`ReactionNetworkMapper.run`).  Safe to call multiple
+        times — subsequent calls after the first are no-ops.
+        """
+        if not self._fh.closed:
+            self._fh.flush()
+            self._fh.close()
+
+    # Context-manager support so callers can use ``with ExploredPairsLog(path) as log:``
+    def __enter__(self) -> "ExploredPairsLog":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def __len__(self) -> int:
         return len(self._explored)
@@ -1266,7 +1291,7 @@ class EQNode:
             "energy_hartree":      self.energy,
             "free_energy_hartree": self.free_energy,
             "source_run_dir":      self.source_run_dir,
-            **self.extra,
+            "extra":               self.extra,
         }
 
 @dataclass
@@ -1442,11 +1467,25 @@ class NetworkGraph:
             "metadata": {
                 "n_nodes": len(self._nodes),
                 "n_edges": len(self._edges),
-                "last_iteration": self.last_iteration,  
+                "last_iteration": self.last_iteration,
             },
         }
-        with open(filepath, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, ensure_ascii=False)
+        # Write to a temporary file in the same directory, then atomically
+        # rename it over the target path.  This ensures the JSON is never
+        # left in a partially-written state if the process is interrupted
+        # during the write (critical for long-running exploration jobs).
+        dir_name = os.path.dirname(os.path.abspath(filepath))
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".json.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, filepath)   # atomic on POSIX; best-effort on Windows
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def load(self, filepath: str) -> None:
         """Load a reaction network from *filepath*, replacing the current graph.
@@ -1479,6 +1518,7 @@ class NetworkGraph:
                 symbols=[],
                 source_run_dir=nd.get("source_run_dir", ""),
                 free_energy=nd.get("free_energy_hartree"),
+                extra=nd.get("extra", {}),
             )
             if os.path.isfile(node.xyz_file):
                 try:
@@ -1681,7 +1721,7 @@ class NetworkGraph:
             label = "G" if node.free_energy is not None else "E"
             if eff is not None and ref is not None:
                 rel = (eff - ref) * HARTREE_TO_KCALMOL
-                e_str = f"{eff:+.8f} Ha  (+{rel:.2f} kcal/mol) [{label}]"
+                e_str = f"{eff:+.8f} Ha  ({rel:+.2f} kcal/mol) [{label}]"
             elif eff is not None:
                 e_str = f"{eff:+.8f} Ha  [{label}]"
             else:
@@ -2223,8 +2263,16 @@ class ReactionNetworkMapper:
             "-" if task.afir_params and task.afir_params[0].startswith("-")
             else "+"
         )
-        atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
-        atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+        try:
+            atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
+            atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+        except (ValueError, IndexError):
+            logger.warning(
+                "_parse_afir_task_key: could not parse atom indices from "
+                "afir_params=%r — falling back to (0, 0).",
+                task.afir_params,
+            )
+            atom_i, atom_j = 0, 0
         return gamma_sign, atom_i, atom_j
 
     # ------------------------------------------------------------------
@@ -2394,10 +2442,7 @@ class ReactionNetworkMapper:
             self._write_priority_log(priority_log)
 
         self.graph.save(self.graph_json_path)
-
-    # ------------------------------------------------------------------
-    # Parallel batch execution helpers
-    # ------------------------------------------------------------------
+        self.explored_log.close()
 
     def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str, str, int]]:
         """Pop up to *n* ready tasks and create their run directories.
@@ -2413,6 +2458,11 @@ class ReactionNetworkMapper:
         which signals :meth:`_run_batch_parallel` to stop the loop.
         """
         batch: list[tuple[ExplorationTask, str, str, str, str, int]] = []
+        # Safety limit: if every task remaining in the queue is already
+        # explored, stop after at most (current queue size + n) skips rather
+        # than draining the entire queue one pop at a time.
+        max_skip = len(self.queue) + n
+        skip_count = 0
         while len(batch) < n:
             task = self.queue.pop()
             if task is None:
@@ -2424,6 +2474,14 @@ class ReactionNetworkMapper:
                     break   # truly exhausted
             gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
             if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                skip_count += 1
+                if skip_count > max_skip:
+                    logger.debug(
+                        "_collect_task_batch: skip_count exceeded max_skip (%d); "
+                        "breaking to avoid stall.",
+                        max_skip,
+                    )
+                    break
                 logger.debug(
                     "_collect_task_batch: skipping already-explored task "
                     "(EQ%06d, %d-%d, %s).",
@@ -2440,7 +2498,7 @@ class ReactionNetworkMapper:
 
     def _run_batch_parallel(
         self,
-        batch: list[tuple[ExplorationTask, str, str, str, str, int]],
+        batch: list[tuple[ExplorationTask, str, str, str, str]],
         history_log: str,
         priority_log: str,
     ) -> None:
@@ -2491,9 +2549,15 @@ class ReactionNetworkMapper:
                 f = executor.submit(_autots_worker, config, run_dir, workspace)
                 futures[f] = (task, run_dir, workspace, iteration)
 
-        # ── Collect results (preserving submission order) ─────────────────
+        # ── Collect results in completion order via as_completed ─────────
+        # as_completed() yields each Future as soon as its subprocess
+        # finishes, so shorter tasks are processed without waiting for
+        # slower ones in the same batch.  Graph updates still happen
+        # sequentially (graph is not thread-safe), but we no longer block
+        # the fastest results behind the slowest worker.
         results: list[tuple[ExplorationTask, str, list[str], str, int]] = []
-        for f, (task, run_dir, _workspace, iteration) in futures.items():
+        for f in concurrent.futures.as_completed(futures):
+            task, run_dir, _workspace, iteration = futures[f]
             try:
                 profile_dirs: list[str] = f.result()
                 results.append((task, run_dir, profile_dirs, "DONE", iteration))
@@ -2697,9 +2761,9 @@ class ReactionNetworkMapper:
                                     "Initial optimization energy "
                                     f"(optimizer.{method_name}()): {energy:.10f} Ha"
                                 )
-                        except (TypeError, ValueError, Exception):
-                            pass
-                        break  # stop after the first matching method
+                                break   # success — stop trying methods
+                        except Exception:
+                            continue   # this method failed; try the next one
 
                 # Priority 2: fall back to well-known instance attributes only
                 # when no accessor method was found.  The list is intentionally
