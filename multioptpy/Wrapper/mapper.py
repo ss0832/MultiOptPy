@@ -24,8 +24,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
 
-# Internal imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 try:
     from multioptpy.Wrapper.autots import AutoTSWorkflow
 except ImportError as _autots_import_err:
@@ -82,6 +81,9 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
             symbols.append(parts[0])
             coords_raw.append([float(parts[1]), float(parts[2]), float(parts[3])])
         except ValueError:
+            logger.warning(
+                "parse_xyz: skipping malformed line in %s: %r", filepath, ln.strip()
+            )
             continue
         if n_atoms is not None and len(symbols) >= n_atoms:
             break
@@ -210,16 +212,16 @@ class StructureChecker:
         are not repeated for every candidate.
         """
         # --- Precompute element groups once (not per rotation) ---
-        elem_groups_a: dict[str, np.ndarray] = {}
+        elem_groups_a_lists: dict[str, list[int]] = {}
         for i, s in enumerate(sym_a):
-            elem_groups_a.setdefault(s, []).append(i)  # type: ignore[arg-type]
-        groups_a = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_a.items()}
-
-        elem_groups_b: dict[str, np.ndarray] = {}
+            elem_groups_a_lists.setdefault(s, []).append(i)
+        groups_a = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_a_lists.items()}
+        
+        elem_groups_b_lists: dict[str, list[int]] = {}
         for i, s in enumerate(sym_b):
-            elem_groups_b.setdefault(s, []).append(i)  # type: ignore[arg-type]
-        groups_b = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_b.items()}
-
+            elem_groups_b_lists.setdefault(s, []).append(i)
+        groups_b = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_b_lists.items()}
+        
         min_rmsd = float("inf")
         for R in candidates:
             cb_rot = cb @ R.T
@@ -299,6 +301,8 @@ class StructureChecker:
 
         Each set is combined with all 4 sign-flip matrices so that
         sign-flip ambiguity is still covered.
+        
+        Note: Setting n_sphere > 8 is not recommended due to high computational cost.
         """
         sign_flips = cls._sign_flip_candidates()
 
@@ -421,7 +425,10 @@ class StructureChecker:
         so that the grouping step is not repeated for every rotation candidate.
         Returns ``None`` if stoichiometry is inconsistent.
         """
-        perm: list[int | None] = [None] * sum(len(v) for v in groups_a.values())
+        n = len(coords_a)
+        if n != len(coords_b):
+            return None
+        perm: list[int | None] = [None] * n
         for elem, idx_a in groups_a.items():
             idx_b = groups_b.get(elem)
             if idx_b is None or len(idx_a) != len(idx_b):
@@ -431,27 +438,6 @@ class StructureChecker:
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
         return None if None in perm else perm  # type: ignore[return-value]
-
-    @staticmethod
-    def _optimal_mapping(
-        sym_a: list[str], coords_a: np.ndarray,
-        sym_b: list[str], coords_b: np.ndarray,
-    ) -> list[int] | None:
-        """Find the permutation of B's atoms that minimises the total
-        squared distance to A, solved independently per element.
-        Returns None if stoichiometry is inconsistent.
-        """
-        perm: list[int | None] = [None] * len(sym_a)
-        for elem in set(sym_a):
-            idx_a = [i for i, s in enumerate(sym_a) if s == elem]
-            idx_b = [i for i, s in enumerate(sym_b) if s == elem]
-            if len(idx_a) != len(idx_b):
-                return None
-            cost = cdist(coords_a[idx_a], coords_b[idx_b], metric="sqeuclidean")
-            row_ind, col_ind = linear_sum_assignment(cost)
-            for r, c in zip(row_ind, col_ind):
-                perm[idx_a[r]] = idx_b[c]
-        return None if None in perm else perm  # type: ignore
 
     # ------------------------------------------------------------------ #
     #  Kabsch RMSD                                                         #
@@ -574,7 +560,7 @@ class BondTopologyChecker:
 
 
 # ===========================================================================
-# Section 3 : ExplorationQueue
+# Section 3a : ExplorationQueue
 # ===========================================================================
 
 @dataclass
@@ -654,6 +640,22 @@ class ExplorationQueue(ABC):
             except ValueError:
                 continue  # stale entry — skip and try the next one
         return None
+
+    def is_submitted(self, key: tuple) -> bool:
+        """Return ``True`` if *key* has already been submitted to the queue.
+
+        Parameters
+        ----------
+        key : tuple
+            A ``(node_id, tuple(afir_params))`` pair matching the format
+            used internally by :meth:`push`.  For example::
+
+                (0, ("100", "1", "5"))
+
+        This method provides a public, encapsulated alternative to
+        directly accessing the internal ``_submitted`` set.
+        """
+        return key in self._submitted
 
     def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
@@ -787,7 +789,6 @@ class BoltzmannQueue(ExplorationQueue):
             return 1.0
         return min(1.0, float(np.exp(-delta_e / (K_B_HARTREE * self.temperature_K))))
 
-
 # ===========================================================================
 # Section 3b : ExploredPairsLog
 # ===========================================================================
@@ -837,9 +838,9 @@ class ExploredPairsLog:
                     continue
                 try:
                     # Strip the leading "EQ" prefix before converting to int
-                    node_id   = int(parts[0][2:])
-                    atom_i    = int(parts[1])
-                    atom_j    = int(parts[2])
+                    node_id    = int(parts[0][2:])
+                    atom_i     = int(parts[1])
+                    atom_j     = int(parts[2])
                     gamma_sign = parts[3]
                     if gamma_sign not in ("+", "-"):
                         continue
@@ -860,6 +861,23 @@ class ExploredPairsLog:
         """Return ``True`` if this (node, pair, sign) has already been explored."""
         return (node_id, atom_i, atom_j, gamma_sign) in self._explored
 
+    def has_any_for_node(self, node_id: int) -> bool:
+        """Return ``True`` if *node_id* has at least one recorded exploration.
+
+        Uses an internal O(1) set keyed by node_id so this method is
+        constant-time regardless of the total number of explored pairs.
+        """
+        return node_id in self._explored_node_ids
+
+    def contains(self, key: tuple[int, int, int, str]) -> bool:
+        """Return ``True`` if the exact (node_id, atom_i, atom_j, gamma_sign) tuple exists.
+
+        This is a convenience wrapper around :meth:`has` that accepts a
+        pre-built 4-tuple, which is useful when the caller has already
+        constructed the key for other purposes (e.g. set-difference checks).
+        """
+        return key in self._explored
+
     def record(self, node_id: int, atom_i: int, atom_j: int, gamma_sign: str) -> None:
         """Mark the combination as explored and append it to the text file."""
         key = (node_id, atom_i, atom_j, gamma_sign)
@@ -872,7 +890,6 @@ class ExploredPairsLog:
 
     def __len__(self) -> int:
         return len(self._explored)
-
 
 # ===========================================================================
 # Section 4 : PerturbationGenerator
@@ -1139,7 +1156,7 @@ class TSEdge:
         # Merge extra, skipping non-JSON-serialisable values
         for k, v in self.extra.items():
             try:
-                import json; json.dumps(v)
+                json.dumps(v)
                 data[k] = v
             except (TypeError, ValueError):
                 data[k] = str(v)
@@ -1184,6 +1201,18 @@ class NetworkGraph:
         eid = self._edge_counter
         self._edge_counter += 1
         return eid
+
+    def invalidate_energy_cache(self) -> None:
+        """Invalidate the cached reference energy.
+
+        Should be called whenever node energies are modified externally
+        (e.g. by energy backfill in ``_flush_node_energy_updates``) so that
+        the next call to :meth:`reference_energy` recomputes from scratch.
+
+        This method provides a public, encapsulated alternative to directly
+        manipulating the internal ``_ref_energy_cache`` sentinel.
+        """
+        self._ref_energy_cache = _UNSET  # type: ignore[assignment]
 
     def reference_energy(self) -> float | None:
         """Return the unified reference energy for priority/Boltzmann calculations.
@@ -1318,8 +1347,7 @@ class NetworkGraph:
                 f"ΔG‡(fwd)={fwd_free} kcal/mol  ΔG‡(rev)={rev_free} kcal/mol"
             )
         return "\n".join(lines)
-
-
+        
 # ===========================================================================
 # Section 6 : ProfileParser
 # ===========================================================================
@@ -1395,7 +1423,7 @@ class ProfileParser:
     @staticmethod
     def _parse_energy_txt(txt_path: str) -> dict:
         """Parse the electronic-energy table from energy_profile.txt.
-
+    
         Reads lines of the form ``Structure, file_path, energy, bias_energy``
         and returns a dict mapping structure key to the third column (Hartree).
         Stops reading at the free-energy section header so that G_tot values
@@ -1404,7 +1432,7 @@ class ProfileParser:
         result: dict[str, float | None] = {"TS": None, "Endpoint_1": None, "Endpoint_2": None}
         if not os.path.isfile(txt_path):
             return result
-
+    
         with open(txt_path, "r") as fh:
             for line in fh:
                 stripped = line.strip()
@@ -1424,15 +1452,19 @@ class ProfileParser:
                 try:
                     result[key] = float(parts[2])
                 except ValueError:
-                    pass
+                    logger.warning(
+                        "_parse_energy_txt: could not parse energy value for '%s' "
+                        "in %s: %r",
+                        key, txt_path, parts[2],
+                    )
         return result
 
     @staticmethod
     def _parse_free_energy_txt(txt_path: str) -> dict:
         """Parse the free-energy section appended by autots.py to energy_profile.txt.
-
+    
         The section written by ``_write_energy_profile_text`` looks like::
-
+    
             # ===================================================================
             # FREE ENERGY SECTION (G_tot from thermochemistry analysis)
             # ===================================================================
@@ -1441,18 +1473,18 @@ class ProfileParser:
             TS,           -123.456789012345
             Endpoint_1,   -122.345678901234
             Endpoint_2,   N/A
-
+    
         Lines whose second column is ``N/A`` (vibrational analysis was not
         performed) are stored as ``None``.  The section is terminated by the
         next ``# ---...`` separator or end-of-file.
-
+    
         Returns a dict with keys ``"TS"``, ``"Endpoint_1"``, ``"Endpoint_2"``
         mapping to ``float | None``.
         """
         result: dict[str, float | None] = {"TS": None, "Endpoint_1": None, "Endpoint_2": None}
         if not os.path.isfile(txt_path):
             return result
-
+    
         in_section = False
         with open(txt_path, "r") as fh:
             for line in fh:
@@ -1479,9 +1511,13 @@ class ProfileParser:
                     try:
                         result[key] = float(raw)
                     except ValueError:
+                        logger.warning(
+                            "_parse_free_energy_txt: could not parse free energy "
+                            "value for '%s' in %s: %r",
+                            key, txt_path, raw,
+                        )
                         result[key] = None
         return result
-
 
 # ===========================================================================
 # Section 7 : ReactionNetworkMapper
@@ -1768,7 +1804,35 @@ class ReactionNetworkMapper:
         self._ref_bond_coords: np.ndarray = np.empty((0, 3), dtype=float)
 
     # ------------------------------------------------------------------
-    # Main loop
+    # AFIR task key parsing (Fix 3)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_afir_task_key(task: ExplorationTask) -> tuple[str, int, int]:
+        """Extract (gamma_sign, atom_i_1based, atom_j_1based) from a task.
+
+        This helper eliminates the duplicated parsing logic that was
+        previously inlined in two separate locations within :meth:`run`.
+
+        Returns
+        -------
+        gamma_sign : str
+            ``'+'`` for attractive (positive gamma), ``'-'`` for repulsive.
+        atom_i : int
+            1-based index of the first atom in the pair (0 if unavailable).
+        atom_j : int
+            1-based index of the second atom in the pair (0 if unavailable).
+        """
+        gamma_sign = (
+            "-" if task.afir_params and task.afir_params[0].startswith("-")
+            else "+"
+        )
+        atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
+        atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+        return gamma_sign, atom_i, atom_j
+
+    # ------------------------------------------------------------------
+    # Main loop (Fix 3: deduplicated AFIR key parsing)
     # ------------------------------------------------------------------
 
     def run(self) -> None:
@@ -1781,11 +1845,7 @@ class ReactionNetworkMapper:
         1. **Queue drain** – Tasks previously enqueued by
            :meth:`_enqueue_perturbations` are consumed first (highest-priority
            first, according to the queue's Boltzmann weights).
-        2. **Boltzmann resample** – Once the queue is empty the mapper samples
-           a new (EQ, pair) by drawing an EQ node proportionally to its
-           Boltzmann weight and then selecting a pair uniformly from all valid
-           candidates for that node.
-        3. **Queue re-scan** – When the queue is empty, all nodes are
+        2. **Queue re-scan** – When the queue is empty, all nodes are
            re-scanned via :meth:`_enqueue_perturbations` to find any
            remaining unexplored pairs.  If none are found the loop stops.
 
@@ -1837,17 +1897,13 @@ class ReactionNetworkMapper:
             task = self.queue.pop()
 
             if task is not None:
+                # Parse AFIR key once — used for both the skip check and
+                # the explored_log.record() call below.
+                gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+
                 # Verify that this queue task has not already been executed
                 # (relevant after a resume where the queue is rebuilt from
                 # scratch but the explored_pairs log retains prior history).
-                gamma_sign = (
-                    "-" if len(task.afir_params) >= 1
-                           and task.afir_params[0].startswith("-")
-                    else "+"
-                )
-                atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
-                atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
-
                 if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
                     logger.debug(
                         "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
@@ -1875,13 +1931,8 @@ class ReactionNetworkMapper:
                 continue
 
             # ── Record the pair as explored before execution ────────────────
-            gamma_sign = (
-                "-" if len(task.afir_params) >= 1
-                       and task.afir_params[0].startswith("-")
-                else "+"
-            )
-            atom_i = int(task.afir_params[1]) if len(task.afir_params) >= 3 else 0
-            atom_j = int(task.afir_params[2]) if len(task.afir_params) >= 3 else 0
+            # gamma_sign, atom_i, atom_j already parsed above via
+            # _parse_afir_task_key — no duplicate extraction needed.
             self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
 
             # ── Execute the task ────────────────────────────────────────────
@@ -1929,11 +1980,6 @@ class ReactionNetworkMapper:
     # ------------------------------------------------------------------
     # Config snapshot
     # ------------------------------------------------------------------
-    #
-    # (The former _boltzmann_sample_task / Boltzmann-resampling section
-    # has been removed.  When the queue empties, run() now deterministically
-    # re-scans all nodes via _enqueue_perturbations instead of using
-    # rejection sampling, which was unreliable as the explored set grew.)
 
     def _save_config_snapshot(self) -> None:
         """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
@@ -2058,7 +2104,7 @@ class ReactionNetworkMapper:
             opt_kwargs["run_type"] = "opt"
             seed_xyz_rel = os.path.relpath(seed_xyz)
             opt_job = OptimizationJob(seed_xyz_rel)
-           
+
             if opt_kwargs:
                 opt_job.set_options(**opt_kwargs)
 
@@ -2074,7 +2120,7 @@ class ReactionNetworkMapper:
             # OptimizationJob itself holds no energy; it lives on the internal
             # multioptpy.optimization.Optimize object returned by get_results().
             energy: float | None = None
-            
+
             if optimizer is not None:
                 for attr in ("energy", "final_energy", "scf_energy", "result_energy",
                              "optimized_energy", "last_energy", "minimum_energy"):
@@ -2211,6 +2257,11 @@ class ReactionNetworkMapper:
             json.dump(info, fh, indent=2)
 
     def _run_autots(self, task: ExplorationTask, run_dir: str) -> list[str]:
+        if AutoTSWorkflow is None:
+            raise RuntimeError(
+                "AutoTSWorkflow is not available. "
+                "Install multioptpy to use the reaction network mapper."
+            )
         workspace = os.path.join(run_dir, "autots_workspace")
 
         config = copy.deepcopy(self.base_config)
@@ -2332,7 +2383,7 @@ class ReactionNetworkMapper:
             for existing_edge in self.graph.all_edges():
                 if not existing_edge.has_coords:
                     continue
-                
+
                 # Energy pre-filter: skip RMSD computation when energies
                 # differ by more than the tolerance (fast path).
                 # When either energy is None the filter is skipped so that
@@ -2382,6 +2433,10 @@ class ReactionNetworkMapper:
             f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
+
+    # ------------------------------------------------------------------
+    # Energy backfill (Fix 2d: uses graph.invalidate_energy_cache())
+    # ------------------------------------------------------------------
 
     def _flush_node_energy_updates(self) -> None:
         """Apply pending energy backfill updates accumulated during the iteration.
@@ -2438,8 +2493,13 @@ class ReactionNetworkMapper:
                 )
 
         self._pending_node_updates.clear()
-        # Node energies may have changed; invalidate the cached reference energy.
-        self.graph._ref_energy_cache = _UNSET  # type: ignore[assignment]
+        # Node energies may have changed; invalidate the cached reference energy
+        # via the public method instead of touching the private cache directly.
+        self.graph.invalidate_energy_cache()
+
+    # ------------------------------------------------------------------
+    # Node identity and registration
+    # ------------------------------------------------------------------
 
     def _find_or_register_node(
         self,
@@ -2598,13 +2658,21 @@ class ReactionNetworkMapper:
 
         return node_id
 
+    # ------------------------------------------------------------------
+    # Exploration state helpers (Fix 2d: uses public methods)
+    # ------------------------------------------------------------------
+
     def _node_has_been_explored(self, node_id: int) -> bool:
         """Return ``True`` if *node_id* has at least one recorded exploration.
 
-        Uses the O(1) ``_explored_node_ids`` set on :class:`ExploredPairsLog`
-        instead of a linear scan over all explored tuples.
+        Uses the public :meth:`ExploredPairsLog.has_any_for_node` method
+        instead of directly accessing the private ``_explored_node_ids`` set.
         """
-        return node_id in self.explored_log._explored_node_ids
+        return self.explored_log.has_any_for_node(node_id)
+
+    # ------------------------------------------------------------------
+    # Perturbation enqueuing (Fix 2d: uses public methods)
+    # ------------------------------------------------------------------
 
     def _enqueue_perturbations(self, node: EQNode, force_add: bool = False) -> None:
         if node.coords.size == 0:
@@ -2642,7 +2710,7 @@ class ReactionNetworkMapper:
         if not accepted:
             return
 
-        # ── Build the complete candidate pool ────────────────────────────
+        # ── Build the complete candidate pool ───────────────────────────
         # Use get_candidate_pairs (returns all valid pairs without sampling)
         # so we can filter before sampling, avoiding the bug where
         # generate_afir_perturbations could randomly select only already-
@@ -2658,20 +2726,18 @@ class ReactionNetworkMapper:
             gamma_signs.append("-")
 
         # ── Filter out already-explored and already-queued pairs ─────────
-        # Build unexplored list with a single list comprehension to avoid
-        # Python-level nested loop overhead.  Local variable aliases avoid
-        # repeated attribute lookups inside the hot path.
-        nid            = node.node_id
-        explored_set   = self.explored_log._explored    # set[(nid,i,j,sign)]
-        submitted_set  = self.queue._submitted           # set[(nid, tuple(params))]
-        sign_to_gamma  = {"+": pos_gamma_str, "-": neg_gamma_str}
+        # Use public methods instead of directly accessing private sets.
+        nid = node.node_id
+        sign_to_gamma = {"+": pos_gamma_str, "-": neg_gamma_str}
 
         unexplored: list[tuple[int, int, str]] = [
             (i0, j0, sign)
             for (i0, j0) in all_candidates
             for sign in gamma_signs
-            if (nid, i0 + 1, j0 + 1, sign) not in explored_set
-            and (nid, (sign_to_gamma[sign], str(i0 + 1), str(j0 + 1))) not in submitted_set
+            if not self.explored_log.has(nid, i0 + 1, j0 + 1, sign)
+            and not self.queue.is_submitted(
+                (nid, (sign_to_gamma[sign], str(i0 + 1), str(j0 + 1)))
+            )
         ]
 
         if not unexplored:
@@ -2712,6 +2778,10 @@ class ReactionNetworkMapper:
                 },
             )
             self.queue.push(task)
+
+    # ------------------------------------------------------------------
+    # File persistence helpers
+    # ------------------------------------------------------------------
 
     def _persist_node_xyz(self, src_xyz: str, node_id: int) -> str:
         dst = os.path.join(self.output_dir, "nodes", f"EQ{node_id:06d}.xyz")
