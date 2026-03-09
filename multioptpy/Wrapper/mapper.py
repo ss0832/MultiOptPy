@@ -121,6 +121,31 @@ def _autots_worker(config: dict, run_dir: str, workspace: str) -> list[str]:
     return sorted(_glob.glob(pattern, recursive=True))
 
 
+def _autots_worker_with_queue(
+    config: dict,
+    run_dir: str,
+    workspace: str,
+    result_queue: "multiprocessing.Queue[tuple]",
+) -> None:
+    """Thin wrapper around :func:`_autots_worker` for use with
+    :class:`multiprocessing.Process`.
+
+    The return value (or raised exception) is transmitted back to the
+    parent process via *result_queue* as a ``(tag, payload)`` tuple:
+
+    * ``("ok", profiles)`` on success.
+    * ``("err", exception)`` on failure.
+
+    This avoids the per-call ``ProcessPoolExecutor`` setup/teardown
+    overhead incurred by the sequential (``n_parallel=1``) code path.
+    """
+    try:
+        profiles = _autots_worker(config, run_dir, workspace)
+        result_queue.put(("ok", profiles))
+    except Exception as exc:  # noqa: BLE001
+        result_queue.put(("err", exc))
+
+
 logger = logging.getLogger(__name__)
 
 # Module-level physical constants
@@ -411,8 +436,7 @@ class StructureChecker:
         tol = cls._DEGENERACY_REL_TOL
 
         def rel_close(ev: np.ndarray, i: int, j: int) -> bool:
-            denom = max(abs(ev[i]), abs(ev[j]), 1e-10)
-            return abs(ev[i] - ev[j]) / denom < tol
+            return np.isclose(ev[i], ev[j], rtol=tol, atol=1e-10)
 
         deg_01 = rel_close(eigvals_a, 0, 1) or rel_close(eigvals_b, 0, 1)
         deg_12 = rel_close(eigvals_a, 1, 2) or rel_close(eigvals_b, 1, 2)
@@ -713,9 +737,14 @@ class ExplorationQueue(ABC):
         # sorted(self._tasks.values(), ...) rather than operating on the dict
         # directly.
         self._tasks: dict[int, ExplorationTask] = {}
+        # _task_counter: monotonically increasing integer assigned to each task
+        # on push().  Using a stable counter instead of id(task) prevents the
+        # id-reuse bug where a GC'd task's memory address is assigned to a new
+        # object, causing _tasks.pop() to silently remove a live entry.
+        self._task_counter: int = 0
         # _heap: min-heap of (raw_energy, counter, task_id) for O(log N)
-        # extraction.  Entries keyed by id(task); stale entries (whose task_id
-        # is absent from _tasks) are silently skipped in pop().
+        # extraction.  Stale entries (whose task_id is absent from _tasks) are
+        # silently skipped in pop().
         # Storing raw_energy (absolute, not delta) means the heap order is
         # invariant to reference-energy shifts, so refresh_priorities() no
         # longer needs to rebuild the heap.
@@ -751,7 +780,8 @@ class ExplorationQueue(ABC):
             )
         )
 
-        task_id = id(task)
+        self._task_counter += 1
+        task_id = self._task_counter
         self._tasks[task_id] = task
         heapq.heappush(self._heap, (raw_e, self._push_counter, task_id))
         self._push_counter += 1
@@ -2318,131 +2348,135 @@ class ReactionNetworkMapper:
         history_log = os.path.join(self.output_dir, "exploration_history.log")
         priority_log = os.path.join(self.output_dir, "queue_priority.log")
 
-        while True:
-            # ── Stop-file sentinel ──────────────────────────────────────────
-            if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
-                logger.info("stop.txt detected in output_dir. Stopping.")
-                break
+        # The try/finally guarantees explored_log is flushed and closed
+        # even when an unhandled exception propagates out of the loop.
+        try:
+            while True:
+                # ── Stop-file sentinel ──────────────────────────────────────────
+                if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
+                    logger.info("stop.txt detected in output_dir. Stopping.")
+                    break
 
-            # ── Iteration limit ─────────────────────────────────────────────
-            if self.max_iterations > 0 and self._iteration >= self.max_iterations:
-                logger.info(
-                    "Reached max_iterations (%d). Stopping.", self.max_iterations
-                )
-                break
-
-            # ── Parallel path (n_parallel > 1) ──────────────────────────────
-            if self.n_parallel > 1:
-                self.queue.refresh_priorities(self.graph.reference_energy())
-                # Clamp collection size so we never exceed max_iterations.
-                # This must be computed *before* _collect_task_batch because
-                # that method now pre-increments _iteration for each task.
-                if self.max_iterations > 0:
-                    remaining = self.max_iterations - self._iteration
-                    n_collect = min(self.n_parallel, remaining)
-                else:
-                    n_collect = self.n_parallel
-                batch = self._collect_task_batch(n_collect)
-                if not batch:
+                # ── Iteration limit ─────────────────────────────────────────────
+                if self.max_iterations > 0 and self._iteration >= self.max_iterations:
                     logger.info(
-                        "All candidate (EQ, pair) combinations exhausted. Stopping."
+                        "Reached max_iterations (%d). Stopping.", self.max_iterations
                     )
                     break
-                self._run_batch_parallel(batch, history_log, priority_log)
-                continue
 
-            # ── Sequential path (n_parallel == 1) ───────────────────────────
-            # Refresh queue priorities against the current reference energy
-            # before popping so that tasks enqueued under a higher ref_e are
-            # re-weighted correctly (relevant when a new lowest-energy node
-            # has been found since those tasks were pushed).
-            self.queue.refresh_priorities(self.graph.reference_energy())
-
-            # Phase 1: drain the pre-built queue (respects Boltzmann priority).
-            task = self.queue.pop()
-
-            if task is not None:
-                # Parse AFIR key once — used for both the skip check and
-                # the explored_log.record() call below.
-                gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-
-                # Verify that this queue task has not already been executed
-                # (relevant after a resume where the queue is rebuilt from
-                # scratch but the explored_pairs log retains prior history).
-                if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
-                    logger.debug(
-                        "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
-                        task.node_id, atom_i, atom_j, gamma_sign,
-                    )
-                    # Do NOT count against max_iterations; try again next cycle.
+                # ── Parallel path (n_parallel > 1) ──────────────────────────────
+                if self.n_parallel > 1:
+                    self.queue.refresh_priorities(self.graph.reference_energy())
+                    # Clamp collection size so we never exceed max_iterations.
+                    # This must be computed *before* _collect_task_batch because
+                    # that method now pre-increments _iteration for each task.
+                    if self.max_iterations > 0:
+                        remaining = self.max_iterations - self._iteration
+                        n_collect = min(self.n_parallel, remaining)
+                    else:
+                        n_collect = self.n_parallel
+                    batch = self._collect_task_batch(n_collect)
+                    if not batch:
+                        logger.info(
+                            "All candidate (EQ, pair) combinations exhausted. Stopping."
+                        )
+                        break
+                    self._run_batch_parallel(batch, history_log, priority_log)
                     continue
-            else:
-                # Phase 2: queue exhausted — deterministically re-scan every node
-                # for unexplored pairs and re-fill the queue.  This replaces the
-                # former rejection-sampling loop (_boltzmann_sample_task), which
-                # could miss valid pairs as the explored set grew large.
-                logger.info(
-                    "Queue empty; re-scanning all nodes for unexplored pairs."
-                )
-                for node in self.graph.all_nodes():
-                    self._enqueue_perturbations(node, force_add=True)
-                if len(self.queue) == 0:
+
+                # ── Sequential path (n_parallel == 1) ───────────────────────────
+                # Refresh queue priorities against the current reference energy
+                # before popping so that tasks enqueued under a higher ref_e are
+                # re-weighted correctly (relevant when a new lowest-energy node
+                # has been found since those tasks were pushed).
+                self.queue.refresh_priorities(self.graph.reference_energy())
+
+                # Phase 1: drain the pre-built queue (respects Boltzmann priority).
+                task = self.queue.pop()
+
+                if task is not None:
+                    # Parse AFIR key once — used for both the skip check and
+                    # the explored_log.record() call below.
+                    gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+
+                    # Verify that this queue task has not already been executed
+                    # (relevant after a resume where the queue is rebuilt from
+                    # scratch but the explored_pairs log retains prior history).
+                    if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                        logger.debug(
+                            "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
+                            task.node_id, atom_i, atom_j, gamma_sign,
+                        )
+                        # Do NOT count against max_iterations; try again next cycle.
+                        continue
+                else:
+                    # Phase 2: queue exhausted — deterministically re-scan every node
+                    # for unexplored pairs and re-fill the queue.  This replaces the
+                    # former rejection-sampling loop (_boltzmann_sample_task), which
+                    # could miss valid pairs as the explored set grew large.
                     logger.info(
-                        "All candidate (EQ, pair) combinations exhausted. Stopping."
+                        "Queue empty; re-scanning all nodes for unexplored pairs."
                     )
-                    break
-                # Restart the loop so the freshly enqueued tasks are popped
-                # in priority order on the next iteration.
-                continue
+                    for node in self.graph.all_nodes():
+                        self._enqueue_perturbations(node, force_add=True)
+                    if len(self.queue) == 0:
+                        logger.info(
+                            "All candidate (EQ, pair) combinations exhausted. Stopping."
+                        )
+                        break
+                    # Restart the loop so the freshly enqueued tasks are popped
+                    # in priority order on the next iteration.
+                    continue
 
-            # ── Record the pair as explored before execution ────────────────
-            # gamma_sign, atom_i, atom_j already parsed above via
-            # _parse_afir_task_key — no duplicate extraction needed.
-            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+                # ── Record the pair as explored before execution ────────────────
+                # gamma_sign, atom_i, atom_j already parsed above via
+                # _parse_afir_task_key — no duplicate extraction needed.
+                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
 
-            # ── Execute the task ────────────────────────────────────────────
-            self._iteration += 1
-            self.graph.last_iteration = self._iteration
-            
-            with open(history_log, "a", encoding="utf-8") as fh:
-                fh.write(
-                    f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
-                    f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n"
+                # ── Execute the task ────────────────────────────────────────────
+                self._iteration += 1
+                self.graph.last_iteration = self._iteration
+                
+                with open(history_log, "a", encoding="utf-8") as fh:
+                    fh.write(
+                        f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
+                        f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n"
+                    )
+
+                run_dir = self._make_run_dir(task)
+                try:
+                    profile_dirs = self._run_autots(task, run_dir)
+                except Exception as e:
+                    logger.error(f"AutoTS failed for run {run_dir}: {e}")
+                    self._flush_node_energy_updates()
+                    self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
+                    self.graph.save(self.graph_json_path)
+                    self._write_priority_log(priority_log)
+                    continue
+
+                logger.info(
+                    "Iter %06d: _run_autots returned %d profile director%s.",
+                    self._iteration, len(profile_dirs),
+                    "y" if len(profile_dirs) == 1 else "ies",
                 )
+                for pdir in profile_dirs:
+                    self._process_profile(pdir, run_dir)
 
-            run_dir = self._make_run_dir(task)
-            try:
-                profile_dirs = self._run_autots(task, run_dir)
-            except Exception as e:
-                logger.error(f"AutoTS failed for run {run_dir}: {e}")
+                # Notify the queue about the updated graph (required by RCMCQueue
+                # to recompute transient-population priorities over the full network).
+                if hasattr(self.queue, "set_graph"):
+                    self.queue.set_graph(self.graph)
+
                 self._flush_node_energy_updates()
-                self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
+                self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
                 self.graph.save(self.graph_json_path)
+                # Write after new nodes and tasks have been registered so the log
+                # reflects the state produced by this iteration.
                 self._write_priority_log(priority_log)
-                continue
 
-            logger.info(
-                "Iter %06d: _run_autots returned %d profile director%s.",
-                self._iteration, len(profile_dirs),
-                "y" if len(profile_dirs) == 1 else "ies",
-            )
-            for pdir in profile_dirs:
-                self._process_profile(pdir, run_dir)
-
-            # Notify the queue about the updated graph (required by RCMCQueue
-            # to recompute transient-population priorities over the full network).
-            if hasattr(self.queue, "set_graph"):
-                self.queue.set_graph(self.graph)
-
-            self._flush_node_energy_updates()
-            self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
+        finally:
             self.graph.save(self.graph_json_path)
-            # Write after new nodes and tasks have been registered so the log
-            # reflects the state produced by this iteration.
-            self._write_priority_log(priority_log)
-
-        self.graph.save(self.graph_json_path)
-        self.explored_log.close()
+            self.explored_log.close()
 
     def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, str, str, int]]:
         """Pop up to *n* ready tasks and create their run directories.
@@ -2498,7 +2532,7 @@ class ReactionNetworkMapper:
 
     def _run_batch_parallel(
         self,
-        batch: list[tuple[ExplorationTask, str, str, str, str]],
+        batch: list[tuple[ExplorationTask, str, str, str, str, int]],
         history_log: str,
         priority_log: str,
     ) -> None:
@@ -2981,16 +3015,28 @@ class ReactionNetworkMapper:
             )
 
         # ── Run workflow in a spawned subprocess ─────────────────────────
-        # ProcessPoolExecutor with max_workers=1 is the cleanest way to use
-        # the stored mp_context for a single blocking call while keeping the
-        # same code path as the parallel branch.
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=self._mp_ctx,
-        ) as executor:
-            future = executor.submit(_autots_worker, config, run_dir, workspace)
-            profiles: list[str] = future.result()  # re-raises on worker exception
+        # Use mp_context.Process directly for the sequential path so that
+        # each iteration avoids the ProcessPoolExecutor setup/teardown
+        # overhead (executor pool creation, queue initialisation, etc.).
+        # The return value travels back via a multiprocessing.Queue that
+        # is safe to use across spawn boundaries.
+        result_q: multiprocessing.Queue = self._mp_ctx.Queue()  # type: ignore[type-arg]
+        proc = self._mp_ctx.Process(
+            target=_autots_worker_with_queue,
+            args=(config, run_dir, workspace, result_q),
+        )
+        proc.start()
+        proc.join()
 
+        if result_q.empty():
+            raise RuntimeError(
+                f"_run_autots: worker process exited with code {proc.exitcode} "
+                "without returning a result (possibly killed by a signal)."
+            )
+        tag, payload = result_q.get_nowait()
+        if tag == "err":
+            raise payload  # re-raise the original worker exception
+        profiles: list[str] = payload
         return profiles
 
     def _process_profile(self, profile_dir: str, run_dir: str) -> None:
@@ -3493,7 +3539,12 @@ class ReactionNetworkMapper:
             if os.path.abspath(src_xyz) != os.path.abspath(dst):
                 shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "_persist_node_xyz: failed to copy EQ%06d xyz to output dir "
+                "(src=%s  dst=%s): %s — falling back to source path.",
+                node_id, src_xyz, dst, exc,
+            )
             return os.path.abspath(src_xyz)
 
     def _persist_ts_xyz(self, src_xyz: str, edge_id: int) -> str:
@@ -3502,5 +3553,10 @@ class ReactionNetworkMapper:
             if os.path.abspath(src_xyz) != os.path.abspath(dst):
                 shutil.copy(src_xyz, dst)
             return os.path.abspath(dst)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "_persist_ts_xyz: failed to copy TS%06d xyz to output dir "
+                "(src=%s  dst=%s): %s — falling back to source path.",
+                edge_id, src_xyz, dst, exc,
+            )
             return os.path.abspath(src_xyz)
