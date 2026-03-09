@@ -11,6 +11,7 @@ from __future__ import annotations
 import bisect
 import concurrent.futures
 import traceback
+import atexit
 import glob
 import heapq
 import json
@@ -27,7 +28,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import cdist, pdist
 from scipy.optimize import linear_sum_assignment
 
 
@@ -363,7 +364,8 @@ class StructureChecker:
         if len(coords) < 2:
             return coords, np.ones(3)
 
-        eigvals, eigvecs = np.linalg.eigh(np.cov(coords.T))
+        cov_matrix = (coords.T @ coords) / max(1, len(coords) - 1)
+        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
 
         # Descending eigenvalue order → canonical axis labelling.
         order = eigvals.argsort()[::-1]
@@ -571,12 +573,11 @@ class StructureChecker:
         SVD from finding a reflection that would artificially lower the
         RMSD for enantiomeric pairs.
         """
-        U, _, Vt = np.linalg.svd(pb.T @ pa)
-        D = np.diag([1.0, 1.0, np.linalg.det(Vt.T @ U.T)])
-        R = Vt.T @ D @ U.T
-        diff = pa - pb @ R.T
-        return float(np.sqrt((diff ** 2).sum() / len(pa)))
-
+        U, S, Vt = np.linalg.svd(pb.T @ pa)
+        d = np.sign(np.linalg.det(U) * np.linalg.det(Vt))
+        E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
+        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + d * S[2])) / len(pa)
+        return float(np.sqrt(rmsd_sq))
 
 # ===========================================================================
 # Section 2b : BondTopologyChecker
@@ -639,10 +640,9 @@ class BondTopologyChecker:
 
         radii_arr = np.array([elem_radius[s] for s in symbols], dtype=np.float64)
 
-        # Pairwise distances — vectorised via cdist.
-        dmat = cdist(coords, coords)
+        # Pairwise distances — vectorised via pdist (O(N^2/2)).
+        dists = pdist(coords)
         ii, jj = np.triu_indices(n, k=1)
-        dists = dmat[ii, jj]
 
         # Per-pair bonding threshold.
         thresholds = self.covalent_margin * (radii_arr[ii] + radii_arr[jj])
@@ -764,27 +764,13 @@ class ExplorationQueue(ABC):
 
         task.priority = self.compute_priority(task)
 
-        # Extract the absolute (raw) energy of the source node so the heap
-        # can be ordered by raw_energy.  Lower raw_energy == higher Boltzmann
-        # priority, so a min-heap on raw_energy gives correct pop() order
-        # without ever rebuilding the heap when ref_e changes.
-        # Fall back to delta_E_hartree + current ref_e for legacy callers that
-        # do not populate source_node_energy.
-        node_g = task.metadata.get("source_node_free_energy")
-        node_e = task.metadata.get("source_node_energy")
-        raw_e: float = (
-            node_g if node_g is not None
-            else node_e if node_e is not None
-            else (
-                task.metadata.get("delta_E_hartree", 0.0)
-                + (self._current_ref_e or 0.0)
-            )
-        )
-
         self._task_counter += 1
         task_id = self._task_counter
         self._tasks[task_id] = task
-        heapq.heappush(self._heap, (raw_e, self._push_counter, task_id))
+        
+       
+        heapq.heappush(self._heap, (-task.priority, self._push_counter, task_id))
+        
         self._push_counter += 1
         self._submitted.add(key)
         return True
@@ -826,7 +812,7 @@ class ExplorationQueue(ABC):
             )
 
         while self._heap:
-            raw_e, _, task_id = heapq.heappop(self._heap)
+            _, _, task_id = heapq.heappop(self._heap)
             task = self._tasks.pop(task_id, None)
             if task is None:
                 continue  # stale entry — task was already removed
@@ -998,12 +984,12 @@ class ExploredPairsLog:
     filepath : str
         Absolute path to the text file used for persistence.
     flush_interval : int
-        Number of records to batch before flushing to disk. Defaults to 50.
+        Number of records to batch before flushing to disk. Defaults to 100.
         Higher values reduce I/O bottleneck but risk losing the latest 
         records if the process crashes unexpectedly.
     """
 
-    def __init__(self, filepath: str, flush_interval: int = 50) -> None:
+    def __init__(self, filepath: str, flush_interval: int = 100) -> None:
         self._filepath = filepath
         self._flush_interval = flush_interval
         self._write_count = 0
@@ -1018,6 +1004,7 @@ class ExploredPairsLog:
         # write() rather than open/write/close. 
         # The handle is flushed periodically based on flush_interval.
         self._fh = open(self._filepath, "a", encoding="utf-8")  # noqa: SIM115
+        atexit.register(self.close)
 
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
