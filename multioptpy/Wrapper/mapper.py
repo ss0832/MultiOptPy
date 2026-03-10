@@ -2953,6 +2953,7 @@ class ReactionNetworkMapper:
                     gamma_sign, atom_i, atom_j,
                 )
                 result_q.close()
+                proc.join(timeout=5)
                 continue
             # Store gamma_sign/atom_i/atom_j so the polling loop and finally
             # block can forward them to _process_single_result().
@@ -3129,9 +3130,22 @@ class ReactionNetworkMapper:
                         result_q.close()
                     except Exception:
                         pass
-    
-        self.graph.save(self.graph_json_path)
-        self._write_priority_log(priority_log)
+            try:
+                self.graph.save(self.graph_json_path)
+            except Exception as _save_exc:
+                logger.error(
+                    "_run_batch_parallel: graph.save() failed in finally: %s",
+                    _save_exc,
+                )
+            try:
+                self._write_priority_log(priority_log)
+            except Exception as _log_exc:
+                logger.error(
+                    "_run_batch_parallel: _write_priority_log() failed in finally: %s",
+                    _log_exc,
+                )
+                
+
 
     def _process_single_result(
         self,
