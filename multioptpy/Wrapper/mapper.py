@@ -755,6 +755,8 @@ class BondTopologyChecker:
         number of such bonds.
         """
         bonded_si, bonded_sj = self._bonded_pairs(symbols, coords)
+        if len(bonded_si) == 0:
+            return {}
         pairs = np.sort(np.column_stack((bonded_si, bonded_sj)), axis=1)
         unique_pairs, counts = np.unique(pairs, axis=0, return_counts=True)
         return {tuple(p): int(c) for p, c in zip(unique_pairs, counts)}
