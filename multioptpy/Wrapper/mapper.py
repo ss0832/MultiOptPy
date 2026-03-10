@@ -2009,7 +2009,7 @@ class ProfileParser:
     def parse(self, profile_dir: str) -> dict | None:
         ep1 = os.path.join(profile_dir, "endpoint_1_opt.xyz")
         ep2 = os.path.join(profile_dir, "endpoint_2_opt.xyz")
-        ts_matches = glob.glob(os.path.join(profile_dir, "*_ts_final.xyz"))
+        ts_matches = sorted(glob.glob(os.path.join(profile_dir, "*_ts_final.xyz")))
         txt_path   = os.path.join(profile_dir, "energy_profile.txt")
 
         if not os.path.isfile(ep1) or not os.path.isfile(ep2):
@@ -2462,7 +2462,7 @@ class ReactionNetworkMapper:
         else:
             print("Error: The output directory already exists. Exiting.")
             print("If you wish to resume, please use the --resume option.")
-            raise FileExistsError("")
+            raise FileExistsError(f"Output directory '{self.output_dir}' already exists.")
         os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "runs"),  exist_ok=True)
@@ -2657,6 +2657,7 @@ class ReactionNetworkMapper:
                             "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
                             task.node_id, atom_i, atom_j, gamma_sign,
                         )
+                        self.queue.release((task.node_id, tuple(task.afir_params)))
                         # Do NOT count against max_iterations; try again next cycle.
                         continue
     
