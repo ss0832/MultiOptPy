@@ -844,7 +844,15 @@ class BondTopologyChecker:
         if return_indices:
             return sym_arr[bonded_ii], sym_arr[bonded_jj], bonded_ii, bonded_jj
         return sym_arr[bonded_ii], sym_arr[bonded_jj]
-
+    
+    def _covalent_radius(symbol: str) -> float:
+        """Return the covalent radius of *symbol* in Angstrom."""
+        if covalent_radii_lib is not None:
+            try:
+                return float(covalent_radii_lib(symbol)) * _BOHR2ANG
+            except (KeyError, TypeError):
+                pass
+        return 0.75  # generic fallback
 
 # ===========================================================================
 # Section 3a : ExplorationQueue
@@ -1936,7 +1944,10 @@ class NetworkGraph:
 
         for node in sorted(
             self._nodes.values(),
-            key=lambda n: (n.effective_energy is None, n.effective_energy),
+            key=lambda n: (
+                n.effective_energy is None,
+                n.effective_energy if n.effective_energy is not None else 0.0,
+            ),
         ):
             eff = node.effective_energy
             label = "G" if node.free_energy is not None else "E"
