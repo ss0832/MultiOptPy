@@ -169,9 +169,9 @@ K_B_HARTREE: float = 3.166811563e-6
 # compiled exactly once rather than on every parse_xyz() call.
 _XYZ_PATTERN: re.Pattern = re.compile(
     r"\s*([A-Za-z]+)\s+"
-    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s+"
-    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s+"
-    r"([+-]?(?:\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?)\s*"
+    r"([+-]?(?:\d*\.\d+|\d+\.?)(?:[eE][+-]?\d+)?)\s+"
+    r"([+-]?(?:\d*\.\d+|\d+\.?)(?:[eE][+-]?\d+)?)\s+"
+    r"([+-]?(?:\d*\.\d+|\d+\.?)(?:[eE][+-]?\d+)?)\s*"
 )
 
 
@@ -237,7 +237,7 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
                 f"Expected {n_atoms} atoms, but only found {len(symbols)}."
             )
 
-    return symbols, np.array(coords_raw)
+        return symbols, np.array(coords_raw)
 
 def distance_matrix(coords: np.ndarray) -> np.ndarray:
     # cdist avoids the (N,N,3) intermediate array produced by manual broadcasting.
@@ -2798,33 +2798,27 @@ class ReactionNetworkMapper:
         which signals :meth:`_run_batch_parallel` to stop the loop.
         """
         batch: list[tuple[ExplorationTask, str, str, int, int, int]] = []
-        # Safety limit: if every task remaining in the queue is already
-        # explored, stop after at most (current queue size + n) skips rather
-        # than draining the entire queue one pop at a time.
-        max_skip = len(self.queue) + n
-        skip_count = 0
+        refilled = False
         while len(batch) < n:
             task = self.queue.pop()
             if task is None:
-                # Queue empty — try to refill once.
+                if refilled:
+                 
+                    break
+             
+                size_before = len(self.queue)
                 for node in self.graph.all_nodes():
                     self._enqueue_perturbations(node, force_add=True)
+                if len(self.queue) == size_before:
+              
+                    break
+                refilled = True
                 task = self.queue.pop()
                 if task is None:
-                    break   # truly exhausted
-                max_skip = max(max_skip, len(self.queue) + n) 
-                
+                    break
+
             gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
             if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
-                skip_count += 1
-                if skip_count > max_skip:
-                    logger.debug(
-                        "_collect_task_batch: skip_count exceeded max_skip (%d); "
-                        "breaking to avoid stall.",
-                        max_skip,
-                    )
-                    self.queue.release((task.node_id, tuple(task.afir_params))) 
-                    break
                 logger.debug(
                     "_collect_task_batch: skipping already-explored task "
                     "(EQ%06d, %d-%d, %s).",
@@ -2845,7 +2839,8 @@ class ReactionNetworkMapper:
             run_dir = self._make_run_dir(task, iteration=self._iteration)
             batch.append((task, run_dir, gamma_sign, atom_i, atom_j, self._iteration))
         return batch
-
+        
+        
     def _run_batch_parallel(
         self,
         batch: list[tuple[ExplorationTask, str, str, int, int, int]],
@@ -2936,10 +2931,20 @@ class ReactionNetworkMapper:
                             proc.kill()
                             proc.join(timeout=10)
                         
+                        try:
+                            result_q.cancel_join_thread()
+                            result_q.close()
+                        except Exception as _rq_exc:  # noqa: BLE001
+                            logger.debug(
+                                "_run_batch_parallel: result_q cleanup failed "
+                                "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
+                            )
+
                         logger.error("Worker timed out: %s", run_dir)
                         self._process_single_result(
                             task, run_dir, [], "TIMEOUT", iteration, history_log
                         )
+                    active_tasks.clear()  
                     break
 
             # ── Process active tasks iteratively ──────────────────────────
