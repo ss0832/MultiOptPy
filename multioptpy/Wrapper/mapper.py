@@ -3014,6 +3014,9 @@ class ReactionNetworkMapper:
                 if proc.is_alive():
                     proc.terminate()
                     proc.join(timeout=10)
+                    if proc.is_alive():  
+                        proc.kill()
+                        proc.join(timeout=10)
                 
                 self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                 
@@ -3585,6 +3588,9 @@ class ReactionNetworkMapper:
             if proc.is_alive():
                 proc.terminate()
                 proc.join(timeout=10)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=10)
     
             if tag == "err":
                 # payload is a formatted traceback string (see _autots_worker_with_queue).
