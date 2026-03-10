@@ -9,7 +9,6 @@ and external optimization utilities.
 from __future__ import annotations
 
 import bisect
-import concurrent.futures
 import traceback
 import atexit
 import glob
@@ -22,7 +21,6 @@ import time
 import re
 import copy
 import shutil
-import sys
 import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -2907,6 +2905,7 @@ class ReactionNetworkMapper:
                     "for run %s — treating as FAILED.", run_dir
                 )
                 self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                result_q.close() 
                 continue
             active_tasks[pid] = (proc, result_q, task, run_dir, iteration)
 
@@ -3512,6 +3511,11 @@ class ReactionNetworkMapper:
                 if proc.is_alive():
                     proc.kill()
                     proc.join(timeout=10)
+                try:
+                    result_q.cancel_join_thread()
+                    result_q.close()
+                except Exception as _rq_exc:
+                    logger.debug("_run_autots: result_q cleanup failed: %s", _rq_exc)
                 raise RuntimeError(
                     f"_run_autots: worker exceeded hard timeout of "
                     f"{self.worker_timeout_s}s (elapsed={elapsed:.0f}s). "
