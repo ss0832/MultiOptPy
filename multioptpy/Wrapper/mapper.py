@@ -830,7 +830,7 @@ class BondTopologyChecker:
         ``ii`` and ``jj`` needed for per-atom adjacency construction.
         """
         n = len(symbols)
-        radii_arr = np.array([_covalent_radius(s) for s in symbols])
+        radii_arr = np.array([self._covalent_radius(s) for s in symbols])
 
         dists = pdist(coords)
         ii, jj = np.triu_indices(n, k=1)
@@ -845,6 +845,7 @@ class BondTopologyChecker:
             return sym_arr[bonded_ii], sym_arr[bonded_jj], bonded_ii, bonded_jj
         return sym_arr[bonded_ii], sym_arr[bonded_jj]
     
+    @staticmethod
     def _covalent_radius(symbol: str) -> float:
         """Return the covalent radius of *symbol* in Angstrom."""
         if covalent_radii_lib is not None:
@@ -1799,8 +1800,8 @@ class NetworkGraph:
             else:
                 new_edge_none_ids.append(edge.edge_id)
 
-        new_node_counter = max(new_nodes) + 1 if new_nodes else 0
-        new_edge_counter = max(new_edges) + 1 if new_edges else 0
+        new_node_counter = (max(new_nodes.keys()) + 1) if new_nodes else 0
+        new_edge_counter = (max(new_edges.keys()) + 1) if new_edges else 0
         new_last_iteration = data.get("metadata", {}).get("last_iteration", 0)
 
         # ── Phase 2: commit — replace live state atomically ────────────────
@@ -2183,6 +2184,7 @@ class ReactionNetworkMapper:
             "rcmc_reaction_time_s",
             "rcmc_start_node_id",
             "n_parallel",
+            "worker_timeout_s", 
     })
 
     @classmethod
@@ -2479,7 +2481,19 @@ class ReactionNetworkMapper:
         # spawn is always forced so the child env is clean on all platforms.
         self.n_parallel: int = max(1, int(n_parallel))
         self._mp_ctx = multiprocessing.get_context("spawn")
-
+        # ── Worker subprocess timeout ─────────────────────────────────────────
+        # [FIX] Companion setting for the crash-aware polling loop in _run_autots.
+        #
+        # None (default) — no hard wall-clock limit.  The polling loop waits
+        #     indefinitely as long as the worker process is alive, so legitimately
+        #     long quantum chemistry calculations are never interrupted.
+        # int > 0        — hard ceiling in seconds.  Use only in HPC environments
+        #     where the job scheduler enforces its own wall-clock limit and the
+        #     mapper must terminate cleanly before that limit is reached.
+        #     Set via mapper_settings["worker_timeout_s"] in the JSON config.
+        _raw_timeout = base_config.get("mapper_settings", {}).get("worker_timeout_s", None)
+        self.worker_timeout_s: int | None = int(_raw_timeout) if _raw_timeout is not None else None
+        
     # ------------------------------------------------------------------
     # AFIR task key parsing (Fix 3)
     # ------------------------------------------------------------------
@@ -2519,46 +2533,45 @@ class ReactionNetworkMapper:
     # ------------------------------------------------------------------
     # Main loop (Fix 3: deduplicated AFIR key parsing)
     # ------------------------------------------------------------------
-
     def run(self) -> None:
         """Run the reaction network mapping loop.
-
+    
         The mapper iterates up to ``max_iterations`` times.  Each iteration
         selects the next (EQ node, atom pair) to explore using the following
         strategy:
-
+    
         1. **Queue drain** – Tasks previously enqueued by
-           :meth:`_enqueue_perturbations` are consumed first (highest-priority
-           first, according to the queue's Boltzmann weights).
+        :meth:`_enqueue_perturbations` are consumed first (highest-priority
+        first, according to the queue's Boltzmann weights).
         2. **Queue re-scan** – When the queue is empty, all nodes are
-           re-scanned via :meth:`_enqueue_perturbations` to find any
-           remaining unexplored pairs.  If none are found the loop stops.
-
+        re-scanned via :meth:`_enqueue_perturbations` to find any
+        remaining unexplored pairs.  If none are found the loop stops.
+    
         The loop runs indefinitely (no limit on the number of unique EQ/pair
         combinations) and stops only when ``max_iterations`` executions have
-        been completed or a ``stop.txt`` file is detected in ``output_dir``.
+        been completed or a ``stop.txt`` sentinel file is detected in ``output_dir``.
         """
         # ── Re-validate config at run() entry ────────────────────────────
         # base_config could have been mutated between __init__ and run(), so
         # a second check here guarantees the config is still valid at the
         # moment the expensive calculation loop actually starts.
         self._validate_mapper_settings(self.base_config)
-
+    
         if self.resume and os.path.isfile(self.graph_json_path):
             self.graph.load(self.graph_json_path)
             self._iteration = self.graph.last_iteration
             self._requeue_all_nodes()
         else:
             self._register_seed_structure()
-
+    
         # Copy the JSON config to work_dir so the output directory is
         # self-contained.  Done after directory creation (handled in __init__)
         # and after the resume branch so work_dir is guaranteed to exist.
         self._save_config_snapshot()
-
+    
         history_log = os.path.join(self.output_dir, "exploration_history.log")
         priority_log = os.path.join(self.output_dir, "queue_priority.log")
-
+    
         # The try/finally guarantees explored_log is flushed and closed
         # even when an unhandled exception propagates out of the loop.
         try:
@@ -2567,14 +2580,14 @@ class ReactionNetworkMapper:
                 if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
                     logger.info("stop.txt detected in output_dir. Stopping.")
                     break
-
+    
                 # ── Iteration limit ─────────────────────────────────────────────
                 if self.max_iterations > 0 and self._iteration >= self.max_iterations:
                     logger.info(
                         "Reached max_iterations (%d). Stopping.", self.max_iterations
                     )
                     break
-
+    
                 # ── Parallel path (n_parallel > 1) ──────────────────────────────
                 if self.n_parallel > 1:
                     self.queue.refresh_priorities(self.graph.reference_energy())
@@ -2594,22 +2607,22 @@ class ReactionNetworkMapper:
                         break
                     self._run_batch_parallel(batch, history_log, priority_log)
                     continue
-
+    
                 # ── Sequential path (n_parallel == 1) ───────────────────────────
                 # Refresh queue priorities against the current reference energy
                 # before popping so that tasks enqueued under a higher ref_e are
                 # re-weighted correctly (relevant when a new lowest-energy node
                 # has been found since those tasks were pushed).
                 self.queue.refresh_priorities(self.graph.reference_energy())
-
+    
                 # Phase 1: drain the pre-built queue (respects Boltzmann priority).
                 task = self.queue.pop()
-
+    
                 if task is not None:
                     # Parse AFIR key once — used for both the skip check and
                     # the explored_log.record() call below.
                     gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-
+    
                     # Verify that this queue task has not already been executed
                     # (relevant after a resume where the queue is rebuilt from
                     # scratch but the explored_pairs log retains prior history).
@@ -2620,6 +2633,20 @@ class ReactionNetworkMapper:
                         )
                         # Do NOT count against max_iterations; try again next cycle.
                         continue
+    
+                    # ── [FIX] Record immediately after has() confirms task is new ─
+                    # Reason for fix:
+                    # In the previous implementation, `explored_log.record()` was called after
+                    # `_iteration += 1` and `_run_autots()`. Since `pop()` internally calls
+                    # `_submitted.discard(key)`, there was a window before `record()` completed
+                    # where `_enqueue_perturbations(force_add=True)` could `push()` the same 
+                    # pair again, potentially leading to double execution.
+                    # By calling `record()` immediately after confirming it is unexplored via 
+                    # `has()`, we close this window. Now, even if `_enqueue_perturbations` is 
+                    # called inside the subsequent `_run_autots()`, the pair will be evaluated 
+                    # as already recorded, preventing double enqueueing.
+                    self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+    
                 else:
                     # Phase 2: queue exhausted — deterministically re-scan every node
                     # for unexplored pairs and re-fill the queue.  This replaces the
@@ -2638,22 +2665,17 @@ class ReactionNetworkMapper:
                     # Restart the loop so the freshly enqueued tasks are popped
                     # in priority order on the next iteration.
                     continue
-
-                # ── Record the pair as explored before execution ────────────────
-                # gamma_sign, atom_i, atom_j already parsed above via
-                # _parse_afir_task_key — no duplicate extraction needed.
-                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-
+    
                 # ── Execute the task ────────────────────────────────────────────
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
-                
+    
                 with open(history_log, "a", encoding="utf-8") as fh:
                     fh.write(
                         f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
                         f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n"
                     )
-
+    
                 run_dir = self._make_run_dir(task)
                 try:
                     profile_dirs = self._run_autots(task, run_dir)
@@ -2664,7 +2686,7 @@ class ReactionNetworkMapper:
                     self.graph.save(self.graph_json_path)
                     self._write_priority_log(priority_log)
                     continue
-
+    
                 logger.info(
                     "Iter %06d: _run_autots returned %d profile director%s.",
                     self._iteration, len(profile_dirs),
@@ -2672,23 +2694,23 @@ class ReactionNetworkMapper:
                 )
                 for pdir in profile_dirs:
                     self._process_profile(pdir, run_dir)
-
+    
                 # Notify the queue about the updated graph (required by RCMCQueue
                 # to recompute transient-population priorities over the full network).
                 if hasattr(self.queue, "set_graph"):
                     self.queue.set_graph(self.graph)
-
+    
                 self._flush_node_energy_updates()
                 self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
                 self.graph.save(self.graph_json_path)
                 # Write after new nodes and tasks have been registered so the log
                 # reflects the state produced by this iteration.
                 self._write_priority_log(priority_log)
-
+    
         finally:
             self.graph.save(self.graph_json_path)
             self.explored_log.close()
-
+        
     def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, int, int, int]]:
         """Pop up to *n* ready tasks and create their run directories.
 
@@ -3173,22 +3195,22 @@ class ReactionNetworkMapper:
 
     def _run_autots(self, task: ExplorationTask, run_dir: str) -> list[str]:
         """Execute AutoTSWorkflow in an isolated spawned subprocess.
-
+    
         The previous implementation called ``os.chdir(run_dir)`` in the mapper
         process itself, which was not thread-safe and caused CWD corruption when
         more than one task ran concurrently.  Now the CWD change happens
         exclusively inside a spawned child process so the mapper's working
         directory is never mutated.
-
+    
         The child process runs :func:`_autots_worker`, which:
-
+    
         1. ``os.chdir(run_dir)``
         2. Instantiates and runs ``AutoTSWorkflow``
         3. Returns the sorted list of ``*_Step4_Profile`` directories
-
+    
         A non-zero exit code is converted to a ``RuntimeError`` so the caller's
         existing ``except Exception`` handler triggers unchanged.
-
+    
         Parameters
         ----------
         task : ExplorationTask
@@ -3196,7 +3218,7 @@ class ReactionNetworkMapper:
         run_dir : str
             Absolute path to the per-task directory created by
             :meth:`_make_run_dir`.
-
+    
         Returns
         -------
         list[str]
@@ -3208,14 +3230,14 @@ class ReactionNetworkMapper:
                 "Install multioptpy to use the reaction network mapper."
             )
         workspace = os.path.join(run_dir, "autots_workspace")
-
+    
         config = copy.deepcopy(self.base_config)
         config["initial_mol_file"] = task.xyz_file
         config["work_dir"]         = workspace
         config.setdefault("step1_settings", {})
         config["step1_settings"]["manual_AFIR"] = task.afir_params
         config["run_step4"]     = True
-
+    
         # ── Persist the exact config passed to AutoTS ────────────────────
         # Written before the workflow starts so the file survives a crash.
         config_used_path = os.path.join(run_dir, "config_used.json")
@@ -3228,7 +3250,7 @@ class ReactionNetworkMapper:
                 "_run_autots: could not write config_used.json (%s): %s",
                 config_used_path, _exc,
             )
-
+    
         # ── Run workflow in a spawned subprocess ─────────────────────────
         # Use mp_context.Process directly for the sequential path so that
         # each iteration avoids the ProcessPoolExecutor setup/teardown
@@ -3250,32 +3272,95 @@ class ReactionNetworkMapper:
             args=(config, run_dir, workspace, result_q),
         )
         proc.start()
-
-        # ── Step 1: blocking get — drains the single result before join ──
-        try:
-            tag, payload = result_q.get(timeout=None)  # block until worker puts
-        except Exception as exc:
-            # Queue.get() itself raised (e.g. interrupted); terminate cleanly.
-            proc.terminate()
-            proc.join()
-            raise RuntimeError(
-                f"_run_autots: failed to receive result from worker: {exc}"
-            ) from exc
-
+    
+        # ── Step 1: crash-aware polling loop ─────────────────────────────
+        # [FIX] The original implementation used result_q.get(timeout=None),
+        # which blocks indefinitely.  This caused the mapper process to hang
+        # permanently when the worker crashed (segfault, OOM kill, unhandled
+        # C-level exception) before executing result_q.put(), because the
+        # queue would never receive an item.
+        #
+        # A naive fixed-duration timeout (e.g. timeout=3600) solves the hang
+        # but introduces a new problem: quantum chemistry calculations can
+        # legitimately take many hours depending on molecular size and the
+        # chosen level of theory.  A wall-clock limit would incorrectly abort
+        # valid long-running calculations.
+        #
+        # Solution — poll proc.is_alive() every poll_interval seconds:
+        #   - Worker alive  → calculation is still running normally; keep waiting.
+        #   - Worker dead   → it crashed without putting a result; raise immediately.
+        # This detects crashes quickly without imposing any time limit on
+        # well-behaved calculations.
+        #
+        # An optional hard ceiling (self.worker_timeout_s, default None = disabled)
+        # is provided for environments where an absolute wall-clock limit is
+        # operationally required (e.g. HPC job schedulers).  It should not be
+        # set in normal usage.
+        import queue as _queue_mod
+    
+        poll_interval = 60  # seconds: crash-detection granularity.
+                            # Smaller values detect crashes sooner at the cost
+                            # of slightly more CPU wakeups.
+        elapsed = 0.0
+    
+        while True:
+            try:
+                tag, payload = result_q.get(timeout=poll_interval)
+                break  # result received successfully — exit the polling loop
+            except _queue_mod.Empty:
+                pass  # no result yet — check whether the process is still alive
+    
+            if not proc.is_alive():
+                # The worker exited without putting anything on the queue.
+                # This is unambiguously a crash: a healthy worker always calls
+                # result_q.put() (either "ok" or "err") before returning.
+                proc.join()
+                raise RuntimeError(
+                    f"_run_autots: worker process terminated unexpectedly without "
+                    f"returning a result (exit_code={proc.exitcode}). "
+                    "Possible causes: segfault, OOM kill, or unhandled C-level "
+                    "exception in AutoTSWorkflow."
+                )
+    
+            elapsed += poll_interval
+    
+            # ── Optional hard timeout (disabled by default) ───────────────
+            # Activated only when mapper_settings["worker_timeout_s"] is set
+            # to a positive integer.  Intended for HPC environments where the
+            # job scheduler enforces a wall-clock limit and the mapper must
+            # exit cleanly before that limit is reached.
+            # In normal usage this branch is never taken (worker_timeout_s is None).
+            if self.worker_timeout_s is not None and elapsed >= self.worker_timeout_s:
+                proc.terminate()
+                proc.join(timeout=30)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=10)
+                raise RuntimeError(
+                    f"_run_autots: worker exceeded hard timeout of "
+                    f"{self.worker_timeout_s}s (elapsed={elapsed:.0f}s). "
+                    "Consider increasing mapper_settings['worker_timeout_s'] or "
+                    "setting it to null to disable the hard limit entirely."
+                )
+    
+            logger.debug(
+                "_run_autots: worker still running (elapsed=%.0fs, pid=%d).",
+                elapsed, proc.pid,
+            )
+    
         # ── Step 2: drain any unexpected residual items (get_nowait loop) ─
         # The worker is designed to put exactly one item, but drain defensively
         # so that no unconsumed data keeps the child's feeder thread alive and
         # prevents clean exit.
-        import queue as _queue_mod
         while True:
             try:
                 result_q.get_nowait()
             except _queue_mod.Empty:
                 break
-
+    
         # ── Step 3: join after the queue is empty — never deadlocks ──────
         proc.join()
-
+    
         if tag == "err":
             # payload is a formatted traceback string (see _autots_worker_with_queue).
             # Wrap in RuntimeError so it can be raised and caught normally.
@@ -3284,151 +3369,6 @@ class ReactionNetworkMapper:
             )
         profiles: list[str] = payload
         return profiles
-
-    def _process_profile(self, profile_dir: str, run_dir: str) -> None:
-        """Parse an IRC profile directory and register a unique TSEdge.
-
-        Identity rules
-        --------------
-        * EQ endpoints: deduplicated by :meth:`_find_or_register_node`
-          (EQ-vs-EQ comparison only).
-        * TS saddle-point: compared only against existing TSEdge objects whose
-          geometry is cached in memory (TSEdge.symbols / TSEdge.coords).
-          - Duplicate → silently skipped; nothing added to graph or nodes/.
-          - Unique    → XYZ copied to nodes/TS{edge_id:06d}.xyz, geometry
-            cached in the new TSEdge for future comparisons.
-        """
-        parser = ProfileParser()
-        result = parser.parse(profile_dir)
-        if result is None:
-            return
-
-        ts_energy: float | None = result["ts_energy"]
-
-        # ── Step 1: parse new TS geometry ─────────────────────────────────
-        ts_sym:    list[str]  = []
-        ts_coords: np.ndarray = np.empty((0, 3), dtype=float)
-        ts_xyz_path: str = result.get("ts_xyz_file", "") or ""
-        if ts_xyz_path and os.path.isfile(ts_xyz_path):
-            try:
-                ts_sym, ts_coords = parse_xyz(ts_xyz_path)
-                logger.debug("Parsed TS geometry: %d atoms from %s",
-                             len(ts_sym), ts_xyz_path)
-            except Exception as exc:
-                logger.warning(
-                    "_process_profile: failed to parse TS XYZ %s: %s. "
-                    "Duplicate check skipped; edge will be registered.",
-                    ts_xyz_path, exc,
-                )
-        else:
-            logger.warning(
-                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r). "
-                "Duplicate check skipped; edge will be registered.",
-                profile_dir, ts_xyz_path,
-            )
-
-        # ── Step 2: register EQ endpoint nodes ────────────────────────────
-        node_id_1 = self._find_or_register_node(
-            xyz_file=result["endpoint_1_xyz"],
-            energy=result["endpoint_1_energy"],
-            free_energy=result.get("endpoint_1_free_energy"),
-            run_dir=run_dir,
-        )
-        node_id_2 = self._find_or_register_node(
-            xyz_file=result["endpoint_2_xyz"],
-            energy=result["endpoint_2_energy"],
-            free_energy=result.get("endpoint_2_free_energy"),
-            run_dir=run_dir,
-        )
-
-        logger.info(
-            "_process_profile: node_id_1=%s  node_id_2=%s  "
-            "ep1_E=%s  ep2_E=%s",
-            node_id_1, node_id_2,
-            f"{result['endpoint_1_energy']:.8f} Ha"
-            if result["endpoint_1_energy"] is not None else "None",
-            f"{result['endpoint_2_energy']:.8f} Ha"
-            if result["endpoint_2_energy"] is not None else "None",
-        )
-
-        if node_id_1 is None:
-            logger.info("_process_profile: node_id_1 is None (endpoint_1 XYZ unreadable) -> skip.")
-            return
-        if node_id_2 is None:
-            logger.info("_process_profile: node_id_2 is None (endpoint_2 XYZ unreadable) -> skip.")
-            return
-        if node_id_1 == node_id_2:
-            logger.info(
-                "_process_profile: node_id_1 == node_id_2 == %d "
-                "(both IRC endpoints matched the same EQ node). Registering as a degenerate reaction (self-loop).",
-                node_id_1,
-            )
-
-        # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
-        if ts_coords.size > 0:
-            # Narrow candidates to edges within the energy window.
-            # When ts_energy is None (profile parse failed) fall back to
-            # all_edges() so those structures still undergo geometric check.
-            ts_candidates: list[TSEdge] = (
-                self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
-                if ts_energy is not None
-                else self.graph.all_edges()
-            )
-            for existing_edge in ts_candidates:
-                if not existing_edge.has_coords:
-                    # Geometry is missing for this edge — geometric duplicate
-                    # detection cannot be performed.  Log a warning so the
-                    # operator knows the check was skipped; the incoming TS
-                    # will be registered as a new edge rather than suppressed.
-                    logger.warning(
-                        "_process_profile: TS%06d has no cached coordinates — "
-                        "cannot compare with incoming TS (profile_dir=%s). "
-                        "Skipping duplicate check for this edge.",
-                        existing_edge.edge_id, profile_dir,
-                    )
-                    continue
-
-                # Geometric check via RMSD.
-                # Energy pre-filter is already enforced by the index window,
-                # so we proceed directly to the (more expensive) RMSD test.
-                if self.checker.are_similar(
-                    ts_sym, ts_coords,
-                    existing_edge.symbols, existing_edge.coords,
-                ):
-                    logger.info(
-                        "Duplicate TS skipped (matches TS%06d, RMSD < %.3f A)  "
-                        "EQ%d -- EQ%d",
-                        existing_edge.edge_id, self.checker.rmsd_threshold,
-                        node_id_1, node_id_2,
-                    )
-                    return
-
-        # ── Step 4: unique TS — persist XYZ and register edge ─────────────
-        edge_id = self.graph.next_edge_id()
-        saved_ts_xyz = self._persist_ts_xyz(ts_xyz_path, edge_id) if ts_xyz_path else None
-
-        edge = TSEdge(
-            edge_id=edge_id,
-            node_id_1=node_id_1,
-            node_id_2=node_id_2,
-            ts_xyz_file=saved_ts_xyz,
-            ts_energy=ts_energy,
-            barrier_fwd=result["barrier_fwd"],
-            barrier_rev=result["barrier_rev"],
-            source_run_dir=run_dir,
-            symbols=ts_sym,    # cached for future TS-vs-TS comparisons
-            coords=ts_coords,  # cached for future TS-vs-TS comparisons
-            ts_free_energy=result.get("ts_free_energy"),
-            barrier_fwd_free=result.get("barrier_fwd_free"),
-            barrier_rev_free=result.get("barrier_rev_free"),
-        )
-        self.graph.add_edge(edge)
-        logger.info(
-            "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
-            edge_id, node_id_1, node_id_2,
-            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
-            f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
-        )
 
     # ------------------------------------------------------------------
     # Energy backfill (Fix 2d: uses graph.invalidate_energy_cache())
