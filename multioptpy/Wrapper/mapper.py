@@ -2443,32 +2443,19 @@ class ReactionNetworkMapper:
         # so no further checks are needed here.
         _ms = base_config.get("mapper_settings", {})
         
-        if "temperature_K" in _ms:
-            temperature_K = float(_ms["temperature_K"])
-        if "rmsd_threshold" in _ms:
-            rmsd_threshold = float(_ms["rmsd_threshold"])
-        if "max_iterations" in _ms:
-            max_iterations = int(_ms["max_iterations"])
-        if "afir_gamma_kJmol" in _ms:
-            afir_gamma_kJmol = float(_ms["afir_gamma_kJmol"])
-        if "max_pairs" in _ms:
-            max_pairs = int(_ms["max_pairs"])
-        if "dist_lower_ang" in _ms:
-            dist_lower_ang = float(_ms["dist_lower_ang"])
-        if "dist_upper_ang" in _ms:
-            dist_upper_ang = float(_ms["dist_upper_ang"])
-        if "n_parallel" in _ms:
-            n_parallel = int(_ms["n_parallel"])
-        if "rng_seed" in _ms:
-            rng_seed = int(_ms["rng_seed"])
-        if "active_atoms" in _ms:
-            active_atoms = _ms["active_atoms"]  # list[int] | None
-        if "excluded_node_ids" in _ms:
-            excluded_node_ids = _ms["excluded_node_ids"]
-        if "exclude_bond_rearrangement" in _ms:
-            exclude_bond_rearrangement = bool(_ms["exclude_bond_rearrangement"])
-        if "include_negative_gamma" in _ms:
-            include_negative_gamma = bool(_ms["include_negative_gamma"])
+        temperature_K          = float(_ms.get("temperature_K",          300.0))
+        rmsd_threshold         = float(_ms.get("rmsd_threshold",         0.30))
+        max_iterations         = int(  _ms.get("max_iterations",         max_iterations))
+        afir_gamma_kJmol       = float(_ms.get("afir_gamma_kJmol",       100.0))
+        max_pairs              = int(  _ms.get("max_pairs",              10))
+        dist_lower_ang         = float(_ms.get("dist_lower_ang",         2.0))
+        dist_upper_ang         = float(_ms.get("dist_upper_ang",         5.0))
+        n_parallel             = int(  _ms.get("n_parallel",             n_parallel))
+        rng_seed               = int(  _ms.get("rng_seed",               rng_seed))
+        active_atoms           = _ms.get("active_atoms",           None)   # list[int] | None
+        excluded_node_ids      = _ms.get("excluded_node_ids",      excluded_node_ids)
+        exclude_bond_rearrangement = bool(_ms.get("exclude_bond_rearrangement", exclude_bond_rearrangement))
+        include_negative_gamma = bool(_ms.get("include_negative_gamma", False))
         
         if queue is not None:
             self.queue = queue
@@ -2673,6 +2660,8 @@ class ReactionNetworkMapper:
                     # that method now pre-increments _iteration for each task.
                     if self.max_iterations > 0:
                         remaining = self.max_iterations - self._iteration
+                        if remaining <= 0:
+                            break
                         n_collect = min(self.n_parallel, remaining)
                     else:
                         n_collect = self.n_parallel
@@ -2916,7 +2905,15 @@ class ReactionNetworkMapper:
                 args=(config, run_dir, workspace, result_q),
             )
             proc.start()
-            active_tasks[proc.pid] = (proc, result_q, task, run_dir, iteration)
+            pid = proc.pid
+            if pid is None:
+                logger.error(
+                    "_run_batch_parallel: subprocess failed to start (pid=None) "
+                    "for run %s — treating as FAILED.", run_dir
+                )
+                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                continue
+            active_tasks[pid] = (proc, result_q, task, run_dir, iteration)
 
         # ── Polling loop for result collection and timeout management ───────
         # Replaces as_completed() with wait() to enable periodic timeout checks
