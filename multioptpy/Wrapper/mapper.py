@@ -930,6 +930,15 @@ class ExplorationQueue(ABC):
         self._push_counter: int = 0
         self._submitted: set[tuple] = set()
         self._rng = np.random.default_rng(rng_seed)
+        # _in_flight: keys that have been popped from the priority queue but have
+        # not yet been committed to ExploredPairsLog via release().
+        # Without this set there is a window — between pop() clearing _submitted
+        # and the caller calling explored_log.record() — where is_submitted()
+        # returns False for the popped key, allowing _enqueue_perturbations to
+        # push the same pair again and trigger a duplicate calculation.
+        # pop()    : moves key  _submitted  →  _in_flight
+        # release(): removes key from _in_flight  (call after explored_log.record())
+        self._in_flight: set[tuple] = set()
         # Latest reference energy supplied by refresh_priorities(); used for
         # lazy delta_E recalculation inside pop().
         self._current_ref_e: float | None = None
@@ -993,13 +1002,20 @@ class ExplorationQueue(ABC):
             if task is None:
                 continue  # stale entry — task was already removed
 
-            # Remove the key from _submitted so the set only tracks tasks that
-            # are *currently* in the queue.  Without this removal, _submitted
-            # would grow without bound over a long run because tasks are added
-            # on push() but were never removed.  Duplicate-submission prevention
-            # is now handled by ExploredPairsLog.has() in _enqueue_perturbations.
+            # Move the key from _submitted to _in_flight rather than discarding
+            # it outright.  This closes the race window that existed between
+            # pop() and the caller's subsequent explored_log.record() call:
+            # during that window the key was absent from both _submitted and
+            # explored_log, so is_submitted() returned False and
+            # _enqueue_perturbations could re-push the same pair, causing a
+            # duplicate calculation.
+            #
+            # The caller MUST call release(key) after explored_log.record() to
+            # drain _in_flight.  Until release() is called, is_submitted()
+            # continues to return True for the key, preventing re-enqueueing.
             key = (task.node_id, tuple(task.afir_params))
             self._submitted.discard(key)
+            self._in_flight.add(key)
 
             # Lazy delta_E / priority refresh for the single task being returned.
             if self._current_ref_e is not None:
@@ -1014,7 +1030,7 @@ class ExplorationQueue(ABC):
         return None
 
     def is_submitted(self, key: tuple) -> bool:
-        """Return ``True`` if *key* has already been submitted to the queue.
+        """Return ``True`` if *key* is currently in the queue or in-flight.
 
         Parameters
         ----------
@@ -1025,9 +1041,33 @@ class ExplorationQueue(ABC):
                 (0, ("100", "1", "5"))
 
         This method provides a public, encapsulated alternative to
-        directly accessing the internal ``_submitted`` set.
+        directly accessing the internal ``_submitted`` and ``_in_flight``
+        sets.  Both sets must be checked: ``_submitted`` covers tasks that
+        are still waiting in the priority heap, and ``_in_flight`` covers
+        tasks that have been popped but whose explored_log entry has not
+        yet been committed via :meth:`release`.
         """
-        return key in self._submitted
+        return key in self._submitted or key in self._in_flight
+
+    def release(self, key: tuple) -> None:
+        """Remove *key* from the in-flight set after it has been committed to
+        ``ExploredPairsLog``.
+
+        Call this method immediately after ``explored_log.record()`` returns
+        so that the key is no longer considered in-flight.  Failing to call
+        release() is safe in the sense that no duplicate will be dispatched,
+        but the key will remain blocked from re-enqueueing indefinitely.
+
+        Parameters
+        ----------
+        key : tuple
+            A ``(node_id, tuple(afir_params))`` pair — the same format
+            produced internally by :meth:`push` and :meth:`pop`.
+
+        This is a no-op when *key* is not in the in-flight set (e.g. when
+        called redundantly or after a task that was skipped before pop()).
+        """
+        self._in_flight.discard(key)
 
     def should_add(self, node: "EQNode", reference_energy: float, **kwargs) -> bool:
         """Decide probabilistically whether to enqueue a node.
@@ -2210,7 +2250,7 @@ class ReactionNetworkMapper:
         _checks: list[tuple] = [
             ("temperature_K",        (int, float), lambda v: v > 0,   "must be > 0"),
             ("rmsd_threshold",       (int, float), lambda v: v > 0,   "must be > 0"),
-            ("max_iterations",       int,          lambda v: v > 0,   "must be a positive integer"),
+            ("max_iterations",       int,          lambda v: v >= 0,   "must be a positive integer or zero"),
             ("afir_gamma_kJmol",     (int, float), lambda v: v > 0,   "must be > 0"),
             ("max_pairs",            int,          lambda v: v > 0,   "must be a positive integer"),
             ("dist_lower_ang",       (int, float), lambda v: v >= 0,  "must be >= 0"),
@@ -2632,7 +2672,13 @@ class ReactionNetworkMapper:
                     # called inside the subsequent `_run_autots()`, the pair will be evaluated 
                     # as already recorded, preventing double enqueueing.
                     self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-    
+                    # Release the in-flight lock now that the pair is durably
+                    # committed to explored_log.  From this point forward,
+                    # is_submitted() returns False for this key, so a future
+                    # push() can re-add it if the graph grows new nodes that
+                    # make re-exploration meaningful.
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                
                 else:
                     # Phase 2: queue exhausted — deterministically re-scan every node
                     # for unexplored pairs and re-fill the queue.  This replaces the
@@ -2742,6 +2788,12 @@ class ReactionNetworkMapper:
                 )
                 continue
             self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+            # Release the in-flight lock now that the pair is durably committed
+            # to explored_log.  This must happen before _run_batch_parallel
+            # processes profiles and calls _enqueue_perturbations; otherwise
+            # newly discovered nodes could attempt to re-push the same pairs
+            # and find them incorrectly blocked.
+            self.queue.release((task.node_id, tuple(task.afir_params)))
             # Pre-increment so every task in the batch gets its own unique
             # iteration number and therefore its own run directory.
             self._iteration += 1
