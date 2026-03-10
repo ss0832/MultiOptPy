@@ -2959,7 +2959,13 @@ class ReactionNetworkMapper:
                 for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
                     try:
                         tag, payload = result_q.get_nowait()
-                        proc.join()
+                        proc.join(timeout=120)
+                        if proc.is_alive():
+                            proc.terminate()
+                            proc.join(timeout=10)
+                            if proc.is_alive():
+                                proc.kill()
+                                proc.join(timeout=10)
                         
                         if tag == "err":
                             logger.error(
