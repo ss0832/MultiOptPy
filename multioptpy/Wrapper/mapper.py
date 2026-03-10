@@ -2918,13 +2918,18 @@ class ReactionNetworkMapper:
                 except _queue_mod.Empty:
                     if not proc.is_alive():
                         proc.join()
-                        logger.error(
-                            "_run_batch_parallel: AutoTS worker terminated unexpectedly for run %s",
-                            run_dir,
-                        )
-                        self._process_single_result(
-                            task, run_dir, [], "FAILED", iteration, history_log
-                        )
+                        try:
+                            tag, payload = result_q.get_nowait()
+                            if tag == "err":
+                                self._process_single_result(task, run_dir, [], "FAILED", ...)
+                            else:
+                                self._process_single_result(task, run_dir, payload, "DONE", ...)
+                            del active_tasks[pid]
+                            continue
+                        except _queue_mod.Empty:
+                            pass
+                        logger.error("AutoTS worker terminated unexpectedly...")
+                        self._process_single_result(task, run_dir, [], "FAILED", ...)
                         del active_tasks[pid]
 
             if active_tasks:
