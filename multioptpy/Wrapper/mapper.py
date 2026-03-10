@@ -120,32 +120,6 @@ def _autots_worker(config: dict, run_dir: str, workspace: str) -> list[str]:
     return sorted(_glob.glob(pattern, recursive=True))
 
 
-def _autots_worker_with_queue(
-    config: dict,
-    run_dir: str,
-    workspace: str,
-    result_queue: "multiprocessing.Queue[tuple]",
-) -> None:
-    """Thin wrapper around :func:`_autots_worker` for :class:`multiprocessing.Process`.
-
-    Sends the return value (or raised exception) to *result_queue* as a
-    ``(tag, payload)`` tuple:
-
-    * ``("ok", profiles)`` — on success.
-    * ``("err", traceback_str)`` — on failure (full traceback string).
-
-    By not using ProcessPoolExecutor, we avoid the process-spawn/teardown
-    overhead for the sequential path (``n_parallel=1``).
-    """
-    try:
-        profiles = _autots_worker(config, run_dir, workspace)
-        result_queue.put(("ok", profiles))
-    except Exception as exc:  # noqa: BLE001
-        tb_str = traceback.format_exc()
-        if len(tb_str) > 1500:
-            tb_str = "...(truncated)...\n" + tb_str[-1500:]
-        result_queue.put(("err", tb_str))
-
 
 logger = logging.getLogger(__name__)
 
@@ -2610,7 +2584,6 @@ class ReactionNetworkMapper:
                             task, run_dir, [], "FAILED", iteration,
                             history_log, gamma_sign, atom_i, atom_j,
                         )
-
             except TimeoutError:
                 timed_out = True
                 logger.error(
@@ -2619,17 +2592,20 @@ class ReactionNetworkMapper:
                     self.worker_timeout_s,
                 )
 
+                # Track every future that was NOT cleanly handled in the
+                # as_completed loop above so we can unconditionally release
+                # their _in_flight keys in the cleanup pass below.
+                cancelled_futures: set = set()
+                killed_futures:    set = set()
+
                 # ── Step 1: cancel not-yet-started futures ────────────────
                 for future in futures_map:
-                    if future.cancel():          
+                    if future.cancel():
+                        cancelled_futures.add(future)
                         task, run_dir, iteration, gamma_sign, atom_i, atom_j = futures_map[future]
                         self.queue.release((task.node_id, tuple(task.afir_params)))
 
                 # ── Step 2: force-kill running worker processes ───────────
-                # executor._processes is a {pid: multiprocessing.Process} dict
-                # maintained by ProcessPoolExecutor.  No public API exposes
-                # individual worker handles, so this private attribute is the
-                # only reliable way to send SIGKILL to hung external binaries.
                 worker_procs = getattr(executor, "_processes", {})
                 for pid, proc in list(worker_procs.items()):
                     if proc.is_alive():
@@ -2638,24 +2614,35 @@ class ReactionNetworkMapper:
                         )
                         proc.kill()
 
-                # ── Step 3: mark all incomplete futures as TIMEOUT ────────
+                # ── Step 3: mark incomplete futures as TIMEOUT ────────────
+                # Use `future not in cancelled_futures` rather than
+                # `not future.done()` because proc.kill() may have already
+                # transitioned the future to done (failed), which would cause
+                # _process_single_result / release() to be silently skipped,
+                # leaving the key permanently stuck in _in_flight.
                 for future, meta in futures_map.items():
+                    if future in cancelled_futures:
+                        continue            # release() already called in Step 1
                     task, run_dir, iteration, gamma_sign, atom_i, atom_j = meta
-                    if not future.done():
-                        logger.error(
-                            "_run_batch_parallel: worker timed out (limit=%ds): %s",
-                            self.worker_timeout_s, run_dir,
+                    killed_futures.add(future)
+                    logger.error(
+                        "_run_batch_parallel: worker timed out (limit=%ds): %s",
+                        self.worker_timeout_s, run_dir,
+                    )
+                    try:
+                        self._process_single_result(
+                            task, run_dir, [], "TIMEOUT", iteration,
+                            history_log, gamma_sign, atom_i, atom_j,
                         )
-                        try:
-                            self._process_single_result(
-                                task, run_dir, [], "TIMEOUT", iteration,
-                                history_log, gamma_sign, atom_i, atom_j,
-                            )
-                        except Exception as exc:
-                            logger.error(
-                                "_process_single_result failed after TIMEOUT (%s): %s",
-                                run_dir, exc,
-                            )
+                    except Exception as exc:
+                        logger.error(
+                            "_process_single_result failed after TIMEOUT (%s): %s",
+                            run_dir, exc,
+                        )
+                        # _process_single_result calls release() internally, but
+                        # if it raises before reaching that line, release here
+                        # as a last-resort safety net to prevent _in_flight leak.
+                        self.queue.release((task.node_id, tuple(task.afir_params)))
 
         finally:
             # Shut down the executor.  After force-killing all workers in the
@@ -2670,23 +2657,8 @@ class ReactionNetworkMapper:
             except Exception as exc:
                 logger.error("Cleanup save/log failed: %s", exc)
 
-    @staticmethod
-    def _kill_proc(proc) -> None:
-        """Terminate a process reliably: terminate → kill."""
-        proc.terminate()
-        proc.join(timeout=10)
-        if proc.is_alive():
-            proc.kill()
-            proc.join(timeout=10)
 
-    @staticmethod
-    def _close_queue(q) -> None:
-        """Safely close a multiprocessing.Queue."""
-        try:
-            q.cancel_join_thread()
-            q.close()
-        except Exception:
-            pass
+
 
     def _process_single_result(
         self,
@@ -3043,21 +3015,26 @@ class ReactionNetworkMapper:
     def _run_autots(self, task: ExplorationTask, run_dir: str) -> list[str]:
         """Run AutoTSWorkflow in an isolated spawned subprocess.
 
-        The previous implementation called ``os.chdir(run_dir)`` in the mapper
-        process itself, which was not thread-safe and corrupted the CWD when
-        multiple tasks ran in parallel. The CWD change is now confined to the
-        spawned child process, leaving the mapper's working directory unchanged.
+        Uses ProcessPoolExecutor(max_workers=1, max_tasks_per_child=1), the
+        same mechanism as _run_batch_parallel, so that crash detection,
+        timeout handling, and CWD isolation are identical between the
+        sequential and parallel paths.
 
-        Crash-detection polling loop:
-            The original ``result_q.get(timeout=None)`` would block forever
-            when the worker crashed before calling result_q.put(). Fix: check
-            ``proc.is_alive()`` every poll_interval seconds and raise
-            RuntimeError immediately when the worker is dead. This imposes no
-            time limit on legitimate long-running calculations.
+        Crash detection:
+            ProcessPoolExecutor automatically captures any exception raised
+            inside _autots_worker and re-raises it via future.result(), so no
+            manual polling loop or Queue is required.
 
-        Deadlock prevention:
-            result_q.get() must be called before proc.join(). The reverse order
-            can deadlock when a large traceback fills the OS pipe buffer.
+        Timeout:
+            future.result(timeout=worker_timeout_s) raises concurrent.futures.
+            TimeoutError when the limit is exceeded.  The handler cancels
+            pending work, force-kills the live worker via executor._processes
+            (same approach as _run_batch_parallel), then shuts the executor
+            down with wait=False to avoid blocking on a hung binary.
+
+        Return value:
+            _autots_worker returns a sorted list of Step-4 profile directories;
+            future.result() delivers that list directly to the caller.
         """
         if AutoTSWorkflow is None:
             raise RuntimeError(
@@ -3067,107 +3044,52 @@ class ReactionNetworkMapper:
         workspace = os.path.join(run_dir, "autots_workspace")
         config    = self._make_autots_config(task, workspace)
 
-        # Written before the workflow starts so it survives a crash
-        config_used_path = os.path.join(run_dir, "config_used.json")
+        # Written before the workflow starts so it survives a crash.
         try:
-            with open(config_used_path, "w", encoding="utf-8") as fh:
+            with open(
+                os.path.join(run_dir, "config_used.json"), "w", encoding="utf-8"
+            ) as fh:
                 json.dump(config, fh, indent=2, default=str)
         except Exception as exc:
             logger.warning("_run_autots: could not write config_used.json: %s", exc)
 
-        result_q: multiprocessing.Queue = self._mp_ctx.Queue()
-        proc = self._mp_ctx.Process(
-            target=_autots_worker_with_queue,
-            args=(config, run_dir, workspace, result_q),
+        # max_tasks_per_child=1 guarantees a fresh process for this task,
+        # isolating os.chdir() inside _autots_worker from the parent process.
+        executor = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=self._mp_ctx,
+            max_tasks_per_child=1,
         )
+        timed_out = False
         try:
-            proc.start()
-        except OSError:
-            result_q.close()
-            raise
-
-        import queue as _queue_mod
-
-        poll_interval = 60
-        start_time    = time.time()
-
-        # ── Step 1: crash-detection polling loop ──────────────────────────
-        while True:
+            future = executor.submit(_autots_worker, config, run_dir, workspace)
             try:
-                tag, payload = result_q.get(timeout=poll_interval)
-                break
-            except _queue_mod.Empty:
-                pass
-
-            if not proc.is_alive():
-                # Worker exited without placing a result = crash
-                try:
-                    tag, payload = result_q.get(timeout=5.0)
-                    break
-                except _queue_mod.Empty:
-                    pass
-                proc.join(timeout=30)
-                try:
-                    result_q.cancel_join_thread()
-                    result_q.close()
-                except Exception:
-                    pass
-                raise RuntimeError(
-                    f"_run_autots: worker process terminated unexpectedly without "
-                    f"returning a result (exit_code={proc.exitcode}). "
-                    "Possible causes: segfault, OOM kill, or unhandled C-level "
-                    "exception in AutoTSWorkflow."
+                return future.result(timeout=self.worker_timeout_s)
+            except TimeoutError:
+                timed_out = True
+                logger.error(
+                    "_run_autots: worker exceeded hard timeout of %ds — "
+                    "force-killing worker process.",
+                    self.worker_timeout_s,
                 )
-
-            elapsed = time.time() - start_time
-
-            # ── Optional hard timeout (disabled by default) ───────────────
-            # Active only when worker_timeout_s is set.
-            # Intended for HPC environments where the job scheduler enforces
-            # a wall-clock limit.
-            if self.worker_timeout_s is not None and elapsed >= self.worker_timeout_s:
-                self._kill_proc(proc)
-                try:
-                    result_q.cancel_join_thread()
-                    result_q.close()
-                except Exception as exc:
-                    logger.debug("_run_autots: result_q cleanup failed: %s", exc)
+                future.cancel()
+                # No public API exposes individual worker handles; use the
+                # private _processes dict (same pattern as _run_batch_parallel).
+                worker_procs = getattr(executor, "_processes", {})
+                for pid, proc in list(worker_procs.items()):
+                    if proc.is_alive():
+                        logger.warning(
+                            "_run_autots: force-killing worker pid=%d", pid
+                        )
+                        proc.kill()
                 raise RuntimeError(
                     f"_run_autots: worker exceeded hard timeout of "
-                    f"{self.worker_timeout_s}s (elapsed={elapsed:.0f}s)."
+                    f"{self.worker_timeout_s}s."
                 )
-
-            logger.debug(
-                "_run_autots: worker still running (elapsed=%.0fs, pid=%d).",
-                elapsed, proc.pid,
-            )
-
-        # ── Step 2: drain any remaining items ────────────────────────────
-        # The worker is designed to put exactly one item, but drain any
-        # residual items to release the child's feeder thread.
-        while True:
-            try:
-                result_q.get_nowait()
-            except (_queue_mod.Empty, OSError):
-                break
-
-        # ── Step 3: join after the queue is empty — deadlock-safe ─────────
-        try:
-            proc.join(timeout=120)
-            if proc.is_alive():
-                self._kill_proc(proc)
-            if tag == "err":
-                raise RuntimeError(
-                    f"AutoTSWorkflow subprocess failed:\n{payload}"
-                )
-            return payload
         finally:
-            try:
-                result_q.cancel_join_thread()
-                result_q.close()
-            except Exception:
-                pass
-
+            # wait=False after a force-kill avoids blocking on a hung binary;
+            # wait=True in the normal path ensures a clean join.
+            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
     # ------------------------------------------------------------------ #
     #  Energy back-fill                                                    #
     # ------------------------------------------------------------------ #
@@ -3363,27 +3285,32 @@ class ReactionNetworkMapper:
         ts_energy: float | None = result["ts_energy"]
 
         # ── Step 1: parse new TS geometry ─────────────────────────────────
+        # Failure here must NOT skip EQ endpoint registration (Step 2).
+        # A missing or unreadable TS file means we cannot add a TSEdge, but
+        # the IRC endpoints are still valid EQ structures worth keeping.
         ts_sym:    list[str]  = []
         ts_coords: np.ndarray = np.empty((0, 3), dtype=float)
         ts_xyz = result.get("ts_xyz_file", "") or ""
+        ts_geom_ok = False
         if ts_xyz and os.path.isfile(ts_xyz):
             try:
                 ts_sym, ts_coords = parse_xyz(ts_xyz)
+                ts_geom_ok = True
                 logger.debug(
                     "Parsed TS geometry: %d atoms from %s", len(ts_sym), ts_xyz
                 )
             except Exception as exc:
                 logger.warning(
-                    "_process_profile: failed to parse TS XYZ %s: %s — profile skipped.",
+                    "_process_profile: failed to parse TS XYZ %s: %s — "
+                    "TSEdge will not be added, but EQ endpoints will still be registered.",
                     ts_xyz, exc,
                 )
-                return
         else:
             logger.warning(
-                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r) — profile skipped.",
+                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r) — "
+                "TSEdge will not be added, but EQ endpoints will still be registered.",
                 profile_dir, ts_xyz,
             )
-            return
 
         # ── Step 2: register EQ endpoint nodes ───────────────────────────
         node_id_1 = self._find_or_register_node(
@@ -3421,6 +3348,14 @@ class ReactionNetworkMapper:
             )
 
         # ── Step 3: TS duplicate check (TS vs TS only) ────────────────────
+        if not ts_geom_ok:
+            logger.info(
+                "_process_profile: TS geometry unavailable — "
+                "skipping TSEdge registration (EQ%s -- EQ%s registered).",
+                node_id_1, node_id_2,
+            )
+            return
+            
         ts_candidates: list[TSEdge] = (
             self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
             if ts_energy is not None
