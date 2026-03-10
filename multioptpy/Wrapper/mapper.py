@@ -2783,24 +2783,24 @@ class ReactionNetworkMapper:
                 f = executor.submit(_autots_worker, config, run_dir, workspace)
                 futures[f] = (task, run_dir, workspace, iteration)
 
-        # ── Collect results in completion order via as_completed ─────────
-        # as_completed() yields each Future as soon as its subprocess
-        # finishes, so shorter tasks are processed without waiting for
-        # slower ones in the same batch.  Graph updates still happen
-        # sequentially (graph is not thread-safe), but we no longer block
-        # the fastest results behind the slowest worker.
-        results: list[tuple[ExplorationTask, str, list[str], str, int]] = []
-        for f in concurrent.futures.as_completed(futures):
-            task, run_dir, _workspace, iteration = futures[f]
-            try:
-                profile_dirs: list[str] = f.result()
-                results.append((task, run_dir, profile_dirs, "DONE", iteration))
-            except Exception as exc:
-                logger.error(
-                    "_run_batch_parallel: AutoTS failed for run %s: %s",
-                    run_dir, exc,
-                )
-                results.append((task, run_dir, [], "FAILED", iteration))
+            # ── Collect results in completion order via as_completed ─────────
+            # as_completed() yields each Future as soon as its subprocess
+            # finishes, so shorter tasks are processed without waiting for
+            # slower ones in the same batch.  Graph updates still happen
+            # sequentially (graph is not thread-safe), but we no longer block
+            # the fastest results behind the slowest worker.
+            results: list[tuple[ExplorationTask, str, list[str], str, int]] = []
+            for f in concurrent.futures.as_completed(futures):
+                task, run_dir, _workspace, iteration = futures[f]
+                try:
+                    profile_dirs: list[str] = f.result()
+                    results.append((task, run_dir, profile_dirs, "DONE", iteration))
+                except Exception as exc:
+                    logger.error(
+                        "_run_batch_parallel: AutoTS failed for run %s: %s",
+                        run_dir, exc,
+                    )
+                    results.append((task, run_dir, [], "FAILED", iteration))
 
         # ── Process results sequentially (graph is not thread-safe) ───────
         for task, run_dir, profile_dirs, status, iteration in results:
@@ -2832,6 +2832,7 @@ class ReactionNetworkMapper:
                 run_dir, task,
                 status=status,
                 profile_dirs=profile_dirs,
+                iteration=iteration,
             )
 
         self.graph.save(self.graph_json_path)
@@ -3148,7 +3149,7 @@ class ReactionNetworkMapper:
         iteration=None,
     ) -> None:
         info = {
-            "iteration":    self._iteration,
+            "iteration": iteration if iteration is not None else self._iteration,
             "node_id":      task.node_id,
             "afir_params":  task.afir_params,
             "priority":     task.priority,
