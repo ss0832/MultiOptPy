@@ -1099,7 +1099,7 @@ class ExplorationQueue(ABC):
             new_heap = []
             for old_priority, task_id, task in self._heap:
         
-                new_priority = self._calculate_priority(task)
+                new_priority = self.calculate_priority(task)
                 new_heap.append((new_priority, task_id, task))
         
             heapq.heapify(new_heap)
