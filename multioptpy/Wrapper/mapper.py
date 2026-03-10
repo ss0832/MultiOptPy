@@ -24,6 +24,7 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -2511,203 +2512,150 @@ class ReactionNetworkMapper:
         history_log: str,
         priority_log: str,
     ) -> None:
-        """Execute all tasks in the batch as parallel spawned subprocesses.
+        """Execute all tasks in the batch via :class:`~concurrent.futures.ProcessPoolExecutor`.
 
-        Bug fixes (ported from mapper (2).py):
-        1. Moved ``del active[pid]`` inside a finally block in the polling loop
-           so it always executes even when _process_single_result() raises.
-        2. Wrapped _process_single_result() in try/except inside the timeout
-           block so that cleanup completes reliably after a timeout.
-        3. Removed the ``is_submitted`` guard in the finally block.
-           Entries remaining in active are guaranteed to be unprocessed, so
-           the guard is unnecessary and was causing _close_queue() to be skipped.
-        4. Per-process timeout is measured independently using proc_start stored
-           per entry. The previous implementation shared a single batch-start
-           time, causing later-started processes to inherit a shorter effective
-           timeout.
+        Replaces the previous manual ``multiprocessing.Process`` + ``Queue``
+        polling loop.  Key design decisions:
+
+        * ``max_tasks_per_child=1`` — each task runs in a fresh child process,
+          isolating the ``os.chdir()`` call inside :func:`_autots_worker` from
+          other concurrently running children and from the parent process.
+        * ``_autots_worker`` is called directly; no result queue is needed
+          because :class:`~concurrent.futures.Future` already carries either
+          the return value or the raised exception.
+        * The executor is managed manually (not via ``with executor:``) so that
+          on timeout we can force-kill all worker processes *before* calling
+          ``shutdown()``.  Using the context manager would call
+          ``shutdown(wait=True)`` unconditionally, causing the main process to
+          block forever when a hung external binary does not exit on its own.
+
+        Timeout handling
+        ----------------
+        ``future.cancel()`` only removes *pending* (not yet started) futures
+        from the internal work queue; it cannot stop an already-running worker
+        process.  To avoid the freeze described above, on :exc:`TimeoutError`
+        we:
+
+        1. Cancel all not-yet-started futures.
+        2. Force-kill every live worker process via ``executor._processes``
+           (a ``{pid: Process}`` dict maintained by the standard library).
+           This is an intentional use of a private attribute; no public API
+           exists for this operation.
+        3. Call ``executor.shutdown(wait=False, cancel_futures=True)`` so the
+           executor's bookkeeping threads are released without waiting.
+
+        When ``worker_timeout_s`` is ``None`` (recommended default for long-
+        running chemistry calculations), ``as_completed`` blocks indefinitely
+        and the timeout path is never entered.
         """
-        import queue as _queue_mod
+        futures_map: dict = {}
 
-        # ── Build per-task config and write config_used.json ─────────────
-        active: dict[int, tuple] = {}
+        # ``max_tasks_per_child=1`` ensures a fresh process is spawned for
+        # every task, safely isolating os.chdir() calls within the worker.
+        executor = ProcessPoolExecutor(
+            max_workers=self.n_parallel,
+            mp_context=self._mp_ctx,
+            max_tasks_per_child=1,
+        )
 
-        for task, run_dir, gamma_sign, atom_i, atom_j, iteration in batch:
-            workspace = os.path.join(run_dir, "autots_workspace")
-            config    = self._make_autots_config(task, workspace)
-            try:
-                with open(os.path.join(run_dir, "config_used.json"), "w", encoding="utf-8") as fh:
-                    json.dump(config, fh, indent=2, default=str)
-            except Exception as exc:
-                logger.warning("Could not write config_used.json: %s", exc)
-
-            q    = self._mp_ctx.Queue()
-            proc = self._mp_ctx.Process(
-                target=_autots_worker_with_queue,
-                args=(config, run_dir, workspace, q),
-            )
-            try:
-                proc.start()
-            except OSError:
-                self._close_queue(q)
-                logger.error(
-                    "_run_batch_parallel: proc.start() failed for run %s — treating as FAILED.",
-                    run_dir,
-                )
-                self._process_single_result(
-                    task, run_dir, [], "FAILED", iteration,
-                    history_log, gamma_sign, atom_i, atom_j,
-                )
-                continue
-
-            if proc.pid is None:
-                logger.error(
-                    "_run_batch_parallel: subprocess failed to start (pid=None) "
-                    "for run %s — treating as FAILED.", run_dir,
-                )
-                self._process_single_result(
-                    task, run_dir, [], "FAILED", iteration,
-                    history_log, gamma_sign, atom_i, atom_j,
-                )
-                self._close_queue(q)
-                proc.join(timeout=5)
-                continue
-
-            # Store proc_start per process for independent timeout measurement
-            active[proc.pid] = (proc, q, task, run_dir, iteration,
-                                gamma_sign, atom_i, atom_j, time.time())
-
-        poll_interval = 60.0
+        timed_out = False
         try:
-            while active:
-                # ── Per-process timeout check ─────────────────────────────
-                # Each process is timed independently using proc_start (index 8
-                # in the active tuple). Fixes the bug where a shared batch-start
-                # time gave later-started processes a shorter effective timeout.
-                if self.worker_timeout_s is not None:
-                    now = time.time()
-                    timed_out_pids = [
-                        p for p, e in active.items()
-                        if now - e[8] >= self.worker_timeout_s
-                    ]
-                    for pid in timed_out_pids:
-                        proc, q, task, run_dir, it, gs, ai, aj, proc_start = active[pid]
-                        self._kill_proc(proc)
-                        self._close_queue(q)
-                        logger.error(
-                            "Worker timed out after %.0fs (limit=%ds): %s",
-                            time.time() - proc_start, self.worker_timeout_s, run_dir,
+            # ── Submit all tasks ──────────────────────────────────────────
+            for task, run_dir, gamma_sign, atom_i, atom_j, iteration in batch:
+                workspace = os.path.join(run_dir, "autots_workspace")
+                config    = self._make_autots_config(task, workspace)
+                try:
+                    with open(
+                        os.path.join(run_dir, "config_used.json"), "w", encoding="utf-8"
+                    ) as fh:
+                        json.dump(config, fh, indent=2, default=str)
+                except Exception as exc:
+                    logger.warning("Could not write config_used.json: %s", exc)
+
+                future = executor.submit(
+                    _autots_worker,
+                    config,
+                    run_dir,
+                    workspace,
+                )
+                futures_map[future] = (
+                    task, run_dir, iteration, gamma_sign, atom_i, atom_j
+                )
+
+            # ── Collect results as each future completes ──────────────────
+            # When worker_timeout_s is None, as_completed blocks indefinitely.
+            # When set, TimeoutError is raised once the deadline is exceeded.
+            try:
+                for future in as_completed(futures_map, timeout=self.worker_timeout_s):
+                    task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                        futures_map[future]
+                    )
+                    try:
+                        profile_dirs = future.result()
+                        self._process_single_result(
+                            task, run_dir, profile_dirs, "DONE", iteration,
+                            history_log, gamma_sign, atom_i, atom_j,
                         )
-                        # Catch exceptions from _process_single_result after timeout
+                    except Exception as exc:
+                        logger.error(
+                            "_run_batch_parallel: worker failed for %s: %s",
+                            run_dir, exc,
+                        )
+                        self._process_single_result(
+                            task, run_dir, [], "FAILED", iteration,
+                            history_log, gamma_sign, atom_i, atom_j,
+                        )
+
+            except TimeoutError:
+                timed_out = True
+                logger.error(
+                    "_run_batch_parallel: batch-level timeout (%ds) exceeded — "
+                    "force-killing all remaining worker processes.",
+                    self.worker_timeout_s,
+                )
+
+                # ── Step 1: cancel not-yet-started futures ────────────────
+                for future in futures_map:
+                    future.cancel()
+
+                # ── Step 2: force-kill running worker processes ───────────
+                # executor._processes is a {pid: multiprocessing.Process} dict
+                # maintained by ProcessPoolExecutor.  No public API exposes
+                # individual worker handles, so this private attribute is the
+                # only reliable way to send SIGKILL to hung external binaries.
+                worker_procs = getattr(executor, "_processes", {})
+                for pid, proc in list(worker_procs.items()):
+                    if proc.is_alive():
+                        logger.warning(
+                            "_run_batch_parallel: force-killing worker pid=%d", pid
+                        )
+                        proc.kill()
+
+                # ── Step 3: mark all incomplete futures as TIMEOUT ────────
+                for future, meta in futures_map.items():
+                    task, run_dir, iteration, gamma_sign, atom_i, atom_j = meta
+                    if not future.done():
+                        logger.error(
+                            "_run_batch_parallel: worker timed out (limit=%ds): %s",
+                            self.worker_timeout_s, run_dir,
+                        )
                         try:
                             self._process_single_result(
-                                task, run_dir, [], "TIMEOUT", it,
-                                history_log, gs, ai, aj,
+                                task, run_dir, [], "TIMEOUT", iteration,
+                                history_log, gamma_sign, atom_i, atom_j,
                             )
                         except Exception as exc:
                             logger.error(
                                 "_process_single_result failed after TIMEOUT (%s): %s",
                                 run_dir, exc,
                             )
-                        del active[pid]
-                    if not active:
-                        break
-
-                # ── Poll each active process ──────────────────────────────
-                for pid, (proc, q, task, run_dir, it,
-                          gs, ai, aj, proc_start) in list(active.items()):
-                    try:
-                        tag, payload = q.get_nowait()
-
-                    except _queue_mod.Empty:
-                        if not proc.is_alive():
-                            # Worker exited without placing a result (crash)
-                            try:
-                                tag, payload = q.get(timeout=5.0)
-                            except _queue_mod.Empty:
-                                logger.error(
-                                    "AutoTS worker terminated unexpectedly (run=%s)",
-                                    run_dir,
-                                )
-                                tag, payload = "err", None
-                            finally:
-                                proc.join(timeout=30)
-                                self._close_queue(q)
-                        else:
-                            continue
-
-                    else:
-                        proc.join(timeout=120)
-                        if proc.is_alive():
-                            self._kill_proc(proc)
-                        self._close_queue(q)
-
-                    # ── Result processing: del active[pid] guaranteed by finally ─
-                    # Bug fix: before the fix, if _process_single_result raised,
-                    # del active[pid] was never reached, leaving a stale entry
-                    # that could be processed twice.
-                    try:
-                        if tag == "err":
-                            logger.error("AutoTS failed for %s:\n%s", run_dir, payload)
-                            self._process_single_result(
-                                task, run_dir, [], "FAILED", it,
-                                history_log, gs, ai, aj,
-                            )
-                        else:
-                            self._process_single_result(
-                                task, run_dir, payload, "DONE", it,
-                                history_log, gs, ai, aj,
-                            )
-                    finally:
-                        # Always executes (core of the fix)
-                        del active[pid]
-
-                if active:
-                    # Adjust sleep time to the nearest upcoming timeout deadline
-                    sleep_t = poll_interval
-                    if self.worker_timeout_s is not None:
-                        now = time.time()
-                        sleep_t = min(poll_interval, max(0.0, min(
-                            self.worker_timeout_s - (now - e[8])
-                            for e in active.values()
-                        )))
-                    if sleep_t > 0:
-                        time.sleep(sleep_t)
 
         finally:
-            # ── Clean up remaining active processes ───────────────────────
-            # Entries still in active are guaranteed to be unprocessed.
-            # Bug fix: the previous is_submitted() guard was removed so that
-            # _close_queue() is always executed per-entry.
-            for pid, (proc, q, task, run_dir, it,
-                      gs, ai, aj, _) in list(active.items()):
-                if proc.is_alive():
-                    self._kill_proc(proc)
-
-                status, payload = "FAILED", []
-                try:
-                    tag, raw = q.get_nowait()
-                    if tag == "ok":
-                        status, payload = "DONE", raw
-                    else:
-                        logger.error(
-                            "AutoTS failed (finally) %s:\n%s", run_dir, raw
-                        )
-                except _queue_mod.Empty:
-                    pass
-
-                try:
-                    self._process_single_result(
-                        task, run_dir, payload, status, it,
-                        history_log, gs, ai, aj,
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "_process_single_result failed (finally) %s: %s",
-                        run_dir, exc,
-                    )
-                finally:
-                    # Executes reliably because the is_submitted guard is gone
-                    self._close_queue(q)
+            # Shut down the executor.  After force-killing all workers in the
+            # timeout path, wait=False avoids a redundant join on dead processes.
+            # In the normal path (no timeout), wait=True ensures all workers are
+            # cleanly joined before proceeding.
+            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
 
             try:
                 self.graph.save(self.graph_json_path)
