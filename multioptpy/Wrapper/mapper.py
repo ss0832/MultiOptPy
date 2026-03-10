@@ -586,6 +586,8 @@ class StructureChecker:
             mirror images can be superimposed with a true rotation (d = +1) for
             at least one candidate.
         """
+        if len(pa) == 0:
+            return 0.0
         U, S, Vt = np.linalg.svd(pb.T @ pa)
         d = np.linalg.det(U) * np.linalg.det(Vt)
 
@@ -2903,7 +2905,7 @@ class ReactionNetworkMapper:
         node_pair_count: dict[int, int]   = {}
         for item in self.queue.export_queue_status():
             nid = item["node_id"]
-            node_priority[nid]   = item["priority"]
+            node_priority[nid] = max(node_priority.get(nid, 0.0), item["priority"])
             node_pair_count[nid] = node_pair_count.get(nid, 0) + 1
 
         with open(priority_log, "w", encoding="utf-8") as fh:
