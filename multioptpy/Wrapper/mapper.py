@@ -2462,7 +2462,7 @@ class ReactionNetworkMapper:
         else:
             print("Error: The output directory already exists. Exiting.")
             print("If you wish to resume, please use the --resume option.")
-            exit()
+            raise FileExistsError("")
         os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "runs"),  exist_ok=True)
@@ -3638,6 +3638,156 @@ class ReactionNetworkMapper:
             self._enqueue_perturbations(new_node, force_add=False)
 
         return node_id
+
+    # ------------------------------------------------------------------
+    # Profile processing — parse IRC result and register nodes/edges
+    # ------------------------------------------------------------------
+
+    def _process_profile(self, profile_dir: str, run_dir: str) -> None:
+        """Parse an IRC profile directory and register a unique TSEdge.
+
+        Identity rules
+        --------------
+        * EQ endpoints: deduplicated by :meth:`_find_or_register_node`
+          (EQ-vs-EQ comparison only).
+        * TS saddle-point: compared only against existing TSEdge objects whose
+          geometry is cached in memory (TSEdge.symbols / TSEdge.coords).
+          - Duplicate → silently skipped; nothing added to graph or nodes/.
+          - Unique    → XYZ copied to nodes/TS{edge_id:06d}.xyz, geometry
+            cached in the new TSEdge for future comparisons.
+        """
+        parser = ProfileParser()
+        result = parser.parse(profile_dir)
+        if result is None:
+            return
+
+        ts_energy: float | None = result["ts_energy"]
+
+        # ── Step 1: parse new TS geometry ─────────────────────────────────
+        ts_sym:    list[str]  = []
+        ts_coords: np.ndarray = np.empty((0, 3), dtype=float)
+        ts_xyz_path: str = result.get("ts_xyz_file", "") or ""
+        if ts_xyz_path and os.path.isfile(ts_xyz_path):
+            try:
+                ts_sym, ts_coords = parse_xyz(ts_xyz_path)
+                logger.debug("Parsed TS geometry: %d atoms from %s",
+                             len(ts_sym), ts_xyz_path)
+            except Exception as exc:
+                logger.warning(
+                    "_process_profile: failed to parse TS XYZ %s: %s. "
+                    "Duplicate check skipped; edge will be registered.",
+                    ts_xyz_path, exc,
+                )
+        else:
+            logger.warning(
+                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r). "
+                "Duplicate check skipped; edge will be registered.",
+                profile_dir, ts_xyz_path,
+            )
+
+        # ── Step 2: register EQ endpoint nodes ────────────────────────────
+        node_id_1 = self._find_or_register_node(
+            xyz_file=result["endpoint_1_xyz"],
+            energy=result["endpoint_1_energy"],
+            free_energy=result.get("endpoint_1_free_energy"),
+            run_dir=run_dir,
+        )
+        node_id_2 = self._find_or_register_node(
+            xyz_file=result["endpoint_2_xyz"],
+            energy=result["endpoint_2_energy"],
+            free_energy=result.get("endpoint_2_free_energy"),
+            run_dir=run_dir,
+        )
+
+        logger.info(
+            "_process_profile: node_id_1=%s  node_id_2=%s  "
+            "ep1_E=%s  ep2_E=%s",
+            node_id_1, node_id_2,
+            f"{result['endpoint_1_energy']:.8f} Ha"
+            if result["endpoint_1_energy"] is not None else "None",
+            f"{result['endpoint_2_energy']:.8f} Ha"
+            if result["endpoint_2_energy"] is not None else "None",
+        )
+
+        if node_id_1 is None:
+            logger.info("_process_profile: node_id_1 is None (endpoint_1 XYZ unreadable) -> skip.")
+            return
+        if node_id_2 is None:
+            logger.info("_process_profile: node_id_2 is None (endpoint_2 XYZ unreadable) -> skip.")
+            return
+        if node_id_1 == node_id_2:
+            logger.info(
+                "_process_profile: node_id_1 == node_id_2 == %d "
+                "(both IRC endpoints matched the same EQ node). Registering as a degenerate reaction (self-loop).",
+                node_id_1,
+            )
+
+        # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
+        if ts_coords.size > 0:
+            # Narrow candidates to edges within the energy window.
+            # When ts_energy is None (profile parse failed) fall back to
+            # all_edges() so those structures still undergo geometric check.
+            ts_candidates: list[TSEdge] = (
+                self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
+                if ts_energy is not None
+                else self.graph.all_edges()
+            )
+            for existing_edge in ts_candidates:
+                if not existing_edge.has_coords:
+                    # Geometry is missing for this edge — geometric duplicate
+                    # detection cannot be performed.  Log a warning so the
+                    # operator knows the check was skipped; the incoming TS
+                    # will be registered as a new edge rather than suppressed.
+                    logger.warning(
+                        "_process_profile: TS%06d has no cached coordinates — "
+                        "cannot compare with incoming TS (profile_dir=%s). "
+                        "Skipping duplicate check for this edge.",
+                        existing_edge.edge_id, profile_dir,
+                    )
+                    continue
+
+                # Geometric check via RMSD.
+                # Energy pre-filter is already enforced by the index window,
+                # so we proceed directly to the (more expensive) RMSD test.
+                if self.checker.are_similar(
+                    ts_sym, ts_coords,
+                    existing_edge.symbols, existing_edge.coords,
+                ):
+                    logger.info(
+                        "Duplicate TS skipped (matches TS%06d, RMSD < %.3f A)  "
+                        "EQ%d -- EQ%d",
+                        existing_edge.edge_id, self.checker.rmsd_threshold,
+                        node_id_1, node_id_2,
+                    )
+                    return
+
+        # ── Step 4: unique TS — persist XYZ and register edge ─────────────
+        edge_id = self.graph.next_edge_id()
+        saved_ts_xyz = self._persist_ts_xyz(ts_xyz_path, edge_id) if ts_xyz_path else None
+
+        edge = TSEdge(
+            edge_id=edge_id,
+            node_id_1=node_id_1,
+            node_id_2=node_id_2,
+            ts_xyz_file=saved_ts_xyz,
+            ts_energy=ts_energy,
+            barrier_fwd=result["barrier_fwd"],
+            barrier_rev=result["barrier_rev"],
+            source_run_dir=run_dir,
+            symbols=ts_sym,    # cached for future TS-vs-TS comparisons
+            coords=ts_coords,  # cached for future TS-vs-TS comparisons
+            ts_free_energy=result.get("ts_free_energy"),
+            barrier_fwd_free=result.get("barrier_fwd_free"),
+            barrier_rev_free=result.get("barrier_rev_free"),
+        )
+        self.graph.add_edge(edge)
+        logger.info(
+            "New TS edge: TS%06d  EQ%d -- EQ%d  E(TS)=%s  Ea(fwd)=%s kcal/mol",
+            edge_id, node_id_1, node_id_2,
+            f"{ts_energy:.8f} Ha" if ts_energy is not None else "N/A",
+            f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
+        )
+
 
     # ------------------------------------------------------------------
     # Exploration state helpers (Fix 2d: uses public methods)
