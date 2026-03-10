@@ -3813,6 +3813,8 @@ class ReactionNetworkMapper:
         # Node energies may have changed; invalidate the cached reference energy
         # via the public method instead of touching the private cache directly.
         self.graph.invalidate_energy_cache()
+        
+        
 
     # ------------------------------------------------------------------
     # Node identity and registration
