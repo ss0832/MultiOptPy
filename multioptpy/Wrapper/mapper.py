@@ -2616,7 +2616,9 @@ class ReactionNetworkMapper:
 
                 # ── Step 1: cancel not-yet-started futures ────────────────
                 for future in futures_map:
-                    future.cancel()
+                    if future.cancel():          
+                        task, run_dir, iteration, gamma_sign, atom_i, atom_j = futures_map[future]
+                        self.queue.release((task.node_id, tuple(task.afir_params)))
 
                 # ── Step 2: force-kill running worker processes ───────────
                 # executor._processes is a {pid: multiprocessing.Process} dict
@@ -3487,8 +3489,7 @@ class ReactionNetworkMapper:
                 "graph has only 1 node — exclusion suppressed.",
                 node.node_id,
             )
-        elif (node.node_id in self.excluded_node_ids
-              and self._node_has_been_explored(node.node_id)):
+        elif node.node_id in self.excluded_node_ids: 
             logger.debug(
                 "_enqueue_perturbations: EQ%d is in excluded_node_ids and has "
                 "already been explored at least once — skipped.",
