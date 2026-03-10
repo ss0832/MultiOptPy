@@ -2963,16 +2963,24 @@ class ReactionNetworkMapper:
                             try:
                                 result_q.cancel_join_thread()
                                 result_q.close()
-                            except Exception as _rq_exc:  # noqa: BLE001
+                            except Exception as _rq_exc:
                                 logger.debug(
                                     "_run_batch_parallel: result_q cleanup failed "
                                     "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
                                 )
     
                             logger.error("Worker timed out: %s", run_dir)
-                            self._process_single_result(
-                                task, run_dir, [], "TIMEOUT", iteration, history_log
-                            )
+                            
+                            try:
+                                self._process_single_result(
+                                    task, run_dir, [], "TIMEOUT", iteration, history_log
+                                )
+                            except Exception as _exc:
+                                logger.error(
+                                    "_run_batch_parallel: failed the processing of result after TIMEOUT (%s): %s",
+                                    run_dir, _exc
+                                )
+
                         active_tasks.clear()  
                         break
     
@@ -3225,19 +3233,27 @@ class ReactionNetworkMapper:
 
     def _run_initial_optimization(
         self, seed_xyz: str
-    ) -> tuple[str, float | None]:
+        ) -> tuple[str, float | None]:
         """Run geometry optimisation on the seed structure.
+
+        Raises
+        ------
+        RuntimeError
+            If OptimizationJob is unavailable or the optimization fails.
+        FileNotFoundError
+            If the optimized XYZ file cannot be located.
 
         Returns
         -------
         optimized_xyz_path : str
-            Path to the optimised XYZ file (falls back to ``seed_xyz`` on failure).
+            Path to the optimised XYZ file.
         energy : float | None
             SCF energy in Hartree, or ``None`` if unavailable.
         """
         if OptimizationJob is None:
-            logger.warning("OptimizationJob not available; skipping initial optimization.")
-            return seed_xyz, None
+            raise RuntimeError(
+                "OptimizationJob is not available. Initial optimization cannot be performed."
+            )
 
         try:
             logger.info("Running initial structure optimization via OptimizationJob...")
@@ -3259,55 +3275,64 @@ class ReactionNetworkMapper:
 
             opt_job.run()
             optimizer = opt_job.get_results()
+
+            if optimizer is None:
+                raise RuntimeError(
+                    "opt_job.get_results() returned None. The optimization job may have failed."
+                )
+
             # --- Locate optimised geometry file ---
-            optimized_xyz_path = seed_xyz
             search_pattern = os.path.join(optimizer.BPA_FOLDER_DIRECTORY, "*_optimized.xyz")
             potential_opt_files = glob.glob(search_pattern)
+            
             if potential_opt_files:
                 optimized_xyz_path = os.path.abspath(potential_opt_files[0])
+            else:
+                raise FileNotFoundError(
+                    f"Optimized geometry file could not be found with pattern: {search_pattern}"
+                )
 
             # --- Extract energy via get_results() -> Optimize instance ---
             # OptimizationJob itself holds no energy; it lives on the internal
             # multioptpy.optimization.Optimize object returned by get_results().
             energy: float | None = None
 
-            if optimizer is not None:
-                # Priority 1: use a canonical accessor method when available.
-                # This is the most forward-compatible approach — if the Optimize
-                # class exposes get_energy() or get_final_energy(), use it
-                # directly rather than probing instance attributes.
-                for method_name in ("get_energy", "get_final_energy", "get_scf_energy"):
-                    method = getattr(optimizer, method_name, None)
-                    if callable(method):
-                        try:
-                            raw = method()
-                            if raw is not None:
-                                energy = float(raw)
-                                logger.info(
-                                    "Initial optimization energy "
-                                    "(optimizer.%s()): %.10f Ha",
-                                    method_name, energy,
-                                )
-                                break   # success — stop trying methods
-                        except Exception:
-                            continue   # this method failed; try the next one
-
-                # Priority 2: fall back to well-known instance attributes only
-                # when no accessor method was found.  The list is intentionally
-                # kept short; if none match, the warning below guides diagnosis.
-                if energy is None:
-                    for attr in ("energy", "final_energy", "scf_energy"):
-                        raw = getattr(optimizer, attr, None)
+            # Priority 1: use a canonical accessor method when available.
+            # This is the most forward-compatible approach — if the Optimize
+            # class exposes get_energy() or get_final_energy(), use it
+            # directly rather than probing instance attributes.
+            for method_name in ("get_energy", "get_final_energy", "get_scf_energy"):
+                method = getattr(optimizer, method_name, None)
+                if callable(method):
+                    try:
+                        raw = method()
                         if raw is not None:
-                            try:
-                                energy = float(raw)
-                                logger.info(
-                                    "Initial optimization energy (optimizer.%s): %.10f Ha",
-                                    attr, energy,
-                                )
-                                break
-                            except (TypeError, ValueError):
-                                pass
+                            energy = float(raw)
+                            logger.info(
+                                "Initial optimization energy "
+                                "(optimizer.%s()): %.10f Ha",
+                                method_name, energy,
+                            )
+                            break   # success — stop trying methods
+                    except Exception:
+                        continue   # this method failed; try the next one
+
+            # Priority 2: fall back to well-known instance attributes only
+            # when no accessor method was found.  The list is intentionally
+            # kept short; if none match, the warning below guides diagnosis.
+            if energy is None:
+                for attr in ("energy", "final_energy", "scf_energy"):
+                    raw = getattr(optimizer, attr, None)
+                    if raw is not None:
+                        try:
+                            energy = float(raw)
+                            logger.info(
+                                "Initial optimization energy (optimizer.%s): %.10f Ha",
+                                attr, energy,
+                            )
+                            break
+                        except (TypeError, ValueError):
+                            pass
 
             if energy is None:
                 logger.warning(
@@ -3316,21 +3341,18 @@ class ReactionNetworkMapper:
                     "Check multioptpy.optimization.Optimize for the correct energy attribute name."
                 )
                 # Log all float attributes on the optimizer to assist diagnosis.
-                if optimizer is not None:
-                    float_attrs = {k: v for k, v in vars(optimizer).items()
-                                   if isinstance(v, float)}
-                    if float_attrs:
-                        logger.warning("Float attributes on optimizer: %s", float_attrs)
+                float_attrs = {k: v for k, v in vars(optimizer).items()
+                               if isinstance(v, float)}
+                if float_attrs:
+                    logger.warning("Float attributes on optimizer: %s", float_attrs)
 
             return optimized_xyz_path, energy
 
         except Exception as e:
-            logger.error(
-                "Initial optimization failed: %s. Falling back to unoptimized geometry.", e
-            )
+            logger.error("Initial optimization failed during execution: %s", e)
             traceback.print_exc()
-            return seed_xyz, None
-
+            raise RuntimeError(f"Initial optimization failed: {e}") from e
+            
     # ------------------------------------------------------------------
     # Logging helpers
     # ------------------------------------------------------------------
@@ -4109,17 +4131,19 @@ class ReactionNetworkMapper:
         nid = node.node_id
         sign_to_gamma = {"+": pos_gamma_str, "-": neg_gamma_str}
 
-        unexplored: list[tuple[int, int, str]] = [
-            (i0, j0, sign)
+        unexplored_pairs: list[tuple[int, int]] = [
+            (i0, j0)
             for (i0, j0) in all_candidates
-            for sign in gamma_signs
-            if not self.explored_log.has(nid, i0 + 1, j0 + 1, sign)
-            and not self.queue.is_submitted(
-                (nid, (sign_to_gamma[sign], str(i0 + 1), str(j0 + 1)))
+            if any(
+                not self.explored_log.has(nid, i0 + 1, j0 + 1, sign)
+                and not self.queue.is_submitted(
+                    (nid, (sign_to_gamma[sign], str(i0 + 1), str(j0 + 1)))
+                )
+                for sign in gamma_signs
             )
         ]
 
-        if not unexplored:
+        if not unexplored_pairs:
             logger.debug(
                 "_enqueue_perturbations: EQ%d — all candidate pairs already "
                 "explored or queued; nothing to enqueue.",
@@ -4127,13 +4151,10 @@ class ReactionNetworkMapper:
             )
             return
 
-        # ── Sample up to max_pairs from the unexplored combinations ──────
-        n_sel = min(self.perturber.max_pairs, len(unexplored))
-        chosen_indices = self._rng.choice(len(unexplored), size=n_sel, replace=False)
+        # ── Sample up to max_pairs from the unexplored pairs ──────
+        n_sel = min(self.perturber.max_pairs, len(unexplored_pairs))
+        chosen_indices = self._rng.choice(len(unexplored_pairs), size=n_sel, replace=False)
 
-        # Use free energy for ΔE when available; fall back to electronic energy.
-        # The reference (ref_e) is already the unified reference from
-        # NetworkGraph.reference_energy() (G-based when any node has G_tot).
         eff_e = node.effective_energy
         delta_e = (
             (eff_e - ref_e)
@@ -4142,21 +4163,29 @@ class ReactionNetworkMapper:
         )
 
         for idx in chosen_indices:
-            i0, j0, sign = unexplored[int(idx)]
+            i0, j0 = unexplored_pairs[int(idx)]
             atom_i, atom_j = i0 + 1, j0 + 1
-            gamma_str = sign_to_gamma[sign]
-            afir_params = [gamma_str, str(atom_i), str(atom_j)]
-            task = ExplorationTask(
-                node_id=node.node_id,
-                xyz_file=node.xyz_file,
-                afir_params=afir_params,
-                metadata={
-                    "delta_E_hartree":         delta_e,
-                    "source_node_energy":      node.energy,
-                    "source_node_free_energy": getattr(node, "free_energy", None),
-                },
-            )
-            self.queue.push(task)
+            
+            for sign in gamma_signs:
+                if (
+                    self.explored_log.has(nid, atom_i, atom_j, sign)
+                    or self.queue.is_submitted((nid, (sign_to_gamma[sign], str(atom_i), str(atom_j))))
+                ):
+                    continue
+
+                gamma_str = sign_to_gamma[sign]
+                afir_params = [gamma_str, str(atom_i), str(atom_j)]
+                task = ExplorationTask(
+                    node_id=node.node_id,
+                    xyz_file=node.xyz_file,
+                    afir_params=afir_params,
+                    metadata={
+                        "delta_E_hartree":         delta_e,
+                        "source_node_energy":      node.energy,
+                        "source_node_free_energy": getattr(node, "free_energy", None),
+                    },
+                )
+                self.queue.push(task)
 
     # ------------------------------------------------------------------
     # File persistence helpers
