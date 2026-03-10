@@ -18,6 +18,7 @@ import json
 import logging
 import multiprocessing
 import os
+import time
 import re
 import copy
 import shutil
@@ -2830,7 +2831,6 @@ class ReactionNetworkMapper:
         history_log, priority_log:
             Absolute paths to the two log files maintained by :meth:`run`.
         """
-        import time
         import queue as _queue_mod
 
         # ── Build per-task configs and persist config_used.json ──────────
