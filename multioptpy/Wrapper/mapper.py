@@ -146,8 +146,9 @@ def _autots_worker_with_queue(
         profiles = _autots_worker(config, run_dir, workspace)
         result_queue.put(("ok", profiles))
     except Exception as exc:  # noqa: BLE001
-        # Serialise the full traceback as a string so it crosses the process
-        # boundary safely (some exception types are not picklable).
+        tb_str = traceback.format_exc()
+        if len(tb_str) > 1500:
+            tb_str = "...(truncated)...\n" + tb_str[-1500:]
         result_queue.put(("err", traceback.format_exc()))
 
 
@@ -1192,12 +1193,12 @@ class ExploredPairsLog:
     filepath : str
         Absolute path to the text file used for persistence.
     flush_interval : int
-        Number of records to batch before flushing to disk. Defaults to 5.
+        Number of records to batch before flushing to disk. Defaults to 1.
         Higher values reduce I/O bottleneck but risk losing the latest 
         records if the process crashes unexpectedly.
     """
 
-    def __init__(self, filepath: str, flush_interval: int = 5) -> None:
+    def __init__(self, filepath: str, flush_interval: int = 1) -> None:
         self._filepath = filepath
         self._flush_interval = flush_interval
         self._write_count = 0
@@ -2810,11 +2811,11 @@ class ReactionNetworkMapper:
     ) -> None:
         """Submit *batch* tasks concurrently and process all results.
 
-        Each task is executed in its own spawned subprocess via
-        :class:`concurrent.futures.ProcessPoolExecutor`.  After *all*
-        subprocesses have finished (success or failure) the profiles are
-        processed sequentially in submission order, the graph is saved
-        once, and the priority log is updated.
+        Each task is executed in its own spawned subprocess. After a subprocess
+        finishes (success, failure, or timeout), its profile is processed
+        sequentially, the graph is saved, and the priority log is updated.
+        This polling mechanism uses queue check and timeouts to prevent
+        deadlocks while allowing early processing of shorter tasks.
 
         Parameters
         ----------
@@ -2823,6 +2824,9 @@ class ReactionNetworkMapper:
         history_log, priority_log:
             Absolute paths to the two log files maintained by :meth:`run`.
         """
+        import time
+        import queue as _queue_mod
+
         # ── Build per-task configs and persist config_used.json ──────────
         task_configs: list[tuple[ExplorationTask, str, str, dict, int]] = []
         for task, run_dir, *_, iteration in batch:
@@ -2846,76 +2850,139 @@ class ReactionNetworkMapper:
             task_configs.append((task, run_dir, workspace, config, iteration))
 
         # ── Submit all tasks to the pool ──────────────────────────────────
-        futures: dict[concurrent.futures.Future, tuple[ExplorationTask, str, str, int]] = {}
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.n_parallel,
-            mp_context=self._mp_ctx,
-        ) as executor:
-            for task, run_dir, workspace, config, iteration in task_configs:
-                f = executor.submit(_autots_worker, config, run_dir, workspace)
-                futures[f] = (task, run_dir, workspace, iteration)
-
-            # ── Collect results in completion order via as_completed ─────────
-            # as_completed() yields each Future as soon as its subprocess
-            # finishes, so shorter tasks are processed without waiting for
-            # slower ones in the same batch.  Graph updates still happen
-            # sequentially (graph is not thread-safe), but we no longer block
-            # the fastest results behind the slowest worker.
-            results: list[tuple[ExplorationTask, str, list[str], str, int]] = []
-            for f in concurrent.futures.as_completed(futures):
-                task, run_dir, _workspace, iteration = futures[f]
-                try:
-                    try:
-                        timeout = self.worker_timeout_s
-                        profile_dirs = f.result(timeout=timeout)
-                        results.append((task, run_dir, profile_dirs, "DONE", iteration))
-                    except concurrent.futures.TimeoutError:
-                        logger.error("Worker timed out: %s", run_dir)
-                        results.append((task, run_dir, [], "TIMEOUT", iteration))
-                    
-                except Exception as exc:
-                    logger.error(
-                        "_run_batch_parallel: AutoTS failed for run %s: %s",
-                        run_dir, exc,
-                    )
-                    results.append((task, run_dir, [], "FAILED", iteration))
-
-        # ── Process results sequentially (graph is not thread-safe) ───────
-        for task, run_dir, profile_dirs, status, iteration in results:
-            # _iteration was already incremented in _collect_task_batch for
-            # each task; update the graph's last_iteration to the highest value.
-            self.graph.last_iteration = max(self.graph.last_iteration, iteration)
-
-            with open(history_log, "a", encoding="utf-8") as fh:
-                fh.write(
-                    f"Iter: {iteration:06d} | Node: EQ{task.node_id:06d} "
-                    f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params} "
-                    f"| Status: {status}\n"
-                )
-
-            if status == "DONE":
-                logger.info(
-                    "Iter %06d (batch): _run_autots returned %d profile director%s.",
-                    iteration, len(profile_dirs),
-                    "y" if len(profile_dirs) == 1 else "ies",
-                )
-                for pdir in profile_dirs:
-                    self._process_profile(pdir, run_dir)
-
-            if hasattr(self.queue, "set_graph"):
-                self.queue.set_graph(self.graph)
-
-            self._flush_node_energy_updates()
-            self._save_run_metadata(
-                run_dir, task,
-                status=status,
-                profile_dirs=profile_dirs,
-                iteration=iteration,
+        # ProcessPoolExecutor is replaced by manual Process management to ensure
+        # that OS-level termination signals (terminate/kill) can be reliably
+        # sent to running tasks upon timeout. Future.cancel() does not interrupt
+        # already-running child processes.
+        active_tasks: dict[int, tuple] = {}
+        
+        for task, run_dir, workspace, config, iteration in task_configs:
+            result_q = self._mp_ctx.Queue()
+            proc = self._mp_ctx.Process(
+                target=_autots_worker_with_queue,
+                args=(config, run_dir, workspace, result_q),
             )
+            proc.start()
+            active_tasks[proc.pid] = (proc, result_q, task, run_dir, iteration)
+
+        # ── Polling loop for result collection and timeout management ───────
+        # Replaces as_completed() with wait() to enable periodic timeout checks
+        # while maintaining the ability to process faster tasks immediately.
+        start_time = time.time()
+        poll_interval = 60.0
+
+        while active_tasks:
+            # ── Optional hard timeout (disabled by default) ───────────────
+            # Activated only when mapper_settings["worker_timeout_s"] is set
+            # to a positive integer.
+            if self.worker_timeout_s is not None:
+                elapsed = time.time() - start_time
+                remaining = self.worker_timeout_s - elapsed
+                if remaining <= 0:
+                    for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                        proc.terminate()
+                        proc.join(timeout=10)
+                        if proc.is_alive():
+                            proc.kill()
+                            proc.join(timeout=10)
+                        
+                        logger.error("Worker timed out: %s", run_dir)
+                        self._process_single_result(
+                            task, run_dir, [], "TIMEOUT", iteration, history_log
+                        )
+                    break
+
+            # ── Process active tasks iteratively ──────────────────────────
+            for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                try:
+                    tag, payload = result_q.get_nowait()
+                    proc.join()
+                    
+                    if tag == "err":
+                        logger.error(
+                            "_run_batch_parallel: AutoTS failed for run %s: \n%s",
+                            run_dir, payload,
+                        )
+                        self._process_single_result(
+                            task, run_dir, [], "FAILED", iteration, history_log
+                        )
+                    else:
+                        self._process_single_result(
+                            task, run_dir, payload, "DONE", iteration, history_log
+                        )
+                    
+                    del active_tasks[pid]
+                    
+                except _queue_mod.Empty:
+                    if not proc.is_alive():
+                        proc.join()
+                        logger.error(
+                            "_run_batch_parallel: AutoTS worker terminated unexpectedly for run %s",
+                            run_dir,
+                        )
+                        self._process_single_result(
+                            task, run_dir, [], "FAILED", iteration, history_log
+                        )
+                        del active_tasks[pid]
+
+            if active_tasks:
+                sleep_time = poll_interval
+                if self.worker_timeout_s is not None:
+                    elapsed = time.time() - start_time
+                    remaining = self.worker_timeout_s - elapsed
+                    sleep_time = min(poll_interval, max(0.0, remaining))
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
         self.graph.save(self.graph_json_path)
         self._write_priority_log(priority_log)
 
+    def _process_single_result(
+        self,
+        task: ExplorationTask,
+        run_dir: str,
+        profile_dirs: list[str],
+        status: str,
+        iteration: int,
+        history_log: str,
+    ) -> None:
+        """Process a single task result and update the graph.
+
+        Extracted from the original loop to support sequential processing
+        within the new polling architecture.
+        """
+        # _iteration was already incremented in _collect_task_batch for
+        # each task; update the graph's last_iteration to the highest value.
+        self.graph.last_iteration = max(self.graph.last_iteration, iteration)
+
+        with open(history_log, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"Iter: {iteration:06d} | Node: EQ{task.node_id:06d} "
+                f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params} "
+                f"| Status: {status}\n"
+            )
+
+        if status == "DONE":
+            logger.info(
+                "Iter %06d (batch): _run_autots returned %d profile director%s.",
+                iteration, len(profile_dirs),
+                "y" if len(profile_dirs) == 1 else "ies",
+            )
+            for pdir in profile_dirs:
+                self._process_profile(pdir, run_dir)
+
+        # Notify the queue about the updated graph
+        if hasattr(self.queue, "set_graph"):
+            self.queue.set_graph(self.graph)
+
+        self._flush_node_energy_updates()
+        self._save_run_metadata(
+            run_dir, task,
+            status=status,
+            profile_dirs=profile_dirs,
+            iteration=iteration,
+        )
+        
     def _save_config_snapshot(self) -> None:
         """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
 
