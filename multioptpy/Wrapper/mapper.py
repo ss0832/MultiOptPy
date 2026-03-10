@@ -945,7 +945,7 @@ class ExplorationQueue(ABC):
 
     def push(self, task: ExplorationTask) -> bool:
         key = (task.node_id, tuple(task.afir_params))
-        if key in self._submitted:
+        if key in self._submitted or key in self._in_flight: 
             return False
 
         task.priority = self.compute_priority(task)
@@ -2864,8 +2864,14 @@ class ReactionNetworkMapper:
             for f in concurrent.futures.as_completed(futures):
                 task, run_dir, _workspace, iteration = futures[f]
                 try:
-                    profile_dirs: list[str] = f.result()
-                    results.append((task, run_dir, profile_dirs, "DONE", iteration))
+                    try:
+                        timeout = self.worker_timeout_s
+                        profile_dirs = f.result(timeout=timeout)
+                        results.append((task, run_dir, profile_dirs, "DONE", iteration))
+                    except concurrent.futures.TimeoutError:
+                        logger.error("Worker timed out: %s", run_dir)
+                        results.append((task, run_dir, [], "TIMEOUT", iteration))
+                    
                 except Exception as exc:
                     logger.error(
                         "_run_batch_parallel: AutoTS failed for run %s: %s",
