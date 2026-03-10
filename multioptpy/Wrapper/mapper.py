@@ -2566,6 +2566,7 @@ class ReactionNetworkMapper:
             # When set, TimeoutError is raised once the deadline is exceeded.
             try:
                 for future in as_completed(futures_map, timeout=self.worker_timeout_s):
+                    handled_futures.add(future)  
                     task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
                         futures_map[future]
                     )
@@ -2621,7 +2622,7 @@ class ReactionNetworkMapper:
                 # _process_single_result / release() to be silently skipped,
                 # leaving the key permanently stuck in _in_flight.
                 for future, meta in futures_map.items():
-                    if future in cancelled_futures:
+                    if future in cancelled_futures or future in handled_futures: 
                         continue            # release() already called in Step 1
                     task, run_dir, iteration, gamma_sign, atom_i, atom_j = meta
                     killed_futures.add(future)
