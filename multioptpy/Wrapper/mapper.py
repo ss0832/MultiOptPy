@@ -2923,85 +2923,96 @@ class ReactionNetworkMapper:
         # while maintaining the ability to process faster tasks immediately.
         start_time = time.time()
         poll_interval = 60.0
-
-        while active_tasks:
-            # ── Optional hard timeout (disabled by default) ───────────────
-            # Activated only when mapper_settings["worker_timeout_s"] is set
-            # to a positive integer.
-            if self.worker_timeout_s is not None:
-                elapsed = time.time() - start_time
-                remaining = self.worker_timeout_s - elapsed
-                if remaining <= 0:
-                    for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
-                        proc.terminate()
-                        proc.join(timeout=10)
-                        if proc.is_alive():
-                            proc.kill()
-                            proc.join(timeout=10)
-                        
-                        try:
-                            result_q.cancel_join_thread()
-                            result_q.close()
-                        except Exception as _rq_exc:  # noqa: BLE001
-                            logger.debug(
-                                "_run_batch_parallel: result_q cleanup failed "
-                                "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
-                            )
-
-                        logger.error("Worker timed out: %s", run_dir)
-                        self._process_single_result(
-                            task, run_dir, [], "TIMEOUT", iteration, history_log
-                        )
-                    active_tasks.clear()  
-                    break
-
-            # ── Process active tasks iteratively ──────────────────────────
-            for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
-                try:
-                    tag, payload = result_q.get_nowait()
-                    proc.join()
-                    
-                    if tag == "err":
-                        logger.error(
-                            "_run_batch_parallel: AutoTS failed for run %s: \n%s",
-                            run_dir, payload,
-                        )
-                        self._process_single_result(
-                            task, run_dir, [], "FAILED", iteration, history_log
-                        )
-                    else:
-                        self._process_single_result(
-                            task, run_dir, payload, "DONE", iteration, history_log
-                        )
-                    
-                    del active_tasks[pid]
-                    
-                except _queue_mod.Empty:
-                    if not proc.is_alive():
-                        proc.join()
-                        try:
-                            tag, payload = result_q.get_nowait()
-                            if tag == "err":
-                                logger.error("_run_batch_parallel: AutoTS failed (crash-recovery) for run %s:\n%s", run_dir, payload)
-                                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                            else:
-                                self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
-                            del active_tasks[pid]
-                            continue
-                        except _queue_mod.Empty:
-                            pass
-                        logger.error("AutoTS worker terminated unexpectedly...")
-                        self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                        del active_tasks[pid]
-
-            if active_tasks:
-                sleep_time = poll_interval
+        try:
+            while active_tasks:
+                # ── Optional hard timeout (disabled by default) ───────────────
+                # Activated only when mapper_settings["worker_timeout_s"] is set
+                # to a positive integer.
                 if self.worker_timeout_s is not None:
                     elapsed = time.time() - start_time
                     remaining = self.worker_timeout_s - elapsed
-                    sleep_time = min(poll_interval, max(0.0, remaining))
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+                    if remaining <= 0:
+                        for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                            proc.terminate()
+                            proc.join(timeout=10)
+                            if proc.is_alive():
+                                proc.kill()
+                                proc.join(timeout=10)
+                            
+                            try:
+                                result_q.cancel_join_thread()
+                                result_q.close()
+                            except Exception as _rq_exc:  # noqa: BLE001
+                                logger.debug(
+                                    "_run_batch_parallel: result_q cleanup failed "
+                                    "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
+                                )
+    
+                            logger.error("Worker timed out: %s", run_dir)
+                            self._process_single_result(
+                                task, run_dir, [], "TIMEOUT", iteration, history_log
+                            )
+                        active_tasks.clear()  
+                        break
+    
+                # ── Process active tasks iteratively ──────────────────────────
+                for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                    try:
+                        tag, payload = result_q.get_nowait()
+                        proc.join()
+                        
+                        if tag == "err":
+                            logger.error(
+                                "_run_batch_parallel: AutoTS failed for run %s: \n%s",
+                                run_dir, payload,
+                            )
+                            self._process_single_result(
+                                task, run_dir, [], "FAILED", iteration, history_log
+                            )
+                        else:
+                            self._process_single_result(
+                                task, run_dir, payload, "DONE", iteration, history_log
+                            )
+                        
+                        del active_tasks[pid]
+                        
+                    except _queue_mod.Empty:
+                        if not proc.is_alive():
+                            proc.join()
+                            try:
+                                tag, payload = result_q.get(timeout=5.0) 
+                                if tag == "err":
+                                    logger.error("_run_batch_parallel: AutoTS failed (crash-recovery) for run %s:\n%s", run_dir, payload)
+                                    self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                                else:
+                                    self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
+                                del active_tasks[pid]
+                                continue
+                            except _queue_mod.Empty:
+                                pass
+                            logger.error("AutoTS worker terminated unexpectedly...")
+                            self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                            del active_tasks[pid]
+    
+                if active_tasks:
+                    sleep_time = poll_interval
+                    if self.worker_timeout_s is not None:
+                        elapsed = time.time() - start_time
+                        remaining = self.worker_timeout_s - elapsed
+                        sleep_time = min(poll_interval, max(0.0, remaining))
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+        finally:
+            for pid, (proc, result_q, *_) in list(active_tasks.items()):
+                if proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=10)
+                try:
+                    result_q.cancel_join_thread()
+                    result_q.close()
+                except Exception:
+                    pass
+        
 
         self.graph.save(self.graph_json_path)
         self._write_priority_log(priority_log)
