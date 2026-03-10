@@ -149,7 +149,7 @@ def _autots_worker_with_queue(
         tb_str = traceback.format_exc()
         if len(tb_str) > 1500:
             tb_str = "...(truncated)...\n" + tb_str[-1500:]
-        result_queue.put(("err", traceback.format_exc()))
+        result_queue.put(("err", tb_str))
 
 
 logger = logging.getLogger(__name__)
@@ -2788,6 +2788,7 @@ class ReactionNetworkMapper:
                     "(EQ%06d, %d-%d, %s).",
                     task.node_id, atom_i, atom_j, gamma_sign,
                 )
+                self.queue.release((task.node_id, tuple(task.afir_params)))
                 continue
             self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
             # Release the in-flight lock now that the pair is durably committed
