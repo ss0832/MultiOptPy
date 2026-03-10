@@ -243,21 +243,90 @@ def distance_matrix(coords: np.ndarray) -> np.ndarray:
 
 
 # ===========================================================================
-# Section 2 : StructureChecker
+# Section 2a : StructureChecker
 # ===========================================================================
 
 
 class StructureChecker:
-    """
-    Determines whether two molecular structures are identical up to
-    rotation and atom-index permutation.
+    """Check whether two molecular structures are identical up to rotation and
+    atom-index permutation.
+
+    The algorithm proceeds in four stages:
+
+    1. **Sign-flip candidates** — four proper rotations arising from PCA
+       eigenvector sign ambiguity.  Sufficient for all non-degenerate molecules.
+    2. **Degeneracy check** — detects whether adjacent PCA eigenvalue pairs are
+       degenerate in either structure.  Skips heavier stages when unnecessary.
+    3. **Coarse planar/SO(3) grid** — samples the degenerate subspace with a
+       moderate number of rotation candidates.
+    4. **Fine SO(3) grid** — applied only for fully degenerate (near-spherical)
+       structures.
+
+    Each candidate rotation is combined with the optimal atom mapping found by
+    the Hungarian algorithm, and the residual RMSD is computed via Kabsch.
+
+    Chirality handling
+    ------------------
+    ``_kabsch_rmsd`` returns ``inf`` whenever the optimal superposition requires
+    an improper rotation (det = -1), i.e. a mirror reflection.  This ensures
+    that enantiomers are never declared identical regardless of how flat the
+    molecule is.
+
+    Known limitation — pseudosymmetric enantiomers
+    -----------------------------------------------
+    When a molecule contains multiple atoms of the same element, the Hungarian
+    algorithm may discover an atom-index permutation that effectively implements
+    a mirror reflection without triggering the d < 0 guard: after re-indexing,
+    the Kabsch step sees a proper rotation (d = +1) and may return a small RMSD.
+
+    **Resolution via BondTopologyChecker**
+
+    Passing a ``BondTopologyChecker`` instance to the constructor enables
+    *bond-environment-aware grouping*.  Instead of grouping atoms by element
+    symbol alone, atoms are grouped by ``(element, bond_environment)`` where
+    the bond environment is the sorted tuple of neighbour element symbols
+    returned by ``BondTopologyChecker.atom_environments()``.
+
+    This constrains the Hungarian algorithm to only permute atoms that are
+    chemically equivalent (same element **and** same bonded neighbours),
+    preventing swaps that would implement a reflection.
+
+    **When this resolves the limitation**
+
+    For typical chiral molecules the chiral centre has four distinct
+    substituents, giving each substituent-atom a unique bond environment.
+    The grouping then reduces to a single-atom group per environment, forcing
+    the permutation to the chemically correct one-to-one mapping.  Under this
+    unique mapping the Kabsch step correctly finds d = -1 and returns ``inf``.
+
+    **Residual limitation**
+
+    When all atoms of a given element share identical bond environments (e.g. a
+    minimal C₂-symmetric fragment such as ["C","C","O","O"] where every C is
+    bonded only to one O), the grouping remains ambiguous and the atom swap is
+    still possible in principle.  In practice the RMSD after such a swap is
+    large enough to exceed the threshold for real molecules, but it is not
+    guaranteed by the algorithm.  Complete resolution would require
+    higher-order graph invariants (e.g. Morgan-algorithm fingerprints) or
+    explicit CIP stereochemistry, which are outside the scope of this
+    geometry-based checker.
+
+    Parameters
+    ----------
+    rmsd_threshold : float
+        Structures with minimum RMSD below this value are declared identical.
+    bond_checker : BondTopologyChecker or None
+        When provided, atom groupings are refined by bond environment to
+        prevent chemically invalid permutations.  Recommended for chiral
+        molecule comparison.
     """
 
-    # Relative tolerance for declaring two eigenvalues degenerate.
     _DEGENERACY_REL_TOL: float = 0.02
 
-    # The 4 proper rotations (det=+1) from PCA sign-flip ambiguity.
-    # Built once at class definition time instead of on every call.
+    # Raised from 1e-10 to 1e-4 so that near-zero eigenvalue pairs in
+    # extremely flat molecules are still identified as degenerate.
+    _DEGENERACY_ABS_TOL: float = 1e-4
+
     _SIGN_FLIP_MATS: tuple[np.ndarray, ...] = (
         np.diag([ 1.0,  1.0,  1.0]),
         np.diag([-1.0, -1.0,  1.0]),
@@ -265,8 +334,13 @@ class StructureChecker:
         np.diag([ 1.0, -1.0, -1.0]),
     )
 
-    def __init__(self, rmsd_threshold: float = 0.30) -> None:
+    def __init__(
+        self,
+        rmsd_threshold: float = 0.30,
+        bond_checker: BondTopologyChecker | None = None,
+    ) -> None:
         self.rmsd_threshold = rmsd_threshold
+        self._bond_checker = bond_checker
 
     # ------------------------------------------------------------------ #
     #  Public interface                                                    #
@@ -284,10 +358,12 @@ class StructureChecker:
         sym_a: list[str], coords_a: np.ndarray,
         sym_b: list[str], coords_b: np.ndarray,
     ) -> float:
-        """
-        Return the minimum RMSD between the two structures over all proper
-        rotations and atom-index permutations.  Returns inf if the element
-        compositions differ.
+        """Return the minimum RMSD between the two structures over all proper
+        rotations and atom-index permutations.
+
+        Returns ``inf`` if the element compositions differ or if no valid
+        proper-rotation superposition exists (i.e. the structures are
+        enantiomers).
         """
         if len(sym_a) != len(sym_b) or Counter(sym_a) != Counter(sym_b):
             return float("inf")
@@ -295,49 +371,93 @@ class StructureChecker:
         ca = coords_a - coords_a.mean(axis=0)
         cb = coords_b - coords_b.mean(axis=0)
 
-        ca_aligned, eigvals_a = self._pca_align(ca)
-        cb_aligned, eigvals_b = self._pca_align(cb)
+        ca_pca, eigvals_a = self._pca_align(ca)
+        cb_pca, eigvals_b = self._pca_align(cb)
 
-        # -------------------------------------------------------------- #
-        # Stage 1: 4 sign-flip candidates — sufficient when no degeneracy #
-        # -------------------------------------------------------------- #
+        # Atom groupings built once and shared across all candidate stages.
+        # When a bond_checker is present, groups are keyed by
+        # (element, bond_environment) rather than element alone, preventing
+        # the Hungarian algorithm from discovering chemically invalid
+        # atom-index permutations that would implement a mirror reflection.
+        #
+        # Bond detection uses centered (pre-PCA) coordinates; distances are
+        # rotation-invariant so the result is identical to using raw coords.
+        groups_a, groups_b = self._build_groups(sym_a, ca, sym_b, cb)
+
+        # ── Stage 1: four sign-flip candidates ─────────────────────────
         min_rmsd = self._try_candidates(
             self._sign_flip_candidates(),
-            sym_a, ca_aligned, sym_b, cb_aligned,
+            ca_pca, cb_pca, groups_a, groups_b,
         )
         if min_rmsd < self.rmsd_threshold:
             return min_rmsd
 
-        # -------------------------------------------------------------- #
-        # Stage 2: degeneracy check — skip heavy stages if unnecessary    #
-        # -------------------------------------------------------------- #
+        # ── Stage 2: degeneracy check ───────────────────────────────────
         deg_01, deg_12 = self._degeneracy_flags(eigvals_a, eigvals_b)
         if not deg_01 and not deg_12:
             return min_rmsd
 
-        # -------------------------------------------------------------- #
-        # Stage 3: partial degeneracy — coarse planar grid                #
-        #   deg_01 only → free rotation around z  (lambda_0 ≈ lambda_1)  #
-        #   deg_12 only → free rotation around x  (lambda_1 ≈ lambda_2)  #
-        #   both        → coarse SO(3) grid as a first pass               #
-        # -------------------------------------------------------------- #
+        # ── Stage 3: coarse planar / SO(3) grid ────────────────────────
         coarse = self._build_planar_candidates(deg_01, deg_12, n_plane=6, n_sphere=4)
         min_rmsd = min(min_rmsd, self._try_candidates(
-            coarse, sym_a, ca_aligned, sym_b, cb_aligned,
+            coarse, ca_pca, cb_pca, groups_a, groups_b,
         ))
         if min_rmsd < self.rmsd_threshold:
             return min_rmsd
 
-        # -------------------------------------------------------------- #
-        # Stage 4: full degeneracy only — fine SO(3) grid                 #
-        # -------------------------------------------------------------- #
+        # ── Stage 4: fine SO(3) grid (full degeneracy only) ────────────
         if deg_01 and deg_12:
             fine = self._build_planar_candidates(deg_01, deg_12, n_plane=8, n_sphere=6)
             min_rmsd = min(min_rmsd, self._try_candidates(
-                fine, sym_a, ca_aligned, sym_b, cb_aligned,
+                fine, ca_pca, cb_pca, groups_a, groups_b,
             ))
 
         return min_rmsd
+
+    # ------------------------------------------------------------------ #
+    #  Atom grouping                                                       #
+    # ------------------------------------------------------------------ #
+
+    def _build_groups(
+        self,
+        sym_a: list[str],
+        coords_a: np.ndarray,
+        sym_b: list[str],
+        coords_b: np.ndarray,
+    ) -> tuple[dict, dict]:
+        """Build atom-index groupings for the Hungarian mapping step.
+
+        Without bond_checker
+            Groups atoms by element symbol only.  All carbon atoms form one
+            group, all nitrogen atoms another, etc.
+
+        With bond_checker
+            Groups atoms by ``(element, bond_environment_fingerprint)``.  Only
+            atoms that share the same element **and** the same set of bonded
+            neighbour elements are considered interchangeable, preventing the
+            Hungarian algorithm from discovering permutations that swap
+            chemically inequivalent atoms.
+
+        The grouping keys are arbitrary hashables, so the downstream
+        ``_optimal_mapping`` method works unchanged — it simply looks up
+        matching groups by key.
+        """
+        if self._bond_checker is not None:
+            env_a = self._bond_checker.atom_environments(sym_a, coords_a)
+            env_b = self._bond_checker.atom_environments(sym_b, coords_b)
+            keys_a: list = [(s, e) for s, e in zip(sym_a, env_a)]
+            keys_b: list = [(s, e) for s, e in zip(sym_b, env_b)]
+        else:
+            keys_a = list(sym_a)
+            keys_b = list(sym_b)
+
+        def _groups(keys: list) -> dict:
+            mapping: dict = {}
+            for i, k in enumerate(keys):
+                mapping.setdefault(k, []).append(i)
+            return {k: np.array(v, dtype=np.intp) for k, v in mapping.items()}
+
+        return _groups(keys_a), _groups(keys_b)
 
     # ------------------------------------------------------------------ #
     #  Candidate evaluation                                                #
@@ -346,37 +466,23 @@ class StructureChecker:
     def _try_candidates(
         self,
         candidates: list[np.ndarray],
-        sym_a: list[str], ca: np.ndarray,
-        sym_b: list[str], cb: np.ndarray,
+        ca: np.ndarray,
+        cb: np.ndarray,
+        groups_a: dict,
+        groups_b: dict,
     ) -> float:
-        """Evaluate every rotation candidate and return the minimum RMSD found.
-
-        Element-to-index groupings are precomputed once before the rotation
-        loop so that the O(N) list comprehensions inside ``_optimal_mapping``
-        are not repeated for every candidate.
-        """
-        # --- Precompute element groups once (not per rotation) ---
-        elem_groups_a_lists: dict[str, list[int]] = {}
-        for i, s in enumerate(sym_a):
-            elem_groups_a_lists.setdefault(s, []).append(i)
-        groups_a = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_a_lists.items()}
-        
-        elem_groups_b_lists: dict[str, list[int]] = {}
-        for i, s in enumerate(sym_b):
-            elem_groups_b_lists.setdefault(s, []).append(i)
-        groups_b = {e: np.array(v, dtype=np.intp) for e, v in elem_groups_b_lists.items()}
-        
+        """Evaluate every rotation candidate and return the minimum RMSD."""
         min_rmsd = float("inf")
         for R in candidates:
             cb_rot = cb @ R.T
-            perm = self._optimal_mapping_fast(ca, cb_rot, groups_a, groups_b)
+            perm = self._optimal_mapping(ca, cb_rot, groups_a, groups_b)
             if perm is None:
                 continue
             rmsd = self._kabsch_rmsd(ca, cb_rot[perm])
             if rmsd < min_rmsd:
                 min_rmsd = rmsd
                 if min_rmsd < self.rmsd_threshold:
-                    return min_rmsd  # Early exit: threshold already met
+                    return min_rmsd  # early exit
         return min_rmsd
 
     # ------------------------------------------------------------------ #
@@ -385,34 +491,42 @@ class StructureChecker:
 
     @staticmethod
     def _pca_align(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Rotate *coords* so that its principal axes coincide with the
-        Cartesian axes (largest variance → x, smallest → z).
+        """Rotate *coords* so its principal axes align with the Cartesian axes
+        (largest variance → x, smallest → z).
 
-        The rotation matrix is forced to have det = +1 (proper rotation)
-        by negating the last eigenvector when necessary.  Without this
-        fix the PCA step can silently apply a reflection, causing
-        enantiomers to be declared identical.
+        Sign normalisation (columns 0 and 1 only)
+            ``np.linalg.eigh`` does not guarantee eigenvector signs.  For each
+            of the first two columns, the sign is chosen so that the component
+            with the largest absolute value is positive, giving a canonical and
+            numerically stable orientation.
 
-        Returns
-        -------
-        aligned : ndarray  – rotated coordinates
-        eigvals : ndarray  – PCA eigenvalues in descending order, shape (3,)
+            Column 2 is intentionally excluded: it is fixed deterministically
+            by the det = +1 constraint below.  Applying sign normalisation to
+            all three columns and then flipping column 2 for the determinant
+            would silently undo the normalisation for that column.
+
+        Proper-rotation guarantee (det = +1)
+            Without this, the PCA step can silently apply a reflection, causing
+            enantiomers to be declared identical.
         """
         if len(coords) < 2:
             return coords, np.ones(3)
 
-        cov_matrix = (coords.T @ coords) / max(1, len(coords) - 1)
-        eigvals, eigvecs = np.linalg.eigh(cov_matrix)
+        cov = (coords.T @ coords) / max(1, len(coords) - 1)
+        eigvals, eigvecs = np.linalg.eigh(cov)
 
-        # Descending eigenvalue order → canonical axis labelling.
         order = eigvals.argsort()[::-1]
         eigvals = eigvals[order]
         eigvecs = eigvecs[:, order]
 
-        # Guarantee a proper rotation (det = +1).
+        # Canonicalise sign for columns 0 and 1 only (column 2 set by det).
+        for i in range(2):
+            dominant = np.argmax(np.abs(eigvecs[:, i]))
+            if eigvecs[dominant, i] < 0:
+                eigvecs[:, i] *= -1
+
         if np.linalg.det(eigvecs) < 0:
-            eigvecs[:, -1] *= -1
+            eigvecs[:, 2] *= -1
 
         return coords @ eigvecs, eigvals
 
@@ -422,11 +536,7 @@ class StructureChecker:
 
     @classmethod
     def _sign_flip_candidates(cls) -> list[np.ndarray]:
-        """
-        The 4 proper rotations (det = +1) arising from sign-flip ambiguity
-        of PCA eigenvectors.  Always necessary; sufficient when no
-        eigenvalue degeneracy is present.
-        """
+        """Four proper rotations (det = +1) covering all PCA sign-flip combos."""
         return list(cls._SIGN_FLIP_MATS)
 
     @classmethod
@@ -437,26 +547,23 @@ class StructureChecker:
         n_plane: int,
         n_sphere: int,
     ) -> list[np.ndarray]:
-        """
-        Build rotation candidates for degenerate subspaces.
+        """Build rotation candidates for degenerate PCA subspaces.
 
-        deg_01 only  → sample rotations around z (the well-defined axis).
-        deg_12 only  → sample rotations around x (the well-defined axis).
-        deg_01 & deg_12 → fully degenerate; sample SO(3) via ZYZ Euler grid.
+        * ``deg_01`` only  → rotations around z (the unique axis).
+        * ``deg_12`` only  → rotations around x (the unique axis).
+        * both             → SO(3) grid via ZYZ Euler angles.
 
-        Each set is combined with all 4 sign-flip matrices so that
-        sign-flip ambiguity is still covered.
-        
-        Note: Setting n_sphere > 8 is not recommended due to high computational cost.
+        Each candidate is combined with all four sign-flip matrices.
+        ``n_sphere > 8`` is not recommended (cost scales as n³).
         """
         sign_flips = cls._sign_flip_candidates()
 
         if deg_01 and deg_12:
             extra = cls._so3_grid(n_sphere)
         elif deg_01:
-            extra = [cls._Rz(2 * np.pi * k / n_plane) for k in range(n_plane)]
-        else:  # deg_12 only
-            extra = [cls._Rx(2 * np.pi * k / n_plane) for k in range(n_plane)]
+            extra = [cls._Rz(2.0 * np.pi * k / n_plane) for k in range(n_plane)]
+        else:
+            extra = [cls._Rx(2.0 * np.pi * k / n_plane) for k in range(n_plane)]
 
         return [S @ R for S in sign_flips for R in extra]
 
@@ -466,80 +573,45 @@ class StructureChecker:
         eigvals_a: np.ndarray,
         eigvals_b: np.ndarray,
     ) -> tuple[bool, bool]:
+        """Return ``(deg_01, deg_12)`` — which adjacent eigenvalue pairs are
+        degenerate in at least one structure.
+
+        ``atol = _DEGENERACY_ABS_TOL`` (1e-4) catches near-zero eigenvalue
+        pairs in extremely flat/linear molecules that would escape a
+        purely relative tolerance test.
         """
-        Return (deg_01, deg_12) indicating which adjacent eigenvalue pairs
-        are degenerate in at least one of the two structures.
+        rtol = cls._DEGENERACY_REL_TOL
+        atol = cls._DEGENERACY_ABS_TOL
 
-        The OR across both structures is conservative: if either structure
-        has a degenerate axis we must sample it.
-        A relative tolerance is used so the test is scale-independent.
-        """
-        tol = cls._DEGENERACY_REL_TOL
+        def _close(ev: np.ndarray, i: int, j: int) -> bool:
+            return bool(np.isclose(ev[i], ev[j], rtol=rtol, atol=atol))
 
-        def rel_close(ev: np.ndarray, i: int, j: int) -> bool:
-            return np.isclose(ev[i], ev[j], rtol=tol, atol=1e-10)
-
-        deg_01 = rel_close(eigvals_a, 0, 1) or rel_close(eigvals_b, 0, 1)
-        deg_12 = rel_close(eigvals_a, 1, 2) or rel_close(eigvals_b, 1, 2)
+        deg_01 = _close(eigvals_a, 0, 1) or _close(eigvals_b, 0, 1)
+        deg_12 = _close(eigvals_a, 1, 2) or _close(eigvals_b, 1, 2)
         return deg_01, deg_12
 
     @staticmethod
     def _so3_grid(n: int) -> list[np.ndarray]:
+        """Uniform-ish SO(3) grid via ZYZ Euler angles (n³ matrices total).
+
+        Alpha/gamma sampled uniformly in [0, 2π); beta cos-spaced in [0, π]
+        for equal solid-angle coverage.  All products are batched via NumPy.
         """
-        Coarse uniform-ish grid over SO(3) using ZYZ Euler angles.
-
-        Alpha, gamma in [0, 2*pi) are sampled uniformly in n steps.
-        Beta in [0, pi] is sampled with equal-area (cos-spaced) spacing
-        so that grid points are roughly uniformly distributed on S².
-
-        Total: n³ rotation matrices (512 for n = 8).
-
-        Vectorised: all n³ matrix products are computed with batched numpy
-        operations instead of a triple Python for-loop.
-        """
-        # --- Angle arrays ---
         k = np.arange(n)
-        alphas = 2.0 * np.pi * k / n                                          # (n,)
-        betas  = np.arccos(np.clip(1.0 - 2.0 * (k + 0.5) / n, -1.0, 1.0))   # (n,)
-        gammas = 2.0 * np.pi * k / n                                          # (n,)
+        alphas = 2.0 * np.pi * k / n
+        betas  = np.arccos(np.clip(1.0 - 2.0 * (k + 0.5) / n, -1.0, 1.0))
+        gammas = 2.0 * np.pi * k / n
 
-        # --- Component trig values ---
-        ca, sa = np.cos(alphas), np.sin(alphas)   # (n,)
-        cb, sb = np.cos(betas),  np.sin(betas)    # (n,)
-        cg, sg = np.cos(gammas), np.sin(gammas)   # (n,)
+        ca, sa = np.cos(alphas), np.sin(alphas)
+        cb, sb = np.cos(betas),  np.sin(betas)
+        cg, sg = np.cos(gammas), np.sin(gammas)
+        z, o = np.zeros(n), np.ones(n)
 
-        # --- Batched Rz(alpha): shape (n, 3, 3) ---
-        zero = np.zeros(n)
-        one  = np.ones(n)
-        Rz_a = np.stack([
-            np.stack([ ca, -sa, zero], axis=-1),
-            np.stack([ sa,  ca, zero], axis=-1),
-            np.stack([zero, zero, one], axis=-1),
-        ], axis=1)  # (n, 3, 3)
+        Rza = np.stack([np.stack([ca,-sa,z],-1), np.stack([sa,ca,z],-1), np.stack([z,z,o],-1)], 1)
+        Ryb = np.stack([np.stack([cb,z,sb],-1), np.stack([z,o,z],-1), np.stack([-sb,z,cb],-1)], 1)
+        Rzg = np.stack([np.stack([cg,-sg,z],-1), np.stack([sg,cg,z],-1), np.stack([z,z,o],-1)], 1)
 
-        # --- Batched Ry(beta): shape (n, 3, 3) ---
-        Ry_b = np.stack([
-            np.stack([ cb, zero,  sb], axis=-1),
-            np.stack([zero,  one, zero], axis=-1),
-            np.stack([-sb, zero,  cb], axis=-1),
-        ], axis=1)  # (n, 3, 3)
-
-        # --- Batched Rz(gamma): shape (n, 3, 3) ---
-        Rz_g = np.stack([
-            np.stack([ cg, -sg, zero], axis=-1),
-            np.stack([ sg,  cg, zero], axis=-1),
-            np.stack([zero, zero, one], axis=-1),
-        ], axis=1)  # (n, 3, 3)
-
-        # --- ZYZ product over all (n, n, n) combinations ---
-        # Rz_a[:, None, None] @ Ry_b[None, :, None] @ Rz_g[None, None, :]
-        # Broadcasting shapes: (n,1,1,3,3) @ (1,n,1,3,3) @ (1,1,n,3,3)
-        Rza = Rz_a[:, None, None]     # (n, 1, 1, 3, 3)
-        Ryb = Ry_b[None, :, None]     # (1, n, 1, 3, 3)
-        Rzg = Rz_g[None, None, :]     # (1, 1, n, 3, 3)
-        R_all = Rza @ Ryb @ Rzg       # (n, n, n, 3, 3)
-
-        # Flatten to list of (3,3) matrices.
+        R_all = Rza[:, None, None] @ Ryb[None, :, None] @ Rzg[None, None, :]
         return list(R_all.reshape(-1, 3, 3))
 
     @staticmethod
@@ -553,42 +625,36 @@ class StructureChecker:
         return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
     # ------------------------------------------------------------------ #
-    #  Atom mapping (Hungarian algorithm)                                  #
+    #  Atom mapping — Hungarian algorithm                                  #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _optimal_mapping_fast(
+    def _optimal_mapping(
         coords_a: np.ndarray,
         coords_b: np.ndarray,
-        groups_a: dict[str, np.ndarray],
-        groups_b: dict[str, np.ndarray],
+        groups_a: dict,
+        groups_b: dict,
     ) -> np.ndarray | None:
         """Return the optimal atom permutation as an integer ndarray, or None.
 
-        The permutation maps indices of *coords_b* onto positions of *coords_a*
-        such that same-element atoms are paired by the Hungarian algorithm.
+        Atoms are permuted within each group defined by the shared grouping key
+        (element symbol when no bond_checker; (element, bond_env) otherwise).
+        The Hungarian algorithm minimises total squared distance independently
+        per group.
 
-        The previous implementation used ``list[int]`` pre-filled with ``-1``
-        as a sentinel for unfilled slots.  Because ``-1`` is a valid Python
-        index (last element), a partially filled permutation could silently
-        produce wrong RMSD values instead of being rejected.
-
-        The new implementation avoids any sentinel value:
-
-        * ``perm`` is a ``np.ndarray`` of dtype ``np.intp`` — compatible with
-          NumPy fancy indexing (``cb_rot[perm]``) without any conversion.
-        * Completion is verified by counting assignments: if
-          ``n_assigned != n`` some elements were unmatched, so ``None`` is
-          returned.  This replaces the O(N) ``-1 in perm`` membership test
-          with an O(1) integer comparison.
+        Returns ``None`` if any group is unmatched or has inconsistent size.
+        Uses a sentinel-free counter (``n_assigned``) rather than scanning for
+        ``-1`` in the permutation array.
         """
         n = len(coords_a)
         if n != len(coords_b):
             return None
+
         perm = np.empty(n, dtype=np.intp)
         n_assigned = 0
-        for elem, idx_a in groups_a.items():
-            idx_b = groups_b.get(elem)
+
+        for group_key, idx_a in groups_a.items():
+            idx_b = groups_b.get(group_key)
             if idx_b is None or len(idx_a) != len(idx_b):
                 return None
             cost = cdist(coords_a[idx_a], coords_b[idx_b], metric="sqeuclidean")
@@ -596,6 +662,7 @@ class StructureChecker:
             for r, c in zip(row_ind, col_ind):
                 perm[idx_a[r]] = idx_b[c]
             n_assigned += len(idx_a)
+
         return perm if n_assigned == n else None
 
     # ------------------------------------------------------------------ #
@@ -604,18 +671,42 @@ class StructureChecker:
 
     @staticmethod
     def _kabsch_rmsd(pa: np.ndarray, pb: np.ndarray) -> float:
-        """
-        Minimum RMSD between *pa* and *pb* over all proper rotations.
+        """Minimum RMSD between *pa* and *pb* over all proper rotations.
 
-        The determinant correction enforces det(R) = +1, preventing the
-        SVD from finding a reflection that would artificially lower the
-        RMSD for enantiomeric pairs.
+        Chirality guard (d < 0 → return inf)
+        -------------------------------------
+        When the optimal superposition requires an improper rotation (det < 0),
+        the classic Kabsch approach penalises it via a sign-corrected singular
+        value but still returns a finite RMSD:
+
+            RMSD_corrected ≈ 2 · sqrt(S[2] / N)
+
+        For flat chiral molecules S[2] is tiny, so this can fall below any
+        threshold — incorrectly declaring an enantiomer pair as identical.
+
+        Fix: return ``inf`` immediately when d < 0.  The decision is based on
+        the *state* (reflection required) rather than a numerical magnitude,
+        making it independent of molecular geometry.
+
+        Achiral molecules (H₂O, meso compounds) are unaffected because their
+        mirror image superimposes via a *proper* rotation (d = +1), which is
+        found by at least one candidate in ``_try_candidates``.
+
+        Formula note
+        ------------
+        Execution reaches the RMSD calculation only when d = +1, so the
+        original ``d * S[2]`` reduces to ``S[2]`` and is written as such.
         """
         U, S, Vt = np.linalg.svd(pb.T @ pa)
-        d = 1.0 if np.linalg.det(U) * np.linalg.det(Vt) >= 0 else -1.0
+        d = np.linalg.det(U) * np.linalg.det(Vt)
+
+        if d < 0:
+            return float("inf")
+
         E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
-        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + d * S[2])) / len(pa)
+        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + S[2])) / len(pa)
         return float(np.sqrt(rmsd_sq))
+
 
 # ===========================================================================
 # Section 2b : BondTopologyChecker
@@ -623,7 +714,7 @@ class StructureChecker:
 
 
 class BondTopologyChecker:
-    """Detects covalent bond rearrangements by comparing bond-type fingerprints.
+    """Detect covalent bond rearrangements by comparing bond-type fingerprints.
 
     A bond "fingerprint" is a dictionary mapping sorted element-pair tuples
     to the number of bonds of that type in the structure, e.g.::
@@ -661,34 +752,8 @@ class BondTopologyChecker:
         Each key is a ``(elem_a, elem_b)`` tuple with elements in sorted
         order (so C–H and H–C map to the same key).  The value is the
         number of such bonds.
-
         """
-        n = len(symbols)
-        # Precompute covalent radius for each unique element.
-        unique_elems = set(symbols)
-        elem_radius: dict[str, float] = {}
-        for elem in unique_elems:
-            if covalent_radii_lib is not None:
-                try:
-                    elem_radius[elem] = covalent_radii_lib(elem) * _BOHR2ANG
-                except KeyError:
-                    elem_radius[elem] = 0.75  # generic fallback [Å]
-            else:
-                elem_radius[elem] = 0.75
-
-        radii_arr = np.array([elem_radius[s] for s in symbols], dtype=np.float64)
-
-        # Pairwise distances — vectorised via pdist (O(N^2/2)).
-        dists = pdist(coords)
-        ii, jj = np.triu_indices(n, k=1)
-
-        # Per-pair bonding threshold.
-        thresholds = self.covalent_margin * (radii_arr[ii] + radii_arr[jj])
-        bonded_idx = np.where(dists <= thresholds)[0]
-
-        symbols_arr = np.array(symbols) 
-        bonded_si = symbols_arr[ii[bonded_idx]]
-        bonded_sj = symbols_arr[jj[bonded_idx]]
+        bonded_si, bonded_sj = self._bonded_pairs(symbols, coords)
         pairs = np.sort(np.column_stack((bonded_si, bonded_sj)), axis=1)
         unique_pairs, counts = np.unique(pairs, axis=0, return_counts=True)
         return {tuple(p): int(c) for p, c in zip(unique_pairs, counts)}
@@ -706,13 +771,79 @@ class BondTopologyChecker:
         undergone rearrangement (returns ``True``).
         """
         if sorted(ref_symbols) != sorted(new_symbols):
-            return True  # Stoichiometry changed — treat as rearrangement.
+            return True
+        return self.fingerprint(ref_symbols, ref_coords) != \
+               self.fingerprint(new_symbols, new_coords)
 
-        ref_fp = self.fingerprint(ref_symbols, ref_coords)
-        new_fp = self.fingerprint(new_symbols, new_coords)
-        return ref_fp != new_fp
+    def atom_environments(
+        self,
+        symbols: list[str],
+        coords: np.ndarray,
+    ) -> list[tuple[str, ...]]:
+        """Return a per-atom bond-environment fingerprint.
 
+        For each atom *i*, the fingerprint is the **sorted tuple of element
+        symbols of all atoms bonded to i**.  Two atoms are considered to have
+        the same chemical environment if their fingerprints are equal.
 
+        Examples
+        --------
+        Chiral carbon in CHFClBr bonded to four distinct halogens:
+            C  → ("Br", "Cl", "F", "H")   # unique — no valid swap
+            Br → ("C",)
+            ...
+
+        Carbon in a symmetric C₂ fragment bonded only to identical neighbours:
+            C1 → ("O",)
+            C2 → ("O",)   # indistinguishable — swap remains possible
+
+        This method is used by ``StructureChecker`` to refine atom groupings
+        so that the Hungarian algorithm only considers chemically valid
+        atom-index permutations.
+        """
+        n = len(symbols)
+        bonded_si, bonded_sj, ii_idx, jj_idx = self._bonded_pairs(
+            symbols, coords, return_indices=True
+        )
+
+        neighbors: list[list[str]] = [[] for _ in range(n)]
+        for i, j in zip(ii_idx, jj_idx):
+            neighbors[i].append(symbols[j])
+            neighbors[j].append(symbols[i])
+
+        return [tuple(sorted(nb)) for nb in neighbors]
+
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _bonded_pairs(
+        self,
+        symbols: list[str],
+        coords: np.ndarray,
+        *,
+        return_indices: bool = False,
+    ):
+        """Compute all bonded atom pairs and return their element symbols.
+
+        When *return_indices* is True, also return the raw index arrays
+        ``ii`` and ``jj`` needed for per-atom adjacency construction.
+        """
+        n = len(symbols)
+        radii_arr = np.array([_covalent_radius(s) for s in symbols])
+
+        dists = pdist(coords)
+        ii, jj = np.triu_indices(n, k=1)
+        thresholds = self.covalent_margin * (radii_arr[ii] + radii_arr[jj])
+        bonded_mask = dists <= thresholds
+
+        sym_arr = np.array(symbols)
+        bonded_ii = ii[bonded_mask]
+        bonded_jj = jj[bonded_mask]
+
+        if return_indices:
+            return sym_arr[bonded_ii], sym_arr[bonded_jj], bonded_ii, bonded_jj
+        return sym_arr[bonded_ii], sym_arr[bonded_jj]
 
 
 # ===========================================================================
