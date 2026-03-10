@@ -1063,48 +1063,21 @@ class ExplorationQueue(ABC):
         return bool(self._rng.random() < p)
 
     def refresh_priorities(self, ref_e: float | None) -> None:
-        """Record the current reference energy for lazy evaluation at pop() time.
-
-        The previous implementation rebuilt the entire heap with
-        ``heapq.heapify()`` on every iteration — O(N) cost.  This was
-        unnecessary because the heap is ordered by *raw* (absolute) node
-        energy, and the relative order of tasks is invariant to a uniform
-        shift of the reference energy.
-
-        The new design simply stores ``ref_e`` so that :meth:`pop` can
-        recompute ``delta_E_hartree`` and ``priority`` for the single task
-        it is about to return, eliminating the per-iteration O(N) rebuild
-        entirely.
-
-        For subclasses whose ``compute_priority`` is *not* monotone in
-        ``delta_E`` (i.e. a lower raw energy does not always imply a higher
-        priority), the heap order may be approximate.  In those cases
-        subclasses should override ``pop()`` with a full-sort strategy
-        (as ``RCMCQueue`` does) rather than relying on the heap.
-
-        Parameters
-        ----------
-        ref_e:
-            Unified reference energy from
-            :meth:`NetworkGraph.reference_energy` (G-based when any node
-            carries thermochemistry, electronic otherwise).  ``None`` is
-            accepted and leaves the stored value unchanged, so the method
-            is safe to call unconditionally at the start of each iteration.
-        """
+        # Simply record the new reference energy.  The actual delta_E_hartree
+        # and priority recomputation is deferred to pop(), which handles it
+        # lazily for the single task being returned — O(1) per iteration
+        # instead of the O(N) full heap rebuild that the old implementation
+        # performed on every call.
+        #
+        # Correctness note: BoltzmannQueue.compute_priority() is monotonically
+        # decreasing in delta_E, so the heap order established at push() time
+        # remains valid after a uniform reference-energy shift.  Subclasses
+        # with non-monotone priority functions should override pop() with a
+        # full-sort strategy (as RCMCQueue does) rather than relying on this
+        # lazy approach.
         if ref_e is not None:
             self._current_ref_e = ref_e
-            
-        
-        if self._heap:
-            new_heap = []
-            for old_priority, task_id, task in self._heap:
-        
-                new_priority = self.compute_priority(task)
-                new_heap.append((new_priority, task_id, task))
-        
-            heapq.heapify(new_heap)
-            self._heap = new_heap
-
+    
     def export_queue_status(self) -> list[dict]:
         return [
             {
@@ -2447,7 +2420,9 @@ class ReactionNetworkMapper:
         if self.resume:
             os.makedirs(self.output_dir, exist_ok=True)
         else:
-            os.makedirs(self.output_dir, exist_ok=False) # for safe
+            print("Error: The output directory already exists. Exiting.")
+            print("If you wish to resume, please use the --resume option.")
+            exit()
         os.makedirs(self.work_dir,   exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "nodes"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "runs"),  exist_ok=True)
@@ -3325,6 +3300,11 @@ class ReactionNetworkMapper:
                 # The worker exited without putting anything on the queue.
                 # This is unambiguously a crash: a healthy worker always calls
                 # result_q.put() (either "ok" or "err") before returning.
+                try:
+                    tag, payload = result_q.get_nowait()  
+                    break
+                except _queue_mod.Empty:
+                    pass
                 proc.join()
                 raise RuntimeError(
                     f"_run_autots: worker process terminated unexpectedly without "
@@ -3417,15 +3397,11 @@ class ReactionNetworkMapper:
             if new_e is not None and node.energy is None:
                 node.energy = new_e
                 changed.append(f"energy={new_e:.10f} Ha")
+                # _node_none_ids is not updated here: invalidate_energy_cache() at the
+                # end of this method sets _index_dirty=True, which causes _rebuild_indexes()
+                # to reconstruct both indexes from scratch on the next window query.
+                # An explicit list.remove() here would be O(N) per node and is redundant.
                 
-                # BUGFIX: Remove the node from the un-evaluated list so it no longer
-                # bypasses the O(log N) energy window check in nodes_in_energy_window()
-                # before the next _rebuild_indexes() call.
-                try:
-                    self.graph._node_none_ids.remove(node_id)
-                except ValueError:
-                    pass
-
             new_g = updates.free_energy
             if new_g is not None and node.free_energy is None:
                 node.free_energy = new_g
