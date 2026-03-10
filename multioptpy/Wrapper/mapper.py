@@ -2974,6 +2974,7 @@ class ReactionNetworkMapper:
                                 logger.error("AutoTS worker terminated unexpectedly...")
                                 tag, payload = "err", None
                             finally:
+                                proc.join(timeout=30) 
                                 try:
                                     result_q.cancel_join_thread()
                                     result_q.close()
