@@ -2921,15 +2921,15 @@ class ReactionNetworkMapper:
                         try:
                             tag, payload = result_q.get_nowait()
                             if tag == "err":
-                                self._process_single_result(task, run_dir, [], "FAILED", ...)
+                                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                             else:
-                                self._process_single_result(task, run_dir, payload, "DONE", ...)
+                                self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
                             del active_tasks[pid]
                             continue
                         except _queue_mod.Empty:
                             pass
                         logger.error("AutoTS worker terminated unexpectedly...")
-                        self._process_single_result(task, run_dir, [], "FAILED", ...)
+                        self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                         del active_tasks[pid]
 
             if active_tasks:
