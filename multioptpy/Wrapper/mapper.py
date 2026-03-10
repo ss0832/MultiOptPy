@@ -1093,6 +1093,17 @@ class ExplorationQueue(ABC):
         """
         if ref_e is not None:
             self._current_ref_e = ref_e
+            
+        
+        if self._heap:
+            new_heap = []
+            for old_priority, task_id, task in self._heap:
+        
+                new_priority = self._calculate_priority(task)
+                new_heap.append((new_priority, task_id, task))
+        
+            heapq.heapify(new_heap)
+            self._heap = new_heap
 
     def export_queue_status(self) -> list[dict]:
         return [
@@ -3359,7 +3370,10 @@ class ReactionNetworkMapper:
                 break
     
         # ── Step 3: join after the queue is empty — never deadlocks ──────
-        proc.join()
+        proc.join(timeout=120)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=10)
     
         if tag == "err":
             # payload is a formatted traceback string (see _autots_worker_with_queue).
@@ -3375,14 +3389,7 @@ class ReactionNetworkMapper:
     # ------------------------------------------------------------------
 
     def _flush_node_energy_updates(self) -> None:
-        """Apply pending energy backfill updates accumulated during the iteration.
-
-        When :meth:`_find_or_register_node` matches an incoming structure to an
-        existing :class:`EQNode` but that node was registered without energy or
-        free-energy data (e.g. the seed structure optimisation did not perform
-        thermochemistry), the new non-null values are queued in
-        ``_pending_node_updates``.  This method applies all queued updates in
-        one batch, then clears the queue.
+        """Apply all accumulated node energy backfills.
 
         Design decisions (confirmed with user):
         * Called once per iteration, just before ``graph.save()``.
@@ -3410,6 +3417,14 @@ class ReactionNetworkMapper:
             if new_e is not None and node.energy is None:
                 node.energy = new_e
                 changed.append(f"energy={new_e:.10f} Ha")
+                
+                # BUGFIX: Remove the node from the un-evaluated list so it no longer
+                # bypasses the O(log N) energy window check in nodes_in_energy_window()
+                # before the next _rebuild_indexes() call.
+                try:
+                    self.graph._node_none_ids.remove(node_id)
+                except ValueError:
+                    pass
 
             new_g = updates.free_energy
             if new_g is not None and node.free_energy is None:
@@ -3419,7 +3434,8 @@ class ReactionNetworkMapper:
             if changed:
                 logger.info(
                     "_flush_node_energy_updates: EQ%d updated — %s",
-                    node_id, "  ".join(changed),
+                    node_id,
+                    " ".join(changed),
                 )
             else:
                 logger.debug(
@@ -3429,6 +3445,7 @@ class ReactionNetworkMapper:
                 )
 
         self._pending_node_updates.clear()
+
         # Node energies may have changed; invalidate the cached reference energy
         # via the public method instead of touching the private cache directly.
         self.graph.invalidate_energy_cache()
