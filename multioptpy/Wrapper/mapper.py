@@ -3010,10 +3010,13 @@ class ReactionNetworkMapper:
                     if sleep_time > 0:
                         time.sleep(sleep_time)
         finally:
-            for pid, (proc, result_q, *_) in list(active_tasks.items()):
+            for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
                 if proc.is_alive():
                     proc.terminate()
                     proc.join(timeout=10)
+                
+                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                
                 try:
                     result_q.cancel_join_thread()
                     result_q.close()
@@ -3522,6 +3525,11 @@ class ReactionNetworkMapper:
                 except _queue_mod.Empty:
                     pass
                 proc.join()
+                try:
+                    result_q.cancel_join_thread()
+                    result_q.close()
+                except Exception:
+                    pass
                 raise RuntimeError(
                     f"_run_autots: worker process terminated unexpectedly without "
                     f"returning a result (exit_code={proc.exitcode}). "
