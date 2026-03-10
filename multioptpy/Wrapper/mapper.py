@@ -2775,6 +2775,8 @@ class ReactionNetworkMapper:
                 task = self.queue.pop()
                 if task is None:
                     break   # truly exhausted
+                max_skip = max(max_skip, len(self.queue) + n) 
+                
             gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
             if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
                 skip_count += 1
@@ -2923,6 +2925,7 @@ class ReactionNetworkMapper:
                         try:
                             tag, payload = result_q.get_nowait()
                             if tag == "err":
+                                logger.error("_run_batch_parallel: AutoTS failed (crash-recovery) for run %s:\n%s", run_dir, payload)
                                 self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                             else:
                                 self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
@@ -3419,11 +3422,9 @@ class ReactionNetworkMapper:
         # set in normal usage.
         import queue as _queue_mod
     
-        poll_interval = 60  # seconds: crash-detection granularity.
-                            # Smaller values detect crashes sooner at the cost
-                            # of slightly more CPU wakeups.
-        elapsed = 0.0
-    
+        poll_interval = 60
+        start_time = time.time()
+        
         while True:
             try:
                 tag, payload = result_q.get(timeout=poll_interval)
@@ -3448,7 +3449,7 @@ class ReactionNetworkMapper:
                     "exception in AutoTSWorkflow."
                 )
     
-            elapsed += poll_interval
+            elapsed = time.time() - start_time 
     
             # ── Optional hard timeout (disabled by default) ───────────────
             # Activated only when mapper_settings["worker_timeout_s"] is set
@@ -3713,6 +3714,7 @@ class ReactionNetworkMapper:
                     "(exclude_bond_rearrangement=True).",
                     node_id,
                 )
+                return node_id
 
         ref_e = self.graph.reference_energy()
         if ref_e is None or new_node.energy is None:
@@ -3806,44 +3808,47 @@ class ReactionNetworkMapper:
             )
 
         # ── Step 3: TS duplicate check (TS-vs-TS only) ────────────────────
-        if ts_coords.size > 0:
-            # Narrow candidates to edges within the energy window.
-            # When ts_energy is None (profile parse failed) fall back to
-            # all_edges() so those structures still undergo geometric check.
-            ts_candidates: list[TSEdge] = (
-                self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
-                if ts_energy is not None
-                else self.graph.all_edges()
-            )
-            for existing_edge in ts_candidates:
-                if not existing_edge.has_coords:
-                    # Geometry is missing for this edge — geometric duplicate
-                    # detection cannot be performed.  Log a warning so the
-                    # operator knows the check was skipped; the incoming TS
-                    # will be registered as a new edge rather than suppressed.
-                    logger.warning(
-                        "_process_profile: TS%06d has no cached coordinates — "
-                        "cannot compare with incoming TS (profile_dir=%s). "
-                        "Skipping duplicate check for this edge.",
-                        existing_edge.edge_id, profile_dir,
-                    )
-                    continue
-
-                # Geometric check via RMSD.
-                # Energy pre-filter is already enforced by the index window,
-                # so we proceed directly to the (more expensive) RMSD test.
-                if self.checker.are_similar(
-                    ts_sym, ts_coords,
-                    existing_edge.symbols, existing_edge.coords,
-                ):
-                    logger.info(
-                        "Duplicate TS skipped (matches TS%06d, RMSD < %.3f A)  "
-                        "EQ%d -- EQ%d",
-                        existing_edge.edge_id, self.checker.rmsd_threshold,
-                        node_id_1, node_id_2,
-                    )
-                    return
-
+        if ts_coords.size == 0:
+            logger.warning("...: TS XYZ unavailable, skipping this profile to avoid duplicate edge.")
+            return
+        
+        # Narrow candidates to edges within the energy window.
+        # When ts_energy is None (profile parse failed) fall back to
+        # all_edges() so those structures still undergo geometric check.
+        ts_candidates: list[TSEdge] = (
+            self.graph.edges_in_energy_window(ts_energy, self.energy_tolerance)
+            if ts_energy is not None
+            else self.graph.all_edges()
+        )
+        for existing_edge in ts_candidates:
+            if not existing_edge.has_coords:
+                # Geometry is missing for this edge — geometric duplicate
+                # detection cannot be performed.  Log a warning so the
+                # operator knows the check was skipped; the incoming TS
+                # will be registered as a new edge rather than suppressed.
+                logger.warning(
+                    "_process_profile: TS%06d has no cached coordinates — "
+                    "cannot compare with incoming TS (profile_dir=%s). "
+                    "Skipping duplicate check for this edge.",
+                    existing_edge.edge_id, profile_dir,
+                )
+                continue
+    
+            # Geometric check via RMSD.
+            # Energy pre-filter is already enforced by the index window,
+            # so we proceed directly to the (more expensive) RMSD test.
+            if self.checker.are_similar(
+                ts_sym, ts_coords,
+                existing_edge.symbols, existing_edge.coords,
+            ):
+                logger.info(
+                    "Duplicate TS skipped (matches TS%06d, RMSD < %.3f A)  "
+                    "EQ%d -- EQ%d",
+                    existing_edge.edge_id, self.checker.rmsd_threshold,
+                    node_id_1, node_id_2,
+                )
+                return
+    
         # ── Step 4: unique TS — persist XYZ and register edge ─────────────
         edge_id = self.graph.next_edge_id()
         saved_ts_xyz = self._persist_ts_xyz(ts_xyz_path, edge_id) if ts_xyz_path else None
