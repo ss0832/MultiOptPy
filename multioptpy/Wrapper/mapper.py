@@ -2417,8 +2417,8 @@ class ReactionNetworkMapper:
         # Applied in bulk by _flush_node_energy_updates() before graph.save().
         self._pending_node_updates: dict[int, NodeUpdateData] = {}
         
-        if self.resume:
-            os.makedirs(self.output_dir, exist_ok=True)
+        if self.resume or not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir, exist_ok=True)  
         else:
             print("Error: The output directory already exists. Exiting.")
             print("If you wish to resume, please use the --resume option.")
