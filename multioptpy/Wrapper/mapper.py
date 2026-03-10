@@ -1539,14 +1539,24 @@ class EQNode:
         return self.free_energy if self.free_energy is not None else self.energy
 
     def to_dict(self) -> dict:
-        return {
+        data: dict = {
             "node_id":             self.node_id,
             "xyz_file":            self.xyz_file,
             "energy_hartree":      self.energy,
             "free_energy_hartree": self.free_energy,
             "source_run_dir":      self.source_run_dir,
-            "extra":               self.extra,
         }
+        
+        safe_extra = {}
+        for k, v in self.extra.items():
+            try:
+                json.dumps(v)
+                safe_extra[k] = v
+            except (TypeError, ValueError):
+                safe_extra[k] = str(v)
+                
+        data["extra"] = safe_extra
+        return data
 
 @dataclass
 class TSEdge:
@@ -1865,21 +1875,27 @@ class NetworkGraph:
         flush) so the amortised cost per ``_process_profile`` call
         remains O(log N) in steady state.
         """
-        self._node_energy_index = []
-        self._node_none_ids     = []
-        for node in self._nodes.values():
-            if node.energy is not None:
-                bisect.insort(self._node_energy_index, (node.energy, node.node_id))
-            else:
-                self._node_none_ids.append(node.node_id)
+        self._node_energy_index = sorted([
+            (node.energy, node.node_id)
+            for node in self._nodes.values()
+            if node.energy is not None
+        ])
+        self._node_none_ids = [
+            node.node_id
+            for node in self._nodes.values()
+            if node.energy is None
+        ]
 
-        self._edge_energy_index = []
-        self._edge_none_ids     = []
-        for edge in self._edges.values():
-            if edge.ts_energy is not None:
-                bisect.insort(self._edge_energy_index, (edge.ts_energy, edge.edge_id))
-            else:
-                self._edge_none_ids.append(edge.edge_id)
+        self._edge_energy_index = sorted([
+            (edge.ts_energy, edge.edge_id)
+            for edge in self._edges.values()
+            if edge.ts_energy is not None
+        ])
+        self._edge_none_ids = [
+            edge.edge_id
+            for edge in self._edges.values()
+            if edge.ts_energy is None
+        ]
 
         self._index_dirty = False
 
@@ -3245,7 +3261,8 @@ class ReactionNetworkMapper:
             optimizer = opt_job.get_results()
             # --- Locate optimised geometry file ---
             optimized_xyz_path = seed_xyz
-            potential_opt_files = glob.glob(optimizer.BPA_FOLDER_DIRECTORY+"*_optimized.xyz")
+            search_pattern = os.path.join(optimizer.BPA_FOLDER_DIRECTORY, "*_optimized.xyz")
+            potential_opt_files = glob.glob(search_pattern)
             if potential_opt_files:
                 optimized_xyz_path = os.path.abspath(potential_opt_files[0])
 
