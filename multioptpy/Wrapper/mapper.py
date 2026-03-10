@@ -1201,7 +1201,14 @@ class ExploredPairsLog:
 
     def __init__(self, filepath: str, flush_interval: int = 1) -> None:
         if flush_interval < 1:
-            print("flush_interval must be > 0. setting 1.")
+            # Use the module logger so the message is captured by any handler
+            # attached to the root logger (file, stream, etc.) rather than
+            # being silently swallowed in non-interactive or redirected runs.
+            logger.warning(
+                "ExploredPairsLog: flush_interval must be >= 1 (got %d); "
+                "resetting to 1.",
+                flush_interval,
+            )
             flush_interval = 1
         self._filepath = filepath
         self._flush_interval = flush_interval
@@ -2817,28 +2824,48 @@ class ReactionNetworkMapper:
         which signals _run_batch_parallel() to stop the loop.
         """
         batch: list[tuple[ExplorationTask, str, str, int, int, int]] = []
-        refilled = False
+        # Track the number of refill passes performed so far.
+        # A bool flag was used previously, but resetting it to False after the
+        # second refill caused the loop to re-enter the first-refill branch on
+        # the very next pop()==None, triggering a third (and potentially
+        # unbounded) series of full-node scans.  Using an integer counter makes
+        # the termination condition explicit: at most _MAX_REFILLS consecutive
+        # refill passes are attempted before giving up.
+        _MAX_REFILLS = 2
+        refill_count = 0
         while len(batch) < n:
             task = self.queue.pop()
             if task is None:
-                if refilled:
-                    size_before = len(self.queue)
-                    for node in self.graph.all_nodes():
-                        self._enqueue_perturbations(node, force_add=True)
-                    if len(self.queue) == size_before:
-                        break         
-                    refilled = False  
-                    continue
-    
+                if refill_count >= _MAX_REFILLS:
+                    # Both refill passes produced no new tasks that could be
+                    # popped; the candidate space is genuinely exhausted for
+                    # this batch collection.
+                    logger.debug(
+                        "_collect_task_batch: queue empty after %d refill "
+                        "pass(es) — no runnable tasks remain.",
+                        refill_count,
+                    )
+                    break
+
+                # Attempt a refill by re-scanning all nodes for unexplored pairs.
                 size_before = len(self.queue)
                 for node in self.graph.all_nodes():
                     self._enqueue_perturbations(node, force_add=True)
+                refill_count += 1
+
                 if len(self.queue) == size_before:
+                    # Refill added nothing new; no point trying again.
+                    logger.debug(
+                        "_collect_task_batch: refill pass %d added no new "
+                        "tasks (queue size unchanged at %d) — stopping.",
+                        refill_count, size_before,
+                    )
                     break
-                refilled = True
-                task = self.queue.pop()
-                if task is None:
-                    break
+
+                # New tasks were added; loop back to pop() and continue filling
+                # the batch.  Do NOT pop here — let the top of the while-loop
+                # do it so the explored-pair skip-check is always applied.
+                continue
     
             gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
             if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
@@ -2930,58 +2957,67 @@ class ReactionNetworkMapper:
             # Store gamma_sign/atom_i/atom_j so the polling loop and finally
             # block can forward them to _process_single_result().
             active_tasks[pid] = (
-                proc, result_q, task, run_dir, iteration, gamma_sign, atom_i, atom_j
+                proc, result_q, task, run_dir, iteration, gamma_sign, atom_i, atom_j,
+                time.time(),  # proc_start: per-process launch timestamp
             )
     
         # ── Polling loop ──────────────────────────────────────────────────
-        start_time = time.time()
         poll_interval = 60.0
         try:
             while active_tasks:
-                # ── Optional hard timeout ─────────────────────────────────
+                # ── Per-process timeout check ─────────────────────────────
+                # worker_timeout_s is enforced independently for each process
+                # using its own proc_start timestamp.  Previously a single
+                # batch-wide start_time was shared, which caused later-launched
+                # processes to inherit a smaller effective timeout (up to
+                # n_parallel times shorter in the worst case).
                 if self.worker_timeout_s is not None:
-                    elapsed = time.time() - start_time
-                    remaining = self.worker_timeout_s - elapsed
-                    if remaining <= 0:
-                        for pid, (
+                    timed_out_pids: list[int] = [
+                        pid
+                        for pid, entry in active_tasks.items()
+                        if (time.time() - entry[8]) >= self.worker_timeout_s
+                    ]
+                    for pid in timed_out_pids:
+                        (
                             proc, result_q, task, run_dir, iteration,
-                            gamma_sign, atom_i, atom_j,
-                        ) in list(active_tasks.items()):
-                            proc.terminate()
+                            gamma_sign, atom_i, atom_j, proc_start,
+                        ) = active_tasks[pid]
+                        proc.terminate()
+                        proc.join(timeout=10)
+                        if proc.is_alive():
+                            proc.kill()
                             proc.join(timeout=10)
-                            if proc.is_alive():
-                                proc.kill()
-                                proc.join(timeout=10)
-    
-                            try:
-                                result_q.cancel_join_thread()
-                                result_q.close()
-                            except Exception as _rq_exc:
-                                logger.debug(
-                                    "_run_batch_parallel: result_q cleanup failed "
-                                    "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
-                                )
-    
-                            logger.error("Worker timed out: %s", run_dir)
-    
-                            try:
-                                self._process_single_result(
-                                    task, run_dir, [], "TIMEOUT", iteration, history_log,
-                                    gamma_sign, atom_i, atom_j,
-                                )
-                            except Exception as _exc:
-                                logger.error(
-                                    "_run_batch_parallel: _process_single_result failed "
-                                    "after TIMEOUT (%s): %s", run_dir, _exc
-                                )
-    
-                        active_tasks.clear()
+                        try:
+                            result_q.cancel_join_thread()
+                            result_q.close()
+                        except Exception as _rq_exc:
+                            logger.debug(
+                                "_run_batch_parallel: result_q cleanup failed "
+                                "(pid=%d, run=%s): %s", pid, run_dir, _rq_exc
+                            )
+                        logger.error(
+                            "Worker timed out after %.0fs (limit=%ds): %s",
+                            time.time() - proc_start, self.worker_timeout_s, run_dir,
+                        )
+                        try:
+                            self._process_single_result(
+                                task, run_dir, [], "TIMEOUT", iteration, history_log,
+                                gamma_sign, atom_i, atom_j,
+                            )
+                        except Exception as _exc:
+                            logger.error(
+                                "_run_batch_parallel: _process_single_result failed "
+                                "after TIMEOUT (%s): %s", run_dir, _exc
+                            )
+                        del active_tasks[pid]
+
+                    if not active_tasks:
                         break
     
                 # ── Process active tasks iteratively ──────────────────────
                 for pid, (
                     proc, result_q, task, run_dir, iteration,
-                    gamma_sign, atom_i, atom_j,
+                    gamma_sign, atom_i, atom_j, proc_start,
                 ) in list(active_tasks.items()):
                     try:
                         tag, payload = result_q.get_nowait()
@@ -3036,18 +3072,24 @@ class ReactionNetworkMapper:
                         del active_tasks[pid]
     
                 if active_tasks:
+                    # Compute sleep duration: cap at poll_interval, but shorten
+                    # when any process is approaching its per-process deadline so
+                    # the timeout check fires promptly without oversleeping.
                     sleep_time = poll_interval
                     if self.worker_timeout_s is not None:
-                        elapsed = time.time() - start_time
-                        remaining = self.worker_timeout_s - elapsed
-                        sleep_time = min(poll_interval, max(0.0, remaining))
+                        now = time.time()
+                        min_remaining = min(
+                            self.worker_timeout_s - (now - entry[8])
+                            for entry in active_tasks.values()
+                        )
+                        sleep_time = min(poll_interval, max(0.0, min_remaining))
                     if sleep_time > 0:
                         time.sleep(sleep_time)
     
         finally:
             for pid, (
                 proc, result_q, task, run_dir, iteration,
-                gamma_sign, atom_i, atom_j,
+                gamma_sign, atom_i, atom_j, proc_start,
             ) in list(active_tasks.items()):
                 if proc.is_alive():
                     proc.terminate()
@@ -3206,10 +3248,10 @@ class ReactionNetworkMapper:
 
     def _register_seed_structure(self) -> None:
         seed_xyz = os.path.abspath(self.base_config["initial_mol_file"])
-        node_id = self.graph.next_node_id()
+        
 
         optimized_xyz_path, energy = self._run_initial_optimization(seed_xyz)
-
+        node_id = self.graph.next_node_id()
         saved_xyz = self._persist_node_xyz(optimized_xyz_path, node_id)
 
         try:
