@@ -2897,7 +2897,16 @@ class ReactionNetworkMapper:
                 target=_autots_worker_with_queue,
                 args=(config, run_dir, workspace, result_q),
             )
-            proc.start()
+            try:
+                proc.start()
+            except OSError:
+                result_q.close()
+                logger.error(
+                    "_run_batch_parallel: proc.start() failed for run %s — treating as FAILED.",
+                    run_dir,
+                )
+                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                continue
             pid = proc.pid
             if pid is None:
                 logger.error(
@@ -3443,7 +3452,11 @@ class ReactionNetworkMapper:
             target=_autots_worker_with_queue,
             args=(config, run_dir, workspace, result_q),
         )
-        proc.start()
+        try:
+            proc.start()
+        except OSError:
+            result_q.close()
+            raise
     
         # ── Step 1: crash-aware polling loop ─────────────────────────────
         # [FIX] The original implementation used result_q.get(timeout=None),
