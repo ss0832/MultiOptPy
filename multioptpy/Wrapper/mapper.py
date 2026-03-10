@@ -1394,12 +1394,16 @@ class TSEdge:
             "barrier_rev_free_kcal":  self.barrier_rev_free,
             "source_run_dir":         self.source_run_dir,
         }
+        
+        safe_extra = {}
         for k, v in self.extra.items():
             try:
                 json.dumps(v)
-                data[k] = v
+                safe_extra[k] = v
             except (TypeError, ValueError):
-                data[k] = str(v)
+                safe_extra[k] = str(v)
+        data["extra"] = safe_extra
+        
         return data
 
 
@@ -1600,6 +1604,7 @@ class NetworkGraph:
                 ts_free_energy=ed.get("ts_free_energy_hartree"),
                 barrier_fwd_free=ed.get("barrier_fwd_free_kcal"),
                 barrier_rev_free=ed.get("barrier_rev_free_kcal"),
+                extra=ed.get("extra", {}),
             )
             # Build in-memory geometry cache for TS vs TS comparison
             if edge.ts_xyz_file and os.path.isfile(edge.ts_xyz_file):
