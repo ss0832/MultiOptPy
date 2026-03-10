@@ -2699,15 +2699,15 @@ class ReactionNetworkMapper:
                 # re-weighted correctly (relevant when a new lowest-energy node
                 # has been found since those tasks were pushed).
                 self.queue.refresh_priorities(self.graph.reference_energy())
-    
+                
                 # Phase 1: drain the pre-built queue (respects Boltzmann priority).
                 task = self.queue.pop()
-    
+                
                 if task is not None:
                     # Parse AFIR key once — used for both the skip check and
                     # the explored_log.record() call below.
                     gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-    
+                
                     # Verify that this queue task has not already been executed
                     # (relevant after a resume where the queue is rebuilt from
                     # scratch but the explored_pairs log retains prior history).
@@ -2719,31 +2719,10 @@ class ReactionNetworkMapper:
                         self.queue.release((task.node_id, tuple(task.afir_params)))
                         # Do NOT count against max_iterations; try again next cycle.
                         continue
-    
-                    # ── [FIX] Record immediately after has() confirms task is new ─
-                    # Reason for fix:
-                    # In the previous implementation, `explored_log.record()` was called after
-                    # `_iteration += 1` and `_run_autots()`. Since `pop()` internally calls
-                    # `_submitted.discard(key)`, there was a window before `record()` completed
-                    # where `_enqueue_perturbations(force_add=True)` could `push()` the same 
-                    # pair again, potentially leading to double execution.
-                    # By calling `record()` immediately after confirming it is unexplored via 
-                    # `has()`, we close this window. Now, even if `_enqueue_perturbations` is 
-                    # called inside the subsequent `_run_autots()`, the pair will be evaluated 
-                    # as already recorded, preventing double enqueueing.
-                    self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-                    # Release the in-flight lock now that the pair is durably
-                    # committed to explored_log.  From this point forward,
-                    # is_submitted() returns False for this key, so a future
-                    # push() can re-add it if the graph grows new nodes that
-                    # make re-exploration meaningful.
-                    self.queue.release((task.node_id, tuple(task.afir_params)))
                 
                 else:
                     # Phase 2: queue exhausted — deterministically re-scan every node
-                    # for unexplored pairs and re-fill the queue.  This replaces the
-                    # former rejection-sampling loop (_boltzmann_sample_task), which
-                    # could miss valid pairs as the explored set grew large.
+                    # for unexplored pairs and re-fill the queue.
                     logger.info(
                         "Queue empty; re-scanning all nodes for unexplored pairs."
                     )
@@ -2757,28 +2736,45 @@ class ReactionNetworkMapper:
                     # Restart the loop so the freshly enqueued tasks are popped
                     # in priority order on the next iteration.
                     continue
-    
+                
                 # ── Execute the task ────────────────────────────────────────────
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
-    
+                
                 with open(history_log, "a", encoding="utf-8") as fh:
                     fh.write(
                         f"Iter: {self._iteration:06d} | Node: EQ{task.node_id:06d} "
                         f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params}\n"
                     )
-    
+                
                 run_dir = self._make_run_dir(task)
                 try:
                     profile_dirs = self._run_autots(task, run_dir)
                 except Exception as e:
                     logger.error("AutoTS failed for run %s: %s", run_dir, e)
+                    # Do NOT call explored_log.record() on failure.
+                    # Duplicate prevention within this run is handled by _in_flight
+                    # (set by pop()); omitting record() here ensures that transient
+                    # failures (OOM, segfault, network error, etc.) are retried when
+                    # the mapper is resumed, rather than being silently dropped.
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
                     self._flush_node_energy_updates()
                     self._save_run_metadata(run_dir, task, status="FAILED", profile_dirs=[])
                     self.graph.save(self.graph_json_path)
                     self._write_priority_log(priority_log)
                     continue
-    
+                
+                # ── Persist exploration record only after confirmed success ─────
+                # _in_flight (set during pop()) has prevented re-enqueueing of this
+                # pair throughout the entire execution window above.  Now that
+                # _run_autots() has returned successfully, write the durable record
+                # so that resume runs skip this pair correctly.
+                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+                # Release the in-flight lock after record() so that is_submitted()
+                # returns True for the full window [pop() → record() → release()],
+                # leaving no gap where _enqueue_perturbations could re-push the pair.
+                self.queue.release((task.node_id, tuple(task.afir_params)))
+                
                 logger.info(
                     "Iter %06d: _run_autots returned %d profile director%s.",
                     self._iteration, len(profile_dirs),
@@ -2786,12 +2782,12 @@ class ReactionNetworkMapper:
                 )
                 for pdir in profile_dirs:
                     self._process_profile(pdir, run_dir)
-    
+                
                 # Notify the queue about the updated graph (required by RCMCQueue
                 # to recompute transient-population priorities over the full network).
                 if hasattr(self.queue, "set_graph"):
                     self.queue.set_graph(self.graph)
-    
+                
                 self._flush_node_energy_updates()
                 self._save_run_metadata(run_dir, task, status="DONE", profile_dirs=profile_dirs)
                 self.graph.save(self.graph_json_path)
@@ -2805,16 +2801,20 @@ class ReactionNetworkMapper:
         
     def _collect_task_batch(self, n: int) -> list[tuple[ExplorationTask, str, str, int, int, int]]:
         """Pop up to *n* ready tasks and create their run directories.
-
+    
         Returns a list of ``(task, run_dir, gamma_sign, atom_i, atom_j, iteration)``
-        6-tuples — one per task that was selected.  The explored-pairs log
-        is updated immediately for each task (before execution) so that
-        concurrent workers do not re-select the same pair.  ``self._iteration``
-        is pre-incremented once per task here so that each task in the batch
+        6-tuples — one per task that was selected.  ``self._iteration`` is
+        pre-incremented once per task here so that each task in the batch
         receives a unique run directory name even when ``n_parallel > 1``.
-
+    
+        explored_log.record() and queue.release() are intentionally NOT called
+        here.  Duplicate prevention within the batch window is handled by
+        _in_flight (set by pop()); record() and release() are deferred to
+        _process_single_result() so that transient failures are retried on
+        resume rather than being permanently dropped.
+    
         An empty list is returned when no runnable tasks are available,
-        which signals :meth:`_run_batch_parallel` to stop the loop.
+        which signals _run_batch_parallel() to stop the loop.
         """
         batch: list[tuple[ExplorationTask, str, str, int, int, int]] = []
         refilled = False
@@ -2822,20 +2822,18 @@ class ReactionNetworkMapper:
             task = self.queue.pop()
             if task is None:
                 if refilled:
-                 
                     break
-             
+    
                 size_before = len(self.queue)
                 for node in self.graph.all_nodes():
                     self._enqueue_perturbations(node, force_add=True)
                 if len(self.queue) == size_before:
-              
                     break
                 refilled = True
                 task = self.queue.pop()
                 if task is None:
                     break
-
+    
             gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
             if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
                 logger.debug(
@@ -2845,15 +2843,10 @@ class ReactionNetworkMapper:
                 )
                 self.queue.release((task.node_id, tuple(task.afir_params)))
                 continue
-            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-            # Release the in-flight lock now that the pair is durably committed
-            # to explored_log.  This must happen before _run_batch_parallel
-            # processes profiles and calls _enqueue_perturbations; otherwise
-            # newly discovered nodes could attempt to re-push the same pairs
-            # and find them incorrectly blocked.
-            self.queue.release((task.node_id, tuple(task.afir_params)))
-            # Pre-increment so every task in the batch gets its own unique
-            # iteration number and therefore its own run directory.
+    
+            # Do NOT call explored_log.record() or queue.release() here.
+            # _in_flight (set by pop()) prevents re-enqueueing until
+            # _process_single_result() calls release() after execution.
             self._iteration += 1
             run_dir = self._make_run_dir(task, iteration=self._iteration)
             batch.append((task, run_dir, gamma_sign, atom_i, atom_j, self._iteration))
@@ -2866,26 +2859,11 @@ class ReactionNetworkMapper:
         history_log: str,
         priority_log: str,
     ) -> None:
-        """Submit *batch* tasks concurrently and process all results.
-
-        Each task is executed in its own spawned subprocess. After a subprocess
-        finishes (success, failure, or timeout), its profile is processed
-        sequentially, the graph is saved, and the priority log is updated.
-        This polling mechanism uses queue check and timeouts to prevent
-        deadlocks while allowing early processing of shorter tasks.
-
-        Parameters
-        ----------
-        batch:
-            Output of :meth:`_collect_task_batch`.
-        history_log, priority_log:
-            Absolute paths to the two log files maintained by :meth:`run`.
-        """
         import queue as _queue_mod
-
+    
         # ── Build per-task configs and persist config_used.json ──────────
-        task_configs: list[tuple[ExplorationTask, str, str, dict, int]] = []
-        for task, run_dir, *_, iteration in batch:
+        task_configs: list[tuple[ExplorationTask, str, str, dict, int, str, int, int]] = []
+        for task, run_dir, gamma_sign, atom_i, atom_j, iteration in batch:
             workspace = os.path.join(run_dir, "autots_workspace")
             config = copy.deepcopy(self.base_config)
             config["initial_mol_file"]              = task.xyz_file
@@ -2893,7 +2871,7 @@ class ReactionNetworkMapper:
             config.setdefault("step1_settings", {})
             config["step1_settings"]["manual_AFIR"] = task.afir_params
             config["run_step4"]                     = True
-
+    
             config_used_path = os.path.join(run_dir, "config_used.json")
             try:
                 with open(config_used_path, "w", encoding="utf-8") as fh:
@@ -2903,16 +2881,16 @@ class ReactionNetworkMapper:
                     "_run_batch_parallel: could not write config_used.json "
                     "(%s): %s", config_used_path, exc,
                 )
-            task_configs.append((task, run_dir, workspace, config, iteration))
-
+            # gamma_sign, atom_i, atom_j are carried forward so that
+            # _process_single_result() can call record() / release() correctly.
+            task_configs.append(
+                (task, run_dir, workspace, config, iteration, gamma_sign, atom_i, atom_j)
+            )
+    
         # ── Submit all tasks to the pool ──────────────────────────────────
-        # ProcessPoolExecutor is replaced by manual Process management to ensure
-        # that OS-level termination signals (terminate/kill) can be reliably
-        # sent to running tasks upon timeout. Future.cancel() does not interrupt
-        # already-running child processes.
         active_tasks: dict[int, tuple] = {}
-        
-        for task, run_dir, workspace, config, iteration in task_configs:
+    
+        for task, run_dir, workspace, config, iteration, gamma_sign, atom_i, atom_j in task_configs:
             result_q = self._mp_ctx.Queue()
             proc = self._mp_ctx.Process(
                 target=_autots_worker_with_queue,
@@ -2926,7 +2904,10 @@ class ReactionNetworkMapper:
                     "_run_batch_parallel: proc.start() failed for run %s — treating as FAILED.",
                     run_dir,
                 )
-                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                self._process_single_result(
+                    task, run_dir, [], "FAILED", iteration, history_log,
+                    gamma_sign, atom_i, atom_j,
+                )
                 continue
             pid = proc.pid
             if pid is None:
@@ -2934,32 +2915,38 @@ class ReactionNetworkMapper:
                     "_run_batch_parallel: subprocess failed to start (pid=None) "
                     "for run %s — treating as FAILED.", run_dir
                 )
-                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                result_q.close() 
+                self._process_single_result(
+                    task, run_dir, [], "FAILED", iteration, history_log,
+                    gamma_sign, atom_i, atom_j,
+                )
+                result_q.close()
                 continue
-            active_tasks[pid] = (proc, result_q, task, run_dir, iteration)
-
-        # ── Polling loop for result collection and timeout management ───────
-        # Replaces as_completed() with wait() to enable periodic timeout checks
-        # while maintaining the ability to process faster tasks immediately.
+            # Store gamma_sign/atom_i/atom_j so the polling loop and finally
+            # block can forward them to _process_single_result().
+            active_tasks[pid] = (
+                proc, result_q, task, run_dir, iteration, gamma_sign, atom_i, atom_j
+            )
+    
+        # ── Polling loop ──────────────────────────────────────────────────
         start_time = time.time()
         poll_interval = 60.0
         try:
             while active_tasks:
-                # ── Optional hard timeout (disabled by default) ───────────────
-                # Activated only when mapper_settings["worker_timeout_s"] is set
-                # to a positive integer.
+                # ── Optional hard timeout ─────────────────────────────────
                 if self.worker_timeout_s is not None:
                     elapsed = time.time() - start_time
                     remaining = self.worker_timeout_s - elapsed
                     if remaining <= 0:
-                        for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                        for pid, (
+                            proc, result_q, task, run_dir, iteration,
+                            gamma_sign, atom_i, atom_j,
+                        ) in list(active_tasks.items()):
                             proc.terminate()
                             proc.join(timeout=10)
                             if proc.is_alive():
                                 proc.kill()
                                 proc.join(timeout=10)
-                            
+    
                             try:
                                 result_q.cancel_join_thread()
                                 result_q.close()
@@ -2970,25 +2957,29 @@ class ReactionNetworkMapper:
                                 )
     
                             logger.error("Worker timed out: %s", run_dir)
-                            
+    
                             try:
                                 self._process_single_result(
-                                    task, run_dir, [], "TIMEOUT", iteration, history_log
+                                    task, run_dir, [], "TIMEOUT", iteration, history_log,
+                                    gamma_sign, atom_i, atom_j,
                                 )
                             except Exception as _exc:
                                 logger.error(
-                                    "_run_batch_parallel: failed the processing of result after TIMEOUT (%s): %s",
-                                    run_dir, _exc
+                                    "_run_batch_parallel: _process_single_result failed "
+                                    "after TIMEOUT (%s): %s", run_dir, _exc
                                 )
-
-                        active_tasks.clear()  
+    
+                        active_tasks.clear()
                         break
     
-                # ── Process active tasks iteratively ──────────────────────────
-                for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+                # ── Process active tasks iteratively ──────────────────────
+                for pid, (
+                    proc, result_q, task, run_dir, iteration,
+                    gamma_sign, atom_i, atom_j,
+                ) in list(active_tasks.items()):
                     try:
                         tag, payload = result_q.get_nowait()
-
+    
                     except _queue_mod.Empty:
                         if not proc.is_alive():
                             try:
@@ -2998,15 +2989,15 @@ class ReactionNetworkMapper:
                                 logger.error("AutoTS worker terminated unexpectedly...")
                                 tag, payload = "err", None
                             finally:
-                                proc.join(timeout=30) 
+                                proc.join(timeout=30)
                                 try:
                                     result_q.cancel_join_thread()
                                     result_q.close()
                                 except Exception:
                                     pass
                         else:
-                            continue  
-
+                            continue
+    
                     else:
                         proc.join(timeout=120)
                         if proc.is_alive():
@@ -3020,8 +3011,7 @@ class ReactionNetworkMapper:
                             result_q.close()
                         except Exception:
                             pass
-
-              
+    
                     try:
                         if tag == "err":
                             logger.error(
@@ -3029,15 +3019,17 @@ class ReactionNetworkMapper:
                                 run_dir, payload,
                             )
                             self._process_single_result(
-                                task, run_dir, [], "FAILED", iteration, history_log
+                                task, run_dir, [], "FAILED", iteration, history_log,
+                                gamma_sign, atom_i, atom_j,
                             )
                         else:
                             self._process_single_result(
-                                task, run_dir, payload, "DONE", iteration, history_log
+                                task, run_dir, payload, "DONE", iteration, history_log,
+                                gamma_sign, atom_i, atom_j,
                             )
                     finally:
-                        del active_tasks[pid] 
-
+                        del active_tasks[pid]
+    
                 if active_tasks:
                     sleep_time = poll_interval
                     if self.worker_timeout_s is not None:
@@ -3046,15 +3038,19 @@ class ReactionNetworkMapper:
                         sleep_time = min(poll_interval, max(0.0, remaining))
                     if sleep_time > 0:
                         time.sleep(sleep_time)
+    
         finally:
-            for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
+            for pid, (
+                proc, result_q, task, run_dir, iteration,
+                gamma_sign, atom_i, atom_j,
+            ) in list(active_tasks.items()):
                 if proc.is_alive():
                     proc.terminate()
                     proc.join(timeout=10)
                     if proc.is_alive():
                         proc.kill()
                         proc.join(timeout=10)
-
+    
                 status = "FAILED"
                 result_profiles: list[str] = []
                 try:
@@ -3068,11 +3064,12 @@ class ReactionNetworkMapper:
                             run_dir, payload,
                         )
                 except _queue_mod.Empty:
-                    pass 
-
+                    pass
+    
                 try:
                     self._process_single_result(
-                        task, run_dir, result_profiles, status, iteration, history_log
+                        task, run_dir, result_profiles, status, iteration, history_log,
+                        gamma_sign, atom_i, atom_j,
                     )
                 except Exception as _exc:
                     logger.error(
@@ -3085,7 +3082,7 @@ class ReactionNetworkMapper:
                         result_q.close()
                     except Exception:
                         pass
-
+    
         self.graph.save(self.graph_json_path)
         self._write_priority_log(priority_log)
 
@@ -3097,23 +3094,26 @@ class ReactionNetworkMapper:
         status: str,
         iteration: int,
         history_log: str,
+        gamma_sign: str,
+        atom_i: int,
+        atom_j: int,
     ) -> None:
         """Process a single task result and update the graph.
-
-        Extracted from the original loop to support sequential processing
-        within the new polling architecture.
+    
+        record() is called only on confirmed success ("DONE") so that
+        transient failures are retried on resume.  release() is always
+        called to drain _in_flight regardless of outcome, preventing the
+        key from being permanently blocked within the current run.
         """
-        # _iteration was already incremented in _collect_task_batch for
-        # each task; update the graph's last_iteration to the highest value.
         self.graph.last_iteration = max(self.graph.last_iteration, iteration)
-
+    
         with open(history_log, "a", encoding="utf-8") as fh:
             fh.write(
                 f"Iter: {iteration:06d} | Node: EQ{task.node_id:06d} "
                 f"| Priority: {task.priority:.6f} | AFIR: {task.afir_params} "
                 f"| Status: {status}\n"
             )
-
+    
         if status == "DONE":
             logger.info(
                 "Iter %06d (batch): _run_autots returned %d profile director%s.",
@@ -3122,11 +3122,20 @@ class ReactionNetworkMapper:
             )
             for pdir in profile_dirs:
                 self._process_profile(pdir, run_dir)
-
+    
+            # Persist the exploration record only after confirmed success.
+            # Pairs that failed (FAILED / TIMEOUT) are not recorded here,
+            # making them eligible for retry on resume.
+            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+    
+        # Always release the in-flight lock so that is_submitted() returns
+        # False from this point forward, regardless of outcome.
+        self.queue.release((task.node_id, tuple(task.afir_params)))
+    
         # Notify the queue about the updated graph
         if hasattr(self.queue, "set_graph"):
             self.queue.set_graph(self.graph)
-
+    
         self._flush_node_energy_updates()
         self._save_run_metadata(
             run_dir, task,
@@ -3942,7 +3951,7 @@ class ReactionNetworkMapper:
             except Exception as exc:
                 logger.warning(
                     "_process_profile: failed to parse TS XYZ %s: %s. "
-                    "Duplicate check skipped; edge will be registered.",
+                    "Duplicate check skipped; edge will not be registered.",
                     ts_xyz_path, exc,
                 )
         else:
