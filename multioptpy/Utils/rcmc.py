@@ -20,13 +20,14 @@ except ImportError:
     # ── Minimal stub base classes used when running as __main__ ──────────
     # These are NOT part of RCMCQueue and are never used in normal library
     # operation (multioptpy must be installed for that).
-    class ExplorationQueue:  # type: ignore[no-redef]
-        """Stub base class – library mode requires the real multioptpy."""
-        def __init__(self, rng_seed: int = 42) -> None:
-            self._tasks: list = []
+    class ExplorationQueue:
+        def __init__(self, rng_seed=42):
+            self._tasks: dict = {}
+            self._task_counter: int = 0
 
-        def push(self, task) -> None:
-            self._tasks.append(task)
+        def push(self, task):
+            self._task_counter += 1
+            self._tasks[self._task_counter] = task
 
     class ExplorationTask:  # type: ignore[no-redef]
         """Stub task object – mirrors the real ExplorationTask signature."""
