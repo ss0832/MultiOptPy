@@ -2822,7 +2822,13 @@ class ReactionNetworkMapper:
             task = self.queue.pop()
             if task is None:
                 if refilled:
-                    break
+                    size_before = len(self.queue)
+                    for node in self.graph.all_nodes():
+                        self._enqueue_perturbations(node, force_add=True)
+                    if len(self.queue) == size_before:
+                        break         
+                    refilled = False  
+                    continue
     
                 size_before = len(self.queue)
                 for node in self.graph.all_nodes():
@@ -2985,7 +2991,6 @@ class ReactionNetworkMapper:
                             try:
                                 tag, payload = result_q.get(timeout=5.0)
                             except _queue_mod.Empty:
-                                proc.join()
                                 logger.error("AutoTS worker terminated unexpectedly...")
                                 tag, payload = "err", None
                             finally:
