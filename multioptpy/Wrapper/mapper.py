@@ -2973,25 +2973,32 @@ class ReactionNetworkMapper:
                             self._process_single_result(
                                 task, run_dir, payload, "DONE", iteration, history_log
                             )
-                        
+                        try:
+                            result_q.cancel_join_thread()
+                            result_q.close()
+                        except Exception:
+                            pass
                         del active_tasks[pid]
                         
                     except _queue_mod.Empty:
                         if not proc.is_alive():
-                            proc.join()
                             try:
-                                tag, payload = result_q.get(timeout=5.0) 
+                                tag, payload = result_q.get(timeout=5.0)
                                 if tag == "err":
-                                    logger.error("_run_batch_parallel: AutoTS failed (crash-recovery) for run %s:\n%s", run_dir, payload)
+                                    logger.error("...", run_dir, payload)
                                     self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                                 else:
                                     self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
-                                del active_tasks[pid]
-                                continue
                             except _queue_mod.Empty:
-                                pass
-                            logger.error("AutoTS worker terminated unexpectedly...")
-                            self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                                proc.join()
+                                logger.error("AutoTS worker terminated unexpectedly...")
+                                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
+                            finally:
+                                try:
+                                    result_q.cancel_join_thread()
+                                    result_q.close()
+                                except Exception:
+                                    pass
                             del active_tasks[pid]
     
                 if active_tasks:
@@ -3062,6 +3069,7 @@ class ReactionNetworkMapper:
             profile_dirs=profile_dirs,
             iteration=iteration,
         )
+        self.graph.save(self.graph_json_path)
         
     def _save_config_snapshot(self) -> None:
         """Copy the JSON config file to ``work_dir`` as ``config_snapshot.json``.
@@ -3563,19 +3571,28 @@ class ReactionNetworkMapper:
                 break
     
         # ── Step 3: join after the queue is empty — never deadlocks ──────
-        proc.join(timeout=120)
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(timeout=10)
+        
+        try:
+            proc.join(timeout=120)
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=10)
     
-        if tag == "err":
-            # payload is a formatted traceback string (see _autots_worker_with_queue).
-            # Wrap in RuntimeError so it can be raised and caught normally.
-            raise RuntimeError(
-                f"AutoTSWorkflow subprocess failed:\n{payload}"
-            )
-        profiles: list[str] = payload
-        return profiles
+            if tag == "err":
+                # payload is a formatted traceback string (see _autots_worker_with_queue).
+                # Wrap in RuntimeError so it can be raised and caught normally.
+                raise RuntimeError(
+                    f"AutoTSWorkflow subprocess failed:\n{payload}"
+                )
+            return payload
+            
+        finally:
+            try:
+                result_q.cancel_join_thread()
+                result_q.close()
+            except Exception:
+                pass
+  
 
     # ------------------------------------------------------------------
     # Energy backfill (Fix 2d: uses graph.invalidate_energy_cache())
