@@ -2782,6 +2782,7 @@ class ReactionNetworkMapper:
                         "breaking to avoid stall.",
                         max_skip,
                     )
+                    self.queue.release((task.node_id, tuple(task.afir_params))) 
                     break
                 logger.debug(
                     "_collect_task_batch: skipping already-explored task "
