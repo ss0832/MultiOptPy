@@ -2528,7 +2528,7 @@ class ReactionNetworkMapper:
         and the timeout path is never entered.
         """
         futures_map: dict = {}
-
+        handled_futures: set = set()
         # ``max_tasks_per_child=1`` ensures a fresh process is spawned for
         # every task, safely isolating os.chdir() calls within the worker.
         executor = ProcessPoolExecutor(
