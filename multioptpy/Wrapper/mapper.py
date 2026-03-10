@@ -2991,7 +2991,7 @@ class ReactionNetworkMapper:
                             try:
                                 tag, payload = result_q.get(timeout=5.0)
                                 if tag == "err":
-                                    logger.error("...", run_dir, payload)
+                                    logger.error("AutoTS worker error for run %s: \n%s", run_dir, payload)
                                     self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
                                 else:
                                     self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
