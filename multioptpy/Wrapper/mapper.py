@@ -2438,14 +2438,61 @@ class ReactionNetworkMapper:
         # Raises ValueError immediately if mapper_settings is invalid so that
         # misconfigured jobs never reach the expensive calculation loop.
         self._validate_mapper_settings(base_config)
-
-        self.queue    = queue if queue is not None else BoltzmannQueue()
+        # ── Apply mapper_settings overrides from config ──────────────────────
+        # _validate_mapper_settings() already guarantees types and ranges,
+        # so no further checks are needed here.
+        _ms = base_config.get("mapper_settings", {})
+        
+        if "temperature_K" in _ms:
+            temperature_K = float(_ms["temperature_K"])
+        if "rmsd_threshold" in _ms:
+            rmsd_threshold = float(_ms["rmsd_threshold"])
+        if "max_iterations" in _ms:
+            max_iterations = int(_ms["max_iterations"])
+        if "afir_gamma_kJmol" in _ms:
+            afir_gamma_kJmol = float(_ms["afir_gamma_kJmol"])
+        if "max_pairs" in _ms:
+            max_pairs = int(_ms["max_pairs"])
+        if "dist_lower_ang" in _ms:
+            dist_lower_ang = float(_ms["dist_lower_ang"])
+        if "dist_upper_ang" in _ms:
+            dist_upper_ang = float(_ms["dist_upper_ang"])
+        if "n_parallel" in _ms:
+            n_parallel = int(_ms["n_parallel"])
+        if "rng_seed" in _ms:
+            rng_seed = int(_ms["rng_seed"])
+        if "active_atoms" in _ms:
+            active_atoms = _ms["active_atoms"]  # list[int] | None
+        if "excluded_node_ids" in _ms:
+            excluded_node_ids = _ms["excluded_node_ids"]
+        if "exclude_bond_rearrangement" in _ms:
+            exclude_bond_rearrangement = bool(_ms["exclude_bond_rearrangement"])
+        if "include_negative_gamma" in _ms:
+            include_negative_gamma = bool(_ms["include_negative_gamma"])
+        
+        if queue is not None:
+            self.queue = queue
+        elif _ms.get("use_rcmc", False):
+            self.queue = RCMCQueue(
+                temperature_K=float(_ms.get("rcmc_temperature_K", temperature_K)),
+                reaction_time_s=float(_ms.get("rcmc_reaction_time_s", 1.0)),
+                start_node_id=_ms.get("rcmc_start_node_id", None),
+            )
+        else:
+            self.queue = BoltzmannQueue(temperature_K=temperature_K)
         # A single StructureChecker is used for both EQ and TS comparisons.
         # The two types are kept strictly separate by the pools they search:
         #   EQ duplicates -> _find_or_register_node  searches graph.all_nodes()
         #   TS duplicates -> _process_profile         searches graph.all_edges()
-        self.checker  = structure_checker if structure_checker is not None else StructureChecker(rmsd_threshold=0.30)
-        self.perturber = perturbation_generator if perturbation_generator is not None else PerturbationGenerator()
+        self.checker = structure_checker if structure_checker is not None else StructureChecker(rmsd_threshold=rmsd_threshold)
+        self.perturber = perturbation_generator if perturbation_generator is not None else PerturbationGenerator(
+            afir_gamma_kJmol=afir_gamma_kJmol,
+            max_pairs=max_pairs,
+            dist_lower_ang=dist_lower_ang,
+            dist_upper_ang=dist_upper_ang,
+            include_negative_gamma=include_negative_gamma,
+            active_atoms=active_atoms,
+        )
         self.output_dir = os.path.abspath(output_dir)
         self.work_dir   = os.path.abspath(work_dir if work_dir is not None else output_dir)
         self.graph_json_path = os.path.join(self.output_dir, graph_json)
