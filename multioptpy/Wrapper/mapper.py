@@ -2959,6 +2959,25 @@ class ReactionNetworkMapper:
                 for pid, (proc, result_q, task, run_dir, iteration) in list(active_tasks.items()):
                     try:
                         tag, payload = result_q.get_nowait()
+
+                    except _queue_mod.Empty:
+                        if not proc.is_alive():
+                            try:
+                                tag, payload = result_q.get(timeout=5.0)
+                            except _queue_mod.Empty:
+                                proc.join()
+                                logger.error("AutoTS worker terminated unexpectedly...")
+                                tag, payload = "err", None
+                            finally:
+                                try:
+                                    result_q.cancel_join_thread()
+                                    result_q.close()
+                                except Exception:
+                                    pass
+                        else:
+                            continue  
+
+                    else:
                         proc.join(timeout=120)
                         if proc.is_alive():
                             proc.terminate()
@@ -2966,7 +2985,14 @@ class ReactionNetworkMapper:
                             if proc.is_alive():
                                 proc.kill()
                                 proc.join(timeout=10)
-                        
+                        try:
+                            result_q.cancel_join_thread()
+                            result_q.close()
+                        except Exception:
+                            pass
+
+              
+                    try:
                         if tag == "err":
                             logger.error(
                                 "_run_batch_parallel: AutoTS failed for run %s: \n%s",
@@ -2979,34 +3005,9 @@ class ReactionNetworkMapper:
                             self._process_single_result(
                                 task, run_dir, payload, "DONE", iteration, history_log
                             )
-                        try:
-                            result_q.cancel_join_thread()
-                            result_q.close()
-                        except Exception:
-                            pass
-                        del active_tasks[pid]
-                        
-                    except _queue_mod.Empty:
-                        if not proc.is_alive():
-                            try:
-                                tag, payload = result_q.get(timeout=5.0)
-                                if tag == "err":
-                                    logger.error("AutoTS worker error for run %s: \n%s", run_dir, payload)
-                                    self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                                else:
-                                    self._process_single_result(task, run_dir, payload, "DONE", iteration, history_log)
-                            except _queue_mod.Empty:
-                                proc.join()
-                                logger.error("AutoTS worker terminated unexpectedly...")
-                                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                            finally:
-                                try:
-                                    result_q.cancel_join_thread()
-                                    result_q.close()
-                                except Exception:
-                                    pass
-                            del active_tasks[pid]
-    
+                    finally:
+                        del active_tasks[pid] 
+
                 if active_tasks:
                     sleep_time = poll_interval
                     if self.worker_timeout_s is not None:
@@ -3020,18 +3021,40 @@ class ReactionNetworkMapper:
                 if proc.is_alive():
                     proc.terminate()
                     proc.join(timeout=10)
-                    if proc.is_alive():  
+                    if proc.is_alive():
                         proc.kill()
                         proc.join(timeout=10)
-                
-                self._process_single_result(task, run_dir, [], "FAILED", iteration, history_log)
-                
+
+                status = "FAILED"
+                result_profiles: list[str] = []
                 try:
-                    result_q.cancel_join_thread()
-                    result_q.close()
-                except Exception:
-                    pass
-        
+                    tag, payload = result_q.get_nowait()
+                    if tag == "ok":
+                        status = "DONE"
+                        result_profiles = payload
+                    else:
+                        logger.error(
+                            "_run_batch_parallel (finally): AutoTS failed for run %s: \n%s",
+                            run_dir, payload,
+                        )
+                except _queue_mod.Empty:
+                    pass 
+
+                try:
+                    self._process_single_result(
+                        task, run_dir, result_profiles, status, iteration, history_log
+                    )
+                except Exception as _exc:
+                    logger.error(
+                        "_run_batch_parallel (finally): _process_single_result failed "
+                        "for run %s: %s", run_dir, _exc
+                    )
+                finally:
+                    try:
+                        result_q.cancel_join_thread()
+                        result_q.close()
+                    except Exception:
+                        pass
 
         self.graph.save(self.graph_json_path)
         self._write_priority_log(priority_log)
@@ -3529,7 +3552,7 @@ class ReactionNetworkMapper:
                 # This is unambiguously a crash: a healthy worker always calls
                 # result_q.put() (either "ok" or "err") before returning.
                 try:
-                    tag, payload = result_q.get_nowait()  
+                    tag, payload = result_q.get(timeout=5.0) 
                     break
                 except _queue_mod.Empty:
                     pass
