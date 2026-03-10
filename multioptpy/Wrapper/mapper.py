@@ -3671,7 +3671,7 @@ class ReactionNetworkMapper:
                     break
                 except _queue_mod.Empty:
                     pass
-                proc.join()
+                proc.join(timeout=30)
                 try:
                     result_q.cancel_join_thread()
                     result_q.close()
@@ -4020,7 +4020,7 @@ class ReactionNetworkMapper:
         else:
             logger.warning(
                 "_process_profile: TS XYZ not found (profile_dir=%s, file=%r). "
-                "Duplicate check skipped; edge will be registered.",
+                "Duplicate check skipped; edge will not be registered.",
                 profile_dir, ts_xyz_path,
             )
 
