@@ -1200,6 +1200,9 @@ class ExploredPairsLog:
     """
 
     def __init__(self, filepath: str, flush_interval: int = 1) -> None:
+        if flush_interval < 1:
+            print("flush_interval must be > 0. setting 1.")
+            flush_interval = 1
         self._filepath = filepath
         self._flush_interval = flush_interval
         self._write_count = 0
@@ -1425,7 +1428,7 @@ class PerturbationGenerator:
             for k, sym in enumerate(sub_symbols):
                 try:
                     radii[k] = covalent_radii_lib(sym) * _BOHR2ANG
-                except KeyError:
+                except (KeyError, TypeError):
                     radii[k] = 0.75   # generic fallback [Å]
             # Vectorised threshold for every upper-triangle pair.
             cov_thresh = self.covalent_margin * (radii[ii] + radii[jj])  # (P,)
@@ -2211,6 +2214,7 @@ class ReactionNetworkMapper:
             "rcmc_start_node_id",
             "n_parallel",
             "worker_timeout_s", 
+            "energy_tolerance_kcalmol",
     })
 
     @classmethod
@@ -2454,7 +2458,7 @@ class ReactionNetworkMapper:
         excluded_node_ids      = _ms.get("excluded_node_ids",      excluded_node_ids)
         exclude_bond_rearrangement = bool(_ms.get("exclude_bond_rearrangement", exclude_bond_rearrangement))
         include_negative_gamma = bool(_ms.get("include_negative_gamma", False))
-        
+        energy_tolerance_kcalmol = float(_ms.get("energy_tolerance_kcalmol", energy_tolerance_kcalmol))
         if queue is not None:
             self.queue = queue
         elif _ms.get("use_rcmc", False):
@@ -2477,6 +2481,7 @@ class ReactionNetworkMapper:
             dist_upper_ang=dist_upper_ang,
             include_negative_gamma=include_negative_gamma,
             active_atoms=active_atoms,
+            rng_seed=rng_seed,
         )
         self.output_dir = os.path.abspath(output_dir)
         self.work_dir   = os.path.abspath(work_dir if work_dir is not None else output_dir)
