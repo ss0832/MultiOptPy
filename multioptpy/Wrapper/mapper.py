@@ -27,6 +27,7 @@ from collections import Counter
 from concurrent.futures import (
     ProcessPoolExecutor,
     as_completed,
+    BrokenProcessPool,
     TimeoutError as FuturesTimeoutError,
 )
 from dataclasses import dataclass, field
@@ -595,7 +596,7 @@ class StructureChecker:
         U, S, Vt = np.linalg.svd(pb.T @ pa)
         d = np.linalg.det(U) * np.linalg.det(Vt)
 
-        if d < 0:
+        if d < -0.1:
             return float("inf")
 
         E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
@@ -2310,22 +2311,25 @@ class ReactionNetworkMapper:
         Executor lifetime
         -----------------
         A single ProcessPoolExecutor(max_workers=1, max_tasks_per_child=1) is
-        created here before the loop and torn down in the finally clause.
-        Previously _run_autots created and destroyed an executor on every
-        iteration, incurring one full spawn/join cycle per AutoTS call.
-        Hoisting the executor out of the loop removes that overhead while
-        preserving the CWD isolation guarantee: max_tasks_per_child=1 ensures
-        that each task still runs in a freshly spawned child process, so
-        os.chdir() inside _autots_worker cannot bleed across iterations.
+        created before the loop and torn down in the finally clause.
+        If the worker process is force-killed by a timeout, the executor enters
+        a broken state.  The broken executor is detected via BrokenProcessPool,
+        shut down, and replaced with a fresh one so that subsequent iterations
+        can continue normally.  max_tasks_per_child=1 ensures that each task
+        still runs in a freshly spawned child process, so os.chdir() inside
+        _autots_worker cannot bleed across iterations.
         """
-        # ADDED: create the executor once for the entire sequential run.
-        # max_tasks_per_child=1 keeps per-task process isolation (os.chdir safety).
-        executor = ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=self._mp_ctx,
-            max_tasks_per_child=1,
-        )
-        try:  # ADDED: wrapping try/finally to guarantee executor.shutdown()
+        from concurrent.futures import BrokenProcessPool
+    
+        def _make_executor() -> ProcessPoolExecutor:
+            return ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=self._mp_ctx,
+                max_tasks_per_child=1,
+            )
+    
+        executor = _make_executor()
+        try:
             while True:
                 # ── stop.txt sentinel file ────────────────────────────────────
                 if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
@@ -2369,11 +2373,25 @@ class ReactionNetworkMapper:
                 # ── Task execution ────────────────────────────────────────────
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
-                self._append_history(history_log, self._iteration, task)
     
                 run_dir = self._make_run_dir(task)
                 try:
-                    profile_dirs = self._run_autots(task, run_dir, executor)  # CHANGED: pass executor
+                    profile_dirs = self._run_autots(task, run_dir, executor)
+                except BrokenProcessPool:
+                    # The executor was broken by a prior force-kill (worker timeout).
+                    # Shut it down and spin up a fresh one so subsequent iterations
+                    # are not permanently blocked.
+                    logger.warning(
+                        "_run_sequential: executor broken after force-kill — "
+                        "recreating ProcessPoolExecutor and marking iteration %06d as FAILED.",
+                        self._iteration,
+                    )
+                    executor.shutdown(wait=False)
+                    executor = _make_executor()
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    self._append_history(history_log, self._iteration, task, "FAILED")
+                    self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
+                    continue
                 except Exception as exc:
                     logger.error("AutoTS failed for run %s: %s", run_dir, exc)
                     # Do not call explored_log.record() on failure.
@@ -2381,6 +2399,7 @@ class ReactionNetworkMapper:
                     # current run. Omitting record() allows transient failures
                     # (OOM, segfault, etc.) to be retried on resume.
                     self.queue.release((task.node_id, tuple(task.afir_params)))
+                    self._append_history(history_log, self._iteration, task, "FAILED")
                     self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
                     continue
     
@@ -2402,14 +2421,10 @@ class ReactionNetworkMapper:
                 if hasattr(self.queue, "set_graph"):
                     self.queue.set_graph(self.graph)
     
+                self._append_history(history_log, self._iteration, task, "DONE")
                 self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
     
         finally:
-            # ADDED: shut down the shared executor once the loop exits for any reason
-            # (exhausted, max_iterations, stop.txt, or unhandled exception).
-            # wait=True performs a clean join on any still-running worker, which is
-            # always safe here because the loop only reaches finally after the
-            # current task has either completed or been force-killed in _run_autots.
             executor.shutdown(wait=True)
         
     def _append_history(
@@ -2570,7 +2585,21 @@ class ReactionNetworkMapper:
                 except Exception as exc:
                     logger.warning("Could not write config_used.json: %s", exc)
 
-                future = executor.submit(_autots_worker, config, run_dir, workspace)
+                try:
+                    future = executor.submit(_autots_worker, config, run_dir, workspace)
+                except BrokenProcessPool as exc:
+                    # The pool died between the last result and this submit.
+                    # Release the task so it can be retried on resume, then
+                    # stop submitting — remaining in-flight futures will drain
+                    # naturally through _handle_done's except-Exception branch.
+                    logger.error(
+                        "_try_submit: process pool is broken (%s) — "
+                        "releasing task (EQ%06d %s) and halting submission.",
+                        exc, task.node_id, task.afir_params,
+                    )
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    exhausted = True
+                    return False
                 futures_map[future] = (
                     task, run_dir, self._iteration, gamma_sign, atom_i, atom_j
                 )
@@ -2674,7 +2703,18 @@ class ReactionNetworkMapper:
                     _handle_done(future)
                     # Immediately submit a replacement task if one is available
                     if not exhausted and not _should_stop():
-                        _try_submit()
+                        try:
+                            _try_submit()
+                        except BrokenProcessPool as exc:
+                            # Defensive catch: _try_submit normally handles this
+                            # internally, but guard here too so the drain loop
+                            # can finish processing remaining futures safely.
+                            logger.error(
+                                "_run_parallel_rolling: BrokenProcessPool "
+                                "escaped _try_submit (%s) — halting submission.",
+                                exc,
+                            )
+                            exhausted = True
 
         finally:
             executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
