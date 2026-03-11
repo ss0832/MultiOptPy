@@ -272,7 +272,11 @@ class AutoTSWorkflow:
             if irc_instance is None:
                 print(f"  Warning: IRC job for {ts_path} failed.")
                 continue
-                
+            
+            if not getattr(irc_instance, 'optimized_flag', False):
+                print(f"     Warning: Optimization prior to IRC for {ts_path} did not converge. Skipping IRC analysis.")
+                continue
+            
             # Get TS energy (as per Q2, this is set before IRC runs)
             ts_e = irc_instance.final_energy
             ts_bias_e = irc_instance.final_bias_energy

@@ -502,7 +502,7 @@ class StructureChecker:
         k = np.arange(n)
         alphas = 2.0 * np.pi * k / n
         betas  = np.arccos(np.clip(1.0 - 2.0 * (k + 0.5) / n, -1.0, 1.0))
-        gammas = 2.0 * np.pi * k / n
+        gammas = 2.0 * np.pi * (k + 0.5) / n
 
         ca, sa = np.cos(alphas), np.sin(alphas)
         cb, sb = np.cos(betas),  np.sin(betas)
@@ -2301,14 +2301,10 @@ class ReactionNetworkMapper:
                                  if self.max_iterations > 0 else self.n_parallel)
                     if remaining <= 0:
                         break
-                    batch = self._collect_task_batch(min(self.n_parallel, remaining))
-                    if not batch:
+                    exhausted = self._run_parallel_rolling(history_log, priority_log)
+                    if exhausted:
                         logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
-                        break
-                    self._iteration += len(batch)
-                    self.graph.last_iteration = self._iteration
-                    self._run_batch_parallel(batch, history_log, priority_log)
-                    continue
+                    break
 
                 # ── Sequential path (n_parallel == 1) ────────────────────
                 # Re-weight the queue correctly after a new lowest-energy
@@ -2414,6 +2410,248 @@ class ReactionNetworkMapper:
         self._save_run_metadata(run_dir, task, status, profile_dirs, iteration)
         self.graph.save(self.graph_json_path)
         self._write_priority_log(priority_log)
+
+
+    # ------------------------------------------------------------------ #
+    #  Rolling-window parallel execution                                 #
+    # ------------------------------------------------------------------ #
+
+    def _run_parallel_rolling(
+        self,
+        history_log: str,
+        priority_log: str,
+    ) -> bool:
+        """Rolling-window parallel execution.
+
+        Maintains up to ``n_parallel`` workers simultaneously.  The moment
+        any worker finishes, its result is processed *immediately* (so newly
+        discovered EQ nodes are added to the queue right away), and a fresh
+        task is submitted to keep the pool full.
+
+        This replaces the old ``_collect_task_batch`` + ``_run_batch_parallel``
+        pattern, which caused a "big bang / big wait" rhythm where no new
+        tasks could start until every worker in the current batch had finished.
+
+        Timeout semantics
+        -----------------
+        ``worker_timeout_s`` is applied **per worker** (via
+        ``wait(timeout=worker_timeout_s, return_when=FIRST_COMPLETED)``).
+        If a single ``wait`` call returns an empty ``done`` set, every
+        still-running worker is force-killed and the whole pool is drained as
+        TIMEOUT, then the loop exits.  This is consistent with the sequential
+        path's per-worker timeout in ``_run_autots``.
+
+        Returns
+        -------
+        bool
+            ``True``  → queue exhausted (all pairs have been explored).
+            ``False`` → stopped because ``max_iterations`` was reached or
+                        a ``stop.txt`` sentinel was detected.
+        """
+        from concurrent.futures import wait as _fut_wait, FIRST_COMPLETED
+
+        executor   = ProcessPoolExecutor(
+            max_workers=self.n_parallel,
+            mp_context=self._mp_ctx,
+            max_tasks_per_child=1,
+        )
+        # future → (task, run_dir, iteration, gamma_sign, atom_i, atom_j)
+        futures_map: dict = {}
+        timed_out          = False
+        exhausted          = False
+        _MAX_SKIP_EXPLORED = 256   # guard against infinite skip loop
+
+        # ── Inner helpers ──────────────────────────────────────────────────
+
+        _stop_logged = False
+
+        def _should_stop() -> bool:
+            """True when the outer loop should not submit more tasks."""
+            nonlocal _stop_logged
+            if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
+                if not _stop_logged:
+                    logger.info(
+                        "stop.txt detected — %d in-flight worker(s) will run to "
+                        "completion; no further tasks will be submitted.",
+                        len(futures_map),
+                    )
+                    _stop_logged = True
+                return True
+            if self.max_iterations > 0 and self._iteration >= self.max_iterations:
+                return True
+            return False
+
+        def _try_submit() -> bool:
+            """Pop one task and submit it to the executor.
+
+            Returns True when a future was successfully submitted,
+            False when the queue is exhausted or the stop condition is met.
+            """
+            nonlocal exhausted
+
+            if _should_stop():
+                return False
+
+            self.queue.refresh_priorities(self.graph.reference_energy())
+
+            # Skip already-explored tasks (iterative, not recursive)
+            for _ in range(_MAX_SKIP_EXPLORED):
+                task = self.queue.pop()
+
+                if task is None:
+                    # Queue empty — try to refill once
+                    size_before = len(self.queue)
+                    for node in self.graph.all_nodes():
+                        self._enqueue_perturbations(node, force_add=True)
+                    if len(self.queue) == size_before:
+                        exhausted = True
+                        return False  # truly nothing left
+                    self.queue.refresh_priorities(self.graph.reference_energy())
+                    task = self.queue.pop()
+                    if task is None:
+                        exhausted = True
+                        return False
+
+                gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+                if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                    logger.debug(
+                        "_run_parallel_rolling: skipping already-explored task "
+                        "(EQ%06d, %d-%d, %s).",
+                        task.node_id, atom_i, atom_j, gamma_sign,
+                    )
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    continue  # try next task
+
+                # Valid task — submit it
+                self._iteration += 1
+                self.graph.last_iteration = self._iteration
+
+                run_dir   = self._make_run_dir(task, iteration=self._iteration)
+                workspace = os.path.join(run_dir, "autots_workspace")
+                config    = self._make_autots_config(task, workspace)
+                try:
+                    with open(
+                        os.path.join(run_dir, "config_used.json"), "w", encoding="utf-8"
+                    ) as fh:
+                        json.dump(config, fh, indent=2, default=str)
+                except Exception as exc:
+                    logger.warning("Could not write config_used.json: %s", exc)
+
+                future = executor.submit(_autots_worker, config, run_dir, workspace)
+                futures_map[future] = (
+                    task, run_dir, self._iteration, gamma_sign, atom_i, atom_j
+                )
+                return True
+
+            # Exhausted skip budget — treat as queue empty
+            logger.warning(
+                "_run_parallel_rolling: exceeded %d consecutive already-explored "
+                "skips — treating queue as exhausted.",
+                _MAX_SKIP_EXPLORED,
+            )
+            exhausted = True
+            return False
+
+        def _handle_done(future) -> None:
+            """Process a completed future and update the graph."""
+            task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                futures_map.pop(future)
+            )
+            try:
+                profile_dirs = future.result()
+                self._process_single_result(
+                    task, run_dir, profile_dirs, "DONE", iteration,
+                    history_log, gamma_sign, atom_i, atom_j,
+                )
+            except Exception as exc:
+                logger.error(
+                    "_run_parallel_rolling: worker failed for %s: %s", run_dir, exc
+                )
+                self._process_single_result(
+                    task, run_dir, [], "FAILED", iteration,
+                    history_log, gamma_sign, atom_i, atom_j,
+                )
+
+        # ── Execution ──────────────────────────────────────────────────────
+        try:
+            # Initial fill: submit up to n_parallel tasks
+            for _ in range(self.n_parallel):
+                if not _try_submit():
+                    break
+
+            # Rolling loop
+            while futures_map:
+                # ── stop.txt check (between completions) ─────────────────
+                # New task submission is suppressed (_should_stop() returns
+                # True), but already-running workers are allowed to finish
+                # and their results are processed normally so no work is lost.
+                # The loop exits naturally once futures_map is drained.
+
+                # ── Wait for the next completed future ────────────────────
+                if self.worker_timeout_s is not None:
+                    done, _ = _fut_wait(
+                        list(futures_map),
+                        timeout=self.worker_timeout_s,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    if not done:
+                        # Per-worker timeout: at least one worker is stuck
+                        timed_out = True
+                        logger.error(
+                            "_run_parallel_rolling: per-worker timeout (%ds) exceeded "
+                            "— force-killing all %d remaining workers.",
+                            self.worker_timeout_s, len(futures_map),
+                        )
+                        worker_procs = getattr(executor, "_processes", {})
+                        for pid, proc in list(worker_procs.items()):
+                            if proc.is_alive():
+                                logger.warning(
+                                    "_run_parallel_rolling: force-killing pid=%d", pid
+                                )
+                                proc.kill()
+                        # Drain all remaining futures as TIMEOUT
+                        for future in list(futures_map):
+                            task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                                futures_map.pop(future)
+                            )
+                            logger.error(
+                                "_run_parallel_rolling: TIMEOUT for %s", run_dir
+                            )
+                            try:
+                                self._process_single_result(
+                                    task, run_dir, [], "TIMEOUT", iteration,
+                                    history_log, gamma_sign, atom_i, atom_j,
+                                )
+                            except Exception as exc:
+                                logger.error(
+                                    "_process_single_result after TIMEOUT (%s): %s",
+                                    run_dir, exc,
+                                )
+                                self.queue.release(
+                                    (task.node_id, tuple(task.afir_params))
+                                )
+                        break
+                else:
+                    done, _ = _fut_wait(
+                        list(futures_map), return_when=FIRST_COMPLETED
+                    )
+
+                # ── Process each completed future, then refill ─────────────
+                for future in done:
+                    _handle_done(future)
+                    # Immediately submit a replacement task if one is available
+                    if not exhausted and not _should_stop():
+                        _try_submit()
+
+        finally:
+            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
+            try:
+                self.graph.save(self.graph_json_path)
+                self._write_priority_log(priority_log)
+            except Exception as exc:
+                logger.error("_run_parallel_rolling: cleanup save/log failed: %s", exc)
+
+        return exhausted
 
     # ------------------------------------------------------------------ #
     #  Batch collection and parallel execution                             #
