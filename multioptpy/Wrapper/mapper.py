@@ -27,9 +27,15 @@ from collections import Counter
 from concurrent.futures import (
     ProcessPoolExecutor,
     as_completed,
-    BrokenProcessPool,
     TimeoutError as FuturesTimeoutError,
 )
+try:
+    from concurrent.futures import BrokenProcessPool
+except ImportError:
+    try:
+        from concurrent.futures.process import BrokenProcessPool  # type: ignore[no-redef]
+    except ImportError:
+        BrokenProcessPool = RuntimeError  # type: ignore[misc,assignment]
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -2469,16 +2475,18 @@ class ReactionNetworkMapper:
         history_log: str,
         priority_log: str,
     ) -> bool:
-        """Rolling-window parallel execution.
+        """Rolling-window parallel execution with automatic pool reconstruction.
 
         Maintains up to ``n_parallel`` workers simultaneously.  The moment
         any worker finishes, its result is processed *immediately* (so newly
         discovered EQ nodes are added to the queue right away), and a fresh
         task is submitted to keep the pool full.
 
-        This replaces the old ``_collect_task_batch`` + ``_run_batch_parallel``
-        pattern, which caused a "big bang / big wait" rhythm where no new
-        tasks could start until every worker in the current batch had finished.
+        If the process pool is broken by an external signal (OOM killer, etc.),
+        the pool is transparently rebuilt and exploration continues up to
+        ``max_iterations``.  At most ``_MAX_POOL_REBUILDS`` consecutive
+        reconstructions are attempted; if this limit is reached the method
+        exits gracefully with the results collected so far.
 
         Timeout semantics
         -----------------
@@ -2497,22 +2505,25 @@ class ReactionNetworkMapper:
                         a ``stop.txt`` sentinel was detected.
         """
         from concurrent.futures import wait as _fut_wait, FIRST_COMPLETED
-        try:
-            from concurrent.futures.process import BrokenProcessPool as _BrokenProcessPool
-        except ImportError:
-            # Fallback: catch all submit-time errors as pool-broken
-            _BrokenProcessPool = RuntimeError  # type: ignore[misc,assignment]
 
-        executor   = ProcessPoolExecutor(
-            max_workers=self.n_parallel,
-            mp_context=self._mp_ctx,
-            max_tasks_per_child=1,
-        )
+        _MAX_SKIP_EXPLORED = 256   # guard against infinite skip loop
+        _MAX_POOL_REBUILDS = 10    # safety ceiling on pool reconstruction attempts
+
+        # ── Pool factory ───────────────────────────────────────────────────
+        def _new_executor() -> ProcessPoolExecutor:
+            return ProcessPoolExecutor(
+                max_workers=self.n_parallel,
+                mp_context=self._mp_ctx,
+                max_tasks_per_child=1,
+            )
+
+        executor: ProcessPoolExecutor = _new_executor()
         # future → (task, run_dir, iteration, gamma_sign, atom_i, atom_j)
-        futures_map: dict = {}
+        futures_map: dict  = {}
         timed_out          = False
         exhausted          = False
-        _MAX_SKIP_EXPLORED = 256   # guard against infinite skip loop
+        pool_broken        = False   # set when BrokenProcessPool is detected
+        pool_rebuild_count = 0
 
         # ── Inner helpers ──────────────────────────────────────────────────
 
@@ -2537,10 +2548,13 @@ class ReactionNetworkMapper:
         def _try_submit() -> bool:
             """Pop one task and submit it to the executor.
 
-            Returns True when a future was successfully submitted,
-            False when the queue is exhausted or the stop condition is met.
+            Returns True when a future was successfully submitted.
+            Returns False and sets ``pool_broken=True`` if the process pool
+            has died; the caller is responsible for triggering a rebuild.
+            Also returns False if the queue is exhausted or a stop condition
+            is met.
             """
-            nonlocal exhausted
+            nonlocal exhausted, pool_broken
 
             if _should_stop():
                 return False
@@ -2592,18 +2606,14 @@ class ReactionNetworkMapper:
 
                 try:
                     future = executor.submit(_autots_worker, config, run_dir, workspace)
-                except _BrokenProcessPool as exc:
-                    # The pool died between the last result and this submit.
-                    # Release the task so it can be retried on resume, then
-                    # stop submitting — remaining in-flight futures will drain
-                    # naturally through _handle_done's except-Exception branch.
+                except BrokenProcessPool as exc:
                     logger.error(
                         "_try_submit: process pool is broken (%s) — "
-                        "releasing task (EQ%06d %s) and halting submission.",
+                        "releasing task (EQ%06d %s); pool will be rebuilt.",
                         exc, task.node_id, task.afir_params,
                     )
                     self.queue.release((task.node_id, tuple(task.afir_params)))
-                    exhausted = True
+                    pool_broken = True
                     return False
                 futures_map[future] = (
                     task, run_dir, self._iteration, gamma_sign, atom_i, atom_j
@@ -2620,7 +2630,12 @@ class ReactionNetworkMapper:
             return False
 
         def _handle_done(future) -> None:
-            """Process a completed future and update the graph."""
+            """Process a completed future and update the graph.
+
+            Distinguishes BrokenProcessPool (sets pool_broken flag so the
+            main loop can trigger a rebuild) from ordinary worker failures.
+            """
+            nonlocal pool_broken
             task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
                 futures_map.pop(future)
             )
@@ -2628,6 +2643,17 @@ class ReactionNetworkMapper:
                 profile_dirs = future.result()
                 self._process_single_result(
                     task, run_dir, profile_dirs, "DONE", iteration,
+                    history_log, gamma_sign, atom_i, atom_j,
+                )
+            except BrokenProcessPool as exc:
+                logger.error(
+                    "_run_parallel_rolling: BrokenProcessPool for %s: %s "
+                    "— marking FAILED, pool will be rebuilt.",
+                    run_dir, exc,
+                )
+                pool_broken = True
+                self._process_single_result(
+                    task, run_dir, [], "FAILED", iteration,
                     history_log, gamma_sign, atom_i, atom_j,
                 )
             except Exception as exc:
@@ -2639,6 +2665,54 @@ class ReactionNetworkMapper:
                     history_log, gamma_sign, atom_i, atom_j,
                 )
 
+        def _drain_broken_futures() -> None:
+            """Mark all in-flight futures as FAILED without calling future.result().
+
+            Called when the pool is already known to be broken, so we skip
+            the (would-raise) result() call and process everything as FAILED
+            immediately, freeing futures_map for the rebuilt pool.
+            """
+            for f in list(futures_map):
+                task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                    futures_map.pop(f)
+                )
+                logger.error(
+                    "_drain_broken_futures: marking in-flight run as FAILED: %s",
+                    run_dir,
+                )
+                try:
+                    self._process_single_result(
+                        task, run_dir, [], "FAILED", iteration,
+                        history_log, gamma_sign, atom_i, atom_j,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "_drain_broken_futures: _process_single_result error "
+                        "for %s: %s — releasing queue key manually.",
+                        run_dir, exc,
+                    )
+                    self.queue.release(
+                        (task.node_id, tuple(task.afir_params))
+                    )
+
+        def _rebuild_pool() -> None:
+            """Shut down the broken executor and start a fresh one."""
+            nonlocal executor, pool_broken, pool_rebuild_count
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception as exc:
+                logger.debug(
+                    "_rebuild_pool: executor.shutdown raised %s (ignored).", exc
+                )
+            pool_rebuild_count += 1
+            executor    = _new_executor()
+            pool_broken = False
+            logger.warning(
+                "_run_parallel_rolling: process pool rebuilt "
+                "(rebuild #%d / max %d).",
+                pool_rebuild_count, _MAX_POOL_REBUILDS,
+            )
+
         # ── Execution ──────────────────────────────────────────────────────
         try:
             # Initial fill: submit up to n_parallel tasks
@@ -2646,13 +2720,34 @@ class ReactionNetworkMapper:
                 if not _try_submit():
                     break
 
-            # Rolling loop
-            while futures_map:
-                # ── stop.txt check (between completions) ─────────────────
-                # New task submission is suppressed (_should_stop() returns
-                # True), but already-running workers are allowed to finish
-                # and their results are processed normally so no work is lost.
-                # The loop exits naturally once futures_map is drained.
+            # Rolling loop — continues while work is in flight OR a pool
+            # rebuild is pending (futures_map will be empty right after a
+            # drain but we still need to refill the fresh pool).
+            while futures_map or (
+                pool_broken
+                and not _should_stop()
+                and not exhausted
+                and pool_rebuild_count < _MAX_POOL_REBUILDS
+            ):
+
+                # ── Pool-rebuild branch ────────────────────────────────────
+                if pool_broken:
+                    if pool_rebuild_count >= _MAX_POOL_REBUILDS:
+                        logger.error(
+                            "_run_parallel_rolling: maximum pool rebuilds (%d) "
+                            "reached — stopping exploration.",
+                            _MAX_POOL_REBUILDS,
+                        )
+                        break
+                    _drain_broken_futures()   # empties futures_map
+                    _rebuild_pool()            # replaces executor, clears pool_broken
+                    # Refill the fresh pool up to n_parallel slots
+                    for _ in range(self.n_parallel):
+                        if _should_stop() or exhausted or pool_broken:
+                            break
+                        if not _try_submit():
+                            break
+                    continue
 
                 # ── Wait for the next completed future ────────────────────
                 if self.worker_timeout_s is not None:
@@ -2706,20 +2801,9 @@ class ReactionNetworkMapper:
                 # ── Process each completed future, then refill ─────────────
                 for future in done:
                     _handle_done(future)
-                    # Immediately submit a replacement task if one is available
-                    if not exhausted and not _should_stop():
-                        try:
-                            _try_submit()
-                        except _BrokenProcessPool as exc:
-                            # Defensive catch: _try_submit normally handles this
-                            # internally, but guard here too so the drain loop
-                            # can finish processing remaining futures safely.
-                            logger.error(
-                                "_run_parallel_rolling: BrokenProcessPool "
-                                "escaped _try_submit (%s) — halting submission.",
-                                exc,
-                            )
-                            exhausted = True
+                    # Submit a replacement only when the pool is healthy
+                    if not exhausted and not pool_broken and not _should_stop():
+                        _try_submit()
 
         finally:
             executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
