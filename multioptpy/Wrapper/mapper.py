@@ -606,7 +606,12 @@ class StructureChecker:
             return float("inf")
 
         E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
-        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + d * S[2])) / len(pa)
+        # After the d < 0 guard we know d > 0 (proper rotation), so the
+        # sign correction is +1 and all three singular values contribute.
+        # Using `d * S[2]` (where d is a float ≈ 1.0 ± 1e-15) is technically
+        # incorrect and introduces unnecessary floating-point bias; np.sum(S)
+        # is exact.
+        rmsd_sq = max(0.0, E0 - 2.0 * np.sum(S)) / len(pa)
         return float(np.sqrt(rmsd_sq))
 
 
@@ -2414,12 +2419,6 @@ class ReactionNetworkMapper:
                     self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
                     continue
     
-                # Persist the exploration record only after confirming success
-                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-                # Call release() after record() so that is_submitted() returns
-                # True throughout the entire [pop() → record() → release()] window
-                self.queue.release((task.node_id, tuple(task.afir_params)))
-    
                 logger.info(
                     "Iter %06d: _run_autots returned %d profile director%s.",
                     self._iteration, len(profile_dirs),
@@ -2427,6 +2426,17 @@ class ReactionNetworkMapper:
                 )
                 for pdir in profile_dirs:
                     self._process_profile(pdir, run_dir)
+    
+                # Persist the exploration record only after confirming success
+                # (profile processing complete).  Placing record() before
+                # _process_profile() — the previous order — would mark the task
+                # as explored even when _process_profile raises (e.g. disk full
+                # in _persist_node_xyz), making it non-retryable on resume.
+                # Must mirror the parallel path in _process_single_result.
+                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+                # Call release() after record() so that is_submitted() returns
+                # True throughout the entire [pop() → record() → release()] window
+                self.queue.release((task.node_id, tuple(task.afir_params)))
     
                 # Notify queue of updated graph (required by RCMCQueue)
                 if hasattr(self.queue, "set_graph"):
@@ -2533,10 +2543,11 @@ class ReactionNetworkMapper:
         # ── Inner helpers ──────────────────────────────────────────────────
 
         _stop_logged = False
+        _max_iter_logged = False
 
         def _should_stop() -> bool:
             """True when the outer loop should not submit more tasks."""
-            nonlocal _stop_logged
+            nonlocal _stop_logged, _max_iter_logged
             if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
                 if not _stop_logged:
                     logger.info(
@@ -2547,6 +2558,11 @@ class ReactionNetworkMapper:
                     _stop_logged = True
                 return True
             if self.max_iterations > 0 and self._iteration >= self.max_iterations:
+                if not _max_iter_logged:
+                    logger.info(
+                        "Reached max_iterations (%d). Stopping.", self.max_iterations
+                    )
+                    _max_iter_logged = True
                 return True
             return False
 
