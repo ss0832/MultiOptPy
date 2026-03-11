@@ -26,7 +26,6 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from concurrent.futures import (
     ProcessPoolExecutor,
-    as_completed,
     TimeoutError as FuturesTimeoutError,
 )
 try:
@@ -131,7 +130,6 @@ def _autots_worker(config: dict, run_dir: str, workspace: str) -> list[str]:
     return sorted(_glob.glob(pattern, recursive=True))
 
 
-
 logger = logging.getLogger(__name__)
 
 # Module-level physical constants
@@ -151,14 +149,6 @@ _XYZ_PATTERN: re.Pattern = re.compile(
     r"([+-]?(?:\d*\.\d+|\d+\.?)(?:[eE][+-]?\d+)?)\s*"
 )
 
-
-def get_pattern_xyz() -> re.Pattern:
-    """Return the compiled XYZ atom-line regex.
-
-    Kept for backwards compatibility. Callers are encouraged to reference
-    ``_XYZ_PATTERN`` directly. No recompilation occurs on each call.
-    """
-    return _XYZ_PATTERN
 
 
 def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
@@ -218,9 +208,6 @@ def parse_xyz(filepath: str) -> tuple[list[str], np.ndarray]:
         return symbols, np.array(coords_raw)
 
 
-def distance_matrix(coords: np.ndarray) -> np.ndarray:
-    # Using cdist avoids the intermediate (N,N,3) array from manual broadcasting.
-    return cdist(coords, coords)
 
 
 # ===========================================================================
@@ -694,7 +681,7 @@ class BondTopologyChecker:
         the Hungarian algorithm considers only chemically valid permutations.
         """
         n = len(symbols)
-        bonded_si, bonded_sj, ii_idx, jj_idx = self._bonded_pairs(
+        _, _, ii_idx, jj_idx = self._bonded_pairs(
             symbols, coords, return_indices=True
         )
 
@@ -799,9 +786,9 @@ class ExplorationQueue(ABC):
         self._tasks: dict[int, ExplorationTask] = {}
 
         # _task_counter: monotonically increasing integer incremented on push().
-        # Using a stable counter instead of id(task) prevents a bug where a
-        # GC'd task's memory address is reused by a new object, causing
-        # _tasks.pop() to silently delete a live entry.
+        # A stable counter prevents a GC'd task's memory address from being
+        # reused by a new object, which would cause _tasks.pop() to silently
+        # delete a live entry.
         self._task_counter: int = 0
 
         # _heap: min-heap for O(log N) extraction.
@@ -953,7 +940,7 @@ class ExplorationQueue(ABC):
         """Record the new reference energy.
 
         Actual delta_E recomputation and priority updates are performed lazily
-        inside pop() (O(1)). The former O(N) full-heap rebuild is removed.
+        inside pop() (O(1)).
 
         Correctness note: BoltzmannQueue.compute_priority() is monotonically
         decreasing in delta_E, so the heap order established at push() time
@@ -1114,14 +1101,6 @@ class ExploredPairsLog:
         """
         return node_id in self._explored_node_ids
 
-    def contains(self, key: tuple[int, int, int, str]) -> bool:
-        """Return ``True`` if the exact (node_id, atom_i, atom_j, gamma_sign) tuple exists.
-
-        Convenience wrapper for callers that have already constructed the key
-        for other purposes.
-        """
-        return key in self._explored
-
     def record(self, node_id: int, atom_i: int, atom_j: int, gamma_sign: str) -> None:
         """Mark the combination as explored and append it to the text file."""
         key = (node_id, atom_i, atom_j, gamma_sign)
@@ -1161,7 +1140,6 @@ class PerturbationGenerator:
         max_pairs: int = 5,
         dist_lower_ang: float = 1.5,
         dist_upper_ang: float = 5.0,
-        rng_seed: int = 0,
         covalent_margin: float = 1.2,
         active_atoms: list[int] | None = None,
         include_negative_gamma: bool = False,
@@ -1176,8 +1154,6 @@ class PerturbationGenerator:
             Maximum number of atom pairs sampled per call.
         dist_lower_ang / dist_upper_ang : float
             Distance window [Å] for candidate pair selection.
-        rng_seed : int
-            NumPy RNG seed for reproducibility.
         covalent_margin : float
             Pairs closer than ``covalent_margin * (r_i + r_j)`` are skipped
             (already covalently bonded).
@@ -1196,7 +1172,6 @@ class PerturbationGenerator:
         self.covalent_margin        = covalent_margin
         self.active_atoms           = set(active_atoms) if active_atoms is not None else None
         self.include_negative_gamma = include_negative_gamma
-        self._rng = np.random.default_rng(rng_seed)
 
     def _build_candidates(
         self,
@@ -1259,9 +1234,8 @@ class PerturbationGenerator:
     ) -> list[tuple[int, int]]:
         """Return all valid non-covalent atom pairs without sampling.
 
-        Unlike :meth:`generate_afir_perturbations`, this method returns the
-        full candidate pool so that callers can implement their own sampling
-        strategy.
+        Returns the full candidate pool so that callers can implement their own
+        sampling strategy.
 
         Returns
         -------
@@ -1269,38 +1243,6 @@ class PerturbationGenerator:
             0-based ``(i, j)`` pairs with i < j.
         """
         return self._build_candidates(symbols, coords)
-
-    def generate_afir_perturbations(
-        self,
-        symbols: list[str],
-        coords: np.ndarray,
-    ) -> list[list[str]]:
-        """Return AFIR parameter lists for AutoTSWorkflow step1.
-
-        Each entry has the form ``[gamma_str, atom_i_1based, atom_j_1based]``.
-        When ``include_negative_gamma`` is ``True``, each selected pair is
-        duplicated with a negative gamma value to explore both attractive and
-        repulsive directions. Maximum total entries: ``2 * max_pairs``.
-        """
-        candidates = self._build_candidates(symbols, coords)
-        if not candidates:
-            return []
-
-        n_sel  = min(self.max_pairs, len(candidates))
-        chosen = self._rng.choice(len(candidates), size=n_sel, replace=False)
-
-        pos_gamma_str = f"{self.afir_gamma_kJmol:.6g}"
-        neg_gamma_str = f"{-self.afir_gamma_kJmol:.6g}"
-
-        result: list[list[str]] = []
-        for idx in chosen:
-            i, j = candidates[int(idx)]
-            i1, j1 = str(i + 1), str(j + 1)
-            result.append([pos_gamma_str, i1, j1])
-            if self.include_negative_gamma:
-                result.append([neg_gamma_str, i1, j1])
-
-        return result
 
 
 # ===========================================================================
@@ -2160,9 +2102,10 @@ class ReactionNetworkMapper:
                 temperature_K=float(ms.get("rcmc_temperature_K", temperature_K)),
                 reaction_time_s=float(ms.get("rcmc_reaction_time_s", 1.0)),
                 start_node_id=ms.get("rcmc_start_node_id", None),
+                rng_seed=rng_seed,
             )
         else:
-            self.queue = BoltzmannQueue(temperature_K=temperature_K)
+            self.queue = BoltzmannQueue(temperature_K=temperature_K,  rng_seed=rng_seed)
 
         # The same checker instance is used for both EQ and TS comparisons.
         # EQ: _find_or_register_node searches graph.all_nodes()
@@ -2175,7 +2118,6 @@ class ReactionNetworkMapper:
             dist_upper_ang=dist_upper_ang,
             include_negative_gamma=include_negative_gamma,
             active_atoms=active_atoms,
-            rng_seed=rng_seed,
         )
 
         self.output_dir      = os.path.abspath(output_dir)
@@ -2400,7 +2342,17 @@ class ReactionNetworkMapper:
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
     
-                run_dir = self._make_run_dir(task)
+                try:
+                    run_dir = self._make_run_dir(task)
+                except Exception as exc:
+                    logger.error(
+                        "_run_sequential: failed to create run directory for "
+                        "iteration %06d: %s — releasing task.",
+                        self._iteration, exc,
+                    )
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    continue
+
                 try:
                     profile_dirs = self._run_autots(task, run_dir, executor)
                 except BrokenProcessPool:
@@ -2412,7 +2364,7 @@ class ReactionNetworkMapper:
                         "recreating ProcessPoolExecutor and marking iteration %06d as FAILED.",
                         self._iteration,
                     )
-                    executor.shutdown(wait=False)
+                    executor.shutdown(wait=False, cancel_futures=True)
                     executor = _make_executor()
                     self.queue.release((task.node_id, tuple(task.afir_params)))
                     self._append_history(history_log, self._iteration, task, "FAILED")
@@ -2439,10 +2391,10 @@ class ReactionNetworkMapper:
                     for pdir in profile_dirs:
                         self._process_profile(pdir, run_dir)
                     # Persist the exploration record only after confirming success
-                    # (profile processing complete).  Placing record() before
-                    # _process_profile() — the previous order — would mark the task
-                    # as explored even when _process_profile raises (e.g. disk full
-                    # in _persist_node_xyz), making it non-retryable on resume.
+                    # (profile processing complete).  Calling record() before
+                    # _process_profile() would mark the task as explored even when
+                    # _process_profile raises (e.g. disk full in _persist_node_xyz),
+                    # making it non-retryable on resume.
                     # Must mirror the parallel path in _process_single_result.
                     self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
                 except Exception as exc:
@@ -2557,9 +2509,8 @@ class ReactionNetworkMapper:
             )
 
         executor: ProcessPoolExecutor = _new_executor()
-        # future → (task, run_dir, iteration, gamma_sign, atom_i, atom_j)
+        # future → (task, run_dir, iteration, gamma_sign, atom_i, atom_j, submit_time)
         futures_map: dict  = {}
-        timed_out          = False
         exhausted          = False
         pool_broken        = False   # set when BrokenProcessPool is detected
         pool_rebuild_count = 0
@@ -2637,7 +2588,16 @@ class ReactionNetworkMapper:
      
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
-                run_dir   = self._make_run_dir(task, iteration=self._iteration)
+                try:
+                    run_dir = self._make_run_dir(task, iteration=self._iteration)
+                except Exception as exc:
+                    logger.error(
+                        "_try_submit: failed to create run directory for "
+                        "iteration %06d: %s — releasing task.",
+                        self._iteration, exc,
+                    )
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    continue
                 workspace = os.path.join(run_dir, "autots_workspace")
                 config    = self._make_autots_config(task, workspace)
                 try:
@@ -2658,6 +2618,14 @@ class ReactionNetworkMapper:
                     )
                     self.queue.release((task.node_id, tuple(task.afir_params)))
                     pool_broken = True
+                    # Record the failed iteration so history and run_info.json
+                    # remain consistent even when submit itself raises.
+                    self._append_history(history_log, self._iteration, task, "FAILED")
+                    self._finalize_iteration(
+                        run_dir, task, "FAILED", [],
+                        os.path.join(self.output_dir, "queue_priority.log"),
+                        self._iteration,
+                    )
                     return False
                     
                 futures_map[future] = (
@@ -2784,6 +2752,7 @@ class ReactionNetworkMapper:
                             "reached — stopping exploration.",
                             _MAX_POOL_REBUILDS,
                         )
+                        _drain_broken_futures()   # empties futures_map before exit
                         break
                     _drain_broken_futures()   # empties futures_map
                     _rebuild_pool()            # replaces executor, clears pool_broken
@@ -2869,7 +2838,7 @@ class ReactionNetworkMapper:
                         _try_submit()
 
         finally:
-            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
+            executor.shutdown(wait=True, cancel_futures=False)
             try:
                 self.graph.save(self.graph_json_path)
                 self._write_priority_log(priority_log)
@@ -2898,26 +2867,39 @@ class ReactionNetworkMapper:
         outcome to unconditionally free the key from _in_flight.
         """
         self.graph.last_iteration = max(self.graph.last_iteration, iteration)
-        self._append_history(history_log, iteration, task, status)
+        effective_status = status
 
-        if status == "DONE":
-            logger.info(
-                "Iter %06d (batch): _run_autots returned %d profile director%s.",
-                iteration, len(profile_dirs),
-                "y" if len(profile_dirs) == 1 else "ies",
+        try:
+            if status == "DONE":
+                logger.info(
+                    "Iter %06d (batch): _run_autots returned %d profile director%s.",
+                    iteration, len(profile_dirs),
+                    "y" if len(profile_dirs) == 1 else "ies",
+                )
+                for pdir in profile_dirs:
+                    self._process_profile(pdir, run_dir)
+                # Persist only after confirming success (FAILED / TIMEOUT remain retryable)
+                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+        except Exception as exc:
+            logger.error(
+                "_process_single_result: _process_profile failed for run %s: %s — "
+                "marking FAILED; task remains retryable on resume.",
+                run_dir, exc,
             )
-            for pdir in profile_dirs:
-                self._process_profile(pdir, run_dir)
-            # Persist only after confirming success (FAILED / TIMEOUT remain retryable)
-            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+            effective_status = "FAILED"
+        finally:
+            # Release the in-flight lock regardless of outcome.
+            # Must be in a finally block so that exceptions inside _process_profile
+            # (e.g. disk full in _persist_node_xyz) do not leave the key stuck in
+            # _in_flight permanently — which would silently block the pair from ever
+            # being re-queued even on resume.
+            self.queue.release((task.node_id, tuple(task.afir_params)))
+            if hasattr(self.queue, "set_graph"):
+                self.queue.set_graph(self.graph)
 
-        # Release the in-flight lock regardless of outcome
-        self.queue.release((task.node_id, tuple(task.afir_params)))
-        if hasattr(self.queue, "set_graph"):
-            self.queue.set_graph(self.graph)
-
+        self._append_history(history_log, iteration, task, effective_status)
         self._finalize_iteration(
-            run_dir, task, status, profile_dirs,
+            run_dir, task, effective_status, profile_dirs,
             os.path.join(self.output_dir, "queue_priority.log"),
             iteration,
         )
@@ -3302,7 +3284,6 @@ class ReactionNetworkMapper:
                 f"_run_autots: worker exceeded hard timeout of "
                 f"{self.worker_timeout_s}s — process was force-killed."
             )
-        # Shutdown is the caller's responsibility (see _run_sequential finally clause).
     
     # ------------------------------------------------------------------ #
     #  Energy back-fill                                                    #
@@ -3503,14 +3484,14 @@ class ReactionNetworkMapper:
         ts_energy: float | None = result["ts_energy"]
 
         # ── Step 1: parse new TS geometry ─────────────────────────────────
-        # Failure here must NOT skip EQ endpoint registration (Step 2).
-        # A missing or unreadable TS file means we cannot add a TSEdge, but
-        # the IRC endpoints are still valid EQ structures worth keeping.
+        # Parsing failure must NOT skip EQ endpoint registration (Step 2).
+        # An unreadable TS file means we cannot add a TSEdge, but the IRC
+        # endpoints are still valid EQ structures worth keeping.
         ts_sym:    list[str]  = []
         ts_coords: np.ndarray = np.empty((0, 3), dtype=float)
-        ts_xyz = result.get("ts_xyz_file", "") or ""
+        ts_xyz = result["ts_xyz_file"]
         ts_geom_ok = False
-        if ts_xyz and os.path.isfile(ts_xyz):
+        if ts_xyz:
             try:
                 ts_sym, ts_coords = parse_xyz(ts_xyz)
                 ts_geom_ok = True
@@ -3523,12 +3504,6 @@ class ReactionNetworkMapper:
                     "TSEdge will not be added, but EQ endpoints will still be registered.",
                     ts_xyz, exc,
                 )
-        else:
-            logger.warning(
-                "_process_profile: TS XYZ not found (profile_dir=%s, file=%r) — "
-                "TSEdge will not be added, but EQ endpoints will still be registered.",
-                profile_dir, ts_xyz,
-            )
 
         # ── Step 2: register EQ endpoint nodes ───────────────────────────
         node_id_1 = self._find_or_register_node(
@@ -3662,9 +3637,8 @@ class ReactionNetworkMapper:
         nid         = node.node_id
 
         # ── Filter out already-explored and already-queued pairs before sampling ─
-        # In the previous implementation, generate_afir_perturbations sampled
-        # randomly and then checked for exclusions, which could yield zero valid
-        # tasks when all selected pairs were already explored.
+        # Checking exclusions before sampling ensures that random selection
+        # only draws from genuinely unexplored pairs.
         unexplored = [
             (i0, j0) for i0, j0 in all_candidates
             if any(
