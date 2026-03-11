@@ -3172,7 +3172,7 @@ class ReactionNetworkMapper:
         self,
         task: ExplorationTask,
         run_dir: str,
-        executor: ProcessPoolExecutor,  # ADDED: caller-owned executor passed in
+        executor: ProcessPoolExecutor,
     ) -> list[str]:
         """Run AutoTSWorkflow in an isolated spawned subprocess.
     
@@ -3189,9 +3189,10 @@ class ReactionNetworkMapper:
             future.result(timeout=worker_timeout_s) raises concurrent.futures.
             TimeoutError when the limit is exceeded.  The handler cancels
             pending work and force-kills the live worker via executor._processes
-            (same approach as _run_parallel_rolling), then raises RuntimeError.
-            Executor shutdown is left to the caller so that a single timeout does
-            not tear down the shared executor prematurely.
+            (same approach as _run_parallel_rolling), then raises
+            BrokenProcessPool so that the caller's except BrokenProcessPool
+            branch fires immediately and rebuilds the executor without wasting
+            one extra iteration.
     
         Return value:
             _autots_worker returns a sorted list of Step-4 profile directories;
@@ -3214,25 +3215,16 @@ class ReactionNetworkMapper:
         except Exception as exc:
             logger.warning("_run_autots: could not write config_used.json: %s", exc)
     
-        # REMOVED: executor creation block.
-        # ProcessPoolExecutor is now created once in _run_sequential and passed in,
-        # eliminating the per-iteration spawn/join overhead.
-        # max_tasks_per_child=1 is still set on the shared executor (see
-        # _run_sequential) so each task still runs in a fresh child process,
-        # keeping os.chdir() isolation intact.
-    
         future = executor.submit(_autots_worker, config, run_dir, workspace)
         try:
             return future.result(timeout=self.worker_timeout_s)
-        except (TimeoutError, FuturesTimeoutError):  
+        except (TimeoutError, FuturesTimeoutError):
             logger.error(
                 "_run_autots: worker exceeded hard timeout of %ds — "
                 "force-killing worker process.",
                 self.worker_timeout_s,
             )
             future.cancel()
-            # No public API exposes individual worker handles; use the
-            # private _processes dict (same pattern as _run_parallel_rolling).
             worker_procs = getattr(executor, "_processes", {})
             for pid, proc in list(worker_procs.items()):
                 if proc.is_alive():
@@ -3240,12 +3232,14 @@ class ReactionNetworkMapper:
                         "_run_autots: force-killing worker pid=%d", pid
                     )
                     proc.kill()
-            raise RuntimeError(
+            # Raise BrokenProcessPool (not RuntimeError) so that _run_sequential's
+            # except BrokenProcessPool branch fires immediately and rebuilds the
+            # executor in the same iteration, avoiding one wasted no-op iteration.
+            raise BrokenProcessPool(
                 f"_run_autots: worker exceeded hard timeout of "
-                f"{self.worker_timeout_s}s."
+                f"{self.worker_timeout_s}s — process was force-killed."
             )
-        # REMOVED: finally block with executor.shutdown().
-        # Shutdown is now the caller's responsibility (see _run_sequential finally clause).
+        # Shutdown is the caller's responsibility (see _run_sequential finally clause).
     
     # ------------------------------------------------------------------ #
     #  Energy back-fill                                                    #
@@ -3253,17 +3247,18 @@ class ReactionNetworkMapper:
 
     def _flush_node_energy_updates(self) -> None:
         """Apply all accumulated node energy back-fills in bulk.
-
+    
         Design rules:
         * Called once per iteration, immediately before ``graph.save()``.
         * Updates only when the existing value is ``None`` and the new value
-          is not None.
+        is not None.
         * TSEdge barrier values are never modified (IRC-measured values are
-          preserved).
+        preserved).
         """
         if not self._pending_node_updates:
             return
-
+    
+        actually_changed = False
         for node_id, updates in self._pending_node_updates.items():
             node = self.graph.get_node(node_id)
             if node is None:
@@ -3272,27 +3267,30 @@ class ReactionNetworkMapper:
                     node_id,
                 )
                 continue
-
+    
             changed: list[str] = []
             if updates.energy is not None and node.energy is None:
                 node.energy = updates.energy
                 changed.append(f"energy={updates.energy:.10f} Ha")
-
+    
             if updates.free_energy is not None and node.free_energy is None:
                 node.free_energy = updates.free_energy
                 changed.append(f"free_energy={updates.free_energy:.10f} Ha")
-
+    
             if changed:
+                actually_changed = True
                 logger.info(
                     "_flush_node_energy_updates: EQ%d updated — %s",
                     node_id, " ".join(changed),
                 )
-
+    
         self._pending_node_updates.clear()
-        # Invalidate the cache because node energies have changed; the index
-        # will be rebuilt on the next window query.
-        self.graph.invalidate_energy_cache()
-
+        # Invalidate only when at least one node was actually modified.
+        # Skipping the call when nothing changed avoids a needless O(N log N)
+        # index rebuild on the next window query.
+        if actually_changed:
+            self.graph.invalidate_energy_cache()
+        
     # ------------------------------------------------------------------ #
     #  Node identity and registration                                      #
     # ------------------------------------------------------------------ #
