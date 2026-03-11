@@ -2497,6 +2497,11 @@ class ReactionNetworkMapper:
                         a ``stop.txt`` sentinel was detected.
         """
         from concurrent.futures import wait as _fut_wait, FIRST_COMPLETED
+        try:
+            from concurrent.futures.process import BrokenProcessPool as _BrokenProcessPool
+        except ImportError:
+            # Fallback: catch all submit-time errors as pool-broken
+            _BrokenProcessPool = RuntimeError  # type: ignore[misc,assignment]
 
         executor   = ProcessPoolExecutor(
             max_workers=self.n_parallel,
@@ -2587,7 +2592,7 @@ class ReactionNetworkMapper:
 
                 try:
                     future = executor.submit(_autots_worker, config, run_dir, workspace)
-                except BrokenProcessPool as exc:
+                except _BrokenProcessPool as exc:
                     # The pool died between the last result and this submit.
                     # Release the task so it can be retried on resume, then
                     # stop submitting — remaining in-flight futures will drain
@@ -2705,7 +2710,7 @@ class ReactionNetworkMapper:
                     if not exhausted and not _should_stop():
                         try:
                             _try_submit()
-                        except BrokenProcessPool as exc:
+                        except _BrokenProcessPool as exc:
                             # Defensive catch: _try_submit normally handles this
                             # internally, but guard here too so the drain loop
                             # can finish processing remaining futures safely.
