@@ -2434,26 +2434,40 @@ class ReactionNetworkMapper:
                     self._iteration, len(profile_dirs),
                     "y" if len(profile_dirs) == 1 else "ies",
                 )
-                for pdir in profile_dirs:
-                    self._process_profile(pdir, run_dir)
-    
-                # Persist the exploration record only after confirming success
-                # (profile processing complete).  Placing record() before
-                # _process_profile() — the previous order — would mark the task
-                # as explored even when _process_profile raises (e.g. disk full
-                # in _persist_node_xyz), making it non-retryable on resume.
-                # Must mirror the parallel path in _process_single_result.
-                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-                # Call release() after record() so that is_submitted() returns
-                # True throughout the entire [pop() → record() → release()] window
-                self.queue.release((task.node_id, tuple(task.afir_params)))
-    
+                _process_status = "DONE"
+                try:
+                    for pdir in profile_dirs:
+                        self._process_profile(pdir, run_dir)
+                    # Persist the exploration record only after confirming success
+                    # (profile processing complete).  Placing record() before
+                    # _process_profile() — the previous order — would mark the task
+                    # as explored even when _process_profile raises (e.g. disk full
+                    # in _persist_node_xyz), making it non-retryable on resume.
+                    # Must mirror the parallel path in _process_single_result.
+                    self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+                except Exception as exc:
+                    logger.error(
+                        "_run_sequential: _process_profile failed for run %s: %s — "
+                        "marking FAILED; task remains retryable on resume.",
+                        run_dir, exc,
+                    )
+                    _process_status = "FAILED"
+                finally:
+                    # Always release the in-flight lock regardless of _process_profile
+                    # outcome.  Without this guard a RuntimeError (e.g. disk full in
+                    # _persist_node_xyz) leaves the key in _in_flight indefinitely,
+                    # and _enqueue_perturbations sees is_submitted()==True forever —
+                    # the pair can never be re-queued even on resume.
+                    # On the success path, release() is still called after record() so
+                    # that is_submitted() stays True throughout [pop()→record()→release()].
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+
                 # Notify queue of updated graph (required by RCMCQueue)
                 if hasattr(self.queue, "set_graph"):
                     self.queue.set_graph(self.graph)
-    
-                self._append_history(history_log, self._iteration, task, "DONE")
-                self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
+
+                self._append_history(history_log, self._iteration, task, _process_status)
+                self._finalize_iteration(run_dir, task, _process_status, profile_dirs, priority_log)
     
         finally:
             executor.shutdown(wait=True)
@@ -2647,7 +2661,8 @@ class ReactionNetworkMapper:
                     return False
                     
                 futures_map[future] = (
-                    task, run_dir, self._iteration, gamma_sign, atom_i, atom_j
+                    task, run_dir, self._iteration, gamma_sign, atom_i, atom_j,
+                    time.monotonic(),   # submit_time — used for per-future timeout
                 )
                 return True
 
@@ -2667,7 +2682,7 @@ class ReactionNetworkMapper:
             main loop can trigger a rebuild) from ordinary worker failures.
             """
             nonlocal pool_broken
-            task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+            task, run_dir, iteration, gamma_sign, atom_i, atom_j, _ = (
                 futures_map.pop(future)
             )
             try:
@@ -2704,7 +2719,7 @@ class ReactionNetworkMapper:
             immediately, freeing futures_map for the rebuilt pool.
             """
             for f in list(futures_map):
-                task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                task, run_dir, iteration, gamma_sign, atom_i, atom_j, _ = (
                     futures_map.pop(f)
                 )
                 logger.error(
@@ -2782,18 +2797,32 @@ class ReactionNetworkMapper:
 
                 # ── Wait for the next completed future ────────────────────
                 if self.worker_timeout_s is not None:
+                    # Compute how long until the earliest-submitted worker hits
+                    # its individual deadline, then wait at most that long.
+                    now = time.monotonic()
+                    min_remaining = min(
+                        self.worker_timeout_s - (now - futures_map[f][6])
+                        for f in futures_map
+                    )
                     done, _ = _fut_wait(
                         list(futures_map),
-                        timeout=self.worker_timeout_s,
+                        timeout=max(0.05, min_remaining),
                         return_when=FIRST_COMPLETED,
                     )
-                    if not done:
-                        # Per-worker timeout: at least one worker is stuck
-                        timed_out = True
+
+                    # Identify futures that have individually exceeded the deadline,
+                    # regardless of whether other workers completed in time.
+                    now = time.monotonic()
+                    stalled = [
+                        f for f in list(futures_map)
+                        if not f.done()
+                        and (now - futures_map[f][6]) >= self.worker_timeout_s
+                    ]
+                    if stalled:
                         logger.error(
-                            "_run_parallel_rolling: per-worker timeout (%ds) exceeded "
-                            "— force-killing all %d remaining workers.",
-                            self.worker_timeout_s, len(futures_map),
+                            "_run_parallel_rolling: %d worker(s) exceeded per-worker "
+                            "timeout (%ds) — force-killing all worker processes.",
+                            len(stalled), self.worker_timeout_s,
                         )
                         worker_procs = getattr(executor, "_processes", {})
                         for pid, proc in list(worker_procs.items()):
@@ -2802,9 +2831,8 @@ class ReactionNetworkMapper:
                                     "_run_parallel_rolling: force-killing pid=%d", pid
                                 )
                                 proc.kill()
-                        # Drain all remaining futures as TIMEOUT
-                        for future in list(futures_map):
-                            task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
+                        for future in stalled:
+                            task, run_dir, iteration, gamma_sign, atom_i, atom_j, _ = (
                                 futures_map.pop(future)
                             )
                             logger.error(
@@ -2823,7 +2851,11 @@ class ReactionNetworkMapper:
                                 self.queue.release(
                                     (task.node_id, tuple(task.afir_params))
                                 )
-                        break
+                        # Killing workers breaks the pool.  Fall through to the
+                        # "for future in done:" block below to process any futures
+                        # that completed normally in the same wait call, then let
+                        # the next loop iteration trigger a pool rebuild.
+                        pool_broken = True
                 else:
                     done, _ = _fut_wait(
                         list(futures_map), return_when=FIRST_COMPLETED
