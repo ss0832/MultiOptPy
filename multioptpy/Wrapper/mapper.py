@@ -24,7 +24,11 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    as_completed,
+    TimeoutError as FuturesTimeoutError,
+)
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -2283,101 +2287,104 @@ class ReactionNetworkMapper:
 
         # try/finally guarantees explored_log is flushed and closed
         try:
-            while True:
-                # ── stop.txt sentinel file ────────────────────────────────
-                if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
-                    logger.info("stop.txt detected in output_dir. Stopping.")
-                    break
-
-                # ── Iteration limit ───────────────────────────────────────
-                if self.max_iterations > 0 and self._iteration >= self.max_iterations:
-                    logger.info("Reached max_iterations (%d). Stopping.", self.max_iterations)
-                    break
-
-                # ── Parallel path (n_parallel > 1) ────────────────────────
-                if self.n_parallel > 1:
-                    self.queue.refresh_priorities(self.graph.reference_energy())
-                    remaining = (self.max_iterations - self._iteration
-                                 if self.max_iterations > 0 else self.n_parallel)
-                    if remaining <= 0:
-                        break
-                    exhausted = self._run_parallel_rolling(history_log, priority_log)
-                    if exhausted:
-                        logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
-                    break
-
-                # ── Sequential path (n_parallel == 1) ────────────────────
-                # Re-weight the queue correctly after a new lowest-energy
-                # node has been discovered.
+            if self.n_parallel > 1:
                 self.queue.refresh_priorities(self.graph.reference_energy())
-                task = self.queue.pop()
-
-                if task is not None:
-                    # Parse the AFIR key once for both the skip check and record()
-                    gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-
-                    # Avoid duplicates when the queue was rebuilt on resume but
-                    # explored_pairs log retains historical records
-                    if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
-                        logger.debug(
-                            "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
-                            task.node_id, atom_i, atom_j, gamma_sign,
-                        )
-                        self.queue.release((task.node_id, tuple(task.afir_params)))
-                        continue
-
-                else:
-                    # Queue is empty: deterministically rescan all nodes for
-                    # unexplored pairs
-                    logger.info("Queue empty; re-scanning all nodes for unexplored pairs.")
-                    for node in self.graph.all_nodes():
-                        self._enqueue_perturbations(node, force_add=True)
-                    if len(self.queue) == 0:
-                        logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
-                        break
-                    continue
-
-                # ── Task execution ────────────────────────────────────────
-                self._iteration += 1
-                self.graph.last_iteration = self._iteration
-                self._append_history(history_log, self._iteration, task)
-
-                run_dir = self._make_run_dir(task)
-                try:
-                    profile_dirs = self._run_autots(task, run_dir)
-                except Exception as exc:
-                    logger.error("AutoTS failed for run %s: %s", run_dir, exc)
-                    # Do not call explored_log.record() on failure.
-                    # _in_flight (set by pop()) prevents duplicates within the
-                    # current run. Omitting record() allows transient failures
-                    # (OOM, segfault, etc.) to be retried on resume.
-                    self.queue.release((task.node_id, tuple(task.afir_params)))
-                    self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
-                    continue
-
-                # Persist the exploration record only after confirming success
-                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-                # Call release() after record() so that is_submitted() returns
-                # True throughout the entire [pop() → record() → release()] window
-                self.queue.release((task.node_id, tuple(task.afir_params)))
-
-                logger.info(
-                    "Iter %06d: _run_autots returned %d profile director%s.",
-                    self._iteration, len(profile_dirs),
-                    "y" if len(profile_dirs) == 1 else "ies",
-                )
-                for pdir in profile_dirs:
-                    self._process_profile(pdir, run_dir)
-
-                # Notify queue of updated graph (required by RCMCQueue)
-                if hasattr(self.queue, "set_graph"):
-                    self.queue.set_graph(self.graph)
-
-                self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
-
+                exhausted = self._run_parallel_rolling(history_log, priority_log)
+                if exhausted:
+                    logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
+            else:
+                self._run_sequential(history_log, priority_log)
         finally:
             self.graph.save(self.graph_json_path)
             self.explored_log.close()
+
+    def _run_sequential(self, history_log: str, priority_log: str) -> None:
+        """Sequential execution loop (n_parallel == 1).
+
+        Extracted from run() so that the parallel and sequential paths are
+        symmetric and independently testable.  Runs until one of:
+
+        * queue exhausted (all pairs explored),
+        * ``max_iterations`` reached, or
+        * ``stop.txt`` sentinel file detected.
+        """
+        while True:
+            # ── stop.txt sentinel file ────────────────────────────────────
+            if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
+                logger.info("stop.txt detected in output_dir. Stopping.")
+                break
+
+            # ── Iteration limit ───────────────────────────────────────────
+            if self.max_iterations > 0 and self._iteration >= self.max_iterations:
+                logger.info("Reached max_iterations (%d). Stopping.", self.max_iterations)
+                break
+
+            # ── Re-weight queue after a new lowest-energy node is found ───
+            self.queue.refresh_priorities(self.graph.reference_energy())
+            task = self.queue.pop()
+
+            if task is not None:
+                # Parse the AFIR key once for both the skip check and record()
+                gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+
+                # Avoid duplicates when the queue was rebuilt on resume but
+                # explored_pairs log retains historical records
+                if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                    logger.debug(
+                        "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
+                        task.node_id, atom_i, atom_j, gamma_sign,
+                    )
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    continue
+
+            else:
+                # Queue is empty: deterministically rescan all nodes for
+                # unexplored pairs
+                logger.info("Queue empty; re-scanning all nodes for unexplored pairs.")
+                for node in self.graph.all_nodes():
+                    self._enqueue_perturbations(node, force_add=True)
+                if len(self.queue) == 0:
+                    logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
+                    break
+                continue
+
+            # ── Task execution ────────────────────────────────────────────
+            self._iteration += 1
+            self.graph.last_iteration = self._iteration
+            self._append_history(history_log, self._iteration, task)
+
+            run_dir = self._make_run_dir(task)
+            try:
+                profile_dirs = self._run_autots(task, run_dir)
+            except Exception as exc:
+                logger.error("AutoTS failed for run %s: %s", run_dir, exc)
+                # Do not call explored_log.record() on failure.
+                # _in_flight (set by pop()) prevents duplicates within the
+                # current run. Omitting record() allows transient failures
+                # (OOM, segfault, etc.) to be retried on resume.
+                self.queue.release((task.node_id, tuple(task.afir_params)))
+                self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
+                continue
+
+            # Persist the exploration record only after confirming success
+            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+            # Call release() after record() so that is_submitted() returns
+            # True throughout the entire [pop() → record() → release()] window
+            self.queue.release((task.node_id, tuple(task.afir_params)))
+
+            logger.info(
+                "Iter %06d: _run_autots returned %d profile director%s.",
+                self._iteration, len(profile_dirs),
+                "y" if len(profile_dirs) == 1 else "ies",
+            )
+            for pdir in profile_dirs:
+                self._process_profile(pdir, run_dir)
+
+            # Notify queue of updated graph (required by RCMCQueue)
+            if hasattr(self.queue, "set_graph"):
+                self.queue.set_graph(self.graph)
+
+            self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
 
     def _append_history(
         self,
@@ -2652,253 +2659,6 @@ class ReactionNetworkMapper:
                 logger.error("_run_parallel_rolling: cleanup save/log failed: %s", exc)
 
         return exhausted
-
-    # ------------------------------------------------------------------ #
-    #  Batch collection and parallel execution                             #
-    # ------------------------------------------------------------------ #
-
-    def _collect_task_batch(
-        self, n: int
-    ) -> list[tuple[ExplorationTask, str, str, int, int, int]]:
-        """Pop up to *n* ready tasks and create their run directories.
-
-        Returns a list of 6-tuples:
-        ``(task, run_dir, gamma_sign, atom_i, atom_j, iteration)``.
-
-        explored_log.record() and queue.release() are not called here.
-        Duplicate prevention within the batch window is handled by _in_flight
-        (set by pop()); record() and release() are delegated to
-        _process_single_result() so that transient failures can be retried on
-        resume.
-
-        Returns an empty list when no runnable tasks exist, signalling
-        _run_batch_parallel() to stop the loop.
-
-        Refill attempts are tracked with an integer counter:
-        at most _MAX_REFILLS consecutive refills are tried before giving up.
-        The previous bool-flag implementation could silently allow a third
-        refill (and beyond) after resetting the flag.
-        """
-        batch: list[tuple[ExplorationTask, str, str, int, int, int]] = []
-        _MAX_REFILLS = 2
-        refill_count = 0
-
-        while len(batch) < n:
-            task = self.queue.pop()
-            if task is None:
-                if refill_count >= _MAX_REFILLS:
-                    logger.debug(
-                        "_collect_task_batch: queue empty after %d refill pass(es) "
-                        "— no runnable tasks remain.",
-                        refill_count,
-                    )
-                    break
-                # Rescan all nodes to add unexplored pairs to the queue
-                size_before = len(self.queue)
-                for node in self.graph.all_nodes():
-                    self._enqueue_perturbations(node, force_add=True)
-                refill_count += 1
-                if len(self.queue) == size_before:
-                    # Refill added nothing; retrying is pointless
-                    logger.debug(
-                        "_collect_task_batch: refill pass %d added no new tasks "
-                        "(queue size unchanged at %d) — stopping.",
-                        refill_count, size_before,
-                    )
-                    break
-                # New tasks were added; go back to the top to pop()
-                continue
-
-            gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-            if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
-                logger.debug(
-                    "_collect_task_batch: skipping already-explored task "
-                    "(EQ%06d, %d-%d, %s).",
-                    task.node_id, atom_i, atom_j, gamma_sign,
-                )
-                self.queue.release((task.node_id, tuple(task.afir_params)))
-                continue
-
-            next_iter = self._iteration + len(batch) + 1
-            run_dir   = self._make_run_dir(task, iteration=next_iter)
-            batch.append((task, run_dir, gamma_sign, atom_i, atom_j, next_iter))
-
-        return batch
-
-    def _run_batch_parallel(
-        self,
-        batch: list[tuple],
-        history_log: str,
-        priority_log: str,
-    ) -> None:
-        """Execute all tasks in the batch via :class:`~concurrent.futures.ProcessPoolExecutor`.
-
-        Replaces the previous manual ``multiprocessing.Process`` + ``Queue``
-        polling loop.  Key design decisions:
-
-        * ``max_tasks_per_child=1`` — each task runs in a fresh child process,
-          isolating the ``os.chdir()`` call inside :func:`_autots_worker` from
-          other concurrently running children and from the parent process.
-        * ``_autots_worker`` is called directly; no result queue is needed
-          because :class:`~concurrent.futures.Future` already carries either
-          the return value or the raised exception.
-        * The executor is managed manually (not via ``with executor:``) so that
-          on timeout we can force-kill all worker processes *before* calling
-          ``shutdown()``.  Using the context manager would call
-          ``shutdown(wait=True)`` unconditionally, causing the main process to
-          block forever when a hung external binary does not exit on its own.
-
-        Timeout handling
-        ----------------
-        ``future.cancel()`` only removes *pending* (not yet started) futures
-        from the internal work queue; it cannot stop an already-running worker
-        process.  To avoid the freeze described above, on :exc:`TimeoutError`
-        we:
-
-        1. Cancel all not-yet-started futures.
-        2. Force-kill every live worker process via ``executor._processes``
-           (a ``{pid: Process}`` dict maintained by the standard library).
-           This is an intentional use of a private attribute; no public API
-           exists for this operation.
-        3. Call ``executor.shutdown(wait=False, cancel_futures=True)`` so the
-           executor's bookkeeping threads are released without waiting.
-
-        When ``worker_timeout_s`` is ``None`` (recommended default for long-
-        running chemistry calculations), ``as_completed`` blocks indefinitely
-        and the timeout path is never entered.
-        """
-        futures_map: dict = {}
-        handled_futures: set = set()
-        # ``max_tasks_per_child=1`` ensures a fresh process is spawned for
-        # every task, safely isolating os.chdir() calls within the worker.
-        executor = ProcessPoolExecutor(
-            max_workers=self.n_parallel,
-            mp_context=self._mp_ctx,
-            max_tasks_per_child=1,
-        )
-
-        timed_out = False
-        try:
-            # ── Submit all tasks ──────────────────────────────────────────
-            for task, run_dir, gamma_sign, atom_i, atom_j, iteration in batch:
-                workspace = os.path.join(run_dir, "autots_workspace")
-                config    = self._make_autots_config(task, workspace)
-                try:
-                    with open(
-                        os.path.join(run_dir, "config_used.json"), "w", encoding="utf-8"
-                    ) as fh:
-                        json.dump(config, fh, indent=2, default=str)
-                except Exception as exc:
-                    logger.warning("Could not write config_used.json: %s", exc)
-
-                future = executor.submit(
-                    _autots_worker,
-                    config,
-                    run_dir,
-                    workspace,
-                )
-                futures_map[future] = (
-                    task, run_dir, iteration, gamma_sign, atom_i, atom_j
-                )
-
-            # ── Collect results as each future completes ──────────────────
-            # When worker_timeout_s is None, as_completed blocks indefinitely.
-            # When set, TimeoutError is raised once the deadline is exceeded.
-            try:
-                for future in as_completed(futures_map, timeout=self.worker_timeout_s):
-                    handled_futures.add(future)  
-                    task, run_dir, iteration, gamma_sign, atom_i, atom_j = (
-                        futures_map[future]
-                    )
-                    try:
-                        profile_dirs = future.result()
-                        self._process_single_result(
-                            task, run_dir, profile_dirs, "DONE", iteration,
-                            history_log, gamma_sign, atom_i, atom_j,
-                        )
-                    except Exception as exc:
-                        logger.error(
-                            "_run_batch_parallel: worker failed for %s: %s",
-                            run_dir, exc,
-                        )
-                        self._process_single_result(
-                            task, run_dir, [], "FAILED", iteration,
-                            history_log, gamma_sign, atom_i, atom_j,
-                        )
-            except TimeoutError:
-                timed_out = True
-                logger.error(
-                    "_run_batch_parallel: batch-level timeout (%ds) exceeded — "
-                    "force-killing all remaining worker processes.",
-                    self.worker_timeout_s,
-                )
-
-                # Track every future that was NOT cleanly handled in the
-                # as_completed loop above so we can unconditionally release
-                # their _in_flight keys in the cleanup pass below.
-                cancelled_futures: set = set()
-                killed_futures:    set = set()
-
-                # ── Step 1: cancel not-yet-started futures ────────────────
-                for future in futures_map:
-                    if future.cancel():
-                        cancelled_futures.add(future)
-                        task, run_dir, iteration, gamma_sign, atom_i, atom_j = futures_map[future]
-                        self.queue.release((task.node_id, tuple(task.afir_params)))
-
-                # ── Step 2: force-kill running worker processes ───────────
-                worker_procs = getattr(executor, "_processes", {})
-                for pid, proc in list(worker_procs.items()):
-                    if proc.is_alive():
-                        logger.warning(
-                            "_run_batch_parallel: force-killing worker pid=%d", pid
-                        )
-                        proc.kill()
-
-                # ── Step 3: mark incomplete futures as TIMEOUT ────────────
-                # Use `future not in cancelled_futures` rather than
-                # `not future.done()` because proc.kill() may have already
-                # transitioned the future to done (failed), which would cause
-                # _process_single_result / release() to be silently skipped,
-                # leaving the key permanently stuck in _in_flight.
-                for future, meta in futures_map.items():
-                    if future in cancelled_futures or future in handled_futures: 
-                        continue            # release() already called in Step 1
-                    task, run_dir, iteration, gamma_sign, atom_i, atom_j = meta
-                    killed_futures.add(future)
-                    logger.error(
-                        "_run_batch_parallel: worker timed out (limit=%ds): %s",
-                        self.worker_timeout_s, run_dir,
-                    )
-                    try:
-                        self._process_single_result(
-                            task, run_dir, [], "TIMEOUT", iteration,
-                            history_log, gamma_sign, atom_i, atom_j,
-                        )
-                    except Exception as exc:
-                        logger.error(
-                            "_process_single_result failed after TIMEOUT (%s): %s",
-                            run_dir, exc,
-                        )
-                        # _process_single_result calls release() internally, but
-                        # if it raises before reaching that line, release here
-                        # as a last-resort safety net to prevent _in_flight leak.
-                        self.queue.release((task.node_id, tuple(task.afir_params)))
-
-        finally:
-            # Shut down the executor.  After force-killing all workers in the
-            # timeout path, wait=False avoids a redundant join on dead processes.
-            # In the normal path (no timeout), wait=True ensures all workers are
-            # cleanly joined before proceeding.
-            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
-
-            try:
-                self.graph.save(self.graph_json_path)
-                self._write_priority_log(priority_log)
-            except Exception as exc:
-                logger.error("Cleanup save/log failed: %s", exc)
-
-
 
 
     def _process_single_result(
@@ -3306,7 +3066,7 @@ class ReactionNetworkMapper:
             future = executor.submit(_autots_worker, config, run_dir, workspace)
             try:
                 return future.result(timeout=self.worker_timeout_s)
-            except TimeoutError:
+            except (TimeoutError, FuturesTimeoutError)
                 timed_out = True
                 logger.error(
                     "_run_autots: worker exceeded hard timeout of %ds — "
@@ -3640,17 +3400,7 @@ class ReactionNetworkMapper:
             f"{result['barrier_fwd']:.2f}" if result["barrier_fwd"] is not None else "N/A",
         )
 
-    # ------------------------------------------------------------------ #
-    #  Exploration state helpers                                           #
-    # ------------------------------------------------------------------ #
 
-    def _node_has_been_explored(self, node_id: int) -> bool:
-        """Return ``True`` if there is at least one exploration record for *node_id*.
-
-        Uses the public method :meth:`ExploredPairsLog.has_any_for_node`
-        rather than accessing the private set directly.
-        """
-        return self.explored_log.has_any_for_node(node_id)
 
     # ------------------------------------------------------------------ #
     #  Perturbation enqueueing                                             #
