@@ -602,11 +602,11 @@ class StructureChecker:
         U, S, Vt = np.linalg.svd(pb.T @ pa)
         d = np.linalg.det(U) * np.linalg.det(Vt)
 
-        if d < -0.1:
+        if d < 0:
             return float("inf")
 
         E0 = np.sum(pa ** 2) + np.sum(pb ** 2)
-        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + S[2])) / len(pa)
+        rmsd_sq = max(0.0, E0 - 2.0 * (S[0] + S[1] + d * S[2])) / len(pa)
         return float(np.sqrt(rmsd_sq))
 
 
@@ -1072,6 +1072,13 @@ class ExploredPairsLog:
                 if len(parts) < 4:
                     continue
                 try:
+                    if not parts[0].startswith("EQ"):
+                        logger.warning(
+                            "ExploredPairsLog._load: unexpected prefix at %s:%d "
+                            "(content=%r) — skipped.",
+                            self._filepath, lineno, line,
+                        )
+                        continue
                     node_id    = int(parts[0][2:])
                     atom_i     = int(parts[1])
                     atom_j     = int(parts[2])
@@ -2587,10 +2594,9 @@ class ReactionNetworkMapper:
                     self.queue.release((task.node_id, tuple(task.afir_params)))
                     continue  # try next task
 
-                # Valid task — submit it
+     
                 self._iteration += 1
                 self.graph.last_iteration = self._iteration
-
                 run_dir   = self._make_run_dir(task, iteration=self._iteration)
                 workspace = os.path.join(run_dir, "autots_workspace")
                 config    = self._make_autots_config(task, workspace)
@@ -2613,6 +2619,7 @@ class ReactionNetworkMapper:
                     self.queue.release((task.node_id, tuple(task.afir_params)))
                     pool_broken = True
                     return False
+                    
                 futures_map[future] = (
                     task, run_dir, self._iteration, gamma_sign, atom_i, atom_j
                 )
