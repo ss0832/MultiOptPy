@@ -214,6 +214,94 @@ class RCMCQueue(ExplorationQueue):
         except OSError as exc:
             logger.warning("RCMC population CSV could not be saved: %s", exc)
 
+    def _solve_ode_rk4(
+        self,
+        D: np.ndarray,
+        p0: np.ndarray,
+        t_end: float,
+    ) -> "tuple[np.ndarray, bool]":
+        """Integrate the contracted master equation dp/dt = D p via classical RK4.
+
+        RCMC contraction guarantees that D is non-stiff: Schur-complement
+        elimination has already removed the fast (S-state) modes from K, so
+        explicit RK4 is appropriate here and avoids the overhead of implicit
+        stiff solvers.
+
+        The step size is chosen so that  dt * rho(D)  stays inside the RK4
+        stability region on the real axis (|z| <= 2.78).  A safety factor of
+        ~0.9 gives dt_max = 2.5 / rho(D).
+
+        Parameters
+        ----------
+        D : np.ndarray
+            Contracted effective rate matrix (|T| x |T|) [s^-1].  Non-stiff
+            by RCMC construction.
+        p0 : np.ndarray
+            Initial population vector over T super-states, already normalised.
+        t_end : float
+            Target integration time [s].
+
+        Returns
+        -------
+        y : np.ndarray
+            Population distribution at t_end, clipped to [0, 1] and normalised.
+        reliable : bool
+            True  — integration completed within _MAX_STEPS; result is trustworthy.
+            False — required step count exceeded _MAX_STEPS, meaning D remained
+                    effectively stiff after RCMC contraction (e.g. a strongly
+                    irreversible edge or an isolated node still in T).
+                    The caller should fall back to the QSS algebraic approximation.
+        """
+        if t_end < 1e-16:
+            return p0.copy(), True
+
+        abs_D = np.abs(D)
+        # Gershgorin-based spectral radius estimate: min of max row and column
+        # absolute sums (tighter than either bound alone).
+        rho_D = min(
+            float(np.max(abs_D.sum(axis=1))),
+            float(np.max(abs_D.sum(axis=0))),
+        )
+
+        if rho_D < 1e-16:
+            # D is effectively zero — population does not evolve.
+            return p0.copy(), True
+
+        # RK4 stability region on the negative real axis ends at z ≈ -2.78.
+        # Safety factor 0.9 keeps dt * rho_D <= 2.5.
+        dt_max = 2.5 / rho_D
+        n_steps = int(np.ceil(t_end / dt_max))
+
+        _MAX_STEPS = 10_000_000
+        if n_steps > _MAX_STEPS:
+            # D is still stiff despite RCMC contraction — signal caller to use
+            # the QSS algebraic fallback rather than capping steps silently.
+            logger.warning(
+                "RK4: %d steps required for t_end=%.3e s (rho_D=%.3e s^-1) "
+                "exceeds _MAX_STEPS=%d — D is still stiff after RCMC contraction "
+                "(likely a strongly irreversible edge or isolated node in T). "
+                "Falling back to quasi-steady-state (QSS) algebraic approximation.",
+                n_steps, t_end, rho_D, _MAX_STEPS,
+            )
+            return p0.copy(), False
+
+        dt = t_end / n_steps
+        y = p0.copy()
+
+        for _ in range(n_steps):
+            k1 = D @ y
+            k2 = D @ (y + 0.5 * dt * k1)
+            k3 = D @ (y + 0.5 * dt * k2)
+            k4 = D @ (y + dt * k3)
+            y = y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+            # Clip and renormalise every step to prevent slow numerical drift.
+            y = np.maximum(y, 0.0)
+            total = y.sum()
+            if total > 0.0:
+                y /= total
+
+        return y, True
+
     def pop(self) -> ExplorationTask | None:
         if not self._tasks:
             return None
@@ -421,18 +509,67 @@ class RCMCQueue(ExplorationQueue):
             p_T = p[T]
 
             try:
-                # Factorise K_SS once; reuse for the three back-solves.
+                # ── Build initial population for T super-states ───────────
+                # Each T super-state collects the probability of every node
+                # absorbed into it during RCMC contraction (the T representative
+                # itself plus any S nodes whose fast dynamics were projected onto
+                # it via Schur-complement elimination).
+                # Summing p[members] is the standard probability-conserving
+                # lumping step and is self-consistent with the quasi-steady-state
+                # assumption used to derive D: within each super-state the fast
+                # internal modes are already eliminated, so aggregating the raw
+                # probability gives the correct effective initial condition for
+                # the contracted dynamics.
+                p_T_init = np.zeros(len(T), dtype=np.float64)
+                for i, t_global in enumerate(T):
+                    members = superstate_members.get(t_global, [t_global])
+                    p_T_init[i] = float(np.sum(p[members]))
+
+                # Normalise: guards against floating-point drift and the rare
+                # edge case where the start node ended up in S rather than T.
+                total_p_T_init = p_T_init.sum()
+                if total_p_T_init > 0.0:
+                    p_T_init /= total_p_T_init
+
+                # ── Factorise K_SS once; reused by both RK4 and QSS paths ─
                 lu, piv = lu_factor(K_SS_buf)
-                X_ST   = lu_solve((lu, piv), K_ST)
-                X_pS   = lu_solve((lu, piv), p_S)
-                X_ST_2 = lu_solve((lu, piv), X_ST)
+                X_ST = lu_solve((lu, piv), K_ST)
 
-                M = np.eye(len(T)) + K_TS @ X_ST_2
-                m_vec = np.sum(M, axis=0)
-                V_TT_diag = 1.0 / np.where(np.abs(m_vec) > 1e-16, m_vec, 1e-16)
+                # ── Primary path: integrate contracted dynamics via RK4 ───
+                # D is non-stiff by RCMC construction (all fast modes removed),
+                # so classical explicit RK4 is appropriate and efficient here.
+                # _solve_ode_rk4 returns a reliability flag: False means the
+                # required step count exceeded _MAX_STEPS, i.e. D was still
+                # effectively stiff (isolated node, strongly irreversible edge).
+                q_T, rk4_reliable = self._solve_ode_rk4(
+                    D, p_T_init, self.reaction_time_s
+                )
 
-                q_T = V_TT_diag * (p_T - K_TS @ X_pS)
-                q_S = - X_ST @ q_T
+                if not rk4_reliable:
+                    # ── Fallback: quasi-steady-state algebraic approximation ─
+                    # Used only when RK4 would need more than _MAX_STEPS steps.
+                    # QSS solves the adiabatic-elimination equations directly
+                    # and is step-count-independent, making it robust for stiff
+                    # residual dynamics that RCMC failed to fully remove.
+                    logger.warning(
+                        "RK4 fallback to QSS for pop_step=%d "
+                        "(|T|=%d, |S|=%d, t=%.3e s).",
+                        self._pop_count, len(T), len(S), self.reaction_time_s,
+                    )
+                    X_pS   = lu_solve((lu, piv), p_S)
+                    X_ST_2 = lu_solve((lu, piv), X_ST)
+                    M = np.eye(len(T)) + K_TS @ X_ST_2
+                    m_vec = np.sum(M, axis=0)
+                    V_TT_diag = 1.0 / np.where(
+                        np.abs(m_vec) > 1e-16, m_vec, 1e-16
+                    )
+                    q_T = V_TT_diag * (p_T - K_TS @ X_pS)
+
+                # ── Back-project S populations via quasi-steady-state ─────
+                # Under the adiabatic-elimination assumption that underpins D:
+                #   K_SS * q_S + K_ST * q_T = 0  =>  q_S = -K_SS^{-1} K_ST q_T
+                # X_ST = K_SS^{-1} K_ST was computed above and is reused here.
+                q_S = -(X_ST @ q_T)
 
                 # Guarantee non-negativity and normalize
                 q_T = np.maximum(q_T, 0.0)
@@ -745,7 +882,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"\n{'Node':<{col_w}}  {'Population':>18}  {'Rank':>6}")
     print(f"{'─'*col_w}  {'─'*18}  {'─'*6}")
     for rank, task in enumerate(all_tasks, start=1):
-        marker = "  ◀ highest priority" if rank == 1 else ""
+        marker = "  <- highest priority" if rank == 1 else ""
         print(
             f"EQ{task.node_id:<{col_w-2}}  {task.priority:18.8e}  {rank:6d}{marker}"
         )
