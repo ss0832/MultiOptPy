@@ -2278,21 +2278,19 @@ class ReactionNetworkMapper:
         # Re-validate at run() entry in case base_config was modified after __init__
         self._validate_mapper_settings(self.base_config)
 
-        if self.resume and os.path.isfile(self.graph_json_path):
-            self.graph.load(self.graph_json_path)
-            self._iteration = self.graph.last_iteration
-            self._requeue_all_nodes()
-        else:
-            self._register_seed_structure()
-
-        # Copy config snapshot after directory creation (handled in __init__)
-        self._save_config_snapshot()
-
         history_log  = os.path.join(self.output_dir, "exploration_history.log")
         priority_log = os.path.join(self.output_dir, "queue_priority.log")
 
-        # try/finally guarantees explored_log is flushed and closed
         try:
+            if self.resume and os.path.isfile(self.graph_json_path):
+                self.graph.load(self.graph_json_path)
+                self._iteration = self.graph.last_iteration
+                self._requeue_all_nodes()
+            else:
+                self._register_seed_structure()  
+
+            self._save_config_snapshot()       
+
             if self.n_parallel > 1:
                 self.queue.refresh_priorities(self.graph.reference_energy())
                 exhausted = self._run_parallel_rolling(history_log, priority_log)
@@ -2302,7 +2300,8 @@ class ReactionNetworkMapper:
                 self._run_sequential(history_log, priority_log)
         finally:
             self.graph.save(self.graph_json_path)
-            self.explored_log.close()
+            self.explored_log.close() 
+            
 
     def _run_sequential(self, history_log: str, priority_log: str) -> None:
         """Sequential execution loop (n_parallel == 1).
@@ -2325,8 +2324,7 @@ class ReactionNetworkMapper:
         still runs in a freshly spawned child process, so os.chdir() inside
         _autots_worker cannot bleed across iterations.
         """
-        from concurrent.futures import BrokenProcessPool
-    
+        
         def _make_executor() -> ProcessPoolExecutor:
             return ProcessPoolExecutor(
                 max_workers=1,
