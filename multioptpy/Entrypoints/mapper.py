@@ -498,7 +498,6 @@ def run_mapper():
             max_pairs=m["max_pairs"],
             dist_lower_ang=m["dist_lower_ang"],
             dist_upper_ang=m["dist_upper_ang"],
-            rng_seed=m["rng_seed"],
             active_atoms=m["active_atoms"],
             include_negative_gamma=m["include_negative_gamma"],
         )
