@@ -1209,9 +1209,8 @@ class PerturbationGenerator:
         sub_symbols = [symbols[i] for i in atom_indices]
         m = len(atom_indices)
 
-        dmat  = distance_matrix(sub_coords)
         ii, jj = np.triu_indices(m, k=1)
-        dists  = dmat[ii, jj]
+        dists  = pdist(sub_coords)
 
         # ── Distance window filter ────────────────────────────────────────
         dist_mask = (dists >= self.dist_lower_ang) & (dists <= self.dist_upper_ang)
@@ -2300,92 +2299,119 @@ class ReactionNetworkMapper:
 
     def _run_sequential(self, history_log: str, priority_log: str) -> None:
         """Sequential execution loop (n_parallel == 1).
-
+    
         Extracted from run() so that the parallel and sequential paths are
         symmetric and independently testable.  Runs until one of:
-
+    
         * queue exhausted (all pairs explored),
         * ``max_iterations`` reached, or
         * ``stop.txt`` sentinel file detected.
+    
+        Executor lifetime
+        -----------------
+        A single ProcessPoolExecutor(max_workers=1, max_tasks_per_child=1) is
+        created here before the loop and torn down in the finally clause.
+        Previously _run_autots created and destroyed an executor on every
+        iteration, incurring one full spawn/join cycle per AutoTS call.
+        Hoisting the executor out of the loop removes that overhead while
+        preserving the CWD isolation guarantee: max_tasks_per_child=1 ensures
+        that each task still runs in a freshly spawned child process, so
+        os.chdir() inside _autots_worker cannot bleed across iterations.
         """
-        while True:
-            # ── stop.txt sentinel file ────────────────────────────────────
-            if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
-                logger.info("stop.txt detected in output_dir. Stopping.")
-                break
-
-            # ── Iteration limit ───────────────────────────────────────────
-            if self.max_iterations > 0 and self._iteration >= self.max_iterations:
-                logger.info("Reached max_iterations (%d). Stopping.", self.max_iterations)
-                break
-
-            # ── Re-weight queue after a new lowest-energy node is found ───
-            self.queue.refresh_priorities(self.graph.reference_energy())
-            task = self.queue.pop()
-
-            if task is not None:
-                # Parse the AFIR key once for both the skip check and record()
-                gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
-
-                # Avoid duplicates when the queue was rebuilt on resume but
-                # explored_pairs log retains historical records
-                if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
-                    logger.debug(
-                        "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
-                        task.node_id, atom_i, atom_j, gamma_sign,
-                    )
-                    self.queue.release((task.node_id, tuple(task.afir_params)))
-                    continue
-
-            else:
-                # Queue is empty: deterministically rescan all nodes for
-                # unexplored pairs
-                logger.info("Queue empty; re-scanning all nodes for unexplored pairs.")
-                for node in self.graph.all_nodes():
-                    self._enqueue_perturbations(node, force_add=True)
-                if len(self.queue) == 0:
-                    logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
+        # ADDED: create the executor once for the entire sequential run.
+        # max_tasks_per_child=1 keeps per-task process isolation (os.chdir safety).
+        executor = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=self._mp_ctx,
+            max_tasks_per_child=1,
+        )
+        try:  # ADDED: wrapping try/finally to guarantee executor.shutdown()
+            while True:
+                # ── stop.txt sentinel file ────────────────────────────────────
+                if os.path.isfile(os.path.join(self.output_dir, "stop.txt")):
+                    logger.info("stop.txt detected in output_dir. Stopping.")
                     break
-                continue
-
-            # ── Task execution ────────────────────────────────────────────
-            self._iteration += 1
-            self.graph.last_iteration = self._iteration
-            self._append_history(history_log, self._iteration, task)
-
-            run_dir = self._make_run_dir(task)
-            try:
-                profile_dirs = self._run_autots(task, run_dir)
-            except Exception as exc:
-                logger.error("AutoTS failed for run %s: %s", run_dir, exc)
-                # Do not call explored_log.record() on failure.
-                # _in_flight (set by pop()) prevents duplicates within the
-                # current run. Omitting record() allows transient failures
-                # (OOM, segfault, etc.) to be retried on resume.
+    
+                # ── Iteration limit ───────────────────────────────────────────
+                if self.max_iterations > 0 and self._iteration >= self.max_iterations:
+                    logger.info("Reached max_iterations (%d). Stopping.", self.max_iterations)
+                    break
+    
+                # ── Re-weight queue after a new lowest-energy node is found ───
+                self.queue.refresh_priorities(self.graph.reference_energy())
+                task = self.queue.pop()
+    
+                if task is not None:
+                    # Parse the AFIR key once for both the skip check and record()
+                    gamma_sign, atom_i, atom_j = self._parse_afir_task_key(task)
+    
+                    # Avoid duplicates when the queue was rebuilt on resume but
+                    # explored_pairs log retains historical records
+                    if self.explored_log.has(task.node_id, atom_i, atom_j, gamma_sign):
+                        logger.debug(
+                            "Skipping queued task (EQ%06d, %d-%d, %s): already explored.",
+                            task.node_id, atom_i, atom_j, gamma_sign,
+                        )
+                        self.queue.release((task.node_id, tuple(task.afir_params)))
+                        continue
+    
+                else:
+                    # Queue is empty: deterministically rescan all nodes for
+                    # unexplored pairs
+                    logger.info("Queue empty; re-scanning all nodes for unexplored pairs.")
+                    for node in self.graph.all_nodes():
+                        self._enqueue_perturbations(node, force_add=True)
+                    if len(self.queue) == 0:
+                        logger.info("All candidate (EQ, pair) combinations exhausted. Stopping.")
+                        break
+                    continue
+    
+                # ── Task execution ────────────────────────────────────────────
+                self._iteration += 1
+                self.graph.last_iteration = self._iteration
+                self._append_history(history_log, self._iteration, task)
+    
+                run_dir = self._make_run_dir(task)
+                try:
+                    profile_dirs = self._run_autots(task, run_dir, executor)  # CHANGED: pass executor
+                except Exception as exc:
+                    logger.error("AutoTS failed for run %s: %s", run_dir, exc)
+                    # Do not call explored_log.record() on failure.
+                    # _in_flight (set by pop()) prevents duplicates within the
+                    # current run. Omitting record() allows transient failures
+                    # (OOM, segfault, etc.) to be retried on resume.
+                    self.queue.release((task.node_id, tuple(task.afir_params)))
+                    self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
+                    continue
+    
+                # Persist the exploration record only after confirming success
+                self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
+                # Call release() after record() so that is_submitted() returns
+                # True throughout the entire [pop() → record() → release()] window
                 self.queue.release((task.node_id, tuple(task.afir_params)))
-                self._finalize_iteration(run_dir, task, "FAILED", [], priority_log)
-                continue
-
-            # Persist the exploration record only after confirming success
-            self.explored_log.record(task.node_id, atom_i, atom_j, gamma_sign)
-            # Call release() after record() so that is_submitted() returns
-            # True throughout the entire [pop() → record() → release()] window
-            self.queue.release((task.node_id, tuple(task.afir_params)))
-
-            logger.info(
-                "Iter %06d: _run_autots returned %d profile director%s.",
-                self._iteration, len(profile_dirs),
-                "y" if len(profile_dirs) == 1 else "ies",
-            )
-            for pdir in profile_dirs:
-                self._process_profile(pdir, run_dir)
-
-            # Notify queue of updated graph (required by RCMCQueue)
-            if hasattr(self.queue, "set_graph"):
-                self.queue.set_graph(self.graph)
-
-            self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
-
+    
+                logger.info(
+                    "Iter %06d: _run_autots returned %d profile director%s.",
+                    self._iteration, len(profile_dirs),
+                    "y" if len(profile_dirs) == 1 else "ies",
+                )
+                for pdir in profile_dirs:
+                    self._process_profile(pdir, run_dir)
+    
+                # Notify queue of updated graph (required by RCMCQueue)
+                if hasattr(self.queue, "set_graph"):
+                    self.queue.set_graph(self.graph)
+    
+                self._finalize_iteration(run_dir, task, "DONE", profile_dirs, priority_log)
+    
+        finally:
+            # ADDED: shut down the shared executor once the loop exits for any reason
+            # (exhausted, max_iterations, stop.txt, or unhandled exception).
+            # wait=True performs a clean join on any still-running worker, which is
+            # always safe here because the loop only reaches finally after the
+            # current task has either completed or been force-killed in _run_autots.
+            executor.shutdown(wait=True)
+        
     def _append_history(
         self,
         path: str,
@@ -3013,26 +3039,31 @@ class ReactionNetworkMapper:
         config["run_step4"] = True
         return config
 
-    def _run_autots(self, task: ExplorationTask, run_dir: str) -> list[str]:
+    def _run_autots(
+        self,
+        task: ExplorationTask,
+        run_dir: str,
+        executor: ProcessPoolExecutor,  # ADDED: caller-owned executor passed in
+    ) -> list[str]:
         """Run AutoTSWorkflow in an isolated spawned subprocess.
-
-        Uses ProcessPoolExecutor(max_workers=1, max_tasks_per_child=1), the
-        same mechanism as _run_batch_parallel, so that crash detection,
-        timeout handling, and CWD isolation are identical between the
-        sequential and parallel paths.
-
+    
+        The executor is owned and managed by the caller (_run_sequential).
+        This method only submits one future and waits for its result, so the
+        executor can be reused across iterations without being recreated each time.
+    
         Crash detection:
             ProcessPoolExecutor automatically captures any exception raised
             inside _autots_worker and re-raises it via future.result(), so no
             manual polling loop or Queue is required.
-
+    
         Timeout:
             future.result(timeout=worker_timeout_s) raises concurrent.futures.
             TimeoutError when the limit is exceeded.  The handler cancels
-            pending work, force-kills the live worker via executor._processes
-            (same approach as _run_batch_parallel), then shuts the executor
-            down with wait=False to avoid blocking on a hung binary.
-
+            pending work and force-kills the live worker via executor._processes
+            (same approach as _run_parallel_rolling), then raises RuntimeError.
+            Executor shutdown is left to the caller so that a single timeout does
+            not tear down the shared executor prematurely.
+    
         Return value:
             _autots_worker returns a sorted list of Step-4 profile directories;
             future.result() delivers that list directly to the caller.
@@ -3044,7 +3075,7 @@ class ReactionNetworkMapper:
             )
         workspace = os.path.join(run_dir, "autots_workspace")
         config    = self._make_autots_config(task, workspace)
-
+    
         # Written before the workflow starts so it survives a crash.
         try:
             with open(
@@ -3053,44 +3084,40 @@ class ReactionNetworkMapper:
                 json.dump(config, fh, indent=2, default=str)
         except Exception as exc:
             logger.warning("_run_autots: could not write config_used.json: %s", exc)
-
-        # max_tasks_per_child=1 guarantees a fresh process for this task,
-        # isolating os.chdir() inside _autots_worker from the parent process.
-        executor = ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=self._mp_ctx,
-            max_tasks_per_child=1,
-        )
-        timed_out = False
+    
+        # REMOVED: executor creation block.
+        # ProcessPoolExecutor is now created once in _run_sequential and passed in,
+        # eliminating the per-iteration spawn/join overhead.
+        # max_tasks_per_child=1 is still set on the shared executor (see
+        # _run_sequential) so each task still runs in a fresh child process,
+        # keeping os.chdir() isolation intact.
+    
+        future = executor.submit(_autots_worker, config, run_dir, workspace)
         try:
-            future = executor.submit(_autots_worker, config, run_dir, workspace)
-            try:
-                return future.result(timeout=self.worker_timeout_s)
-            except (TimeoutError, FuturesTimeoutError):
-                timed_out = True
-                logger.error(
-                    "_run_autots: worker exceeded hard timeout of %ds — "
-                    "force-killing worker process.",
-                    self.worker_timeout_s,
-                )
-                future.cancel()
-                # No public API exposes individual worker handles; use the
-                # private _processes dict (same pattern as _run_batch_parallel).
-                worker_procs = getattr(executor, "_processes", {})
-                for pid, proc in list(worker_procs.items()):
-                    if proc.is_alive():
-                        logger.warning(
-                            "_run_autots: force-killing worker pid=%d", pid
-                        )
-                        proc.kill()
-                raise RuntimeError(
-                    f"_run_autots: worker exceeded hard timeout of "
-                    f"{self.worker_timeout_s}s."
-                )
-        finally:
-            # wait=False after a force-kill avoids blocking on a hung binary;
-            # wait=True in the normal path ensures a clean join.
-            executor.shutdown(wait=not timed_out, cancel_futures=timed_out)
+            return future.result(timeout=self.worker_timeout_s)
+        except (TimeoutError, FuturesTimeoutError):  
+            logger.error(
+                "_run_autots: worker exceeded hard timeout of %ds — "
+                "force-killing worker process.",
+                self.worker_timeout_s,
+            )
+            future.cancel()
+            # No public API exposes individual worker handles; use the
+            # private _processes dict (same pattern as _run_parallel_rolling).
+            worker_procs = getattr(executor, "_processes", {})
+            for pid, proc in list(worker_procs.items()):
+                if proc.is_alive():
+                    logger.warning(
+                        "_run_autots: force-killing worker pid=%d", pid
+                    )
+                    proc.kill()
+            raise RuntimeError(
+                f"_run_autots: worker exceeded hard timeout of "
+                f"{self.worker_timeout_s}s."
+            )
+        # REMOVED: finally block with executor.shutdown().
+        # Shutdown is now the caller's responsibility (see _run_sequential finally clause).
+    
     # ------------------------------------------------------------------ #
     #  Energy back-fill                                                    #
     # ------------------------------------------------------------------ #
@@ -3420,6 +3447,7 @@ class ReactionNetworkMapper:
                 "graph has only 1 node — exclusion suppressed.",
                 node.node_id,
             )
+            force_add = True 
         elif node.node_id in self.excluded_node_ids: 
             logger.debug(
                 "_enqueue_perturbations: EQ%d is in excluded_node_ids and has "
