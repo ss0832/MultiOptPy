@@ -831,8 +831,8 @@ class ExplorationQueue(ABC):
 
         task.priority = self.compute_priority(task)
 
-        self._task_counter += 1
         task_id = self._task_counter
+        self._task_counter += 1
         self._tasks[task_id] = task
 
         heapq.heappush(self._heap, (-task.priority, self._push_counter, task_id))
@@ -1987,6 +1987,15 @@ class ReactionNetworkMapper:
                     f"from 'mapper_settings'."
                 )
             val = ms[key]
+            # bool is a subclass of int in Python, so isinstance(True, int) is True.
+            # Reject booleans explicitly to prevent silent mis-configuration such as
+            # temperature_K: true (= 1 K) or max_iterations: false (= 0).
+            if isinstance(val, bool):
+                raise ValueError(
+                    f"Config validation failed: 'mapper_settings.{key}' must be "
+                    f"{expected_type} but got bool ({val!r}). "
+                    f"Boolean values are not accepted for numeric fields."
+                )
             if not isinstance(val, expected_type):
                 raise ValueError(
                     f"Config validation failed: 'mapper_settings.{key}' must be "
@@ -2031,7 +2040,8 @@ class ReactionNetworkMapper:
         # ── n_parallel: int >= 1 ──────────────────────────────────────────
         if "n_parallel" in ms:
             np_val = ms["n_parallel"]
-            if not isinstance(np_val, int) or np_val < 1:
+            # bool is a subclass of int — reject it explicitly (same reason as above).
+            if isinstance(np_val, bool) or not isinstance(np_val, int) or np_val < 1:
                 raise ValueError(
                     f"Config validation failed: 'mapper_settings.n_parallel' must be "
                     f"an integer >= 1 (got {np_val!r})."
