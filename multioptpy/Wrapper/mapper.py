@@ -3066,7 +3066,7 @@ class ReactionNetworkMapper:
             future = executor.submit(_autots_worker, config, run_dir, workspace)
             try:
                 return future.result(timeout=self.worker_timeout_s)
-            except (TimeoutError, FuturesTimeoutError)
+            except (TimeoutError, FuturesTimeoutError):
                 timed_out = True
                 logger.error(
                     "_run_autots: worker exceeded hard timeout of %ds — "
