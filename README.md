@@ -407,7 +407,7 @@ If you use MultiOptPy in your research, please cite it as follows:
   month        = dec,
   year         = 2026,
   publisher    = {Zenodo},
-  version      = {v1.21.1},
+  version      = {v1.21.2},
   doi          = {10.5281/zenodo.18974400},
   url          = {https://doi.org/10.5281/zenodo.18974400}
 }
