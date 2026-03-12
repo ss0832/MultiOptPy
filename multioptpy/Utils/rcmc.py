@@ -509,30 +509,66 @@ class RCMCQueue(ExplorationQueue):
             p_T = p[T]
 
             try:
-                # ── Build initial population for T super-states ───────────
-                # Each T super-state collects the probability of every node
-                # absorbed into it during RCMC contraction (the T representative
-                # itself plus any S nodes whose fast dynamics were projected onto
-                # it via Schur-complement elimination).
-                # Summing p[members] is the standard probability-conserving
-                # lumping step and is self-consistent with the quasi-steady-state
-                # assumption used to derive D: within each super-state the fast
-                # internal modes are already eliminated, so aggregating the raw
-                # probability gives the correct effective initial condition for
-                # the contracted dynamics.
-                p_T_init = np.zeros(len(T), dtype=np.float64)
-                for i, t_global in enumerate(T):
-                    members = superstate_members.get(t_global, [t_global])
-                    p_T_init[i] = float(np.sum(p[members]))
-
-                # Normalise: guards against floating-point drift and the rare
-                # edge case where the start node ended up in S rather than T.
-                total_p_T_init = p_T_init.sum()
-                if total_p_T_init > 0.0:
-                    p_T_init /= total_p_T_init
-
-                # ── Factorise K_SS once; reused by both RK4 and QSS paths ─
+                # ── Factorise K_SS once; reused throughout ────────────────
                 lu, piv = lu_factor(K_SS_buf)
+
+                # ── Build initial population for T super-states ───────────
+                # Correct approach depends on whether the start node ended up
+                # in S or T after RCMC contraction:
+                #
+                # Case A — start_node ∈ T:
+                #   The initial condition is a delta function on the T-local
+                #   index of the start node.  No probability should be spread
+                #   to other T super-states via superstate_members, because the
+                #   S-mode QSS equilibration acts on a timescale faster than the
+                #   current RCMC epoch; the start node itself has not yet reached
+                #   that fast equilibrium and should remain at p=1.
+                #
+                # Case B — start_node ∈ S:
+                #   The start node was eliminated as a fast mode.  Its initial
+                #   probability (p=1) must be projected onto the T super-states
+                #   via the QSS back-projection:
+                #       p_T_init ≈ −K_TS · K_SS⁻¹ · e_{start}
+                #   which is the same adiabatic-elimination step used later to
+                #   recover q_S from q_T, applied here in reverse to the initial
+                #   condition.  
+                #   (q_T = (I − Π_T⁻¹ K_TS K_SS⁻¹ π_S)⁻¹ (p_T − K_TS K_SS⁻¹ p_S)
+                #   for the case p_T = 0, p_S = e_start, without the Boltzmann
+                #   correction Π since π is not available here.)
+                #
+                # The previous implementation used superstate_members to lump
+                # p[members] into each T super-state.  This is incorrect when
+                # the start node is absorbed (via Schur coupling) into a product-
+                # side T super-state: it assigns all initial probability to the
+                # wrong cluster, producing grossly incorrect populations.
+                start_global_idx = node_to_idx.get(self.start_node_id)
+                if start_global_idx in T:
+                    # Case A: delta function at start node's T-local position
+                    p_T_init = np.zeros(len(T), dtype=np.float64)
+                    p_T_init[T.index(start_global_idx)] = 1.0
+                else:
+                    # Case B: QSS back-projection from S
+                    start_S_pos = S.index(start_global_idx) if start_global_idx in S else None
+                    if start_S_pos is not None:
+                        e_start = np.zeros(len(S), dtype=np.float64)
+                        e_start[start_S_pos] = 1.0
+                        x_start = lu_solve((lu, piv), e_start)   # K_SS⁻¹ · e_start
+                        p_T_init = -(K_TS @ x_start)
+                        p_T_init = np.maximum(p_T_init, 0.0)
+                        total = p_T_init.sum()
+                        if total > 0.0:
+                            p_T_init /= total
+                        else:
+                            # Fallback: uniform over T (should not normally occur)
+                            logger.warning(
+                                "RCMC p_T_init back-projection gave all-zero vector "
+                                "(start_node=EQ%d in S); using uniform T distribution.",
+                                self.start_node_id,
+                            )
+                            p_T_init = np.ones(len(T), dtype=np.float64) / len(T)
+                    else:
+                        # start_node not found in either S or T (disconnected?)
+                        p_T_init = np.ones(len(T), dtype=np.float64) / len(T)
                 X_ST = lu_solve((lu, piv), K_ST)
 
                 # ── Primary path: integrate contracted dynamics via RK4 ───
@@ -556,14 +592,15 @@ class RCMCQueue(ExplorationQueue):
                         "(|T|=%d, |S|=%d, t=%.3e s).",
                         self._pop_count, len(T), len(S), self.reaction_time_s,
                     )
-                    X_pS   = lu_solve((lu, piv), p_S)
-                    X_ST_2 = lu_solve((lu, piv), X_ST)
-                    M = np.eye(len(T)) + K_TS @ X_ST_2
-                    m_vec = np.sum(M, axis=0)
+                    # Type-A reference (without Boltzmann π):
+                    #   q_T = diag(1 - K_TS K_SS⁻¹ 1_S)⁻¹ · (p_T - K_TS K_SS⁻¹ p_S)
+                    X_pS  = lu_solve((lu, piv), p_S)          # K_SS⁻¹ p_S
+                    x_ones = lu_solve((lu, piv), np.ones(len(S)))  # K_SS⁻¹ 1_S
+                    v = 1.0 - K_TS @ x_ones                   # 1 - K_TS K_SS⁻¹ 1_S  (|T|,)
                     V_TT_diag = 1.0 / np.where(
-                        np.abs(m_vec) > 1e-16, m_vec, 1e-16
+                        np.abs(v) > 1e-16, v, 1e-16
                     )
-                    q_T = V_TT_diag * (p_T - K_TS @ X_pS)
+                    q_T = V_TT_diag * (p_T_init - K_TS @ X_pS)
 
                 # ── Back-project S populations via quasi-steady-state ─────
                 # Under the adiabatic-elimination assumption that underpins D:
