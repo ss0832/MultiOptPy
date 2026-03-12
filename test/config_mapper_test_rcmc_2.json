@@ -10,7 +10,7 @@
 		"max_pairs"        : 9999,
         "dist_upper_ang"   : 7.0,    
         "output_dir"       : "mapper_output_rcmc_2",
-        "rng_seed"         : 36,
+        "rng_seed"         : 42,
 		"active_atoms"     : [1, 4, 5, 7, 10, 12],
 		"use_rcmc"         : true,
 		"rcmc_temperature_K"   : 273.15,
